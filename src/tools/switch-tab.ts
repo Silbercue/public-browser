@@ -4,6 +4,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import type { TabStateCache } from "../cache/tab-state-cache.js";
 import { settle } from "../cdp/settle.js";
+import { DEVICE_METRICS_OVERRIDE } from "../cdp/emulation.js";
 
 export const switchTabSchema = z.object({
   action: z
@@ -75,12 +76,7 @@ async function activateSession(
   await cdpClient.send("Page.enable", {}, newSessionId);
   await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, newSessionId);
   await cdpClient.send("Accessibility.enable", {}, newSessionId);
-  await cdpClient.send("Emulation.setDeviceMetricsOverride", {
-    width: 1280,
-    height: 800,
-    deviceScaleFactor: 1,
-    mobile: false,
-  }, newSessionId);
+  await cdpClient.send("Emulation.setDeviceMetricsOverride", DEVICE_METRICS_OVERRIDE, newSessionId);
 
   // 3. Re-attach cache listeners to new session
   tabStateCache.detachFromClient();

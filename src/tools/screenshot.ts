@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import type { ToolResponse } from "../types.js";
+import { EMULATED_WIDTH, EMULATED_HEIGHT } from "../cdp/emulation.js";
 
 export const screenshotSchema = z.object({
   full_page: z
@@ -12,15 +13,13 @@ export const screenshotSchema = z.object({
 
 export type ScreenshotParams = z.infer<typeof screenshotSchema>;
 
-const MAX_BYTES = 100 * 1024;
 const MAX_WIDTH = 800;
-const EMULATED_WIDTH = 1280;
-const EMULATED_HEIGHT = 800;
-const QUALITY_STEPS = [80, 60, 40];
+const QUALITY = 80;
+const RETRY_QUALITY = 50;
+const MAX_BYTES = 100_000; // 100 KB size guard (promised in tool description)
 
-interface ScrollMetrics {
-  scrollWidth: number;
-  scrollHeight: number;
+interface LayoutMetrics {
+  cssContentSize: { width: number; height: number };
 }
 
 export async function screenshotHandler(
@@ -33,6 +32,8 @@ export async function screenshotHandler(
   try {
     const captureParams: Record<string, unknown> = {
       format: "webp",
+      quality: QUALITY,
+      optimizeForSpeed: true,
       clip: {
         x: 0,
         y: 0,
@@ -43,56 +44,62 @@ export async function screenshotHandler(
     };
 
     if (params.full_page) {
-      const scrollResult = await cdpClient.send<{ result: { value: string } }>(
-        "Runtime.evaluate",
-        {
-          expression:
-            "JSON.stringify({ scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight })",
-          returnByValue: true,
-        },
+      const metrics = await cdpClient.send<LayoutMetrics>(
+        "Page.getLayoutMetrics",
+        {},
         sessionId,
       );
-      const scroll: ScrollMetrics = JSON.parse(scrollResult.result.value);
-      captureParams.clip = {
-        x: 0,
-        y: 0,
-        width: scroll.scrollWidth,
-        height: scroll.scrollHeight,
-        scale: MAX_WIDTH / scroll.scrollWidth,
-      };
-      captureParams.captureBeyondViewport = true;
+      const { width, height } = metrics.cssContentSize;
+
+      // H3: Guard against zero/negative dimensions — fall back to viewport
+      if (width <= 0 || height <= 0) {
+        captureParams.clip = {
+          x: 0,
+          y: 0,
+          width: EMULATED_WIDTH,
+          height: EMULATED_HEIGHT,
+          scale: MAX_WIDTH / EMULATED_WIDTH,
+        };
+      } else {
+        captureParams.clip = {
+          x: 0,
+          y: 0,
+          width,
+          height,
+          scale: MAX_WIDTH / width,
+        };
+        captureParams.captureBeyondViewport = true;
+      }
     }
 
-    // Capture with quality fallback
-    let lastData = "";
-    let lastBytes = 0;
+    // Single CDP call — no quality fallback loop (NFR25: <20ms target)
+    let result = await cdpClient.send<{ data: string }>(
+      "Page.captureScreenshot",
+      captureParams,
+      sessionId,
+    );
 
-    for (const quality of QUALITY_STEPS) {
-      const result = await cdpClient.send<{ data: string }>(
+    let bytes = Math.ceil(result.data.length * 3 / 4);
+
+    // C1: Size guard — retry once with lower quality if >100KB
+    if (bytes > MAX_BYTES) {
+      captureParams.quality = RETRY_QUALITY;
+      result = await cdpClient.send<{ data: string }>(
         "Page.captureScreenshot",
-        {
-          ...captureParams,
-          quality,
-        },
+        captureParams,
         sessionId,
       );
-
-      lastData = result.data;
-      lastBytes = Math.ceil(lastData.length * 3 / 4);
-
-      if (lastBytes <= MAX_BYTES) {
-        break;
-      }
+      bytes = Math.ceil(result.data.length * 3 / 4);
     }
 
     const elapsedMs = Math.round(performance.now() - start);
 
     return {
-      content: [{ type: "image", data: lastData, mimeType: "image/webp" }],
+      content: [{ type: "image", data: result.data, mimeType: "image/webp" }],
       _meta: {
         elapsedMs,
         method: "screenshot",
-        bytes: lastBytes,
+        bytes,
       },
     };
   } catch (err) {

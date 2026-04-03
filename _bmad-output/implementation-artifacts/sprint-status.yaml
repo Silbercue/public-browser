@@ -1,0 +1,105 @@
+# generated: 2026-04-03
+# last_updated: 2026-04-03
+# project: SilbercueChrome
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: {project-root}/_bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-04-03
+last_updated: 2026-04-03  # Story 5b-1 done
+project: SilbercueChrome
+project_key: NOKEY
+tracking_system: file-system
+story_location: "{project-root}/_bmad-output/implementation-artifacts"
+
+development_status:
+  # Epic 1: Project Foundation & JavaScript Execution
+  epic-1: done
+  1-1-project-setup-build-tooling: done
+  1-2-transport-layer-cdp-client: done
+  1-3-chrome-auto-launch-connection-strategy: done
+  1-4-mcp-server-toolregistry-evaluate: done
+  epic-1-retrospective: optional
+
+  # Epic 2: Page Navigation & Content Reading
+  epic-2: done
+  2-1-navigate-tool-settle-logik: done
+  2-2-a11y-tree-processor-read-page-tool: done
+  2-3-screenshot-tool: done
+  2-4-wait-for-tool: done
+  epic-2-retrospective: optional
+
+  # Epic 3: Element Interaction
+  epic-3: done
+  3-1-click-tool: done
+  3-2-type-tool: done
+  epic-3-retrospective: optional
+
+  # Epic 4: Tab Management & VirtualDesk
+  epic-4: done
+  4-1-tabstatecache-tab-status-tool: done
+  4-2-switch-tab-tool: done
+  4-3-virtual-desk-tool: done
+  epic-4-retrospective: optional
+
+  # Epic 5: Batch Execution & Connection Resilience
+  epic-5: done
+  5-1-run-plan-tool-planexecutor: done
+  5-2-auto-reconnect-state-recovery: done
+  5-3-oopif-support: done
+  epic-5-retrospective: optional
+
+  # Epic 5b: Visual Intelligence (Post-MVP)
+  # Basiert auf Deep Research: browser-use, D2Snap, Stagehand, Set-of-Mark
+  # Story 5b.1 teilweise implementiert (commit e4d8805: Retina-Fix, Click-Settle, Screenshot)
+  epic-5b: in-progress
+  5b-1-retina-fix-screenshot-optimierung: done  # NFR25 + Emulation-Konstanten + Size-Guard + Div-by-Zero Guard
+  5b-2-domsnapshot-tool: backlog
+  5b-3-read-page-visual-enrichment: backlog
+  5b-4-set-of-mark-som: backlog
+  5b-5-dom-downsampling-token-budget: backlog
+  epic-5b-retrospective: optional
+
+  # Epic 6: Extended Workflow Capabilities (Phase 2)
+  # Detaillierte Stories werden nach Epic 5b erstellt
+  epic-6: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Observability & Session Intelligence (Phase 2)
+  # Inkl. Selector-Caching (FR62, Stagehand-inspiriert)
+  epic-7: backlog
+  7-x-selector-caching-dom-fingerprinting: backlog
+  epic-7-retrospective: optional
+
+  # Epic 8: Operator Architecture & Human Touch (Phase 3)
+  epic-8: backlog
+  epic-8-retrospective: optional
