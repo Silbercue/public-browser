@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { switchTabHandler, _resetSwitchLock } from "./switch-tab.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
+import { DEVICE_METRICS_OVERRIDE } from "../cdp/emulation.js";
 
 type EventCallback = (params: unknown, sessionId?: string) => void;
 
@@ -227,12 +228,7 @@ describe("switchTabHandler — action: open", () => {
       "session-new",
     );
     expect(cdpClient.send).toHaveBeenCalledWith("Accessibility.enable", {}, "session-new");
-    expect(cdpClient.send).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", {
-      width: 1280,
-      height: 800,
-      deviceScaleFactor: 1,
-      mobile: false,
-    }, "session-new");
+    expect(cdpClient.send).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", DEVICE_METRICS_OVERRIDE, "session-new");
   });
 });
 
