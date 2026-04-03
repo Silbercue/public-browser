@@ -12,6 +12,7 @@ export const readPageSchema = z.object({
     .optional()
     .default("interactive")
     .describe("Filter mode: interactive (default), all, landmark, or visual (adds bounds/click/visibility)"),
+  max_tokens: z.number().int().min(500).optional().describe("Token budget — page content is automatically downsampled to fit. Omit for full output."),
 });
 
 export type ReadPageParams = z.infer<typeof readPageSchema>;
@@ -30,6 +31,7 @@ export async function readPageHandler(
       depth: params.depth,
       ref: params.ref,
       filter: params.filter,
+      max_tokens: params.max_tokens,
     }, sessionManager);
 
     const elapsedMs = Math.round(performance.now() - start);
@@ -42,6 +44,11 @@ export async function readPageHandler(
         refCount: result.refCount,
         depth: result.depth,
         ...(result.hasVisualData !== undefined ? { hasVisualData: result.hasVisualData } : {}),
+        ...(result.downsampled ? {
+          downsampled: true,
+          originalTokens: result.originalTokens,
+          downsampleLevel: result.downsampleLevel,
+        } : {}),
       },
     };
   } catch (err) {

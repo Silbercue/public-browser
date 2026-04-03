@@ -112,6 +112,7 @@ export class ToolRegistry {
         depth: readPageSchema.shape.depth,
         ref: readPageSchema.shape.ref,
         filter: readPageSchema.shape.filter,
+        max_tokens: readPageSchema.shape.max_tokens,
       },
       async (params) => {
         return readPageHandler(params as unknown as ReadPageParams, this.cdpClient, this.sessionId, this._sessionManager);

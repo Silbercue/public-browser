@@ -36,6 +36,7 @@ export interface TreeOptions {
   depth?: number;
   ref?: string;
   filter?: "interactive" | "all" | "landmark" | "visual";
+  max_tokens?: number;
 }
 
 export interface TreeResult {
@@ -43,6 +44,9 @@ export interface TreeResult {
   refCount: number;
   depth: number;
   hasVisualData?: boolean;
+  downsampled?: boolean;
+  originalTokens?: number;
+  downsampleLevel?: number;
 }
 
 // --- Visual Enrichment Types ---
@@ -92,6 +96,38 @@ const INTERACTIVE_ROLES = new Set([
   "option",
   "treeitem",
 ]);
+
+// --- Element Classification for Downsampling (D2Snap) ---
+
+type ElementClass = "interactive" | "content" | "container";
+
+const CONTAINER_ROLES = new Set([
+  "generic", "group", "region", "list", "listbox",
+  "navigation", "complementary", "main", "banner",
+  "contentinfo", "form", "search", "toolbar", "tablist",
+  "menu", "menubar", "tree", "grid", "table",
+  "rowgroup", "row", "treegrid",
+]);
+
+const CONTENT_ROLES = new Set([
+  "heading", "paragraph", "text", "StaticText", "img",
+  "figure", "blockquote", "code", "listitem", "cell",
+  "columnheader", "rowheader", "caption", "definition",
+  "term", "note", "math", "status", "log", "marquee",
+  "timer", "alert",
+]);
+
+function classifyElement(role: string): ElementClass {
+  if (INTERACTIVE_ROLES.has(role)) return "interactive";
+  if (CONTENT_ROLES.has(role)) return "content";
+  return "container"; // Default: everything else is container
+}
+
+/** Conservative token estimation: ~4 chars per token for structured A11y output */
+function estimateTokens(text: string): number {
+  if (text.length === 0) return 0;
+  return Math.ceil(text.length / 4);
+}
 
 const LANDMARK_ROLES = new Set([
   "banner",
@@ -458,7 +494,7 @@ export class A11yTreeProcessor {
       for (const node of allNodes) {
         combinedNodeMap.set(node.nodeId, node);
       }
-      return this.getSubtree(options.ref, combinedNodeMap, allNodes, filter, depth, visualMap, visualDataFailed);
+      return this.getSubtree(options.ref, combinedNodeMap, allNodes, filter, depth, visualMap, visualDataFailed, options.max_tokens);
     }
 
     // Get page title from root node
@@ -486,12 +522,496 @@ export class A11yTreeProcessor {
     const text = this.formatHeader(pageTitle, refCount, filter, depth)
       + (lines.length > 0 ? "\n\n" + lines.join("\n") : "");
 
+    // Token-Budget Downsampling
+    if (options.max_tokens) {
+      const currentTokens = estimateTokens(text);
+      if (currentTokens > options.max_tokens) {
+        const downsampled = this.downsampleTree(
+          root, nodeMap, filter, options.max_tokens,
+          oopifSections, visualMap,
+        );
+        const dsHeader = this.formatDownsampledHeader(
+          pageTitle, downsampled.refCount, filter, depth,
+          currentTokens, downsampled.level,
+        );
+        // C2: Final budget check — trim body if header+body exceeds budget
+        let dsBody = downsampled.lines.join("\n");
+        const fullText = dsHeader + (dsBody ? "\n\n" + dsBody : "");
+        if (estimateTokens(fullText) > options.max_tokens && dsBody) {
+          const headerTokens = estimateTokens(dsHeader + "\n\n");
+          const bodyBudget = options.max_tokens - headerTokens;
+          const trimmed = this.trimBodyToFit(downsampled.lines, bodyBudget);
+          dsBody = trimmed.join("\n");
+        }
+        const dsText = dsHeader + (dsBody ? "\n\n" + dsBody : "");
+        return {
+          text: dsText,
+          refCount: downsampled.refCount,
+          depth,
+          downsampled: true,
+          originalTokens: currentTokens,
+          downsampleLevel: downsampled.level,
+          ...(filter === "visual" ? { hasVisualData: !visualDataFailed } : {}),
+        };
+      }
+    }
+
     return {
       text,
       refCount,
       depth,
       ...(filter === "visual" ? { hasVisualData: !visualDataFailed } : {}),
     };
+  }
+
+  // --- Downsampling Pipeline (D2Snap) ---
+
+  private downsampleTree(
+    root: AXNode,
+    nodeMap: Map<string, AXNode>,
+    filter: string,
+    maxTokens: number,
+    oopifSections: Array<{ url: string; nodes: AXNode[]; sessionId: string }>,
+    visualMap?: Map<number, VisualInfo>,
+  ): { lines: string[]; refCount: number; level: number } {
+    // Try levels 0-4 sequentially until budget is met
+    for (let level = 0; level <= 4; level++) {
+      const lines: string[] = [];
+      this.renderNodeDownsampled(root, nodeMap, 0, filter, lines, level, visualMap);
+
+      // Append OOPIF sections
+      for (const section of oopifSections) {
+        const oopifNodeMap = new Map<string, AXNode>();
+        for (const node of section.nodes) {
+          oopifNodeMap.set(node.nodeId, node);
+        }
+        lines.push(`--- iframe: ${section.url} ---`);
+        if (section.nodes.length > 0) {
+          this.renderNodeDownsampled(section.nodes[0], oopifNodeMap, 0, filter, lines, level, visualMap);
+        }
+      }
+
+      const refCount = lines.filter((l) => !l.startsWith("--- ")).length;
+      // Estimate tokens including a header estimate (~60 chars)
+      const estimatedTotal = estimateTokens(lines.join("\n")) + 15;
+      if (estimatedTotal <= maxTokens) {
+        return { lines, refCount, level };
+      }
+    }
+
+    // Level 4 still too large → truncate as last resort
+    const lines: string[] = [];
+    this.renderNodeDownsampled(root, nodeMap, 0, filter, lines, 4, visualMap);
+
+    // Append OOPIF sections
+    for (const section of oopifSections) {
+      const oopifNodeMap = new Map<string, AXNode>();
+      for (const node of section.nodes) {
+        oopifNodeMap.set(node.nodeId, node);
+      }
+      lines.push(`--- iframe: ${section.url} ---`);
+      if (section.nodes.length > 0) {
+        this.renderNodeDownsampled(section.nodes[0], oopifNodeMap, 0, filter, lines, 4, visualMap);
+      }
+    }
+
+    return this.truncateToFit(lines, maxTokens);
+  }
+
+  private truncateToFit(
+    lines: string[],
+    maxTokens: number,
+  ): { lines: string[]; refCount: number; level: number } {
+    // C3: Prioritize interactive elements — collect them first, then fill with content
+    const interactiveLines: Array<{ line: string; idx: number }> = [];
+    const contentLines: Array<{ line: string; idx: number }> = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Lines containing ref IDs (e.g. [e42]) are interactive/important elements
+      if (/\[e\d+\]/.test(line)) {
+        // Check if it's an interactive element by looking for interactive role keywords
+        const roleMatch = line.match(/\[e\d+\]\s+(\S+)/);
+        const role = roleMatch ? roleMatch[1] : "";
+        if (INTERACTIVE_ROLES.has(role)) {
+          interactiveLines.push({ line, idx: i });
+        } else {
+          contentLines.push({ line, idx: i });
+        }
+      } else {
+        contentLines.push({ line, idx: i });
+      }
+    }
+
+    // Build result: interactive first, then fill with content
+    const result: string[] = [];
+    let tokensSoFar = 15; // header estimate
+    const addedIndices = new Set<number>();
+
+    // Phase 1: Add all interactive elements (preserve order)
+    for (const { line, idx } of interactiveLines) {
+      const lineTokens = estimateTokens(line + "\n");
+      if (tokensSoFar + lineTokens > maxTokens - 15) break;
+      result.push(line);
+      addedIndices.add(idx);
+      tokensSoFar += lineTokens;
+    }
+
+    // Phase 2: Fill remaining budget with content lines (preserve order)
+    for (const { line, idx } of contentLines) {
+      const lineTokens = estimateTokens(line + "\n");
+      if (tokensSoFar + lineTokens > maxTokens - 15) break;
+      result.push(line);
+      addedIndices.add(idx);
+      tokensSoFar += lineTokens;
+    }
+
+    // Add truncation marker if lines were omitted
+    const omitted = lines.length - addedIndices.size;
+    if (omitted > 0) {
+      result.push(`... (truncated, ${omitted} elements omitted)`);
+    }
+
+    // Re-sort by original index to maintain document order
+    const sortedResult = result
+      .filter((l) => !l.startsWith("..."))
+      .map((l) => {
+        // Find original index
+        const origIdx = lines.indexOf(l);
+        return { line: l, idx: origIdx };
+      })
+      .sort((a, b) => a.idx - b.idx)
+      .map((entry) => entry.line);
+
+    // Append truncation marker at the end
+    if (omitted > 0) {
+      sortedResult.push(`... (truncated, ${omitted} elements omitted)`);
+    }
+
+    const refCount = sortedResult.filter((l) => !l.startsWith("--- ") && !l.startsWith("...")).length;
+    return { lines: sortedResult, refCount, level: 4 };
+  }
+
+  /** C2: Trim body lines from the end (content first) until budget is met */
+  private trimBodyToFit(lines: string[], bodyBudgetTokens: number): string[] {
+    if (bodyBudgetTokens <= 0) return [];
+
+    // Separate interactive and content lines
+    const interactiveIndices = new Set<number>();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const roleMatch = line.match(/\[e\d+\]\s+(\S+)/);
+      const role = roleMatch ? roleMatch[1] : "";
+      if (INTERACTIVE_ROLES.has(role)) {
+        interactiveIndices.add(i);
+      }
+    }
+
+    // Try removing content lines from the end first
+    const result = [...lines];
+    while (estimateTokens(result.join("\n")) > bodyBudgetTokens && result.length > 0) {
+      // Find last non-interactive line to remove
+      let removedContent = false;
+      for (let i = result.length - 1; i >= 0; i--) {
+        const roleMatch = result[i].match(/\[e\d+\]\s+(\S+)/);
+        const role = roleMatch ? roleMatch[1] : "";
+        if (!INTERACTIVE_ROLES.has(role)) {
+          result.splice(i, 1);
+          removedContent = true;
+          break;
+        }
+      }
+      // If only interactive lines remain and still over budget, remove from end
+      if (!removedContent) {
+        result.pop();
+      }
+    }
+    return result;
+  }
+
+  private renderNodeDownsampled(
+    node: AXNode,
+    nodeMap: Map<string, AXNode>,
+    indentLevel: number,
+    filter: string,
+    lines: string[],
+    level: number,
+    visualMap?: Map<number, VisualInfo>,
+  ): void {
+    if (node.ignored) {
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+      return;
+    }
+
+    const role = this.getRole(node);
+    const elementClass = classifyElement(role);
+    const passesFilter = this.passesFilter(node, role, filter);
+
+    if (!passesFilter) {
+      // Not passing filter — skip but process children at same indent
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+      return;
+    }
+
+    if (node.backendDOMNodeId === undefined) {
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+      return;
+    }
+
+    const refNum = this.refMap.get(node.backendDOMNodeId);
+    if (refNum === undefined) {
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+      return;
+    }
+
+    const indent = "  ".repeat(indentLevel);
+
+    if (elementClass === "interactive") {
+      // Interactive: ALWAYS fully preserved
+      let line = this.formatLine(indent, refNum, role, node);
+      if (visualMap) {
+        const vi = visualMap.get(node.backendDOMNodeId);
+        if (vi && vi.bounds.w > 0 && vi.bounds.h > 0) {
+          line += ` [${vi.bounds.x},${vi.bounds.y} ${vi.bounds.w}x${vi.bounds.h}]`;
+          if (vi.isClickable) line += " click";
+          if (vi.isVisible) line += " vis";
+        } else {
+          line += " [hidden]";
+        }
+      }
+      lines.push(line);
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+    } else if (elementClass === "content") {
+      if (level < 4) {
+        // Content at levels 0-3: unchanged
+        let line = this.formatLine(indent, refNum, role, node);
+        if (visualMap) {
+          const vi = visualMap.get(node.backendDOMNodeId);
+          if (vi && vi.bounds.w > 0 && vi.bounds.h > 0) {
+            line += ` [${vi.bounds.x},${vi.bounds.y} ${vi.bounds.w}x${vi.bounds.h}]`;
+            if (vi.isClickable) line += " click";
+            if (vi.isVisible) line += " vis";
+          } else {
+            line += " [hidden]";
+          }
+        }
+        lines.push(line);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+      } else {
+        // Content at level 4: compact Markdown
+        const name = (node.name?.value as string) ?? "";
+        if (role === "heading") {
+          lines.push(`${indent}# ${name} (e${refNum})`);
+        } else if (role === "listitem") {
+          const truncName = name.length > 100 ? name.slice(0, 97) + "..." : name;
+          lines.push(`${indent}- ${truncName} (e${refNum})`);
+        } else {
+          // paragraph, StaticText, img, etc.
+          const truncName = name.length > 100 ? name.slice(0, 97) + "..." : name;
+          if (truncName) {
+            lines.push(`${indent}${truncName} (e${refNum})`);
+          }
+        }
+        // Still render children for content nodes (they may have interactive children)
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+      }
+    } else {
+      // Container
+      if (level === 0) {
+        // Level 0: no merging, render normally
+        let line = this.formatLine(indent, refNum, role, node);
+        if (visualMap) {
+          const vi = visualMap.get(node.backendDOMNodeId);
+          if (vi && vi.bounds.w > 0 && vi.bounds.h > 0) {
+            line += ` [${vi.bounds.x},${vi.bounds.y} ${vi.bounds.w}x${vi.bounds.h}]`;
+            if (vi.isClickable) line += " click";
+            if (vi.isVisible) line += " vis";
+          } else {
+            line += " [hidden]";
+          }
+        }
+        lines.push(line);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+      } else if (level === 1) {
+        // Level 1: remove empty containers (no children)
+        const childCount = this.countVisibleChildren(node, nodeMap);
+        if (childCount === 0) {
+          // H3: Even if no visible direct children, check for interactive descendants
+          if (this.hasInteractiveDescendants(node, nodeMap)) {
+            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+          }
+          return;
+        }
+        let line = this.formatLine(indent, refNum, role, node);
+        if (visualMap) {
+          const vi = visualMap.get(node.backendDOMNodeId);
+          if (vi && vi.bounds.w > 0 && vi.bounds.h > 0) {
+            line += ` [${vi.bounds.x},${vi.bounds.y} ${vi.bounds.w}x${vi.bounds.h}]`;
+            if (vi.isClickable) line += " click";
+            if (vi.isVisible) line += " vis";
+          } else {
+            line += " [hidden]";
+          }
+        }
+        lines.push(line);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+      } else if (level === 2) {
+        // Level 2: single-child containers merged (child takes container's level)
+        const children = this.getVisibleChildren(node, nodeMap);
+        if (children.length === 0) {
+          // H3: Check for interactive descendants before removing
+          if (this.hasInteractiveDescendants(node, nodeMap)) {
+            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+          }
+          return;
+        }
+        if (children.length === 1) {
+          // Merge: child at container's indent level
+          this.renderNodeDownsampled(children[0], nodeMap, indentLevel, filter, lines, level, visualMap);
+          return;
+        }
+        // Multiple children: keep container but render children
+        let line = this.formatLine(indent, refNum, role, node);
+        if (visualMap) {
+          const vi = visualMap.get(node.backendDOMNodeId);
+          if (vi && vi.bounds.w > 0 && vi.bounds.h > 0) {
+            line += ` [${vi.bounds.x},${vi.bounds.y} ${vi.bounds.w}x${vi.bounds.h}]`;
+            if (vi.isClickable) line += " click";
+            if (vi.isVisible) line += " vis";
+          } else {
+            line += " [hidden]";
+          }
+        }
+        lines.push(line);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+      } else {
+        // Level 3-4: container chains flattened, containers as one-line summary
+        const childCount = this.countDescendantElements(node, nodeMap, filter);
+        if (childCount === 0) {
+          // H3: Even with 0 filtered descendants, check for interactive ones
+          if (this.hasInteractiveDescendants(node, nodeMap)) {
+            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+          }
+          return;
+        }
+
+        const name = (node.name?.value as string) ?? "";
+        const shortRole = this.shortContainerRole(role);
+        const nameStr = name ? `: ${name}` : "";
+        lines.push(`${indent}[${shortRole}${nameStr}, ${childCount} items]`);
+
+        // Children rendered at indentLevel + 1
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+      }
+    }
+  }
+
+  private renderChildrenDownsampled(
+    node: AXNode,
+    nodeMap: Map<string, AXNode>,
+    indentLevel: number,
+    filter: string,
+    lines: string[],
+    level: number,
+    visualMap?: Map<number, VisualInfo>,
+  ): void {
+    if (!node.childIds) return;
+    for (const childId of node.childIds) {
+      const child = nodeMap.get(childId);
+      if (child) {
+        this.renderNodeDownsampled(child, nodeMap, indentLevel, filter, lines, level, visualMap);
+      }
+    }
+  }
+
+  private countVisibleChildren(node: AXNode, nodeMap: Map<string, AXNode>): number {
+    if (!node.childIds) return 0;
+    let count = 0;
+    for (const childId of node.childIds) {
+      const child = nodeMap.get(childId);
+      if (child && !child.ignored) count++;
+    }
+    return count;
+  }
+
+  private getVisibleChildren(node: AXNode, nodeMap: Map<string, AXNode>): AXNode[] {
+    if (!node.childIds) return [];
+    const children: AXNode[] = [];
+    for (const childId of node.childIds) {
+      const child = nodeMap.get(childId);
+      if (child && !child.ignored) children.push(child);
+    }
+    return children;
+  }
+
+  private countDescendantElements(
+    node: AXNode,
+    nodeMap: Map<string, AXNode>,
+    filter: string,
+  ): number {
+    if (!node.childIds) return 0;
+    let count = 0;
+    for (const childId of node.childIds) {
+      const child = nodeMap.get(childId);
+      if (!child || child.ignored) continue;
+      const role = this.getRole(child);
+      if (this.passesFilter(child, role, filter)) count++;
+      count += this.countDescendantElements(child, nodeMap, filter);
+    }
+    return count;
+  }
+
+  /** H3: Check if a node has any interactive descendants (recursive) */
+  private hasInteractiveDescendants(node: AXNode, nodeMap: Map<string, AXNode>): boolean {
+    if (!node.childIds) return false;
+    for (const childId of node.childIds) {
+      const child = nodeMap.get(childId);
+      if (!child) continue;
+      const role = this.getRole(child);
+      if (INTERACTIVE_ROLES.has(role) && !child.ignored) return true;
+      if (this.hasInteractiveDescendants(child, nodeMap)) return true;
+    }
+    return false;
+  }
+
+  private shortContainerRole(role: string): string {
+    const shortcuts: Record<string, string> = {
+      navigation: "nav",
+      complementary: "aside",
+      contentinfo: "footer",
+      banner: "header",
+      generic: "div",
+      group: "group",
+      region: "region",
+      form: "form",
+      search: "search",
+      toolbar: "toolbar",
+      tablist: "tabs",
+      menu: "menu",
+      menubar: "menubar",
+      list: "list",
+      listbox: "listbox",
+      tree: "tree",
+      grid: "grid",
+      table: "table",
+      main: "main",
+      rowgroup: "rowgroup",
+      row: "row",
+      treegrid: "treegrid",
+    };
+    return shortcuts[role] ?? role;
+  }
+
+  private formatDownsampledHeader(
+    title: string,
+    count: number,
+    filter: string,
+    depth: number,
+    originalTokens: number,
+    level: number,
+  ): string {
+    const titlePart = title ? `Page: ${title}` : "Page";
+    return `${titlePart} — ${count} ${filter} elements (depth ${depth}, downsampled L${level} from ~${originalTokens} tokens)`;
   }
 
   private getSubtree(
@@ -502,6 +1022,7 @@ export class A11yTreeProcessor {
     depth: number,
     visualMap?: Map<number, VisualInfo>,
     visualDataFailed = false,
+    maxTokens?: number,
   ): TreeResult {
     const backendId = this.resolveRef(ref);
     if (backendId === undefined) {
@@ -523,7 +1044,39 @@ export class A11yTreeProcessor {
     this.renderNode(targetNode, nodeMap, 0, filter, lines, visualMap);
 
     const refCount = lines.length;
-    const text = `Subtree for ${ref} — ${refCount} elements\n\n` + lines.join("\n");
+    const header = `Subtree for ${ref} — ${refCount} elements`;
+    const text = header + "\n\n" + lines.join("\n");
+
+    // H2: Apply downsampling when max_tokens is set and subtree exceeds budget
+    if (maxTokens) {
+      const currentTokens = estimateTokens(text);
+      if (currentTokens > maxTokens) {
+        // Downsample the subtree using the same pipeline
+        const downsampled = this.downsampleSubtree(
+          targetNode, nodeMap, filter, maxTokens, visualMap,
+        );
+        const dsHeader = `Subtree for ${ref} — ${downsampled.refCount} elements (downsampled L${downsampled.level} from ~${currentTokens} tokens)`;
+        // C2: Final budget check on subtree too
+        let dsBody = downsampled.lines.join("\n");
+        const fullText = dsHeader + (dsBody ? "\n\n" + dsBody : "");
+        if (estimateTokens(fullText) > maxTokens && dsBody) {
+          const headerTokens = estimateTokens(dsHeader + "\n\n");
+          const bodyBudget = maxTokens - headerTokens;
+          const trimmed = this.trimBodyToFit(downsampled.lines, bodyBudget);
+          dsBody = trimmed.join("\n");
+        }
+        const dsText = dsHeader + (dsBody ? "\n\n" + dsBody : "");
+        return {
+          text: dsText,
+          refCount: downsampled.refCount,
+          depth,
+          downsampled: true,
+          originalTokens: currentTokens,
+          downsampleLevel: downsampled.level,
+          ...(filter === "visual" ? { hasVisualData: !visualDataFailed } : {}),
+        };
+      }
+    }
 
     return {
       text,
@@ -531,6 +1084,31 @@ export class A11yTreeProcessor {
       depth,
       ...(filter === "visual" ? { hasVisualData: !visualDataFailed } : {}),
     };
+  }
+
+  /** H2: Downsample a subtree (same algorithm as downsampleTree but for a single root) */
+  private downsampleSubtree(
+    root: AXNode,
+    nodeMap: Map<string, AXNode>,
+    filter: string,
+    maxTokens: number,
+    visualMap?: Map<number, VisualInfo>,
+  ): { lines: string[]; refCount: number; level: number } {
+    for (let level = 0; level <= 4; level++) {
+      const lines: string[] = [];
+      this.renderNodeDownsampled(root, nodeMap, 0, filter, lines, level, visualMap);
+
+      const refCount = lines.filter((l) => !l.startsWith("--- ")).length;
+      const estimatedTotal = estimateTokens(lines.join("\n")) + 15;
+      if (estimatedTotal <= maxTokens) {
+        return { lines, refCount, level };
+      }
+    }
+
+    // Level 4 still too large — truncate as last resort
+    const lines: string[] = [];
+    this.renderNodeDownsampled(root, nodeMap, 0, filter, lines, 4, visualMap);
+    return this.truncateToFit(lines, maxTokens);
   }
 
   private renderNode(

@@ -1371,4 +1371,274 @@ describe("A11yTreeProcessor", () => {
     expect(result.text).not.toContain("[hidden]");
     expect(result.text).not.toContain("click");
   });
+
+  // --- Downsampling tests (Story 5b.5) ---
+
+  describe("Downsampling Pipeline", () => {
+    // Helper to build a large tree with mixed elements
+    function buildLargeTree(
+      elementCount: number,
+      url: string,
+    ): { nodes: AXNode[]; cdp: CdpClient } {
+      const childIds = Array.from({ length: elementCount }, (_, i) => `n${i}`);
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Large Page" },
+          backendDOMNodeId: 5000,
+          childIds,
+        }),
+        ...Array.from({ length: elementCount }, (_, i) =>
+          makeNode({
+            nodeId: `n${i}`,
+            parentId: "root",
+            role: { type: "role", value: i % 3 === 0 ? "button" : i % 3 === 1 ? "heading" : "navigation" },
+            name: { type: "computedString", value: `Element ${i} with a longer description text` },
+            backendDOMNodeId: 5001 + i,
+          }),
+        ),
+      ];
+      const cdp = mockCdpClient(nodes, url);
+      return { nodes, cdp };
+    }
+
+    it("should NOT downsample when max_tokens is not set", async () => {
+      const { cdp } = buildLargeTree(20, "https://example.com/no-ds-tree");
+      const result = await processor.getTree(cdp, "s1", { filter: "all" });
+
+      expect(result.downsampled).toBeUndefined();
+      expect(result.text).toContain("[e");
+    });
+
+    it("should NOT downsample when max_tokens exceeds output", async () => {
+      const { cdp } = buildLargeTree(5, "https://example.com/small-tree");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 99999 });
+
+      expect(result.downsampled).toBeUndefined();
+    });
+
+    it("should downsample when output exceeds max_tokens", async () => {
+      const { cdp } = buildLargeTree(60, "https://example.com/big-tree-ds");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 500 });
+
+      expect(result.downsampled).toBe(true);
+      expect(result.originalTokens).toBeGreaterThan(500);
+      expect(result.downsampleLevel).toBeDefined();
+      expect(result.downsampleLevel).toBeGreaterThanOrEqual(0);
+      expect(result.downsampleLevel).toBeLessThanOrEqual(4);
+    });
+
+    it("should ALWAYS preserve interactive elements", async () => {
+      // Build tree with buttons and many container/content elements
+      const childIds = ["btn1", "btn2", ...Array.from({ length: 40 }, (_, i) => `p${i}`)];
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Interactive Test" },
+          backendDOMNodeId: 6000,
+          childIds,
+        }),
+        makeNode({
+          nodeId: "btn1",
+          parentId: "root",
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: "Submit" },
+          backendDOMNodeId: 6001,
+        }),
+        makeNode({
+          nodeId: "btn2",
+          parentId: "root",
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: "More Info" },
+          backendDOMNodeId: 6002,
+        }),
+        ...Array.from({ length: 40 }, (_, i) =>
+          makeNode({
+            nodeId: `p${i}`,
+            parentId: "root",
+            role: { type: "role", value: "paragraph" },
+            name: { type: "computedString", value: `Long paragraph text ${i} that contributes many tokens to the total output size` },
+            backendDOMNodeId: 6003 + i,
+          }),
+        ),
+      ];
+      const cdp = mockCdpClient(nodes, "https://example.com/interactive-preserve");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 600 });
+
+      expect(result.downsampled).toBe(true);
+      expect(result.text).toContain("button");
+      expect(result.text).toContain("Submit");
+      expect(result.text).toContain("link");
+      expect(result.text).toContain("More Info");
+    });
+
+    it("should merge containers at higher levels", async () => {
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Container Test" },
+          backendDOMNodeId: 7000,
+          childIds: ["nav1", ...Array.from({ length: 30 }, (_, i) => `para${i}`)],
+        }),
+        makeNode({
+          nodeId: "nav1",
+          parentId: "root",
+          role: { type: "role", value: "navigation" },
+          name: { type: "computedString", value: "Main" },
+          backendDOMNodeId: 7001,
+          childIds: ["link1"],
+        }),
+        makeNode({
+          nodeId: "link1",
+          parentId: "nav1",
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: "Home" },
+          backendDOMNodeId: 7002,
+        }),
+        ...Array.from({ length: 30 }, (_, i) =>
+          makeNode({
+            nodeId: `para${i}`,
+            parentId: "root",
+            role: { type: "role", value: "paragraph" },
+            name: { type: "computedString", value: `Paragraph ${i} with enough text to force high-level downsampling in the pipeline` },
+            backendDOMNodeId: 7003 + i,
+          }),
+        ),
+      ];
+      const cdp = mockCdpClient(nodes, "https://example.com/container-merge");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 500 });
+
+      expect(result.downsampled).toBe(true);
+      // At level 3+, navigation should be rendered as one-line summary
+      if (result.downsampleLevel! >= 3) {
+        expect(result.text).toContain("[nav:");
+      }
+      // Interactive elements always preserved
+      expect(result.text).toContain("link");
+      expect(result.text).toContain("Home");
+    });
+
+    it("should convert content to compact Markdown at level 4", async () => {
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Markdown Test" },
+          backendDOMNodeId: 8000,
+          childIds: ["h1", ...Array.from({ length: 40 }, (_, i) => `txt${i}`)],
+        }),
+        makeNode({
+          nodeId: "h1",
+          parentId: "root",
+          role: { type: "role", value: "heading" },
+          name: { type: "computedString", value: "Products" },
+          backendDOMNodeId: 8001,
+        }),
+        ...Array.from({ length: 40 }, (_, i) =>
+          makeNode({
+            nodeId: `txt${i}`,
+            parentId: "root",
+            role: { type: "role", value: "paragraph" },
+            name: { type: "computedString", value: `Product description number ${i} with enough text to trigger level 4 downsampling` },
+            backendDOMNodeId: 8002 + i,
+          }),
+        ),
+      ];
+      const cdp = mockCdpClient(nodes, "https://example.com/markdown-test");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 500 });
+
+      if (result.downsampleLevel === 4) {
+        // Heading should become Markdown `# Products`
+        expect(result.text).toContain("# Products");
+      }
+    });
+
+    it("should preserve hierarchy (indent levels) in downsampled output", async () => {
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Hierarchy" },
+          backendDOMNodeId: 9000,
+          childIds: ["nav1", ...Array.from({ length: 30 }, (_, i) => `filler${i}`)],
+        }),
+        makeNode({
+          nodeId: "nav1",
+          parentId: "root",
+          role: { type: "role", value: "navigation" },
+          name: { type: "computedString", value: "Nav" },
+          backendDOMNodeId: 9001,
+          childIds: ["btn1"],
+        }),
+        makeNode({
+          nodeId: "btn1",
+          parentId: "nav1",
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: "Click" },
+          backendDOMNodeId: 9002,
+        }),
+        ...Array.from({ length: 30 }, (_, i) =>
+          makeNode({
+            nodeId: `filler${i}`,
+            parentId: "root",
+            role: { type: "role", value: "paragraph" },
+            name: { type: "computedString", value: `Filler paragraph ${i} that adds tokens to force downsampling to kick in` },
+            backendDOMNodeId: 9003 + i,
+          }),
+        ),
+      ];
+      const cdp = mockCdpClient(nodes, "https://example.com/hierarchy-test");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 600 });
+
+      expect(result.downsampled).toBe(true);
+      // Button should have indent (child of nav)
+      const lines = result.text.split("\n");
+      const btnLine = lines.find((l: string) => l.includes("button") && l.includes("Click"));
+      expect(btnLine).toBeDefined();
+      // Button should be indented (at least 2 spaces)
+      expect(btnLine!.startsWith("  ")).toBe(true);
+    });
+
+    it("should include downsampled header info", async () => {
+      const { cdp } = buildLargeTree(60, "https://example.com/header-ds");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 500 });
+
+      expect(result.downsampled).toBe(true);
+      expect(result.text).toContain("downsampled");
+      expect(result.text).toContain("tokens");
+    });
+
+    it("should truncate as last resort with marker", async () => {
+      // Create a huge tree that even level 4 can't compress enough
+      const childIds = Array.from({ length: 200 }, (_, i) => `b${i}`);
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Huge Page" },
+          backendDOMNodeId: 10000,
+          childIds,
+        }),
+        ...Array.from({ length: 200 }, (_, i) =>
+          makeNode({
+            nodeId: `b${i}`,
+            parentId: "root",
+            role: { type: "role", value: "button" },
+            name: { type: "computedString", value: `Action Button ${i}` },
+            backendDOMNodeId: 10001 + i,
+          }),
+        ),
+      ];
+      const cdp = mockCdpClient(nodes, "https://example.com/truncate-test");
+      const result = await processor.getTree(cdp, "s1", { filter: "interactive", max_tokens: 500 });
+
+      expect(result.downsampled).toBe(true);
+      // Should truncate since 200 buttons can't fit in 500 tokens even at L4
+      expect(result.text).toContain("truncated");
+      expect(result.text).toContain("omitted");
+    });
+  });
 });
