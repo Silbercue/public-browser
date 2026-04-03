@@ -1,2 +1,2 @@
-// Implementierung folgt in Story 1.2+
-export {};
+export { evaluateSchema, evaluateHandler } from "./evaluate.js";
+export type { EvaluateParams } from "./evaluate.js";
