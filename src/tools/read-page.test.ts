@@ -142,6 +142,29 @@ describe("readPageSchema", () => {
     const parsed = readPageSchema.parse({ filter: "visual" });
     expect(parsed.filter).toBe("visual");
   });
+
+  // Test: max_tokens accepted
+  it("should accept max_tokens: 4000", () => {
+    const parsed = readPageSchema.parse({ max_tokens: 4000 });
+    expect(parsed.max_tokens).toBe(4000);
+  });
+
+  // Test: max_tokens is optional
+  it("should default max_tokens to undefined", () => {
+    const parsed = readPageSchema.parse({});
+    expect(parsed.max_tokens).toBeUndefined();
+  });
+
+  // Test: max_tokens min 500
+  it("should reject max_tokens below 500", () => {
+    expect(() => readPageSchema.parse({ max_tokens: 100 })).toThrow();
+    expect(() => readPageSchema.parse({ max_tokens: 499 })).toThrow();
+  });
+
+  // Test: max_tokens must be int
+  it("should reject non-integer max_tokens", () => {
+    expect(() => readPageSchema.parse({ max_tokens: 4000.5 })).toThrow();
+  });
 });
 
 describe("readPageHandler", () => {
@@ -423,5 +446,117 @@ describe("readPageHandler", () => {
     expect(result.isError).toBeUndefined();
     expect(result._meta!.hasVisualData).toBe(false);
     expect(result._meta!.refCount).toBe(0);
+  });
+
+  // --- Downsampling Tests ---
+
+  // Test: Without max_tokens, output is unchanged (regression)
+  it("should NOT downsample without max_tokens", async () => {
+    const cdp = mockCdpClient(sampleNodes, "https://example.com/no-ds");
+    const result = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+
+    expect(result._meta!.downsampled).toBeUndefined();
+    expect(result.content[0].text).toContain('[e');
+    expect(result.content[0].text).toContain("button");
+  });
+
+  // Test: max_tokens larger than output → no change
+  it("should NOT downsample when max_tokens exceeds output size", async () => {
+    a11yTree.reset();
+    const cdp = mockCdpClient(sampleNodes, "https://example.com/large-budget");
+    const result = await readPageHandler({ depth: 3, filter: "interactive", max_tokens: 50000 }, cdp, "s1");
+
+    expect(result._meta!.downsampled).toBeUndefined();
+    expect(result.content[0].text).toContain("button");
+  });
+
+  // Test: _meta.downsampled is true when downsampling applied
+  it("should set _meta.downsampled when downsampling applied", async () => {
+    a11yTree.reset();
+    // Create many nodes to generate a large tree
+    const manyNodes: AXNode[] = [
+      makeNode({
+        nodeId: "root",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Big Page" },
+        backendDOMNodeId: 1000,
+        childIds: Array.from({ length: 50 }, (_, i) => `n${i}`),
+      }),
+      ...Array.from({ length: 50 }, (_, i) =>
+        makeNode({
+          nodeId: `n${i}`,
+          parentId: "root",
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: `Button ${i} with a reasonably long label to consume tokens` },
+          backendDOMNodeId: 1001 + i,
+        }),
+      ),
+    ];
+    const cdp = mockCdpClient(manyNodes, "https://example.com/big-ds");
+    const result = await readPageHandler({ depth: 3, filter: "interactive", max_tokens: 500 }, cdp, "s1");
+
+    expect(result._meta!.downsampled).toBe(true);
+    expect(result._meta!.originalTokens).toBeGreaterThan(500);
+    expect(result._meta!.downsampleLevel).toBeDefined();
+  });
+
+  // Test: Interactive elements ALWAYS preserved in downsampled output
+  it("should preserve interactive elements in downsampled output", async () => {
+    a11yTree.reset();
+    const mixedNodes: AXNode[] = [
+      makeNode({
+        nodeId: "root",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Mixed" },
+        backendDOMNodeId: 2000,
+        childIds: ["nav1", "btn1", "link1", "heading1", ...Array.from({ length: 30 }, (_, i) => `p${i}`)],
+      }),
+      makeNode({
+        nodeId: "nav1",
+        parentId: "root",
+        role: { type: "role", value: "navigation" },
+        name: { type: "computedString", value: "Main Nav" },
+        backendDOMNodeId: 2001,
+      }),
+      makeNode({
+        nodeId: "btn1",
+        parentId: "root",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Submit Form" },
+        backendDOMNodeId: 2002,
+      }),
+      makeNode({
+        nodeId: "link1",
+        parentId: "root",
+        role: { type: "role", value: "link" },
+        name: { type: "computedString", value: "More Info" },
+        backendDOMNodeId: 2003,
+      }),
+      makeNode({
+        nodeId: "heading1",
+        parentId: "root",
+        role: { type: "role", value: "heading" },
+        name: { type: "computedString", value: "Page Title" },
+        backendDOMNodeId: 2004,
+      }),
+      ...Array.from({ length: 30 }, (_, i) =>
+        makeNode({
+          nodeId: `p${i}`,
+          parentId: "root",
+          role: { type: "role", value: "paragraph" },
+          name: { type: "computedString", value: `Paragraph ${i} with a long text that takes up many tokens in the output to force downsampling` },
+          backendDOMNodeId: 2005 + i,
+        }),
+      ),
+    ];
+    const cdp = mockCdpClient(mixedNodes, "https://example.com/mixed-ds");
+    const result = await readPageHandler({ depth: 3, filter: "all", max_tokens: 800 }, cdp, "s1");
+
+    // Interactive elements must be present
+    expect(result.content[0].text).toContain("button");
+    expect(result.content[0].text).toContain("Submit Form");
+    expect(result.content[0].text).toContain("link");
+    expect(result.content[0].text).toContain("More Info");
+    expect(result._meta!.downsampled).toBe(true);
   });
 });
