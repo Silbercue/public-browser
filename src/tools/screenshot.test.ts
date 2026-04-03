@@ -4,8 +4,6 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 
 function mockCdpClient(
   base64Data = "aVZCT1I=",
-  viewportWidth = 1280,
-  viewportHeight = 720,
   scrollWidth = 1280,
   scrollHeight = 3000,
 ): CdpClient {
@@ -20,11 +18,7 @@ function mockCdpClient(
             },
           });
         }
-        return Promise.resolve({
-          result: {
-            value: JSON.stringify({ width: viewportWidth, height: viewportHeight }),
-          },
-        });
+        return Promise.resolve({ result: { value: "{}" } });
       }
       if (method === "Page.captureScreenshot") {
         return Promise.resolve({ data: base64Data });
@@ -75,39 +69,38 @@ describe("screenshotHandler", () => {
     expect(result._meta).toBeDefined();
     expect(result._meta!.method).toBe("screenshot");
     expect(result._meta!.elapsedMs).toBeGreaterThanOrEqual(0);
-    expect(result._meta!.width).toBeDefined();
-    expect(result._meta!.height).toBeDefined();
     expect(result._meta!.bytes).toBeDefined();
   });
 
-  // Test 4: Scaling — viewport 1280 → scale should be 800/1280
-  it("should scale down when viewport > 800px", async () => {
-    const cdp = mockCdpClient(SMALL_BASE64, 1280, 720);
+  // Test 4: No viewport query — screenshot goes directly to Page.captureScreenshot
+  it("should not query viewport via Runtime.evaluate for normal screenshots", async () => {
+    const cdp = mockCdpClient(SMALL_BASE64);
+    await screenshotHandler({ full_page: false }, cdp, "s1");
+
+    const runtimeCalls = (cdp.send as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => c[0] === "Runtime.evaluate",
+    );
+    expect(runtimeCalls).toHaveLength(0);
+  });
+
+  // Test 5: clip with scale for downscaling to MAX_WIDTH
+  it("should use clip with scale to downscale to 800px wide", async () => {
+    const cdp = mockCdpClient(SMALL_BASE64);
     await screenshotHandler({ full_page: false }, cdp, "s1");
 
     const captureCall = (cdp.send as ReturnType<typeof vi.fn>).mock.calls.find(
       (c: unknown[]) => c[0] === "Page.captureScreenshot",
     );
     expect(captureCall).toBeDefined();
-    const clipParam = (captureCall![1] as { clip: { scale: number } }).clip;
-    expect(clipParam.scale).toBeCloseTo(800 / 1280, 5);
-  });
-
-  // Test 5: No scaling for small viewport
-  it("should not scale up when viewport <= 800px", async () => {
-    const cdp = mockCdpClient(SMALL_BASE64, 600, 400);
-    await screenshotHandler({ full_page: false }, cdp, "s1");
-
-    const captureCall = (cdp.send as ReturnType<typeof vi.fn>).mock.calls.find(
-      (c: unknown[]) => c[0] === "Page.captureScreenshot",
-    );
-    const clipParam = (captureCall![1] as { clip: { scale: number } }).clip;
-    expect(clipParam.scale).toBe(1);
+    const params = captureCall![1] as { clip: { width: number; height: number; scale: number } };
+    expect(params.clip.width).toBe(1280);
+    expect(params.clip.height).toBe(800);
+    expect(params.clip.scale).toBeCloseTo(800 / 1280);
   });
 
   // Test 6: full_page=true → captureBeyondViewport and scrollHeight
   it("should use scrollHeight and captureBeyondViewport for full_page", async () => {
-    const cdp = mockCdpClient(SMALL_BASE64, 1280, 720, 1280, 3000);
+    const cdp = mockCdpClient(SMALL_BASE64, 1280, 3000);
     await screenshotHandler({ full_page: true }, cdp, "s1");
 
     const captureCall = (cdp.send as ReturnType<typeof vi.fn>).mock.calls.find(
@@ -116,11 +109,12 @@ describe("screenshotHandler", () => {
     expect(captureCall).toBeDefined();
     const params = captureCall![1] as {
       captureBeyondViewport: boolean;
-      clip: { height: number; width: number };
+      clip: { height: number; width: number; scale: number };
     };
     expect(params.captureBeyondViewport).toBe(true);
     expect(params.clip.height).toBe(3000);
     expect(params.clip.width).toBe(1280);
+    expect(params.clip.scale).toBeCloseTo(800 / 1280);
   });
 
   // Test 7: CDP error → isError
@@ -146,7 +140,7 @@ describe("screenshotHandler", () => {
 
   // Test 8: Empty/blank page → valid screenshot (no error)
   it("should return valid screenshot for blank page", async () => {
-    const cdp = mockCdpClient(SMALL_BASE64, 800, 600);
+    const cdp = mockCdpClient(SMALL_BASE64);
     const result = await screenshotHandler({ full_page: false }, cdp, "s1");
 
     expect(result.isError).toBeUndefined();
@@ -160,11 +154,6 @@ describe("screenshotHandler", () => {
     let callCount = 0;
     const cdp = {
       send: vi.fn().mockImplementation((method: string) => {
-        if (method === "Runtime.evaluate") {
-          return Promise.resolve({
-            result: { value: JSON.stringify({ width: 1280, height: 720 }) },
-          });
-        }
         if (method === "Page.captureScreenshot") {
           callCount++;
           // First two calls return large data, third returns small
@@ -196,30 +185,10 @@ describe("screenshotHandler", () => {
     expect(result.isError).toBeUndefined();
   });
 
-  // Test 10: Viewport guardrail — zero dimensions fallback to defaults
-  it("should fallback to default dimensions for zero viewport", async () => {
-    const cdp = mockCdpClient(SMALL_BASE64, 0, 0);
-    const result = await screenshotHandler({ full_page: false }, cdp, "s1");
-
-    expect(result.isError).toBeUndefined();
-    // Should use fallback 1280x720, scale to 800/1280
-    const captureCall = (cdp.send as ReturnType<typeof vi.fn>).mock.calls.find(
-      (c: unknown[]) => c[0] === "Page.captureScreenshot",
-    );
-    const clipParam = (captureCall![1] as { clip: { scale: number; width: number } }).clip;
-    expect(clipParam.width).toBe(1280);
-    expect(clipParam.scale).toBeCloseTo(800 / 1280, 5);
-  });
-
-  // Test 11: Best effort — all quality steps exceed 100KB
+  // Test 10: Best effort — all quality steps exceed 100KB
   it("should accept best effort when all quality steps exceed 100KB", async () => {
     const cdp = {
       send: vi.fn().mockImplementation((method: string) => {
-        if (method === "Runtime.evaluate") {
-          return Promise.resolve({
-            result: { value: JSON.stringify({ width: 1280, height: 720 }) },
-          });
-        }
         if (method === "Page.captureScreenshot") {
           return Promise.resolve({ data: LARGE_BASE64 });
         }

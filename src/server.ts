@@ -39,6 +39,12 @@ export async function startServer(): Promise<void> {
   await cdpClient.send("Page.enable", {}, sessionId);
   await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, sessionId);
   await cdpClient.send("Accessibility.enable", {}, sessionId);
+  await cdpClient.send("Emulation.setDeviceMetricsOverride", {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  }, sessionId);
 
   // 4. Create TabStateCache and attach to CDP events
   const tabStateCache = new TabStateCache({ ttlMs: 30_000 });
@@ -84,6 +90,12 @@ export async function startServer(): Promise<void> {
     await newCdpClient.send("Page.enable", {}, newSessionId);
     await newCdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, newSessionId);
     await newCdpClient.send("Accessibility.enable", {}, newSessionId);
+    await newCdpClient.send("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 800,
+      deviceScaleFactor: 1,
+      mobile: false,
+    }, newSessionId);
 
     // 3. Re-wire TabStateCache: detach from old, attach to new
     tabStateCache.detachFromClient();

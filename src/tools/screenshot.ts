@@ -14,12 +14,9 @@ export type ScreenshotParams = z.infer<typeof screenshotSchema>;
 
 const MAX_BYTES = 100 * 1024;
 const MAX_WIDTH = 800;
+const EMULATED_WIDTH = 1280;
+const EMULATED_HEIGHT = 800;
 const QUALITY_STEPS = [80, 60, 40];
-
-interface ViewportMetrics {
-  width: number;
-  height: number;
-}
 
 interface ScrollMetrics {
   scrollWidth: number;
@@ -34,28 +31,16 @@ export async function screenshotHandler(
   const start = performance.now();
 
   try {
-    // Get viewport size
-    const viewportResult = await cdpClient.send<{ result: { value: string } }>(
-      "Runtime.evaluate",
-      {
-        expression:
-          "JSON.stringify({ width: document.documentElement.clientWidth || window.innerWidth, height: document.documentElement.clientHeight || window.innerHeight })",
-        returnByValue: true,
+    const captureParams: Record<string, unknown> = {
+      format: "webp",
+      clip: {
+        x: 0,
+        y: 0,
+        width: EMULATED_WIDTH,
+        height: EMULATED_HEIGHT,
+        scale: MAX_WIDTH / EMULATED_WIDTH,
       },
-      sessionId,
-    );
-    const viewport: ViewportMetrics = JSON.parse(viewportResult.result.value);
-
-    // Guard against invalid viewport values
-    if (!viewport.width || !viewport.height || viewport.width <= 0 || viewport.height <= 0) {
-      viewport.width = viewport.width && viewport.width > 0 ? viewport.width : 1280;
-      viewport.height = viewport.height && viewport.height > 0 ? viewport.height : 720;
-    }
-
-    // Determine capture dimensions and scale
-    let captureWidth = viewport.width;
-    let captureHeight = viewport.height;
-    let captureBeyondViewport = false;
+    };
 
     if (params.full_page) {
       const scrollResult = await cdpClient.send<{ result: { value: string } }>(
@@ -68,12 +53,15 @@ export async function screenshotHandler(
         sessionId,
       );
       const scroll: ScrollMetrics = JSON.parse(scrollResult.result.value);
-      captureWidth = scroll.scrollWidth;
-      captureHeight = scroll.scrollHeight;
-      captureBeyondViewport = true;
+      captureParams.clip = {
+        x: 0,
+        y: 0,
+        width: scroll.scrollWidth,
+        height: scroll.scrollHeight,
+        scale: MAX_WIDTH / scroll.scrollWidth,
+      };
+      captureParams.captureBeyondViewport = true;
     }
-
-    const scale = captureWidth > MAX_WIDTH ? MAX_WIDTH / captureWidth : 1;
 
     // Capture with quality fallback
     let lastData = "";
@@ -83,16 +71,8 @@ export async function screenshotHandler(
       const result = await cdpClient.send<{ data: string }>(
         "Page.captureScreenshot",
         {
-          format: "webp",
+          ...captureParams,
           quality,
-          clip: {
-            x: 0,
-            y: 0,
-            width: captureWidth,
-            height: captureHeight,
-            scale,
-          },
-          captureBeyondViewport,
         },
         sessionId,
       );
@@ -106,16 +86,12 @@ export async function screenshotHandler(
     }
 
     const elapsedMs = Math.round(performance.now() - start);
-    const resultWidth = Math.round(captureWidth * scale);
-    const resultHeight = Math.round(captureHeight * scale);
 
     return {
       content: [{ type: "image", data: lastData, mimeType: "image/webp" }],
       _meta: {
         elapsedMs,
         method: "screenshot",
-        width: resultWidth,
-        height: resultHeight,
         bytes: lastBytes,
       },
     };
