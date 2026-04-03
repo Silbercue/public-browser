@@ -78,6 +78,7 @@ const defaultCdpResponses = {
   "Page.enable": {},
   "Page.setLifecycleEventsEnabled": {},
   "Accessibility.enable": {},
+  "Emulation.setDeviceMetricsOverride": {},
   "Page.getFrameTree": { frameTree: { frame: { id: "frame-1" } } },
   "Page.getNavigationHistory": {
     currentIndex: 0,
@@ -226,6 +227,12 @@ describe("switchTabHandler — action: open", () => {
       "session-new",
     );
     expect(cdpClient.send).toHaveBeenCalledWith("Accessibility.enable", {}, "session-new");
+    expect(cdpClient.send).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 800,
+      deviceScaleFactor: 1,
+      mobile: false,
+    }, "session-new");
   });
 });
 

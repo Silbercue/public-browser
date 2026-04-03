@@ -3,15 +3,6 @@ import { clickSchema, clickHandler } from "./click.js";
 import type { ClickParams } from "./click.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 
-// --- Mock settle ---
-
-vi.mock("../cdp/settle.js", () => ({
-  settle: vi.fn().mockResolvedValue({ settled: true, signal: "networkIdle", elapsedMs: 50 }),
-}));
-
-import { settle } from "../cdp/settle.js";
-const mockSettle = vi.mocked(settle);
-
 // --- Mock element-utils ---
 
 vi.mock("./element-utils.js", () => {
@@ -46,7 +37,6 @@ function createMockCdp(overrides: Record<string, unknown> = {}): MockCdpSetup {
     "DOM.scrollIntoViewIfNeeded": {},
     "DOM.getBoxModel": { model: { content: [100, 100, 200, 100, 200, 200, 100, 200] } },
     "Input.dispatchMouseEvent": {},
-    "Page.getFrameTree": { frameTree: { frame: { id: "main-frame" } } },
     "DOM.getDocument": { root: { nodeId: 1 } },
     "DOM.querySelector": { nodeId: 42 },
     "DOM.describeNode": { node: { backendNodeId: 100 } },
@@ -124,7 +114,6 @@ describe("clickSchema", () => {
 describe("clickHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSettle.mockResolvedValue({ settled: true, signal: "networkIdle", elapsedMs: 50 });
   });
 
   // --- Validation tests ---
@@ -146,7 +135,7 @@ describe("clickHandler", () => {
 
   // --- Ref click tests (AC #1) ---
 
-  it("should click element by ref successfully", async () => {
+  it("should click element by ref and return immediately without settle", async () => {
     mockResolveElement.mockResolvedValue({
       backendNodeId: 42,
       objectId: "obj-42",
@@ -165,19 +154,15 @@ describe("clickHandler", () => {
     );
     expect(result._meta?.method).toBe("click");
     expect(result._meta?.resolvedVia).toBe("ref");
-    expect(result._meta?.settleSignal).toBe("networkIdle");
+    // No settle — no settleSignal or settleMs in _meta
+    expect(result._meta).not.toHaveProperty("settleSignal");
+    expect(result._meta).not.toHaveProperty("settleMs");
 
-    // Verify CDP calls
-    expect(sendFn).toHaveBeenCalledWith(
-      "DOM.scrollIntoViewIfNeeded",
-      { backendNodeId: 42 },
-      "s1",
-    );
-    expect(sendFn).toHaveBeenCalledWith(
-      "DOM.getBoxModel",
-      { backendNodeId: 42 },
-      "s1",
-    );
+    // Verify CDP calls: scroll, box model, 2x mouse — NO Page.getFrameTree
+    expect(sendFn).toHaveBeenCalledWith("DOM.scrollIntoViewIfNeeded", { backendNodeId: 42 }, "s1");
+    expect(sendFn).toHaveBeenCalledWith("DOM.getBoxModel", { backendNodeId: 42 }, "s1");
+    const callMethods = sendFn.mock.calls.map((c: unknown[]) => c[0]);
+    expect(callMethods).not.toContain("Page.getFrameTree");
   });
 
   it("should dispatch mousePressed and mouseReleased with correct center coordinates", async () => {
@@ -219,31 +204,7 @@ describe("clickHandler", () => {
     });
   });
 
-  it("should call settle after click dispatch", async () => {
-    mockResolveElement.mockResolvedValue({
-      backendNodeId: 42,
-      objectId: "obj-42",
-      role: "button",
-      name: "Submit",
-      resolvedVia: "ref",
-      resolvedSessionId: "s1",
-    });
-    const { cdpClient } = createMockCdp();
-
-    await clickHandler({ ref: "e5" }, cdpClient, "s1");
-
-    expect(mockSettle).toHaveBeenCalledWith(
-      expect.objectContaining({
-        cdpClient,
-        sessionId: "s1",
-        frameId: "main-frame",
-        settleMs: 500,
-        timeoutMs: 5000,
-      }),
-    );
-  });
-
-  it("should call Page.getFrameTree after mouse events", async () => {
+  it("should not call settle or Page.getFrameTree", async () => {
     mockResolveElement.mockResolvedValue({
       backendNodeId: 42,
       objectId: "obj-42",
@@ -256,11 +217,15 @@ describe("clickHandler", () => {
 
     await clickHandler({ ref: "e5" }, cdpClient, "s1");
 
+    // Only 4 CDP calls: scrollIntoView, getBoxModel, mousePressed, mouseReleased
+    expect(sendFn).toHaveBeenCalledTimes(4);
     const callMethods = sendFn.mock.calls.map((c: unknown[]) => c[0]);
-    const lastMouseIdx = callMethods.lastIndexOf("Input.dispatchMouseEvent");
-    const frameTreeIdx = callMethods.indexOf("Page.getFrameTree");
-
-    expect(frameTreeIdx).toBeGreaterThan(lastMouseIdx);
+    expect(callMethods).toEqual([
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+    ]);
   });
 
   // --- CSS click tests (AC #2) ---
@@ -348,48 +313,6 @@ describe("clickHandler", () => {
         text: "Element e99 not found.",
       }),
     );
-  });
-
-  // --- Settle tests ---
-
-  it("should include settle signal in _meta", async () => {
-    mockResolveElement.mockResolvedValue({
-      backendNodeId: 42,
-      objectId: "obj-42",
-      role: "button",
-      name: "Submit",
-      resolvedVia: "ref",
-      resolvedSessionId: "s1",
-    });
-    mockSettle.mockResolvedValue({ settled: true, signal: "networkIdle", elapsedMs: 100 });
-    const { cdpClient } = createMockCdp();
-
-    const result = await clickHandler({ ref: "e5" }, cdpClient, "s1");
-
-    expect(result._meta?.settleSignal).toBe("networkIdle");
-    expect(result._meta?.settleMs).toBe(100);
-  });
-
-  it("should succeed even when settle times out", async () => {
-    mockResolveElement.mockResolvedValue({
-      backendNodeId: 42,
-      objectId: "obj-42",
-      role: "button",
-      name: "Submit",
-      resolvedVia: "ref",
-      resolvedSessionId: "s1",
-    });
-    mockSettle.mockResolvedValue({ settled: false, signal: "timeout", elapsedMs: 5000 });
-    const { cdpClient } = createMockCdp();
-
-    const result = await clickHandler({ ref: "e5" }, cdpClient, "s1");
-
-    // Click still succeeds — settle timeout is NOT an error
-    expect(result.isError).toBeUndefined();
-    expect(result.content[0]).toEqual(
-      expect.objectContaining({ type: "text", text: "Clicked e5 (ref)" }),
-    );
-    expect(result._meta?.settleSignal).toBe("timeout");
   });
 
   // --- Priority tests ---
@@ -512,8 +435,9 @@ describe("clickHandler", () => {
     expect(mouseEvents).toHaveLength(2);
     expect(mouseEvents[0][2]).toBe("oopif-session-1");
 
-    // Settle uses main session
-    expect(sendFn).toHaveBeenCalledWith("Page.getFrameTree", {}, "s1");
+    // No settle — no Page.getFrameTree call
+    const callMethods = sendFn.mock.calls.map((c: unknown[]) => c[0]);
+    expect(callMethods).not.toContain("Page.getFrameTree");
 
     // resolveElement was called with sessionManager
     expect(mockResolveElement).toHaveBeenCalledWith(

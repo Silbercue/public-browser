@@ -75,6 +75,12 @@ async function activateSession(
   await cdpClient.send("Page.enable", {}, newSessionId);
   await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, newSessionId);
   await cdpClient.send("Accessibility.enable", {}, newSessionId);
+  await cdpClient.send("Emulation.setDeviceMetricsOverride", {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  }, newSessionId);
 
   // 3. Re-attach cache listeners to new session
   tabStateCache.detachFromClient();
@@ -161,8 +167,8 @@ async function handleOpen(
     await sessionManager.reinit(cdpClient, newSessionId);
   }
 
-  // If URL was specified (not about:blank), settle after navigation
-  if (params.url) {
+  // If a real URL was specified, settle after navigation (about:blank needs no settle)
+  if (params.url && params.url !== "about:blank") {
     const frameTree = await cdpClient.send<FrameTree>("Page.getFrameTree", {}, newSessionId);
     const mainFrameId = frameTree.frameTree.frame.id;
     await settle({

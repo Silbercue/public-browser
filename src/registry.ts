@@ -143,7 +143,7 @@ export class ToolRegistry {
 
     this.server.tool(
       "click",
-      "Click an element by A11y-Tree ref (e.g. 'e5') or CSS selector, waits for page to settle",
+      "Click an element by A11y-Tree ref (e.g. 'e5') or CSS selector. Returns immediately after click — use wait_for if the click triggers navigation or async content loading.",
       {
         ref: clickSchema.shape.ref,
         selector: clickSchema.shape.selector,

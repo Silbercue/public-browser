@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
-import { settle } from "../cdp/settle.js";
 import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
 
 // --- Schema (Task 2) ---
@@ -103,23 +102,8 @@ export async function clickHandler(
     // Dispatch click using the resolved session (may be OOPIF or main)
     await dispatchClick(cdpClient, element.resolvedSessionId, element.backendNodeId);
 
-    // Auto-settle — always on main frame session (navigation is main-frame concern)
-    const frameTree = await cdpClient.send<{ frameTree: { frame: { id: string } } }>(
-      "Page.getFrameTree",
-      {},
-      sessionId!,
-    );
-    const frameId = frameTree.frameTree.frame.id;
-
-    const settleResult = await settle({
-      cdpClient,
-      sessionId: sessionId!,
-      frameId,
-      settleMs: 500,
-      timeoutMs: 5000,
-    });
-
-    // Success response
+    // Success response — no settle, click returns immediately.
+    // If the click triggers navigation, use wait_for or navigate to wait for the page to load.
     const elapsedMs = Math.round(performance.now() - start);
     return {
       content: [
@@ -132,8 +116,6 @@ export async function clickHandler(
         elapsedMs,
         method: "click",
         resolvedVia: element.resolvedVia,
-        settleSignal: settleResult.signal,
-        settleMs: settleResult.elapsedMs,
       },
     };
   } catch (err) {
