@@ -1,0 +1,156 @@
+{
+  "name": "Playwright MCP",
+  "type": "ops",
+  "timestamp": "2026-04-02T18:50:30.717Z",
+  "repeats": 10,
+  "summary": {
+    "operations": 24,
+    "total_median_ms": 408
+  },
+  "operations": {
+    "navigate_cold": {
+      "median_ms": 4,
+      "mean_ms": 6,
+      "min_ms": 4,
+      "max_ms": 18
+    },
+    "navigate_cached": {
+      "median_ms": 3,
+      "mean_ms": 3,
+      "min_ms": 3,
+      "max_ms": 4
+    },
+    "read_text": {
+      "median_ms": 1,
+      "mean_ms": 2,
+      "min_ms": 0,
+      "max_ms": 16
+    },
+    "read_attribute": {
+      "median_ms": 1,
+      "mean_ms": 1,
+      "min_ms": 0,
+      "max_ms": 1
+    },
+    "evaluate_simple": {
+      "median_ms": 0,
+      "mean_ms": 0,
+      "min_ms": 0,
+      "max_ms": 1
+    },
+    "evaluate_dom_count": {
+      "median_ms": 0,
+      "mean_ms": 0,
+      "min_ms": 0,
+      "max_ms": 1
+    },
+    "click_by_id": {
+      "median_ms": 17,
+      "mean_ms": 71,
+      "min_ms": 16,
+      "max_ms": 560
+    },
+    "click_by_text": {
+      "median_ms": 17,
+      "mean_ms": 17,
+      "min_ms": 16,
+      "max_ms": 17
+    },
+    "click_by_selector": {
+      "median_ms": 17,
+      "mean_ms": 17,
+      "min_ms": 16,
+      "max_ms": 17
+    },
+    "fill_short": {
+      "median_ms": 2,
+      "mean_ms": 2,
+      "min_ms": 2,
+      "max_ms": 4
+    },
+    "fill_long": {
+      "median_ms": 2,
+      "mean_ms": 2,
+      "min_ms": 1,
+      "max_ms": 3
+    },
+    "type_slow": {
+      "median_ms": 25,
+      "mean_ms": 25,
+      "min_ms": 23,
+      "max_ms": 26
+    },
+    "fill_textarea": {
+      "median_ms": 2,
+      "mean_ms": 2,
+      "min_ms": 1,
+      "max_ms": 2
+    },
+    "select_option": {
+      "median_ms": 2,
+      "mean_ms": 2,
+      "min_ms": 1,
+      "max_ms": 2
+    },
+    "checkbox_check": {
+      "median_ms": 17,
+      "mean_ms": 17,
+      "min_ms": 16,
+      "max_ms": 18
+    },
+    "scroll_to_bottom": {
+      "median_ms": 0,
+      "mean_ms": 0,
+      "min_ms": 0,
+      "max_ms": 1
+    },
+    "scroll_to_top": {
+      "median_ms": 0,
+      "mean_ms": 0,
+      "min_ms": 0,
+      "max_ms": 1
+    },
+    "scroll_into_view": {
+      "median_ms": 17,
+      "mean_ms": 17,
+      "min_ms": 16,
+      "max_ms": 17
+    },
+    "wait_for_visible": {
+      "median_ms": 82,
+      "mean_ms": 82,
+      "min_ms": 77,
+      "max_ms": 89
+    },
+    "wait_for_text": {
+      "median_ms": 42,
+      "mean_ms": 41,
+      "min_ms": 35,
+      "max_ms": 43
+    },
+    "screenshot_viewport": {
+      "median_ms": 16,
+      "mean_ms": 17,
+      "min_ms": 16,
+      "max_ms": 26
+    },
+    "screenshot_element": {
+      "median_ms": 33,
+      "mean_ms": 33,
+      "min_ms": 32,
+      "max_ms": 34
+    },
+    "tab_open_close": {
+      "median_ms": 50,
+      "mean_ms": 50,
+      "min_ms": 47,
+      "max_ms": 52
+    },
+    "tab_open_read_close": {
+      "median_ms": 58,
+      "mean_ms": 58,
+      "min_ms": 54,
+      "max_ms": 60
+    }
+  }
+}

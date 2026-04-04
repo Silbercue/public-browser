@@ -1,0 +1,32 @@
+{
+  "name": "SilbercueChrome MCP",
+  "type": "mcp-scripted",
+  "timestamp": "2026-04-04T00:05:49Z",
+  "summary": { "total": 24, "passed": 24, "failed": 0, "duration_s": 21, "tool_uses": 116 },
+  "tests": {
+    "T1.1": { "status": "pass", "duration_ms": 18 },
+    "T1.2": { "status": "pass", "duration_ms": 14 },
+    "T1.3": { "status": "pass", "duration_ms": 31 },
+    "T1.4": { "status": "pass", "duration_ms": 118 },
+    "T1.5": { "status": "pass", "duration_ms": 92 },
+    "T1.6": { "status": "pass", "duration_ms": 11 },
+    "T2.1": { "status": "pass", "duration_ms": 2050 },
+    "T2.2": { "status": "pass", "duration_ms": 1022 },
+    "T2.3": { "status": "pass", "duration_ms": 28 },
+    "T2.4": { "status": "pass", "duration_ms": 112 },
+    "T2.5": { "status": "pass", "duration_ms": 1594 },
+    "T2.6": { "status": "pass", "duration_ms": 116 },
+    "T3.1": { "status": "pass", "duration_ms": 16 },
+    "T3.2": { "status": "pass", "duration_ms": 12 },
+    "T3.3": { "status": "pass", "duration_ms": 7 },
+    "T3.4": { "status": "pass", "duration_ms": 9 },
+    "T3.5": { "status": "pass", "duration_ms": 107 },
+    "T3.6": { "status": "pass", "duration_ms": 9 },
+    "T4.1": { "status": "pass", "duration_ms": 4060 },
+    "T4.2": { "status": "pass", "duration_ms": 3653 },
+    "T4.3": { "status": "pass", "duration_ms": 143 },
+    "T4.4": { "status": "pass", "duration_ms": 22 },
+    "T4.5": { "status": "pass", "duration_ms": 3514 },
+    "T4.6": { "status": "pass", "duration_ms": 230 }
+  }
+}

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SilbercueChrome — Ops Benchmark</title>
+  <style>
+    :root { --bg:#0a0a0f; --surface:#12121a; --border:#2a2a3a; --text:#e0e0e8; --muted:#888899; --accent:#6c5ce7; --radius:8px; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); padding:40px; }
+    h1 { color:var(--accent); margin-bottom:8px; }
+    p.sub { color:var(--muted); font-size:0.85rem; margin-bottom:32px; }
+    .section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:24px; margin-bottom:20px; }
+    .section h2 { font-size:0.75rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin-bottom:16px; }
+    button { background:var(--accent); color:#fff; border:none; padding:8px 18px; border-radius:var(--radius); cursor:pointer; font-size:0.85rem; }
+    input[type=text], input[type=number], textarea { background:var(--bg); border:1px solid var(--border); color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:0.9rem; font-family:inherit; outline:none; }
+    select { background:var(--bg); border:1px solid var(--border); color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:0.9rem; }
+    .flex { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .target-zone { min-height:80px; border:2px dashed var(--border); border-radius:var(--radius); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:0.85rem; margin-top:12px; }
+    #scroll-target { height:400px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius); }
+    .scroll-row { padding:10px 16px; border-bottom:1px solid var(--border); font-size:0.8rem; color:var(--muted); }
+  </style>
+</head>
+<body>
+
+<h1>SilbercueChrome — Ops Benchmark</h1>
+<p class="sub">Isolierte Test-Elemente fuer Mikro-Benchmarks. Jede Operation einzeln und wiederholbar.</p>
+
+<!-- Click -->
+<div class="section">
+  <h2>Click Operations</h2>
+  <div class="flex">
+    <button id="btn-click-target">Click Target</button>
+    <button id="btn-click-b">Button B</button>
+    <button id="btn-click-c">Button C</button>
+    <span id="click-counter" style="color:var(--muted);font-size:0.8rem">clicks: 0</span>
+  </div>
+</div>
+
+<!-- Type / Input -->
+<div class="section">
+  <h2>Type / Input Operations</h2>
+  <div class="flex">
+    <input type="text" id="input-short" placeholder="Short (10 chars)" style="width:200px">
+    <input type="text" id="input-long" placeholder="Long (100 chars)" style="width:320px">
+    <textarea id="input-textarea" rows="2" placeholder="Textarea" style="width:260px;resize:none"></textarea>
+  </div>
+</div>
+
+<!-- Select / Checkbox -->
+<div class="section">
+  <h2>Select / Checkbox Operations</h2>
+  <div class="flex">
+    <select id="select-target">
+      <option value="">-- Select --</option>
+      <option value="alpha">Alpha</option>
+      <option value="beta">Beta</option>
+      <option value="gamma">Gamma</option>
+      <option value="delta">Delta</option>
+    </select>
+    <label style="display:flex;gap:8px;align-items:center;font-size:0.85rem;cursor:pointer">
+      <input type="checkbox" id="checkbox-target"> Check me
+    </label>
+    <input type="number" id="input-number" placeholder="42" style="width:100px">
+  </div>
+</div>
+
+<!-- Read / Snapshot -->
+<div class="section">
+  <h2>Read / Snapshot Operations</h2>
+  <div class="flex">
+    <span id="read-value-1">Value: <strong>OPS-READ-VALUE-XK7</strong></span>
+    <span id="attr-target" data-bench="BENCH-ATTR-42" style="color:var(--muted);font-size:0.8rem">data-attr target</span>
+  </div>
+  <div class="target-zone">
+    <p>Snapshot zone — <strong id="dynamic-text">initial</strong></p>
+  </div>
+</div>
+
+<!-- Scroll -->
+<div class="section">
+  <h2>Scroll Operations</h2>
+  <div id="scroll-target">
+    <div id="scroll-top-marker" class="scroll-row">TOP</div>
+    <div id="scroll-bottom-marker" class="scroll-row" style="margin-top:1200px">BOTTOM</div>
+  </div>
+</div>
+
+<!-- Async / Wait -->
+<div class="section">
+  <h2>Wait / Async Operations</h2>
+  <div class="flex">
+    <button id="btn-mutate" onclick="document.getElementById('dynamic-text').textContent='mutated-'+Date.now()">Mutate DOM</button>
+    <button id="btn-async-show" onclick="setTimeout(()=>{document.getElementById('async-element').style.display='block'},500)">Show async (500ms)</button>
+    <div id="async-element" style="display:none;background:var(--accent);color:#fff;padding:4px 12px;border-radius:4px;font-size:0.8rem">Appeared!</div>
+  </div>
+</div>
+
+<!-- Tab -->
+<div class="section">
+  <h2>Tab Operations</h2>
+  <a id="tab-link" href="tab-target.html" target="_blank" style="color:var(--accent)">Open New Tab</a>
+</div>
+
+<script>
+  let clickCount = 0;
+  ['btn-click-target','btn-click-b','btn-click-c'].forEach(id => {
+    document.getElementById(id).addEventListener('click', () => {
+      clickCount++;
+      document.getElementById('click-counter').textContent = 'clicks: ' + clickCount;
+    });
+  });
+</script>
+</body>
+</html>

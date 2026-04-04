@@ -1,0 +1,135 @@
+{
+  "name": "browser-use skill",
+  "type": "llm-driven",
+  "timestamp": "2026-04-02T21:05:20Z",
+  "summary": {
+    "total": 24,
+    "passed": 24,
+    "failed": 0,
+    "skipped": 0,
+    "duration_s": 725,
+    "tool_uses": 117
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 436,
+      "notes": ""
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 4907,
+      "notes": ""
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 9657,
+      "notes": ""
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 222,
+      "notes": ""
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 215,
+      "notes": ""
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 230,
+      "notes": ""
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 44841,
+      "notes": "required retry - shell variable quoting issue"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 28429,
+      "notes": ""
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 221,
+      "notes": ""
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 5278,
+      "notes": ""
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 37018,
+      "notes": ""
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 224,
+      "notes": ""
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 65663,
+      "notes": "required state+input for shadow DOM value entry"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 30146,
+      "notes": ""
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 19442,
+      "notes": "used DOM manipulation instead of drag events"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 61843,
+      "notes": "pixel scan + coordinate click"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 14988,
+      "notes": ""
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 45591,
+      "notes": "Ctrl+B failed, used innerHTML with bold tag"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 23491,
+      "notes": ""
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 14482,
+      "notes": "used JS observer for precise timing"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 30281,
+      "notes": "querySelector with data attribute + input command"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 22676,
+      "notes": "eval for localStorage/cookie, input for value entry"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 30306,
+      "notes": "read source + polling, mutations too fast for individual capture"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 43799,
+      "notes": ""
+    }
+  }
+}

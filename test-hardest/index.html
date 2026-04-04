@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SilbercueChrome — Test Hardest</title>
+  <style>
+    :root {
+      --bg: #0a0a0f; --surface: #12121a; --surface2: #1a1a28; --border: #2a2a3a;
+      --text: #e0e0e8; --muted: #888899; --accent: #6c5ce7; --accent2: #00cec9;
+      --success: #00b894; --warn: #fdcb6e; --danger: #e17055; --radius: 8px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 20px 32px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 1000; }
+    header h1 { font-size: 1.4rem; font-weight: 700; }
+    header h1 span { color: var(--accent); }
+    #benchmark-bar { display: flex; gap: 24px; align-items: center; font-size: 0.85rem; }
+    .metric { display: flex; flex-direction: column; align-items: center; }
+    .metric-value { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .metric-label { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    #btn-reset { background: var(--danger); color: #fff; border: none; padding: 6px 16px; border-radius: var(--radius); cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+    nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; display: flex; position: sticky; top: 68px; z-index: 999; }
+    nav button { background: none; border: none; color: var(--muted); padding: 12px 20px; cursor: pointer; font-size: 0.85rem; font-weight: 600; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    nav button:hover { color: var(--text); }
+    nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+    main { max-width: 1200px; margin: 0 auto; padding: 32px; }
+    .level-section { display: none; }
+    .level-section.active { display: block; }
+    .level-header { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .level-header h2 { font-size: 1.5rem; margin-bottom: 4px; }
+    .level-header p { color: var(--muted); font-size: 0.9rem; }
+    .test-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; position: relative; }
+    .test-card h3 { font-size: 1rem; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; }
+    .test-card .test-desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+    .test-id { font-size: 0.7rem; background: var(--surface2); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-family: monospace; }
+    .test-status { position: absolute; top: 24px; right: 24px; font-size: 0.75rem; font-weight: 600; padding: 4px 10px; border-radius: 4px; }
+    .test-status.pending { background: var(--surface2); color: var(--muted); }
+    .test-status.pass { background: rgba(0,184,148,0.15); color: var(--success); }
+    .test-status.fail { background: rgba(225,112,85,0.15); color: var(--danger); }
+    .test-area { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; min-height: 60px; }
+    input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="search"], textarea, select {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 12px;
+      border-radius: var(--radius); font-size: 0.9rem; font-family: inherit; outline: none; transition: border-color 0.2s;
+    }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+    button.action-btn { background: var(--accent); color: #fff; border: none; padding: 8px 18px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.2s; }
+    button.action-btn:hover { opacity: 0.85; }
+    button.action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    label { font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 4px; }
+    .verify-output { margin-top: 12px; padding: 8px 12px; border-radius: var(--radius); font-family: monospace; font-size: 0.8rem; min-height: 24px; }
+    .verify-output.success { background: rgba(0,184,148,0.1); color: var(--success); }
+    .verify-output.error { background: rgba(225,112,85,0.1); color: var(--danger); }
+    .flex { display: flex; } .flex-col { flex-direction: column; } .gap-8 { gap: 8px; } .gap-12 { gap: 12px; } .gap-16 { gap: 16px; } .gap-20 { gap: 20px; }
+    .mt-12 { margin-top: 12px; } .mt-16 { margin-top: 16px; } .mb-8 { margin-bottom: 8px; } .hidden { display: none !important; }
+    .checkbox-group, .radio-group { display: flex; flex-direction: column; gap: 8px; }
+    .checkbox-group label, .radio-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text); }
+    table.test-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    table.test-table th, table.test-table td { padding: 10px 14px; border: 1px solid var(--border); text-align: left; }
+    table.test-table th { background: var(--surface); color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.03em; }
+    table.test-table tr:hover td { background: rgba(108,92,231,0.05); }
+    th[data-sortable] { cursor: pointer; user-select: none; }
+    th[data-sortable]:hover { color: var(--accent); }
+    th[data-sortable]::after { content: ' \2195'; font-size: 0.7em; }
+    .drag-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .drag-item { background: var(--surface); border: 1px solid var(--border); padding: 10px 14px; border-radius: var(--radius); cursor: grab; user-select: none; transition: all 0.15s; }
+    .drag-item:active { cursor: grabbing; }
+    .drag-item.dragging { opacity: 0.4; border-color: var(--accent); }
+    .drag-item.drag-over { border-color: var(--accent2); background: rgba(0,206,201,0.05); }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+    .modal-overlay.hidden { display: none; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; min-width: 380px; max-width: 500px; }
+    .modal h3 { margin-bottom: 16px; }
+    #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 3000; display: flex; flex-direction: column; gap: 8px; }
+    .toast { background: var(--surface); border: 1px solid var(--border); padding: 12px 18px; border-radius: var(--radius); font-size: 0.85rem; animation: toast-in 0.3s ease; max-width: 320px; }
+    .toast.success { border-left: 3px solid var(--success); }
+    .toast.error { border-left: 3px solid var(--danger); }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    canvas.test-canvas { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+    .progress-bar { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
+    .skeleton { background: linear-gradient(90deg, var(--surface2) 25%, var(--surface) 50%, var(--surface2) 75%); background-size: 200% 100%; animation: skeleton-loading 1.5s infinite; border-radius: var(--radius); }
+    @keyframes skeleton-loading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .shadow-host { border: 1px dashed var(--accent); padding: 16px; border-radius: var(--radius); }
+    .scroll-container { max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+    .scroll-item { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+    .scroll-item:last-child { border-bottom: none; }
+    .countdown { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent2); }
+    kbd { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-family: monospace; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1><span>Silbercue</span>Chrome — Test Hardest</h1>
+  <div id="benchmark-bar">
+    <div class="metric"><span class="metric-value" id="m-passed">0</span><span class="metric-label">Passed</span></div>
+    <div class="metric"><span class="metric-value" id="m-failed">0</span><span class="metric-label">Failed</span></div>
+    <div class="metric"><span class="metric-value" id="m-total">0</span><span class="metric-label">Total</span></div>
+    <div class="metric"><span class="metric-value" id="m-time">0s</span><span class="metric-label">Elapsed</span></div>
+    <button id="btn-reset" onclick="Benchmark.reset()">Reset All</button>
+  </div>
+</header>
+
+<nav id="level-nav">
+  <button class="active" data-level="1">Level 1 — Basics</button>
+  <button data-level="2">Level 2 — Intermediate</button>
+  <button data-level="3">Level 3 — Advanced</button>
+  <button data-level="4">Level 4 — Hardest</button>
+  <button data-level="results">Results</button>
+  <button data-level="compare">Compare</button>
+</nav>
+
+<main>
+
+<!-- LEVEL 1 -->
+<section class="level-section active" data-level="1">
+  <div class="level-header">
+    <h2>Level 1 — Basics</h2>
+    <p>Fundamentale Browser-Interaktionen. Jeder MCP muss diese Tests bestehen.</p>
+  </div>
+
+  <div class="test-card" data-test="1.1">
+    <h3><span class="test-id">T1.1</span> Click the Button</h3>
+    <p class="test-desc">Finde und klicke den Button. Der Text aendert sich bei Erfolg.</p>
+    <div class="test-area">
+      <button class="action-btn" id="t1-1-btn" onclick="Tests.t1_1()">Click Me</button>
+      <div class="verify-output" id="t1-1-result"></div>
+    </div>
+    <span class="test-status pending" id="t1-1-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="1.2">
+    <h3><span class="test-id">T1.2</span> Read Text Content</h3>
+    <p class="test-desc">Lies den versteckten Wert aus dem Element und gib ihn in das Eingabefeld ein.</p>
+    <div class="test-area">
+      <p>Der geheime Code lautet: <strong id="t1-2-secret">CHROME-7X9K</strong></p>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t1-2-input" placeholder="Code hier eingeben...">
+        <button class="action-btn" onclick="Tests.t1_2()">Verify</button>
+      </div>
+      <div class="verify-output" id="t1-2-result"></div>
+    </div>
+    <span class="test-status pending" id="t1-2-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="1.3">
+    <h3><span class="test-id">T1.3</span> Fill a Complete Form</h3>
+    <p class="test-desc">Fuelle alle Felder korrekt aus und sende das Formular ab.</p>
+    <div class="test-area">
+      <form id="t1-3-form" onsubmit="return Tests.t1_3(event)">
+        <div class="flex flex-col gap-12">
+          <div><label for="t1-3-name">Full Name *</label><input type="text" id="t1-3-name" required placeholder="Max Mustermann" style="width:100%"></div>
+          <div><label for="t1-3-email">Email *</label><input type="email" id="t1-3-email" required placeholder="max@example.com" style="width:100%"></div>
+          <div><label for="t1-3-age">Age (18-99) *</label><input type="number" id="t1-3-age" required min="18" max="99" placeholder="25" style="width:120px"></div>
+          <div>
+            <label for="t1-3-country">Country *</label>
+            <select id="t1-3-country" required style="width:100%">
+              <option value="">-- Select --</option>
+              <option value="de">Germany</option>
+              <option value="at">Austria</option>
+              <option value="ch">Switzerland</option>
+              <option value="us">United States</option>
+            </select>
+          </div>
+          <div><label for="t1-3-bio">Short Bio</label><textarea id="t1-3-bio" rows="3" placeholder="Tell us about yourself..." style="width:100%"></textarea></div>
+          <div class="checkbox-group">
+            <label><input type="checkbox" id="t1-3-terms" required> I agree to the Terms</label>
+            <label><input type="checkbox" id="t1-3-newsletter"> Subscribe to newsletter</label>
+          </div>
+          <button type="submit" class="action-btn" style="align-self:flex-start">Submit Form</button>
+        </div>
+      </form>
+      <div class="verify-output" id="t1-3-result"></div>
+    </div>
+    <span class="test-status pending" id="t1-3-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="1.4">
+    <h3><span class="test-id">T1.4</span> Element Selection Challenge</h3>
+    <p class="test-desc">Finde Elemente ueber 5 verschiedene Selektoren und klicke alle: ID, Klasse, data-Attribut, aria-label, Textinhalt.</p>
+    <div class="test-area">
+      <div class="flex flex-col gap-8">
+        <button id="sel-by-id" class="action-btn" onclick="Tests.t1_4_click(this)" style="align-self:flex-start">Find by ID</button>
+        <button class="sel-by-class action-btn" onclick="Tests.t1_4_click(this)" style="align-self:flex-start">Find by Class</button>
+        <button data-action="sel-data" class="action-btn" onclick="Tests.t1_4_click(this)" style="align-self:flex-start">Find by data-attribute</button>
+        <button aria-label="accessibility-target" class="action-btn" onclick="Tests.t1_4_click(this)" style="align-self:flex-start">Find by aria-label</button>
+        <button class="action-btn" onclick="Tests.t1_4_click(this)" style="align-self:flex-start">Find by exact text: UNIQUE_SELECTOR_2847</button>
+      </div>
+      <div class="verify-output" id="t1-4-result"></div>
+    </div>
+    <span class="test-status pending" id="t1-4-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="1.5">
+    <h3><span class="test-id">T1.5</span> Navigation Sequence</h3>
+    <p class="test-desc">Klicke die Links in Reihenfolge: Alpha, Beta, Gamma. Dann Verify.</p>
+    <div class="test-area">
+      <div class="flex gap-12">
+        <a href="#step-alpha" onclick="Tests.t1_5_nav('alpha')" style="color:var(--accent);cursor:pointer">Step Alpha</a>
+        <a href="#step-beta" onclick="Tests.t1_5_nav('beta')" style="color:var(--accent);cursor:pointer">Step Beta</a>
+        <a href="#step-gamma" onclick="Tests.t1_5_nav('gamma')" style="color:var(--accent);cursor:pointer">Step Gamma</a>
+      </div>
+      <div class="mt-12"><span style="color:var(--muted)">Sequence: </span><span id="t1-5-sequence" style="font-family:monospace">[]</span></div>
+      <button class="action-btn mt-12" onclick="Tests.t1_5_verify()">Verify Sequence</button>
+      <div class="verify-output" id="t1-5-result"></div>
+    </div>
+    <span class="test-status pending" id="t1-5-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="1.6">
+    <h3><span class="test-id">T1.6</span> Read Table Data</h3>
+    <p class="test-desc">Lies die Tabelle und gib die Summe der Score-Spalte ein.</p>
+    <div class="test-area">
+      <table class="test-table" id="t1-6-table">
+        <thead><tr><th>Name</th><th>Category</th><th>Score</th></tr></thead>
+        <tbody>
+          <tr><td>Alpha</td><td>Speed</td><td>42</td></tr>
+          <tr><td>Beta</td><td>Accuracy</td><td>87</td></tr>
+          <tr><td>Gamma</td><td>Speed</td><td>23</td></tr>
+          <tr><td>Delta</td><td>Accuracy</td><td>91</td></tr>
+          <tr><td>Epsilon</td><td>Speed</td><td>56</td></tr>
+        </tbody>
+      </table>
+      <div class="flex gap-8 mt-12">
+        <input type="number" id="t1-6-input" placeholder="Sum of scores...">
+        <button class="action-btn" onclick="Tests.t1_6()">Verify Sum</button>
+      </div>
+      <div class="verify-output" id="t1-6-result"></div>
+    </div>
+    <span class="test-status pending" id="t1-6-status">PENDING</span>
+  </div>
+</section>
+
+<!-- LEVEL 2 -->
+<section class="level-section" data-level="2">
+  <div class="level-header">
+    <h2>Level 2 — Intermediate</h2>
+    <p>Dynamischer Content, Timing, mehrstufige Interaktionen.</p>
+  </div>
+
+  <div class="test-card" data-test="2.1">
+    <h3><span class="test-id">T2.1</span> Wait for Async Content</h3>
+    <p class="test-desc">Klicke Load. Nach 2 Sekunden erscheint ein Wert. Lies ihn und gib ihn ein.</p>
+    <div class="test-area">
+      <button class="action-btn" id="t2-1-load" onclick="Tests.t2_1_load()">Load Data</button>
+      <div id="t2-1-container" class="mt-12"></div>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t2-1-input" placeholder="Enter loaded value...">
+        <button class="action-btn" onclick="Tests.t2_1_verify()">Verify</button>
+      </div>
+      <div class="verify-output" id="t2-1-result"></div>
+    </div>
+    <span class="test-status pending" id="t2-1-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="2.2">
+    <h3><span class="test-id">T2.2</span> Infinite Scroll</h3>
+    <p class="test-desc">Scrolle die Liste bis Item 30 sichtbar ist. Neue Items laden beim Scrollen nach.</p>
+    <div class="test-area">
+      <div class="scroll-container" id="t2-2-scroller"></div>
+      <button class="action-btn mt-12" onclick="Tests.t2_2_verify()">Verify Item 30 Loaded</button>
+      <div class="verify-output" id="t2-2-result"></div>
+    </div>
+    <span class="test-status pending" id="t2-2-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="2.3">
+    <h3><span class="test-id">T2.3</span> Multi-Step Wizard</h3>
+    <p class="test-desc">Durchlaufe alle 3 Schritte des Wizards und schliesse ihn ab.</p>
+    <div class="test-area">
+      <div class="progress-bar mb-8"><div class="progress-bar-fill" id="t2-3-progress" style="width:33%"></div></div>
+      <div id="t2-3-step-1" class="wizard-step">
+        <p class="mb-8"><strong>Step 1/3:</strong> Waehle dein Paket</p>
+        <div class="radio-group">
+          <label><input type="radio" name="t2-3-plan" value="starter"> Starter (Free)</label>
+          <label><input type="radio" name="t2-3-plan" value="pro"> Pro (12 EUR/mo)</label>
+          <label><input type="radio" name="t2-3-plan" value="enterprise"> Enterprise</label>
+        </div>
+        <button class="action-btn mt-12" onclick="Tests.t2_3_next(1)">Next</button>
+      </div>
+      <div id="t2-3-step-2" class="wizard-step hidden">
+        <p class="mb-8"><strong>Step 2/3:</strong> Gib deine Details ein</p>
+        <div class="flex flex-col gap-8">
+          <input type="text" id="t2-3-company" placeholder="Company Name">
+          <input type="text" id="t2-3-team-size" placeholder="Team Size">
+        </div>
+        <div class="flex gap-8 mt-12">
+          <button class="action-btn" onclick="Tests.t2_3_back()" style="background:var(--surface2)">Back</button>
+          <button class="action-btn" onclick="Tests.t2_3_next(2)">Next</button>
+        </div>
+      </div>
+      <div id="t2-3-step-3" class="wizard-step hidden">
+        <p class="mb-8"><strong>Step 3/3:</strong> Bestaetigung</p>
+        <div id="t2-3-summary" style="font-size:0.85rem;color:var(--muted)"></div>
+        <button class="action-btn mt-12" onclick="Tests.t2_3_finish()">Complete Setup</button>
+      </div>
+      <div id="t2-3-done" class="wizard-step hidden">
+        <p style="color:var(--success);font-weight:600">Setup complete! Your configuration has been saved.</p>
+      </div>
+      <div class="verify-output" id="t2-3-result"></div>
+    </div>
+    <span class="test-status pending" id="t2-3-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="2.4">
+    <h3><span class="test-id">T2.4</span> Searchable Dropdown</h3>
+    <p class="test-desc">Tippe in das Suchfeld, waehle "TypeScript" aus der gefilterten Liste.</p>
+    <div class="test-area">
+      <div style="position:relative;width:300px">
+        <input type="text" id="t2-4-search" placeholder="Search language..." autocomplete="off" style="width:100%" oninput="Tests.t2_4_filter()" onfocus="Tests.t2_4_open()">
+        <div id="t2-4-dropdown" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:200px;overflow-y:auto;z-index:10"></div>
+      </div>
+      <div class="mt-12">Selected: <strong id="t2-4-selected">none</strong></div>
+      <div class="verify-output" id="t2-4-result"></div>
+    </div>
+    <span class="test-status pending" id="t2-4-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="2.5">
+    <h3><span class="test-id">T2.5</span> Tab Management</h3>
+    <p class="test-desc">Klicke den Link (neuer Tab), lies den Wert dort, kehre zurueck und gib ihn ein.</p>
+    <div class="test-area">
+      <a href="tab-target.html" target="_blank" style="color:var(--accent)">Open Target Tab</a>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t2-5-input" placeholder="Value from other tab...">
+        <button class="action-btn" onclick="Tests.t2_5_verify()">Verify</button>
+      </div>
+      <div class="verify-output" id="t2-5-result"></div>
+    </div>
+    <span class="test-status pending" id="t2-5-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="2.6">
+    <h3><span class="test-id">T2.6</span> Sort Table and Find Value</h3>
+    <p class="test-desc">Sortiere nach Price absteigend. Gib den Namen des teuersten Produkts ein.</p>
+    <div class="test-area">
+      <table class="test-table" id="t2-6-table">
+        <thead>
+          <tr>
+            <th data-sortable onclick="Tests.t2_6_sort('name')">Product</th>
+            <th data-sortable onclick="Tests.t2_6_sort('price')">Price</th>
+            <th data-sortable onclick="Tests.t2_6_sort('stock')">Stock</th>
+          </tr>
+        </thead>
+        <tbody id="t2-6-body"></tbody>
+      </table>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t2-6-input" placeholder="Most expensive product...">
+        <button class="action-btn" onclick="Tests.t2_6_verify()">Verify</button>
+      </div>
+      <div class="verify-output" id="t2-6-result"></div>
+    </div>
+    <span class="test-status pending" id="t2-6-status">PENDING</span>
+  </div>
+</section>
+
+<!-- LEVEL 3 -->
+<section class="level-section" data-level="3">
+  <div class="level-header">
+    <h2>Level 3 — Advanced</h2>
+    <p>Shadow DOM, iFrames, Drag and Drop, Canvas, Keyboard-Interaktion.</p>
+  </div>
+
+  <div class="test-card" data-test="3.1">
+    <h3><span class="test-id">T3.1</span> Shadow DOM Interaction</h3>
+    <p class="test-desc">Interagiere mit Elementen innerhalb eines Shadow DOM. Lies den Wert und gib ihn ein.</p>
+    <div class="test-area">
+      <div id="t3-1-shadow-host" class="shadow-host"></div>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t3-1-input" placeholder="Value from shadow DOM...">
+        <button class="action-btn" onclick="Tests.t3_1_verify()">Verify</button>
+      </div>
+      <div class="verify-output" id="t3-1-result"></div>
+    </div>
+    <span class="test-status pending" id="t3-1-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="3.2">
+    <h3><span class="test-id">T3.2</span> Nested iFrame Interaction</h3>
+    <p class="test-desc">Navigiere in den verschachtelten iFrame, lies den Wert und gib ihn ein.</p>
+    <div class="test-area">
+      <iframe id="t3-2-frame" srcdoc='<html><body style="background:#12121a;color:#e0e0e8;font-family:system-ui;padding:16px"><p>Outer Frame</p><iframe srcdoc="&lt;html&gt;&lt;body style=&apos;background:#1a1a28;color:#e0e0e8;font-family:system-ui;padding:16px&apos;&gt;&lt;p&gt;Inner Frame&lt;/p&gt;&lt;p&gt;Secret: &lt;strong id=&apos;inner-secret&apos;&gt;FRAME-DEEP-42&lt;/strong&gt;&lt;/p&gt;&lt;button onclick=&apos;document.getElementById(&quot;inner-secret&quot;).textContent=&quot;FRAME-CLICKED&quot;&apos; style=&apos;background:#6c5ce7;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer&apos;&gt;Click Inside&lt;/button&gt;&lt;/body&gt;&lt;/html&gt;" style="width:100%;height:120px;border:1px solid #2a2a3a;border-radius:6px"></iframe></body></html>' style="width:100%;height:220px;border:1px solid var(--border);border-radius:var(--radius)"></iframe>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t3-2-input" placeholder="Value from inner frame...">
+        <button class="action-btn" onclick="Tests.t3_2_verify()">Verify</button>
+      </div>
+      <div class="verify-output" id="t3-2-result"></div>
+    </div>
+    <span class="test-status pending" id="t3-2-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="3.3">
+    <h3><span class="test-id">T3.3</span> Drag and Drop Reorder</h3>
+    <p class="test-desc">Ordne die Items in die richtige Reihenfolge 1 bis 5 von oben nach unten.</p>
+    <div class="test-area">
+      <ul class="drag-list" id="t3-3-list">
+        <li class="drag-item" draggable="true" data-value="3">Item 3</li>
+        <li class="drag-item" draggable="true" data-value="1">Item 1</li>
+        <li class="drag-item" draggable="true" data-value="5">Item 5</li>
+        <li class="drag-item" draggable="true" data-value="2">Item 2</li>
+        <li class="drag-item" draggable="true" data-value="4">Item 4</li>
+      </ul>
+      <button class="action-btn mt-12" onclick="Tests.t3_3_verify()">Verify Order</button>
+      <div class="verify-output" id="t3-3-result"></div>
+    </div>
+    <span class="test-status pending" id="t3-3-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="3.4">
+    <h3><span class="test-id">T3.4</span> Canvas Click Target</h3>
+    <p class="test-desc">Klicke auf den roten Kreis im Canvas. Position ist zufaellig.</p>
+    <div class="test-area">
+      <canvas id="t3-4-canvas" class="test-canvas" width="500" height="250"></canvas>
+      <div class="verify-output" id="t3-4-result"></div>
+    </div>
+    <span class="test-status pending" id="t3-4-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="3.5">
+    <h3><span class="test-id">T3.5</span> Keyboard Shortcut Sequence</h3>
+    <p class="test-desc">Fuehre die Tastenkombinationen in der richtigen Reihenfolge aus.</p>
+    <div class="test-area">
+      <div class="flex flex-col gap-8">
+        <div>1. Press <kbd>Ctrl</kbd> + <kbd>K</kbd> <span id="t3-5-s1" style="color:var(--muted)">waiting...</span></div>
+        <div>2. Press <kbd>Escape</kbd> <span id="t3-5-s2" style="color:var(--muted)">waiting...</span></div>
+        <div>3. Press <kbd>Enter</kbd> <span id="t3-5-s3" style="color:var(--muted)">waiting...</span></div>
+      </div>
+      <div class="verify-output" id="t3-5-result"></div>
+    </div>
+    <span class="test-status pending" id="t3-5-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="3.6">
+    <h3><span class="test-id">T3.6</span> Rich Text Editor (contenteditable)</h3>
+    <p class="test-desc">Schreibe "Hello World" in den Editor und mache "World" fett (Ctrl+B).</p>
+    <div class="test-area">
+      <div id="t3-6-editor" contenteditable="true" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;min-height:80px;outline:none;font-size:0.9rem"></div>
+      <button class="action-btn mt-12" onclick="Tests.t3_6_verify()">Verify Content</button>
+      <div class="verify-output" id="t3-6-result"></div>
+    </div>
+    <span class="test-status pending" id="t3-6-status">PENDING</span>
+  </div>
+</section>
+
+<!-- LEVEL 4 -->
+<section class="level-section" data-level="4">
+  <div class="level-header">
+    <h2>Level 4 — Hardest</h2>
+    <p>Timing, Race Conditions, DOM-Stress, State-Management.</p>
+  </div>
+
+  <div class="test-card" data-test="4.1">
+    <h3><span class="test-id">T4.1</span> Delayed Element Appearance</h3>
+    <p class="test-desc">Klicke Start. Ein Button erscheint nach 1-5 Sekunden an zufaelliger Position. Klicke ihn.</p>
+    <div class="test-area">
+      <button class="action-btn" id="t4-1-start" onclick="Tests.t4_1_start()">Start Challenge</button>
+      <div id="t4-1-arena" style="position:relative;height:200px;margin-top:12px;border:1px dashed var(--border);border-radius:var(--radius)"></div>
+      <div class="verify-output" id="t4-1-result"></div>
+    </div>
+    <span class="test-status pending" id="t4-1-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="4.2">
+    <h3><span class="test-id">T4.2</span> Racing Content Updates</h3>
+    <p class="test-desc">Der Zaehler aendert sich alle 500ms (0-9). Klicke Capture genau wenn der Wert 7 ist.</p>
+    <div class="test-area">
+      <div class="flex gap-20" style="align-items:center">
+        <div class="countdown" id="t4-2-counter">0</div>
+        <button class="action-btn" id="t4-2-capture" onclick="Tests.t4_2_capture()" disabled>Capture</button>
+        <button class="action-btn" onclick="Tests.t4_2_start()" style="background:var(--accent2)">Start Counter</button>
+      </div>
+      <div class="verify-output" id="t4-2-result"></div>
+    </div>
+    <span class="test-status pending" id="t4-2-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="4.3">
+    <h3><span class="test-id">T4.3</span> Large DOM — Find the Needle</h3>
+    <p class="test-desc">10.000 Elemente im DOM. Finde das Element mit data-needle="true" und lies seinen Text.</p>
+    <div class="test-area">
+      <button class="action-btn" onclick="Tests.t4_3_generate()">Generate 10K Elements</button>
+      <div id="t4-3-container" class="scroll-container mt-12" style="max-height:200px"></div>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t4-3-input" placeholder="Needle text...">
+        <button class="action-btn" onclick="Tests.t4_3_verify()">Verify</button>
+      </div>
+      <div class="verify-output" id="t4-3-result"></div>
+    </div>
+    <span class="test-status pending" id="t4-3-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="4.4">
+    <h3><span class="test-id">T4.4</span> State Chain: localStorage + Cookies</h3>
+    <p class="test-desc">Setze localStorage key "bench-key"="ALPHA" und cookie "bench-cookie"="OMEGA", dann kombiniere: ALPHA-OMEGA.</p>
+    <div class="test-area">
+      <div class="flex flex-col gap-12">
+        <div>
+          <label>1. Set localStorage: localStorage.setItem("bench-key", "ALPHA")</label>
+          <button class="action-btn mt-12" id="t4-4-check-ls" onclick="Tests.t4_4_checkLS()">Check localStorage</button>
+        </div>
+        <div>
+          <label>2. Set cookie: document.cookie = "bench-cookie=OMEGA"</label>
+          <button class="action-btn" id="t4-4-check-cookie" onclick="Tests.t4_4_checkCookie()" disabled>Check Cookie</button>
+        </div>
+        <div>
+          <label>3. Enter combined value (format: ALPHA-OMEGA):</label>
+          <div class="flex gap-8 mt-12">
+            <input type="text" id="t4-4-input" placeholder="Combined value..." disabled>
+            <button class="action-btn" id="t4-4-verify-btn" onclick="Tests.t4_4_verify()" disabled>Verify</button>
+          </div>
+        </div>
+      </div>
+      <div class="verify-output" id="t4-4-result"></div>
+    </div>
+    <span class="test-status pending" id="t4-4-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="4.5">
+    <h3><span class="test-id">T4.5</span> Mutation Observer Challenge</h3>
+    <p class="test-desc">Der Wert aendert sich 3x in 3 Sekunden. Sammle alle 3 Werte und gib sie kommasepariert ein.</p>
+    <div class="test-area">
+      <button class="action-btn" onclick="Tests.t4_5_start()">Start Mutations</button>
+      <div class="mt-12" style="font-size:1.2rem">Current value: <strong id="t4-5-value">---</strong></div>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t4-5-input" placeholder="value1,value2,value3">
+        <button class="action-btn" onclick="Tests.t4_5_verify()">Verify</button>
+      </div>
+      <div class="verify-output" id="t4-5-result"></div>
+    </div>
+    <span class="test-status pending" id="t4-5-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="4.6">
+    <h3><span class="test-id">T4.6</span> Final Boss: Multi-Modal Chain</h3>
+    <p class="test-desc">1) Klicke den Button, 2) fuelle das Modal-Formular aus, 3) generiere Token, 4) lies und gib ihn ein.</p>
+    <div class="test-area">
+      <button class="action-btn" id="t4-6-trigger" onclick="Tests.t4_6_open()">Open Configuration</button>
+      <div class="mt-12">Generated Token: <code id="t4-6-token" style="color:var(--accent)">---</code></div>
+      <div class="flex gap-8 mt-12">
+        <input type="text" id="t4-6-input" placeholder="Enter the generated token...">
+        <button class="action-btn" onclick="Tests.t4_6_verify()">Verify Token</button>
+      </div>
+      <div class="verify-output" id="t4-6-result"></div>
+    </div>
+    <span class="test-status pending" id="t4-6-status">PENDING</span>
+  </div>
+</section>
+
+<!-- Modal T4.6 -->
+<div class="modal-overlay hidden" id="t4-6-modal">
+  <div class="modal">
+    <h3>Configuration Setup</h3>
+    <div class="flex flex-col gap-12">
+      <div><label for="t4-6-m-name">Config Name *</label><input type="text" id="t4-6-m-name" placeholder="my-config" style="width:100%"></div>
+      <div>
+        <label for="t4-6-m-env">Environment *</label>
+        <select id="t4-6-m-env" style="width:100%">
+          <option value="">-- Select --</option>
+          <option value="development">Development</option>
+          <option value="staging">Staging</option>
+          <option value="production">Production</option>
+        </select>
+      </div>
+      <div class="checkbox-group">
+        <label><input type="checkbox" id="t4-6-m-ssl"> Enable SSL</label>
+        <label><input type="checkbox" id="t4-6-m-debug"> Debug Mode</label>
+      </div>
+      <div class="flex gap-8">
+        <button class="action-btn" onclick="Tests.t4_6_cancel()" style="background:var(--surface2)">Cancel</button>
+        <button class="action-btn" onclick="Tests.t4_6_confirm()">Generate Token</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- COMPARE -->
+<section class="level-section" data-level="compare">
+  <div class="level-header">
+    <h2>MCP Comparison</h2>
+    <p>Vergleich aller gespeicherten Laeufe nebeneinander — Status und Dauer pro Test.</p>
+  </div>
+  <div class="flex gap-12 mb-16" style="align-items:center;flex-wrap:wrap">
+    <input type="text" id="cmp-run-name" placeholder="Run-Name (z.B. Playwright MCP)" style="width:240px">
+    <button class="action-btn" onclick="Compare.saveRun()">Aktuellen Lauf speichern</button>
+    <button class="action-btn" onclick="Compare.importJSON()" style="background:var(--surface2)">JSON importieren</button>
+    <button class="action-btn" onclick="Compare.clearAll()" style="background:var(--danger);margin-left:auto">Alle loeschen</button>
+  </div>
+  <div id="cmp-import-area" class="hidden mb-12">
+    <textarea id="cmp-json-input" rows="6" placeholder="JSON hier einfuegen..." style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:var(--radius);font-family:monospace;font-size:0.8rem;resize:vertical"></textarea>
+    <div class="flex gap-8 mt-8">
+      <input type="text" id="cmp-json-name" placeholder="Name fuer diesen Import" style="width:200px">
+      <button class="action-btn" onclick="Compare.confirmImport()">Importieren</button>
+      <button class="action-btn" onclick="Compare.cancelImport()" style="background:var(--surface2)">Abbrechen</button>
+    </div>
+  </div>
+  <div id="cmp-table-wrap" style="overflow-x:auto">
+    <table class="test-table" id="cmp-table">
+      <thead id="cmp-thead"></thead>
+      <tbody id="cmp-tbody"></tbody>
+    </table>
+    <p id="cmp-empty" style="color:var(--muted);padding:32px 0;text-align:center">Noch keine Laeufe gespeichert. Fuehre Tests durch und klicke "Aktuellen Lauf speichern".</p>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section class="level-section" data-level="results">
+  <div class="level-header">
+    <h2>Benchmark Results</h2>
+    <p>Zusammenfassung aller Tests mit Metriken.</p>
+  </div>
+  <table class="test-table">
+    <thead><tr><th>Test</th><th>Status</th><th>Time (ms)</th><th>Details</th></tr></thead>
+    <tbody id="results-body"></tbody>
+  </table>
+  <div class="mt-16">
+    <button class="action-btn" onclick="Benchmark.exportJSON()">Export as JSON</button>
+  </div>
+  <pre id="results-json" class="mt-12" style="background:var(--surface2);padding:16px;border-radius:var(--radius);font-size:0.8rem;overflow-x:auto;display:none"></pre>
+</section>
+
+</main>
+
+<div id="toast-container"></div>
+
+<script>
+const Benchmark = {
+  results: {},
+  startTime: null,
+  timerInterval: null,
+
+  start(id) {
+    this.results[id] = { status: 'running', startTime: performance.now(), endTime: null, details: '' };
+    this.updateUI();
+  },
+  pass(id, details = '') {
+    if (!this.results[id]) this.start(id);
+    this.results[id].status = 'pass';
+    this.results[id].endTime = performance.now();
+    this.results[id].details = details;
+    const el = document.getElementById('t' + id.replace('.', '-') + '-status');
+    if (el) { el.textContent = 'PASS'; el.className = 'test-status pass'; }
+    this.updateUI();
+    this.toast('T' + id + ' passed!', 'success');
+  },
+  fail(id, details = '') {
+    if (!this.results[id]) this.start(id);
+    this.results[id].status = 'fail';
+    this.results[id].endTime = performance.now();
+    this.results[id].details = details;
+    const el = document.getElementById('t' + id.replace('.', '-') + '-status');
+    if (el) { el.textContent = 'FAIL'; el.className = 'test-status fail'; }
+    this.updateUI();
+    this.toast('T' + id + ' failed: ' + details, 'error');
+  },
+  setResult(id, el, pass, msg) {
+    el.textContent = msg;
+    el.className = 'verify-output ' + (pass ? 'success' : 'error');
+    pass ? this.pass(id, msg) : this.fail(id, msg);
+  },
+  updateUI() {
+    const vals = Object.values(this.results);
+    document.getElementById('m-passed').textContent = vals.filter(r => r.status === 'pass').length;
+    document.getElementById('m-failed').textContent = vals.filter(r => r.status === 'fail').length;
+    document.getElementById('m-total').textContent = vals.length;
+    if (!this.startTime && vals.length > 0) {
+      this.startTime = Date.now();
+      this.timerInterval = setInterval(() => {
+        const s = Math.floor((Date.now() - this.startTime) / 1000);
+        document.getElementById('m-time').textContent = s < 60 ? s + 's' : Math.floor(s/60) + 'm' + (s%60) + 's';
+      }, 1000);
+    }
+    const tbody = document.getElementById('results-body');
+    if (tbody) {
+      let rows = '';
+      for (const [id, r] of Object.entries(this.results)) {
+        const ms = r.endTime ? Math.round(r.endTime - r.startTime) : '...';
+        const cls = r.status === 'pass' ? 'color:var(--success)' : r.status === 'fail' ? 'color:var(--danger)' : 'color:var(--muted)';
+        rows += '<tr><td>T' + id + '</td><td style="' + cls + ';font-weight:600">' + r.status.toUpperCase() + '</td><td>' + ms + '</td><td style="color:var(--muted);font-size:0.8rem">' + r.details + '</td></tr>';
+      }
+      tbody.innerHTML = rows;
+    }
+  },
+  reset() {
+    this.results = {};
+    this.startTime = null;
+    if (this.timerInterval) clearInterval(this.timerInterval);
+    document.getElementById('m-time').textContent = '0s';
+    document.querySelectorAll('.test-status').forEach(el => { el.textContent = 'PENDING'; el.className = 'test-status pending'; });
+    document.querySelectorAll('.verify-output').forEach(el => { el.textContent = ''; el.className = 'verify-output'; });
+    this.updateUI();
+  },
+  toast(msg, type) {
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = 'toast ' + type;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  },
+  exportJSON() {
+    const out = {
+      timestamp: new Date().toISOString(),
+      elapsed_s: this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0,
+      summary: {
+        total: Object.keys(this.results).length,
+        passed: Object.values(this.results).filter(r => r.status === 'pass').length,
+        failed: Object.values(this.results).filter(r => r.status === 'fail').length
+      },
+      tests: {}
+    };
+    for (const [id, r] of Object.entries(this.results)) {
+      out.tests['T' + id] = { status: r.status, duration_ms: r.endTime ? Math.round(r.endTime - r.startTime) : null, details: r.details };
+    }
+    const pre = document.getElementById('results-json');
+    pre.textContent = JSON.stringify(out, null, 2);
+    pre.style.display = 'block';
+  }
+};
+
+document.querySelectorAll('#level-nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#level-nav button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.level-section').forEach(s => s.classList.remove('active'));
+    document.querySelector('.level-section[data-level="' + btn.dataset.level + '"]').classList.add('active');
+  });
+});
+
+const Tests = {
+  // L1
+  t1_1() {
+    Benchmark.start('1.1');
+    const btn = document.getElementById('t1-1-btn');
+    btn.textContent = 'Clicked!';
+    btn.disabled = true;
+    Benchmark.setResult('1.1', document.getElementById('t1-1-result'), true, 'Button clicked successfully');
+  },
+  t1_2() {
+    Benchmark.start('1.2');
+    const secret = document.getElementById('t1-2-secret').textContent;
+    const val = document.getElementById('t1-2-input').value.trim();
+    Benchmark.setResult('1.2', document.getElementById('t1-2-result'), val === secret, val === secret ? 'Correct: ' + secret : 'Expected "' + secret + '", got "' + val + '"');
+  },
+  t1_3(e) {
+    e.preventDefault();
+    Benchmark.start('1.3');
+    const name = document.getElementById('t1-3-name').value.trim();
+    const email = document.getElementById('t1-3-email').value.trim();
+    const age = parseInt(document.getElementById('t1-3-age').value);
+    const country = document.getElementById('t1-3-country').value;
+    const terms = document.getElementById('t1-3-terms').checked;
+    const errors = [];
+    if (!name) errors.push('name empty');
+    if (!email || !email.includes('@')) errors.push('invalid email');
+    if (isNaN(age) || age < 18 || age > 99) errors.push('age out of range');
+    if (!country) errors.push('no country');
+    if (!terms) errors.push('terms not accepted');
+    const pass = errors.length === 0;
+    Benchmark.setResult('1.3', document.getElementById('t1-3-result'), pass, pass ? 'Form submitted successfully' : 'Errors: ' + errors.join(', '));
+    return false;
+  },
+  _t1_4_clicked: new Set(),
+  t1_4_click(btn) {
+    Tests._t1_4_clicked.add(btn.id || btn.getAttribute('aria-label') || btn.dataset.action || btn.className || btn.textContent);
+    btn.style.opacity = '0.5';
+    btn.disabled = true;
+    const res = document.getElementById('t1-4-result');
+    if (Tests._t1_4_clicked.size >= 5) {
+      Benchmark.start('1.4');
+      Benchmark.setResult('1.4', res, true, 'All 5 selectors found and clicked');
+    } else {
+      res.textContent = Tests._t1_4_clicked.size + '/5 clicked';
+    }
+  },
+  _t1_5_seq: [],
+  t1_5_nav(step) {
+    Tests._t1_5_seq.push(step);
+    document.getElementById('t1-5-sequence').textContent = JSON.stringify(Tests._t1_5_seq);
+  },
+  t1_5_verify() {
+    Benchmark.start('1.5');
+    const expected = ['alpha','beta','gamma'];
+    const pass = JSON.stringify(Tests._t1_5_seq) === JSON.stringify(expected);
+    Benchmark.setResult('1.5', document.getElementById('t1-5-result'), pass, pass ? 'Navigation sequence correct' : 'Expected ' + JSON.stringify(expected) + ', got ' + JSON.stringify(Tests._t1_5_seq));
+  },
+  t1_6() {
+    Benchmark.start('1.6');
+    const val = parseInt(document.getElementById('t1-6-input').value);
+    const sum = 299;
+    Benchmark.setResult('1.6', document.getElementById('t1-6-result'), val === sum, val === sum ? 'Correct sum: 299' : 'Expected 299, got ' + val);
+  },
+
+  // L2
+  _t2_1_value: null,
+  t2_1_load() {
+    const container = document.getElementById('t2-1-container');
+    const skel = document.createElement('div');
+    skel.className = 'skeleton';
+    skel.style.cssText = 'height:40px;width:200px';
+    container.textContent = '';
+    container.appendChild(skel);
+    const val = 'ASYNC-' + Math.random().toString(36).substr(2,6).toUpperCase();
+    Tests._t2_1_value = val;
+    setTimeout(() => {
+      container.textContent = '';
+      const p = document.createElement('p');
+      p.textContent = 'Loaded value: ';
+      const strong = document.createElement('strong');
+      strong.id = 't2-1-loaded';
+      strong.textContent = val;
+      p.appendChild(strong);
+      container.appendChild(p);
+    }, 2000);
+  },
+  t2_1_verify() {
+    Benchmark.start('2.1');
+    const val = document.getElementById('t2-1-input').value.trim();
+    Benchmark.setResult('2.1', document.getElementById('t2-1-result'), val === Tests._t2_1_value, val === Tests._t2_1_value ? 'Async value correct' : 'Expected "' + Tests._t2_1_value + '", got "' + val + '"');
+  },
+
+  _t2_2_count: 0,
+  _t2_2_observer: null,
+  _t2_2_init() {
+    Tests._t2_2_count = 0;
+    const scroller = document.getElementById('t2-2-scroller');
+    scroller.textContent = '';
+    Tests._t2_2_addItems(scroller, 10);
+    const sentinel = document.createElement('div');
+    sentinel.id = 't2-2-sentinel';
+    sentinel.style.height = '1px';
+    scroller.appendChild(sentinel);
+    Tests._t2_2_observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && Tests._t2_2_count < 50) Tests._t2_2_loadMore();
+    }, { root: scroller });
+    Tests._t2_2_observer.observe(sentinel);
+  },
+  _t2_2_addItems(scroller, n) {
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < n; i++) {
+      Tests._t2_2_count++;
+      const d = document.createElement('div');
+      d.className = 'scroll-item';
+      d.id = 'scroll-item-' + Tests._t2_2_count;
+      d.textContent = 'Item #' + Tests._t2_2_count;
+      frag.appendChild(d);
+    }
+    scroller.appendChild(frag);
+  },
+  _t2_2_loadMore() {
+    const scroller = document.getElementById('t2-2-scroller');
+    const sentinel = document.getElementById('t2-2-sentinel');
+    if (sentinel) sentinel.remove();
+    Tests._t2_2_addItems(scroller, 10);
+    const s2 = document.createElement('div');
+    s2.id = 't2-2-sentinel';
+    s2.style.height = '1px';
+    scroller.appendChild(s2);
+    if (Tests._t2_2_count < 50) Tests._t2_2_observer.observe(s2);
+  },
+  t2_2_verify() {
+    Benchmark.start('2.2');
+    const item = document.getElementById('scroll-item-30');
+    Benchmark.setResult('2.2', document.getElementById('t2-2-result'), !!item, item ? 'Item 30 loaded' : 'Only ' + Tests._t2_2_count + ' items loaded');
+  },
+
+  _t2_3_data: {},
+  t2_3_next(step) {
+    if (step === 1) {
+      const plan = document.querySelector('input[name="t2-3-plan"]:checked');
+      if (!plan) return;
+      Tests._t2_3_data.plan = plan.value;
+      document.getElementById('t2-3-step-1').classList.add('hidden');
+      document.getElementById('t2-3-step-2').classList.remove('hidden');
+      document.getElementById('t2-3-progress').style.width = '66%';
+    } else if (step === 2) {
+      Tests._t2_3_data.company = document.getElementById('t2-3-company').value;
+      document.getElementById('t2-3-step-2').classList.add('hidden');
+      document.getElementById('t2-3-step-3').classList.remove('hidden');
+      document.getElementById('t2-3-progress').style.width = '100%';
+      document.getElementById('t2-3-summary').textContent = 'Plan: ' + Tests._t2_3_data.plan + ' | Company: ' + Tests._t2_3_data.company;
+    }
+  },
+  t2_3_back() {
+    document.getElementById('t2-3-step-2').classList.add('hidden');
+    document.getElementById('t2-3-step-1').classList.remove('hidden');
+    document.getElementById('t2-3-progress').style.width = '33%';
+  },
+  t2_3_finish() {
+    Benchmark.start('2.3');
+    document.getElementById('t2-3-step-3').classList.add('hidden');
+    document.getElementById('t2-3-done').classList.remove('hidden');
+    const pass = !!(Tests._t2_3_data.plan && Tests._t2_3_data.company);
+    Benchmark.setResult('2.3', document.getElementById('t2-3-result'), pass, pass ? 'Wizard completed: ' + Tests._t2_3_data.plan : 'Wizard incomplete');
+  },
+
+  _t2_4_langs: ['JavaScript','TypeScript','Python','Rust','Go','Swift','Kotlin','Java','C++','Ruby','PHP','Dart','Elixir','Haskell','Scala'],
+  t2_4_open() {
+    document.getElementById('t2-4-dropdown').classList.remove('hidden');
+    Tests.t2_4_filter();
+  },
+  t2_4_filter() {
+    const q = document.getElementById('t2-4-search').value.toLowerCase();
+    const dd = document.getElementById('t2-4-dropdown');
+    dd.classList.remove('hidden');
+    dd.textContent = '';
+    Tests._t2_4_langs.filter(l => l.toLowerCase().includes(q)).forEach(l => {
+      const d = document.createElement('div');
+      d.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:0.85rem';
+      d.textContent = l;
+      d.addEventListener('mousedown', () => Tests.t2_4_select(l));
+      d.addEventListener('mouseover', () => { d.style.background = 'var(--surface2)'; });
+      d.addEventListener('mouseout', () => { d.style.background = ''; });
+      dd.appendChild(d);
+    });
+  },
+  t2_4_select(lang) {
+    Benchmark.start('2.4');
+    document.getElementById('t2-4-search').value = lang;
+    document.getElementById('t2-4-selected').textContent = lang;
+    document.getElementById('t2-4-dropdown').classList.add('hidden');
+    Benchmark.setResult('2.4', document.getElementById('t2-4-result'), lang === 'TypeScript', lang === 'TypeScript' ? 'TypeScript selected!' : 'Expected TypeScript, got ' + lang);
+  },
+  t2_5_verify() {
+    Benchmark.start('2.5');
+    const val = document.getElementById('t2-5-input').value.trim();
+    Benchmark.setResult('2.5', document.getElementById('t2-5-result'), val === 'TAB-TARGET-VALUE-8F3K', val === 'TAB-TARGET-VALUE-8F3K' ? 'Tab value correct!' : 'Expected "TAB-TARGET-VALUE-8F3K", got "' + val + '"');
+  },
+  _t2_6_data: [
+    {name:'Widget Pro', price:49.99, stock:120},
+    {name:'Gadget Ultra', price:189.50, stock:45},
+    {name:'Tool Basic', price:12.00, stock:500},
+    {name:'Device Max', price:299.99, stock:23},
+    {name:'Module Lite', price:7.50, stock:1000},
+    {name:'Sensor XR', price:154.00, stock:67}
+  ],
+  _t2_6_sortDir: {},
+  _t2_6_render() {
+    const tbody = document.getElementById('t2-6-body');
+    tbody.textContent = '';
+    Tests._t2_6_data.forEach(p => {
+      const tr = document.createElement('tr');
+      [p.name, '$' + p.price.toFixed(2), p.stock].forEach(v => {
+        const td = document.createElement('td');
+        td.textContent = v;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  },
+  t2_6_sort(col) {
+    Tests._t2_6_sortDir[col] = !(Tests._t2_6_sortDir[col] || false);
+    const dir = Tests._t2_6_sortDir[col] ? 1 : -1;
+    Tests._t2_6_data.sort((a, b) => typeof a[col] === 'string' ? dir * a[col].localeCompare(b[col]) : dir * (a[col] - b[col]));
+    Tests._t2_6_render();
+  },
+  t2_6_verify() {
+    Benchmark.start('2.6');
+    const val = document.getElementById('t2-6-input').value.trim();
+    Benchmark.setResult('2.6', document.getElementById('t2-6-result'), val === 'Device Max', val === 'Device Max' ? 'Correct! Device Max is most expensive.' : 'Expected "Device Max", got "' + val + '"');
+  },
+
+  // L3
+  _t3_1_init() {
+    const host = document.getElementById('t3-1-shadow-host');
+    const shadow = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = ':host{display:block}.inner{padding:12px;background:#0a0a0f;border-radius:8px}button{background:#6c5ce7;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer}';
+    const div = document.createElement('div');
+    div.className = 'inner';
+    const p = document.createElement('p');
+    p.textContent = 'Shadow DOM Value: ';
+    const strong = document.createElement('strong');
+    strong.id = 'shadow-value';
+    strong.textContent = 'SHADOW-42XY';
+    p.appendChild(strong);
+    const btn = document.createElement('button');
+    btn.id = 'shadow-btn';
+    btn.textContent = 'Click in Shadow';
+    btn.addEventListener('click', () => { btn.textContent = 'Shadow Clicked!'; });
+    div.appendChild(p);
+    div.appendChild(btn);
+    shadow.appendChild(style);
+    shadow.appendChild(div);
+  },
+  t3_1_verify() {
+    Benchmark.start('3.1');
+    const val = document.getElementById('t3-1-input').value.trim();
+    Benchmark.setResult('3.1', document.getElementById('t3-1-result'), val === 'SHADOW-42XY', val === 'SHADOW-42XY' ? 'Shadow DOM value correct' : 'Expected "SHADOW-42XY", got "' + val + '"');
+  },
+  t3_2_verify() {
+    Benchmark.start('3.2');
+    const val = document.getElementById('t3-2-input').value.trim();
+    const pass = val === 'FRAME-DEEP-42' || val === 'FRAME-CLICKED';
+    Benchmark.setResult('3.2', document.getElementById('t3-2-result'), pass, pass ? 'iFrame value correct' : 'Expected FRAME-DEEP-42 or FRAME-CLICKED, got "' + val + '"');
+  },
+  _t3_3_init() {
+    const list = document.getElementById('t3-3-list');
+    let dragItem = null;
+    list.addEventListener('dragstart', e => { dragItem = e.target; e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+    list.addEventListener('dragend', e => { e.target.classList.remove('dragging'); list.querySelectorAll('.drag-item').forEach(i => i.classList.remove('drag-over')); });
+    list.addEventListener('dragover', e => { e.preventDefault(); const t = e.target.closest('.drag-item'); if (t && t !== dragItem) t.classList.add('drag-over'); });
+    list.addEventListener('dragleave', e => { const t = e.target.closest('.drag-item'); if (t) t.classList.remove('drag-over'); });
+    list.addEventListener('drop', e => {
+      e.preventDefault();
+      const t = e.target.closest('.drag-item');
+      if (t && t !== dragItem) {
+        const items = [...list.children];
+        items.indexOf(dragItem) < items.indexOf(t) ? list.insertBefore(dragItem, t.nextSibling) : list.insertBefore(dragItem, t);
+      }
+      list.querySelectorAll('.drag-item').forEach(i => i.classList.remove('drag-over'));
+    });
+  },
+  t3_3_verify() {
+    Benchmark.start('3.3');
+    const order = [...document.querySelectorAll('#t3-3-list .drag-item')].map(i => i.dataset.value);
+    const pass = JSON.stringify(order) === JSON.stringify(['1','2','3','4','5']);
+    Benchmark.setResult('3.3', document.getElementById('t3-3-result'), pass, pass ? 'Items in correct order!' : 'Got [' + order.join(',') + '], expected [1,2,3,4,5]');
+  },
+  _t3_4_init() {
+    const canvas = document.getElementById('t3-4-canvas');
+    const ctx = canvas.getContext('2d');
+    const tx = 50 + Math.random() * (canvas.width - 100);
+    const ty = 50 + Math.random() * (canvas.height - 100);
+    const radius = 20;
+    ctx.fillStyle = '#0a0a0f';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < 8; i++) {
+      ctx.beginPath();
+      ctx.arc(30 + Math.random()*(canvas.width-60), 30 + Math.random()*(canvas.height-60), 12, 0, Math.PI*2);
+      ctx.fillStyle = '#2a2a3a';
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(tx, ty, radius, 0, Math.PI*2);
+    ctx.fillStyle = '#e17055';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#888899';
+    ctx.font = '12px system-ui';
+    ctx.fillText('Click the red circle', 10, 20);
+    canvas.addEventListener('click', e => {
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const dist = Math.sqrt((cx-tx)**2 + (cy-ty)**2);
+      Benchmark.start('3.4');
+      if (dist <= radius + 5) {
+        ctx.beginPath(); ctx.arc(tx, ty, radius, 0, Math.PI*2); ctx.fillStyle = '#00b894'; ctx.fill();
+        Benchmark.setResult('3.4', document.getElementById('t3-4-result'), true, 'Hit! Distance: ' + dist.toFixed(1) + 'px');
+      } else {
+        Benchmark.setResult('3.4', document.getElementById('t3-4-result'), false, 'Missed by ' + (dist-radius).toFixed(1) + 'px');
+      }
+    });
+  },
+  _t3_5_step: 0,
+  _t3_5_init() {
+    document.addEventListener('keydown', Tests._t3_5_handler);
+  },
+  _t3_5_handler(e) {
+    if (Tests._t3_5_step === 0 && e.ctrlKey && e.key === 'k') {
+      e.preventDefault(); Tests._t3_5_step = 1;
+      document.getElementById('t3-5-s1').textContent = 'done';
+      document.getElementById('t3-5-s1').style.color = 'var(--success)';
+    } else if (Tests._t3_5_step === 1 && e.key === 'Escape') {
+      Tests._t3_5_step = 2;
+      document.getElementById('t3-5-s2').textContent = 'done';
+      document.getElementById('t3-5-s2').style.color = 'var(--success)';
+    } else if (Tests._t3_5_step === 2 && e.key === 'Enter') {
+      Tests._t3_5_step = 3;
+      document.getElementById('t3-5-s3').textContent = 'done';
+      document.getElementById('t3-5-s3').style.color = 'var(--success)';
+      Benchmark.start('3.5');
+      Benchmark.setResult('3.5', document.getElementById('t3-5-result'), true, 'All keyboard shortcuts executed correctly');
+      document.removeEventListener('keydown', Tests._t3_5_handler);
+    }
+  },
+  t3_6_verify() {
+    Benchmark.start('3.6');
+    const editor = document.getElementById('t3-6-editor');
+    const text = editor.textContent.trim();
+    const hasBold = !!editor.querySelector('b, strong');
+    const hasText = text.toLowerCase().includes('hello world');
+    Benchmark.setResult('3.6', document.getElementById('t3-6-result'), hasText && hasBold,
+      hasText && hasBold ? 'Hello World with bold detected' : (!hasText ? 'Missing "Hello World"' : 'No bold formatting found'));
+  },
+
+  // L4
+  t4_1_start() {
+    document.getElementById('t4-1-start').disabled = true;
+    const arena = document.getElementById('t4-1-arena');
+    arena.textContent = '';
+    const msg = document.createElement('p');
+    msg.style.cssText = 'color:var(--muted);padding:20px';
+    msg.textContent = 'Waiting for target...';
+    arena.appendChild(msg);
+    setTimeout(() => {
+      arena.textContent = '';
+      const x = Math.random() * (arena.offsetWidth - 120);
+      const y = Math.random() * (arena.offsetHeight - 40);
+      const btn = document.createElement('button');
+      btn.className = 'action-btn';
+      btn.style.cssText = 'position:absolute;left:' + x + 'px;top:' + y + 'px';
+      btn.textContent = 'CATCH ME!';
+      btn.addEventListener('click', () => Tests.t4_1_hit());
+      arena.appendChild(btn);
+    }, 1000 + Math.random() * 4000);
+  },
+  t4_1_hit() {
+    Benchmark.start('4.1');
+    Benchmark.setResult('4.1', document.getElementById('t4-1-result'), true, 'Target caught!');
+    document.getElementById('t4-1-start').disabled = false;
+  },
+  _t4_2_interval: null,
+  _t4_2_value: 0,
+  t4_2_start() {
+    if (Tests._t4_2_interval) clearInterval(Tests._t4_2_interval);
+    Tests._t4_2_value = 0;
+    document.getElementById('t4-2-capture').disabled = false;
+    document.getElementById('t4-2-counter').textContent = '0';
+    Tests._t4_2_interval = setInterval(() => {
+      Tests._t4_2_value = (Tests._t4_2_value + 1) % 10;
+      document.getElementById('t4-2-counter').textContent = Tests._t4_2_value;
+    }, 500);
+  },
+  t4_2_capture() {
+    Benchmark.start('4.2');
+    const val = Tests._t4_2_value;
+    clearInterval(Tests._t4_2_interval);
+    document.getElementById('t4-2-capture').disabled = true;
+    Benchmark.setResult('4.2', document.getElementById('t4-2-result'), val === 7, val === 7 ? 'Captured at exactly 7!' : 'Captured at ' + val + ', expected 7');
+  },
+  _t4_3_needle: null,
+  t4_3_generate() {
+    const container = document.getElementById('t4-3-container');
+    container.textContent = '';
+    const idx = Math.floor(Math.random() * 10000);
+    const needleText = 'NEEDLE-' + Math.random().toString(36).substr(2,8).toUpperCase();
+    Tests._t4_3_needle = needleText;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < 10000; i++) {
+      const d = document.createElement('div');
+      d.className = 'scroll-item';
+      if (i === idx) {
+        d.setAttribute('data-needle', 'true');
+        d.textContent = needleText;
+        d.id = 'the-needle';
+      } else {
+        d.textContent = 'Row ' + i + ': ' + Math.random().toString(36).substr(2,10);
+      }
+      frag.appendChild(d);
+    }
+    container.appendChild(frag);
+  },
+  t4_3_verify() {
+    Benchmark.start('4.3');
+    const val = document.getElementById('t4-3-input').value.trim();
+    Benchmark.setResult('4.3', document.getElementById('t4-3-result'), val === Tests._t4_3_needle, val === Tests._t4_3_needle ? 'Needle found!' : 'Expected "' + Tests._t4_3_needle + '", got "' + val + '"');
+  },
+  t4_4_checkLS() {
+    Benchmark.start('4.4');
+    const val = localStorage.getItem('bench-key');
+    if (val === 'ALPHA') {
+      document.getElementById('t4-4-check-ls').style.background = 'var(--success)';
+      document.getElementById('t4-4-check-ls').textContent = 'localStorage OK';
+      document.getElementById('t4-4-check-cookie').disabled = false;
+    } else {
+      Benchmark.setResult('4.4', document.getElementById('t4-4-result'), false, '"bench-key" is "' + val + '", set it: localStorage.setItem("bench-key","ALPHA")');
+    }
+  },
+  t4_4_checkCookie() {
+    const c = document.cookie.split(';').map(x => x.trim()).find(x => x.startsWith('bench-cookie='));
+    const val = c ? c.split('=')[1] : null;
+    if (val === 'OMEGA') {
+      document.getElementById('t4-4-check-cookie').style.background = 'var(--success)';
+      document.getElementById('t4-4-check-cookie').textContent = 'Cookie OK';
+      document.getElementById('t4-4-input').disabled = false;
+      document.getElementById('t4-4-verify-btn').disabled = false;
+    } else {
+      Benchmark.setResult('4.4', document.getElementById('t4-4-result'), false, '"bench-cookie" is "' + val + '", set it: document.cookie="bench-cookie=OMEGA"');
+    }
+  },
+  t4_4_verify() {
+    const val = document.getElementById('t4-4-input').value.trim();
+    Benchmark.setResult('4.4', document.getElementById('t4-4-result'), val === 'ALPHA-OMEGA', val === 'ALPHA-OMEGA' ? 'State chain complete!' : 'Expected "ALPHA-OMEGA", got "' + val + '"');
+  },
+  _t4_5_values: [],
+  t4_5_start() {
+    const vals = ['MUT-A','MUT-B','MUT-C'];
+    Tests._t4_5_values = vals;
+    const el = document.getElementById('t4-5-value');
+    el.textContent = '---';
+    setTimeout(() => { el.textContent = vals[0]; }, 1000);
+    setTimeout(() => { el.textContent = vals[1]; }, 2000);
+    setTimeout(() => { el.textContent = vals[2]; }, 3000);
+  },
+  t4_5_verify() {
+    Benchmark.start('4.5');
+    const val = document.getElementById('t4-5-input').value.trim();
+    const expected = Tests._t4_5_values.join(',');
+    Benchmark.setResult('4.5', document.getElementById('t4-5-result'), val === expected, val === expected ? 'All mutations captured!' : 'Expected "' + expected + '", got "' + val + '"');
+  },
+  t4_6_open() {
+    document.getElementById('t4-6-modal').classList.remove('hidden');
+  },
+  t4_6_cancel() {
+    document.getElementById('t4-6-modal').classList.add('hidden');
+  },
+  t4_6_confirm() {
+    const name = document.getElementById('t4-6-m-name').value.trim();
+    const env = document.getElementById('t4-6-m-env').value;
+    const ssl = document.getElementById('t4-6-m-ssl').checked;
+    if (!name || !env) return;
+    const token = btoa(name + ':' + env + ':' + ssl).replace(/=/g, '');
+    document.getElementById('t4-6-token').textContent = token;
+    document.getElementById('t4-6-modal').classList.add('hidden');
+    window._t4_6_token = token;
+  },
+  t4_6_verify() {
+    Benchmark.start('4.6');
+    const val = document.getElementById('t4-6-input').value.trim();
+    Benchmark.setResult('4.6', document.getElementById('t4-6-result'), val === window._t4_6_token, val === window._t4_6_token ? 'Token verified! Final boss defeated!' : 'Expected "' + window._t4_6_token + '", got "' + val + '"');
+  }
+};
+
+const ALL_TESTS = ['1.1','1.2','1.3','1.4','1.5','1.6','2.1','2.2','2.3','2.4','2.5','2.6','3.1','3.2','3.3','3.4','3.5','3.6','4.1','4.2','4.3','4.4','4.5','4.6'];
+const TEST_LABELS = {'1.1':'Click Button','1.2':'Read Text','1.3':'Fill Form','1.4':'Selector Challenge','1.5':'Nav Sequence','1.6':'Table Sum','2.1':'Async Content','2.2':'Infinite Scroll','2.3':'Wizard','2.4':'Searchable Dropdown','2.5':'Tab Management','2.6':'Sort Table','3.1':'Shadow DOM','3.2':'Nested iFrame','3.3':'Drag & Drop','3.4':'Canvas Click','3.5':'Keyboard Shortcut','3.6':'Contenteditable','4.1':'Unpredictable Timing','4.2':'Counter Race','4.3':'10K DOM Needle','4.4':'LocalStorage+Cookie','4.5':'Mutation Observer','4.6':'Modal Token'};
+
+const Compare = {
+  _key: 'bench-compare-runs',
+  _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
+
+  getRuns() { try { return JSON.parse(localStorage.getItem(this._key) || '[]'); } catch { return []; } },
+  saveRuns(runs) { localStorage.setItem(this._key, JSON.stringify(runs)); },
+
+  saveRun() {
+    const name = document.getElementById('cmp-run-name').value.trim() || ('Run ' + new Date().toLocaleTimeString());
+    const runs = this.getRuns();
+    const tests = {};
+    for (const id of ALL_TESTS) {
+      const r = Benchmark.results[id];
+      tests[id] = r ? { status: r.status, ms: r.endTime ? Math.round(r.endTime - r.startTime) : null, details: r.details } : null;
+    }
+    const existing = runs.findIndex(r => r.name === name);
+    const entry = { name, timestamp: new Date().toISOString(), tests };
+    if (existing >= 0) runs[existing] = entry; else runs.push(entry);
+    this.saveRuns(runs);
+    document.getElementById('cmp-run-name').value = '';
+    this.render();
+    Benchmark.toast('Lauf "' + name + '" gespeichert', 'success');
+  },
+
+  importJSON() { document.getElementById('cmp-import-area').classList.remove('hidden'); },
+  cancelImport() {
+    document.getElementById('cmp-import-area').classList.add('hidden');
+    document.getElementById('cmp-json-input').value = '';
+  },
+  confirmImport() {
+    try {
+      const raw = JSON.parse(document.getElementById('cmp-json-input').value.trim());
+      const name = document.getElementById('cmp-json-name').value.trim() || raw.name || ('Import ' + new Date().toLocaleTimeString());
+      const tests = {};
+      const src = raw.tests || {};
+      for (const id of ALL_TESTS) {
+        const r = src['T' + id] || src[id];
+        tests[id] = r ? { status: r.status, ms: r.duration_ms !== undefined ? r.duration_ms : null, details: r.details || '' } : null;
+      }
+      const runs = this.getRuns();
+      const existing = runs.findIndex(r => r.name === name);
+      const entry = { name, timestamp: raw.timestamp || new Date().toISOString(), tests };
+      if (existing >= 0) runs[existing] = entry; else runs.push(entry);
+      this.saveRuns(runs);
+      this.cancelImport();
+      this.render();
+      Benchmark.toast('Import "' + name + '" gespeichert', 'success');
+    } catch(e) { Benchmark.toast('JSON Fehler: ' + e.message, 'error'); }
+  },
+
+  deleteRun(name) {
+    const runs = this.getRuns().filter(r => r.name !== name);
+    this.saveRuns(runs);
+    this.render();
+  },
+  clearAll() {
+    if (!confirm('Alle gespeicherten Laeufe loeschen?')) return;
+    localStorage.removeItem(this._key);
+    this.render();
+  },
+
+  render() {
+    const runs = this.getRuns();
+    const empty = document.getElementById('cmp-empty');
+    const table = document.getElementById('cmp-table');
+    if (!empty || !table) return;
+    if (runs.length === 0) { empty.style.display = 'block'; table.style.display = 'none'; return; }
+    empty.style.display = 'none';
+    table.style.display = 'table';
+
+    const thead = document.getElementById('cmp-thead');
+    const hdrRow = document.createElement('tr');
+    ['Test','Name'].forEach(t => { const th = document.createElement('th'); th.textContent = t; hdrRow.appendChild(th); });
+    for (const run of runs) {
+      const passed = ALL_TESTS.filter(id => run.tests[id]?.status === 'pass').length;
+      const total = ALL_TESTS.filter(id => run.tests[id] !== null).length;
+      const th = document.createElement('th');
+      th.style.minWidth = '140px';
+      const nameDiv = document.createElement('div'); nameDiv.style.fontWeight = '700'; nameDiv.textContent = run.name; th.appendChild(nameDiv);
+      const scoreDiv = document.createElement('div'); scoreDiv.style.cssText = 'font-size:0.7rem;color:var(--muted);font-weight:400'; scoreDiv.textContent = passed + '/' + total + ' passed'; th.appendChild(scoreDiv);
+      const timeDiv = document.createElement('div'); timeDiv.style.cssText = 'font-size:0.65rem;color:var(--muted);margin-top:2px'; timeDiv.textContent = new Date(run.timestamp).toLocaleString(); th.appendChild(timeDiv);
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Loeschen';
+      delBtn.style.cssText = 'background:none;border:1px solid var(--danger);color:var(--danger);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:0.65rem;margin-top:4px';
+      delBtn.addEventListener('click', () => Compare.deleteRun(run.name));
+      th.appendChild(delBtn);
+      hdrRow.appendChild(th);
+    }
+    thead.textContent = '';
+    thead.appendChild(hdrRow);
+
+    const tbody = document.getElementById('cmp-tbody');
+    tbody.textContent = '';
+    for (const id of ALL_TESTS) {
+      const tr = document.createElement('tr');
+      const tdId = document.createElement('td'); tdId.style.cssText = 'font-family:monospace;font-weight:600;color:var(--accent)'; tdId.textContent = 'T' + id; tr.appendChild(tdId);
+      const tdLabel = document.createElement('td'); tdLabel.style.cssText = 'color:var(--muted);font-size:0.8rem'; tdLabel.textContent = TEST_LABELS[id] || ''; tr.appendChild(tdLabel);
+      for (const run of runs) {
+        const r = run.tests[id];
+        const td = document.createElement('td'); td.style.textAlign = 'center';
+        if (!r) { td.style.color = 'var(--muted)'; td.textContent = '—'; }
+        else if (r.status === 'pass') {
+          const mark = document.createElement('span'); mark.style.cssText = 'color:var(--success);font-weight:600'; mark.textContent = '✓'; td.appendChild(mark);
+          if (r.ms !== null) { const ms = document.createElement('span'); ms.style.cssText = 'font-size:0.75rem;color:var(--muted);margin-left:4px'; ms.textContent = r.ms + 'ms'; td.appendChild(ms); }
+        } else if (r.status === 'fail') {
+          const mark = document.createElement('span'); mark.style.cssText = 'color:var(--danger);font-weight:600'; mark.textContent = '✗'; td.appendChild(mark);
+          td.title = r.details || '';
+          const lbl = document.createElement('span'); lbl.style.cssText = 'font-size:0.7rem;color:var(--muted);margin-left:4px'; lbl.textContent = 'FAIL'; td.appendChild(lbl);
+        } else { td.style.color = 'var(--muted)'; td.textContent = '?'; }
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  Tests._t2_2_init();
+  Tests._t2_6_render();
+  Tests._t3_1_init();
+  Tests._t3_3_init();
+  Tests._t3_4_init();
+  Tests._t3_5_init();
+  Compare.render();
+});
+</script>
+</body>
+</html>
