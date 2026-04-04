@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 12: Form Validation Gauntlet</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 4px; font-size: 14px; color: #ccc; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; max-width: 400px; padding: 8px 12px; background: #0a0a1a; color: #e0e0e8; border: 1px solid #4a4a6a; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: #6c5ce7; outline: none; }
+    .form-group .error { color: #e17055; font-size: 12px; margin-top: 4px; display: none; }
+    .form-group.invalid input, .form-group.invalid select { border-color: #e17055; }
+    .form-group.invalid .error { display: block; }
+    .form-group.valid input { border-color: #00b894; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .btn-primary { background: #6c5ce7; color: white; }
+    .btn-success { background: #00b894; color: white; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .step-indicator { display: flex; gap: 8px; margin-bottom: 20px; }
+    .step { width: 40px; height: 40px; border-radius: 50%; background: #0f0f2a; border: 2px solid #2a2a4a; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+    .step.active { border-color: #6c5ce7; color: #6c5ce7; }
+    .step.done { border-color: #00b894; background: #00b894; color: white; }
+    .step-line { flex: 1; height: 2px; background: #2a2a4a; align-self: center; max-width: 40px; }
+    .radio-group, .checkbox-group { display: flex; flex-direction: column; gap: 8px; }
+    .radio-group label, .checkbox-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; color: #e0e0e8; }
+    .password-strength { height: 4px; border-radius: 2px; margin-top: 4px; transition: all 0.3s; }
+    .strength-weak { background: #e17055; width: 33%; }
+    .strength-medium { background: #fdcb6e; width: 66%; }
+    .strength-strong { background: #00b894; width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>12 — Form Validation Gauntlet</h1>
+
+  <!-- Multi-step form -->
+  <div class="test-section">
+    <h3>Multi-Step Registration Form</h3>
+    <p>Complete all 3 steps with valid data to pass.</p>
+
+    <!-- Step indicators -->
+    <div class="step-indicator">
+      <div class="step active" id="step-ind-1">1</div>
+      <div class="step-line"></div>
+      <div class="step" id="step-ind-2">2</div>
+      <div class="step-line"></div>
+      <div class="step" id="step-ind-3">3</div>
+    </div>
+
+    <!-- Step 1: Personal Info -->
+    <div id="step-1" class="form-step">
+      <div class="form-group" id="fg-name">
+        <label for="reg-name">Full Name *</label>
+        <input type="text" id="reg-name" placeholder="John Doe" />
+        <div class="error">Name must be at least 2 words</div>
+      </div>
+      <div class="form-group" id="fg-email">
+        <label for="reg-email">Email *</label>
+        <input type="email" id="reg-email" placeholder="john@example.com" />
+        <div class="error">Invalid email address</div>
+      </div>
+      <div class="form-group" id="fg-password">
+        <label for="reg-password">Password *</label>
+        <input type="password" id="reg-password" placeholder="Min 8 chars, 1 number, 1 uppercase" />
+        <div class="password-strength" id="pw-strength"></div>
+        <div class="error">Password must be 8+ chars with 1 uppercase and 1 number</div>
+      </div>
+      <button id="next-1" class="btn btn-primary">Next Step</button>
+    </div>
+
+    <!-- Step 2: Preferences -->
+    <div id="step-2" class="form-step" style="display:none;">
+      <div class="form-group" id="fg-role">
+        <label>Role *</label>
+        <select id="reg-role">
+          <option value="">Select role...</option>
+          <option value="developer">Developer</option>
+          <option value="designer">Designer</option>
+          <option value="manager">Manager</option>
+        </select>
+        <div class="error">Please select a role</div>
+      </div>
+      <div class="form-group" id="fg-interests">
+        <label>Interests (select at least 2) *</label>
+        <div class="checkbox-group">
+          <label><input type="checkbox" name="interest" value="frontend" /> Frontend</label>
+          <label><input type="checkbox" name="interest" value="backend" /> Backend</label>
+          <label><input type="checkbox" name="interest" value="mobile" /> Mobile</label>
+          <label><input type="checkbox" name="interest" value="devops" /> DevOps</label>
+          <label><input type="checkbox" name="interest" value="ai" /> AI/ML</label>
+        </div>
+        <div class="error">Select at least 2 interests</div>
+      </div>
+      <div class="form-group" id="fg-experience">
+        <label>Experience Level *</label>
+        <div class="radio-group">
+          <label><input type="radio" name="experience" value="junior" /> Junior (0-2 years)</label>
+          <label><input type="radio" name="experience" value="mid" /> Mid (2-5 years)</label>
+          <label><input type="radio" name="experience" value="senior" /> Senior (5+ years)</label>
+        </div>
+        <div class="error">Please select experience level</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button id="prev-2" class="btn" style="background:#2a2a4a;color:#888;">Back</button>
+        <button id="next-2" class="btn btn-primary">Next Step</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Confirmation -->
+    <div id="step-3" class="form-step" style="display:none;">
+      <div class="form-group">
+        <label for="reg-bio">Short Bio</label>
+        <textarea id="reg-bio" rows="3" placeholder="Tell us about yourself..." style="width:100%;max-width:400px;padding:8px;background:#0a0a1a;color:#e0e0e8;border:1px solid #4a4a6a;border-radius:4px;resize:vertical;"></textarea>
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="reg-terms" /> I agree to the Terms of Service *</label>
+        <div class="error" id="terms-error" style="display:none;">You must agree to the terms</div>
+      </div>
+      <div id="form-summary" style="background:#0f0f2a;padding:12px;border-radius:6px;margin:12px 0;font-size:13px;"></div>
+      <div style="display:flex;gap:8px;">
+        <button id="prev-3" class="btn" style="background:#2a2a4a;color:#888;">Back</button>
+        <button id="submit-form" class="btn btn-success">Submit Registration</button>
+      </div>
+    </div>
+
+    <div id="result-form" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    var currentStep = 1;
+    var formData = {};
+
+    function showStep(n) {
+      for (var i = 1; i <= 3; i++) {
+        document.getElementById('step-' + i).style.display = i === n ? 'block' : 'none';
+        var ind = document.getElementById('step-ind-' + i);
+        ind.className = 'step' + (i < n ? ' done' : (i === n ? ' active' : ''));
+      }
+      currentStep = n;
+    }
+
+    // Step 1 validation
+    function validateStep1() {
+      var valid = true;
+      var name = document.getElementById('reg-name').value.trim();
+      var email = document.getElementById('reg-email').value.trim();
+      var password = document.getElementById('reg-password').value;
+
+      var fg = document.getElementById('fg-name');
+      if (name.split(/\s+/).length < 2) { fg.className = 'form-group invalid'; valid = false; }
+      else { fg.className = 'form-group valid'; formData.name = name; }
+
+      fg = document.getElementById('fg-email');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { fg.className = 'form-group invalid'; valid = false; }
+      else { fg.className = 'form-group valid'; formData.email = email; }
+
+      fg = document.getElementById('fg-password');
+      if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) { fg.className = 'form-group invalid'; valid = false; }
+      else { fg.className = 'form-group valid'; formData.password = '***'; }
+
+      return valid;
+    }
+
+    // Password strength meter
+    document.getElementById('reg-password').addEventListener('input', function(e) {
+      var pw = e.target.value;
+      var str = document.getElementById('pw-strength');
+      if (pw.length < 4) { str.className = 'password-strength'; }
+      else if (pw.length < 8 || (!/[A-Z]/.test(pw) && !/[0-9]/.test(pw))) { str.className = 'password-strength strength-weak'; }
+      else if (pw.length < 12 || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw)) { str.className = 'password-strength strength-medium'; }
+      else { str.className = 'password-strength strength-strong'; }
+    });
+
+    // Step 2 validation
+    function validateStep2() {
+      var valid = true;
+      var role = document.getElementById('reg-role').value;
+      var fg = document.getElementById('fg-role');
+      if (!role) { fg.className = 'form-group invalid'; valid = false; }
+      else { fg.className = 'form-group valid'; formData.role = role; }
+
+      var interests = document.querySelectorAll('input[name="interest"]:checked');
+      fg = document.getElementById('fg-interests');
+      if (interests.length < 2) { fg.className = 'form-group invalid'; valid = false; }
+      else {
+        fg.className = 'form-group valid';
+        formData.interests = Array.from(interests).map(function(i) { return i.value; });
+      }
+
+      var experience = document.querySelector('input[name="experience"]:checked');
+      fg = document.getElementById('fg-experience');
+      if (!experience) { fg.className = 'form-group invalid'; valid = false; }
+      else { fg.className = 'form-group valid'; formData.experience = experience.value; }
+
+      return valid;
+    }
+
+    document.getElementById('next-1').addEventListener('click', function() {
+      if (validateStep1()) showStep(2);
+    });
+    document.getElementById('prev-2').addEventListener('click', function() { showStep(1); });
+    document.getElementById('next-2').addEventListener('click', function() {
+      if (validateStep2()) {
+        showStep(3);
+        // Show summary
+        var summary = document.getElementById('form-summary');
+        summary.textContent = 'Name: ' + formData.name + ' | Email: ' + formData.email + ' | Role: ' + formData.role + ' | Interests: ' + formData.interests.join(', ') + ' | Experience: ' + formData.experience;
+      }
+    });
+    document.getElementById('prev-3').addEventListener('click', function() { showStep(2); });
+
+    document.getElementById('submit-form').addEventListener('click', function() {
+      var terms = document.getElementById('reg-terms').checked;
+      var termsError = document.getElementById('terms-error');
+      if (!terms) { termsError.style.display = 'block'; return; }
+      termsError.style.display = 'none';
+      formData.bio = document.getElementById('reg-bio').value;
+      formData.termsAccepted = true;
+      window.__form_submitted = formData;
+      setResult('form', true, 'Registration complete! ' + formData.name + ' (' + formData.email + ')');
+    });
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

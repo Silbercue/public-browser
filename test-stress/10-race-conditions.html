@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 10: Race Conditions & Timing</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    .countdown { font-size: 48px; font-weight: bold; color: #6c5ce7; text-align: center; margin: 20px 0; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .btn-primary { background: #6c5ce7; color: white; }
+    .btn-success { background: #00b894; color: white; }
+    .progress-bar { height: 12px; background: #2a2a4a; border-radius: 6px; overflow: hidden; margin: 12px 0; }
+    .progress-fill { height: 100%; background: #6c5ce7; border-radius: 6px; transition: width 0.1s; width: 0%; }
+    .disappearing { transition: opacity 0.3s; }
+    .disappearing.gone { opacity: 0; pointer-events: none; }
+    .slot-machine { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
+    .slot { width: 80px; height: 100px; background: #0f0f2a; border: 2px solid #2a2a4a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 36px; overflow: hidden; }
+    .slot.spinning { animation: spin 0.1s infinite; }
+    @keyframes spin { 0% { transform: translateY(-5px); } 50% { transform: translateY(5px); } 100% { transform: translateY(-5px); } }
+  </style>
+</head>
+<body>
+  <h1>10 — Race Conditions & Timing Challenges</h1>
+
+  <!-- T1: Button that appears for only 2 seconds -->
+  <div class="test-section">
+    <h3>T1: Ephemeral Button — Click within 2 seconds</h3>
+    <button id="start-ephemeral" class="btn btn-primary">Start Challenge</button>
+    <div id="ephemeral-container" style="margin-top:12px;min-height:50px;"></div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Double-click required -->
+  <div class="test-section">
+    <h3>T2: Double-Click — Must double-click the button</h3>
+    <button id="dblclick-btn" class="btn btn-primary" style="font-size:18px;padding:16px 32px;">Double-Click Me</button>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: Content replaces itself every 500ms — click when counter shows "7" -->
+  <div class="test-section">
+    <h3>T3: Moving Target — Click when counter shows "7"</h3>
+    <button id="start-counter" class="btn btn-primary" style="margin-bottom:12px;">Start Counter</button>
+    <div class="countdown" id="counter-target">-</div>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <!-- T4: Async content load — button appears only after 3 sequential API calls -->
+  <div class="test-section">
+    <h3>T4: Sequential Async — Button appears after 3 simulated API calls</h3>
+    <button id="start-async" class="btn btn-primary" style="margin-bottom:12px;">Start Loading</button>
+    <div class="progress-bar"><div id="async-progress" class="progress-fill"></div></div>
+    <div id="async-status" style="font-family:monospace;color:#888;margin:8px 0;">Idle</div>
+    <div id="async-action" style="min-height:50px;"></div>
+    <div id="result-t4" class="result"></div>
+  </div>
+
+  <!-- T5: Slot machine — stop all 3 on matching symbols -->
+  <div class="test-section">
+    <h3>T5: Slot Machine — Stop all 3 slots (they auto-stop after 3s)</h3>
+    <button id="start-slots" class="btn btn-primary" style="margin-bottom:12px;">Spin!</button>
+    <div class="slot-machine">
+      <div class="slot" id="slot-1">?</div>
+      <div class="slot" id="slot-2">?</div>
+      <div class="slot" id="slot-3">?</div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:center;margin:8px 0;">
+      <button id="stop-1" class="btn btn-success" disabled>Stop 1</button>
+      <button id="stop-2" class="btn btn-success" disabled>Stop 2</button>
+      <button id="stop-3" class="btn btn-success" disabled>Stop 3</button>
+    </div>
+    <div id="result-t5" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Ephemeral button
+    document.getElementById('start-ephemeral').addEventListener('click', function() {
+      var container = document.getElementById('ephemeral-container');
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-success disappearing';
+      btn.textContent = 'CLICK ME NOW!';
+      btn.style.fontSize = '18px';
+      btn.id = 'ephemeral-btn';
+      btn.addEventListener('click', function() {
+        window.__t1_clicked = true;
+        setResult('t1', true, 'Ephemeral button clicked in time!');
+      });
+      container.appendChild(btn);
+      setTimeout(function() {
+        btn.classList.add('gone');
+        setTimeout(function() {
+          if (btn.parentNode) btn.parentNode.removeChild(btn);
+          if (!window.__t1_clicked) setResult('t1', false, 'Button disappeared before click');
+        }, 300);
+      }, 2000);
+    });
+
+    // T2: Double-click
+    document.getElementById('dblclick-btn').addEventListener('dblclick', function() {
+      window.__t2_dblclicked = true;
+      setResult('t2', true, 'Double-click detected!');
+    });
+    document.getElementById('dblclick-btn').addEventListener('click', function() {
+      if (!window.__t2_dblclicked) {
+        // Single click not enough
+      }
+    });
+
+    // T3: Moving counter
+    (function() {
+      var counterEl = document.getElementById('counter-target');
+      var running = false;
+      var count = 0;
+
+      document.getElementById('start-counter').addEventListener('click', function() {
+        if (running) return;
+        running = true;
+        count = 0;
+        var interval = setInterval(function() {
+          count = (count + 1) % 10;
+          counterEl.textContent = count;
+          if (count === 0) {
+            clearInterval(interval);
+            running = false;
+            counterEl.textContent = 'Done';
+          }
+        }, 500);
+      });
+
+      counterEl.style.cursor = 'pointer';
+      counterEl.addEventListener('click', function() {
+        if (counterEl.textContent === '7') {
+          window.__t3_clicked_at = 7;
+          setResult('t3', true, 'Clicked when counter showed 7');
+        } else {
+          setResult('t3', false, 'Clicked at ' + counterEl.textContent + ', expected 7');
+        }
+      });
+    })();
+
+    // T4: Sequential async loading
+    (function() {
+      var progress = document.getElementById('async-progress');
+      var status = document.getElementById('async-status');
+      var actionContainer = document.getElementById('async-action');
+
+      function simulateApi(name, duration) {
+        return new Promise(function(resolve) {
+          status.textContent = 'Loading: ' + name + '...';
+          setTimeout(resolve, duration);
+        });
+      }
+
+      document.getElementById('start-async').addEventListener('click', function() {
+        progress.style.width = '0%';
+        while (actionContainer.firstChild) actionContainer.removeChild(actionContainer.firstChild);
+
+        simulateApi('User data', 600).then(function() {
+          progress.style.width = '33%';
+          return simulateApi('Permissions', 500);
+        }).then(function() {
+          progress.style.width = '66%';
+          return simulateApi('Dashboard config', 400);
+        }).then(function() {
+          progress.style.width = '100%';
+          status.textContent = 'All loaded!';
+          var btn = document.createElement('button');
+          btn.className = 'btn btn-success';
+          btn.textContent = 'Enter Dashboard';
+          btn.id = 'async-action-btn';
+          btn.addEventListener('click', function() {
+            window.__t4_entered = true;
+            setResult('t4', true, 'Async chain completed and dashboard entered');
+          });
+          actionContainer.appendChild(btn);
+        });
+      });
+    })();
+
+    // T5: Slot machine
+    (function() {
+      var symbols = ['\ud83c\udf52', '\ud83c\udf4b', '\ud83c\udf4a', '\u2b50', '\ud83d\udc8e', '\ud83d\udd14'];
+      var slots = [document.getElementById('slot-1'), document.getElementById('slot-2'), document.getElementById('slot-3')];
+      var stopBtns = [document.getElementById('stop-1'), document.getElementById('stop-2'), document.getElementById('stop-3')];
+      var spinning = [false, false, false];
+      var intervals = [null, null, null];
+      var stoppedCount = 0;
+
+      function startSlot(idx) {
+        spinning[idx] = true;
+        slots[idx].classList.add('spinning');
+        stopBtns[idx].disabled = false;
+        intervals[idx] = setInterval(function() {
+          slots[idx].textContent = symbols[Math.floor(Math.random() * symbols.length)];
+        }, 80);
+      }
+
+      function stopSlot(idx) {
+        if (!spinning[idx]) return;
+        spinning[idx] = false;
+        clearInterval(intervals[idx]);
+        slots[idx].classList.remove('spinning');
+        stopBtns[idx].disabled = true;
+        stoppedCount++;
+        if (stoppedCount === 3) {
+          var results = slots.map(function(s) { return s.textContent; });
+          window.__t5_results = results;
+          var allSame = results[0] === results[1] && results[1] === results[2];
+          setResult('t5', allSame, 'Slots stopped: ' + results.join(' ') + (allSame ? ' — JACKPOT!' : ''));
+        }
+      }
+
+      document.getElementById('start-slots').addEventListener('click', function() {
+        stoppedCount = 0;
+        startSlot(0);
+        startSlot(1);
+        startSlot(2);
+        // Auto-stop after 3 seconds
+        setTimeout(function() {
+          for (var i = 0; i < 3; i++) stopSlot(i);
+        }, 3000);
+      });
+
+      stopBtns.forEach(function(btn, idx) {
+        btn.addEventListener('click', function() { stopSlot(idx); });
+      });
+    })();
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

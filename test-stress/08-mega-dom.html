@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 08: Mega DOM (10k+ Nodes)</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    .mega-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .mega-table th { background: #0f0f2a; padding: 8px; text-align: left; position: sticky; top: 0; border-bottom: 2px solid #6c5ce7; cursor: pointer; }
+    .mega-table td { padding: 6px 8px; border-bottom: 1px solid #1a1a3a; }
+    .mega-table tr:hover td { background: rgba(108,92,231,0.05); }
+    .mega-table .action-btn { background: #6c5ce7; color: white; border: none; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; }
+    .table-container { height: 400px; overflow-y: auto; border: 1px solid #2a2a4a; border-radius: 8px; }
+    .tree-container { height: 400px; overflow-y: auto; border: 1px solid #2a2a4a; border-radius: 8px; padding: 8px; }
+    .tree-node { padding-left: 20px; }
+    .tree-label { cursor: pointer; padding: 3px 8px; border-radius: 3px; display: inline-block; }
+    .tree-label:hover { background: rgba(108,92,231,0.1); }
+    .tree-toggle { cursor: pointer; color: #888; display: inline-block; width: 16px; }
+    .stats { font-family: monospace; color: #888; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <h1>08 — Mega DOM: Performance Under Pressure</h1>
+
+  <!-- T1: Giant table — find and click a specific cell action -->
+  <div class="test-section">
+    <h3>T1: 1000-Row Table — Find row with ID "row-500" and click its action button</h3>
+    <div class="stats">DOM Nodes: <span id="node-count">computing...</span> | Elements: <span id="elem-count">computing...</span></div>
+    <div class="table-container">
+      <table class="mega-table" id="mega-table">
+        <thead>
+          <tr>
+            <th data-col="id">ID</th>
+            <th data-col="name">Name</th>
+            <th data-col="email">Email</th>
+            <th data-col="status">Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Deep nested tree — expand path and click leaf node -->
+  <div class="test-section">
+    <h3>T2: Nested Tree (5 levels, 500+ nodes) — Expand path to "target-leaf"</h3>
+    <div id="tree-container" class="tree-container"></div>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: Performance — read_page latency on mega DOM -->
+  <div class="test-section">
+    <h3>T3: Performance — Measure read_page time on this page</h3>
+    <p>This page has 10,000+ DOM nodes. Measure how long read_page takes.</p>
+    <div id="result-t3" class="result">Run read_page and report the _meta.elapsedMs</div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Generate 1000-row table
+    (function() {
+      var tbody = document.getElementById('table-body');
+      var statuses = ['active', 'inactive', 'pending', 'suspended'];
+      var names = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Hank'];
+      var frag = document.createDocumentFragment();
+      for (var i = 0; i < 1000; i++) {
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-row-id', 'row-' + i);
+        var tdId = document.createElement('td');
+        tdId.textContent = 'row-' + i;
+        var tdName = document.createElement('td');
+        tdName.textContent = names[i % names.length] + ' ' + i;
+        var tdEmail = document.createElement('td');
+        tdEmail.textContent = names[i % names.length].toLowerCase() + i + '@test.com';
+        var tdStatus = document.createElement('td');
+        tdStatus.textContent = statuses[i % statuses.length];
+        var tdAction = document.createElement('td');
+        var btn = document.createElement('button');
+        btn.className = 'action-btn';
+        btn.textContent = 'Edit';
+        btn.setAttribute('data-edit', 'row-' + i);
+        (function(idx) {
+          btn.addEventListener('click', function() {
+            window.__t1_edited = 'row-' + idx;
+            if (idx === 500) setResult('t1', true, 'Clicked edit button for row-500');
+          });
+        })(i);
+        tdAction.appendChild(btn);
+        tr.appendChild(tdId);
+        tr.appendChild(tdName);
+        tr.appendChild(tdEmail);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdAction);
+        frag.appendChild(tr);
+      }
+      tbody.appendChild(frag);
+    })();
+
+    // T2: Generate nested tree
+    (function() {
+      var container = document.getElementById('tree-container');
+      var nodeCount = 0;
+      var TARGET_PATH = [2, 1, 3, 0, 0]; // Path to target leaf
+
+      function createNode(level, index, maxLevel, targetPath) {
+        nodeCount++;
+        var isOnPath = targetPath.length > 0 && targetPath[0] === index;
+        var isLeaf = level >= maxLevel;
+        var isTarget = isLeaf && isOnPath;
+
+        var div = document.createElement('div');
+        div.className = 'tree-node';
+        div.style.paddingLeft = (level * 20) + 'px';
+
+        var toggle = document.createElement('span');
+        toggle.className = 'tree-toggle';
+        var label = document.createElement('span');
+        label.className = 'tree-label';
+
+        if (isTarget) {
+          label.textContent = 'target-leaf';
+          label.style.color = '#fdcb6e';
+          label.style.fontWeight = 'bold';
+          label.setAttribute('data-target', 'true');
+          label.addEventListener('click', function() {
+            window.__t2_found = true;
+            setResult('t2', true, 'Found and clicked target-leaf node');
+          });
+          div.appendChild(label);
+        } else if (isLeaf) {
+          label.textContent = 'leaf-' + level + '-' + index;
+          div.appendChild(label);
+        } else {
+          toggle.textContent = '\u25b6';
+          label.textContent = 'folder-' + level + '-' + index;
+          var childContainer = document.createElement('div');
+          childContainer.style.display = 'none';
+
+          var childCount = 4 + (level % 3);
+          for (var i = 0; i < childCount; i++) {
+            var child = createNode(level + 1, i, maxLevel, isOnPath ? targetPath.slice(1) : []);
+            childContainer.appendChild(child);
+          }
+
+          toggle.addEventListener('click', function() {
+            var open = childContainer.style.display !== 'none';
+            childContainer.style.display = open ? 'none' : 'block';
+            toggle.textContent = open ? '\u25b6' : '\u25bc';
+          });
+
+          div.appendChild(toggle);
+          div.appendChild(label);
+          div.appendChild(childContainer);
+        }
+
+        return div;
+      }
+
+      for (var i = 0; i < 5; i++) {
+        container.appendChild(createNode(0, i, 4, TARGET_PATH));
+      }
+
+      // Update stats
+      setTimeout(function() {
+        document.getElementById('node-count').textContent = document.querySelectorAll('*').length;
+        document.getElementById('elem-count').textContent = document.querySelectorAll('[data-row-id], .tree-node, .tree-label').length;
+      }, 100);
+    })();
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

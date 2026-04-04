@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 02: Virtual Scroll & Infinite Loading</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    .virtual-list { height: 400px; overflow-y: auto; border: 1px solid #2a2a4a; border-radius: 8px; position: relative; }
+    .virtual-list-inner { position: relative; }
+    .virtual-item { position: absolute; left: 0; right: 0; padding: 12px 16px; border-bottom: 1px solid #2a2a4a; display: flex; justify-content: space-between; align-items: center; }
+    .virtual-item:hover { background: rgba(108,92,231,0.1); }
+    .virtual-item button { background: #6c5ce7; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .infinite-list { height: 300px; overflow-y: auto; border: 1px solid #2a2a4a; border-radius: 8px; }
+    .infinite-item { padding: 12px 16px; border-bottom: 1px solid #2a2a4a; cursor: pointer; }
+    .infinite-item:hover { background: rgba(108,92,231,0.1); }
+    .loading-spinner { text-align: center; padding: 16px; color: #6c5ce7; }
+    .lazy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; height: 400px; overflow-y: auto; }
+    .lazy-card { background: #0f0f2a; border: 1px solid #2a2a4a; border-radius: 8px; min-height: 120px; display: flex; align-items: center; justify-content: center; }
+    .lazy-card.loaded { border-color: #00b894; }
+    .lazy-card .placeholder { width: 80px; height: 80px; background: #2a2a4a; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>02 — Virtual Scroll & Infinite Loading</h1>
+
+  <div class="test-section">
+    <h3>T1: Virtual Scroll — 10,000 items, click item #500</h3>
+    <p>Only ~12 items are in the DOM at any time. Must scroll to item #500 and click its button.</p>
+    <div id="virtual-list" class="virtual-list"></div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>T2: Infinite Scroll — Load 5 pages, click last item</h3>
+    <div id="infinite-list" class="infinite-list"></div>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>T3: Lazy-Loaded Cards (IntersectionObserver)</h3>
+    <p>Cards load content only when scrolled into view. Find and click card #15.</p>
+    <div id="lazy-grid" class="lazy-grid"></div>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) {
+        el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg;
+        el.className = 'result ' + (pass ? 'pass' : 'fail');
+      }
+    }
+
+    // T1: Virtual Scroll (10k items)
+    (function() {
+      var TOTAL = 10000;
+      var ITEM_HEIGHT = 48;
+      var container = document.getElementById('virtual-list');
+      var inner = document.createElement('div');
+      inner.className = 'virtual-list-inner';
+      inner.style.height = TOTAL * ITEM_HEIGHT + 'px';
+      container.appendChild(inner);
+
+      function render() {
+        var scrollTop = container.scrollTop;
+        var viewHeight = container.clientHeight;
+        var start = Math.floor(scrollTop / ITEM_HEIGHT);
+        var end = Math.min(TOTAL, Math.ceil((scrollTop + viewHeight) / ITEM_HEIGHT) + 1);
+        while (inner.firstChild) inner.removeChild(inner.firstChild);
+        for (var i = start; i < end; i++) {
+          var item = document.createElement('div');
+          item.className = 'virtual-item';
+          item.style.top = i * ITEM_HEIGHT + 'px';
+          item.style.height = ITEM_HEIGHT + 'px';
+          item.setAttribute('data-index', i);
+          var span = document.createElement('span');
+          span.textContent = 'Item #' + i;
+          var btn = document.createElement('button');
+          btn.textContent = 'Select';
+          btn.setAttribute('data-action', 'select-' + i);
+          (function(idx) {
+            btn.addEventListener('click', function() {
+              window.__t1_selected = idx;
+              if (idx === 500) setResult('t1', true, 'Clicked item #500 in virtual list');
+            });
+          })(i);
+          item.appendChild(span);
+          item.appendChild(btn);
+          inner.appendChild(item);
+        }
+      }
+      container.addEventListener('scroll', render);
+      render();
+    })();
+
+    // T2: Infinite Scroll
+    (function() {
+      var container = document.getElementById('infinite-list');
+      var page = 0;
+      var PAGE_SIZE = 20;
+      var loading = false;
+
+      function loadPage() {
+        if (loading || page >= 5) return;
+        loading = true;
+        var spinner = document.createElement('div');
+        spinner.className = 'loading-spinner';
+        spinner.textContent = 'Loading...';
+        container.appendChild(spinner);
+
+        setTimeout(function() {
+          container.removeChild(spinner);
+          var startIdx = page * PAGE_SIZE;
+          for (var i = 0; i < PAGE_SIZE; i++) {
+            var idx = startIdx + i;
+            var item = document.createElement('div');
+            item.className = 'infinite-item';
+            item.setAttribute('data-index', idx);
+            item.textContent = 'Loaded Item #' + idx;
+            (function(index) {
+              item.addEventListener('click', function() {
+                window.__t2_clicked = index;
+                if (index === 99) setResult('t2', true, 'Clicked last item after 5 pages loaded');
+              });
+            })(idx);
+            container.appendChild(item);
+          }
+          page++;
+          loading = false;
+        }, 300);
+      }
+
+      container.addEventListener('scroll', function() {
+        if (container.scrollTop + container.clientHeight >= container.scrollHeight - 50) loadPage();
+      });
+      loadPage();
+    })();
+
+    // T3: Lazy-loaded cards
+    (function() {
+      var grid = document.getElementById('lazy-grid');
+      var CARD_COUNT = 30;
+      for (var i = 0; i < CARD_COUNT; i++) {
+        var card = document.createElement('div');
+        card.className = 'lazy-card';
+        card.setAttribute('data-card', i);
+        var placeholder = document.createElement('div');
+        placeholder.className = 'placeholder';
+        card.appendChild(placeholder);
+        grid.appendChild(card);
+      }
+
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            var card = entry.target;
+            var idx = parseInt(card.getAttribute('data-card'));
+            setTimeout(function() {
+              card.classList.add('loaded');
+              while (card.firstChild) card.removeChild(card.firstChild);
+              var content = document.createElement('div');
+              content.style.textAlign = 'center';
+              var strong = document.createElement('strong');
+              strong.textContent = 'Card #' + idx;
+              var br = document.createElement('br');
+              var btn = document.createElement('button');
+              btn.textContent = 'Action';
+              btn.style.cssText = 'margin-top: 8px; background: #6c5ce7; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer;';
+              btn.addEventListener('click', function() {
+                window.__t3_clicked = idx;
+                if (idx === 15) setResult('t3', true, 'Clicked lazy-loaded card #15');
+              });
+              content.appendChild(strong);
+              content.appendChild(br);
+              content.appendChild(btn);
+              card.appendChild(content);
+            }, 150 + Math.random() * 200);
+            observer.unobserve(card);
+          }
+        });
+      }, { root: grid, threshold: 0.1 });
+
+      grid.querySelectorAll('.lazy-card').forEach(function(card) { observer.observe(card); });
+    })();
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

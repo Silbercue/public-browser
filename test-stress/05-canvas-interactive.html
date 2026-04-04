@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 05: Canvas & SVG Interactive</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    canvas { border: 1px solid #2a2a4a; border-radius: 8px; display: block; }
+    svg { border: 1px solid #2a2a4a; border-radius: 8px; display: block; }
+  </style>
+</head>
+<body>
+  <h1>05 — Canvas 2D & SVG Interactive</h1>
+
+  <!-- T1: Click specific button drawn on Canvas -->
+  <div class="test-section">
+    <h3>T1: Canvas Buttons — Click the green button</h3>
+    <p>Three buttons drawn on canvas. Click the green one (center).</p>
+    <canvas id="canvas-buttons" width="600" height="120"></canvas>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Canvas drawing — draw a line by clicking two points -->
+  <div class="test-section">
+    <h3>T2: Canvas Drawing — Click at (100,100) then (300,100)</h3>
+    <canvas id="canvas-draw" width="400" height="200"></canvas>
+    <div id="click-coords" style="font-family:monospace;margin-top:8px;color:#888;"></div>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: SVG clickable elements -->
+  <div class="test-section">
+    <h3>T3: SVG Chart — Click the tallest bar</h3>
+    <svg id="svg-chart" width="400" height="250" viewBox="0 0 400 250">
+      <rect x="20" y="180" width="60" height="50" fill="#6c5ce7" data-bar="a" class="bar" style="cursor:pointer;" />
+      <rect x="100" y="100" width="60" height="130" fill="#00b894" data-bar="b" class="bar" style="cursor:pointer;" />
+      <rect x="180" y="30" width="60" height="200" fill="#e17055" data-bar="c" class="bar" style="cursor:pointer;" />
+      <rect x="260" y="120" width="60" height="110" fill="#fdcb6e" data-bar="d" class="bar" style="cursor:pointer;" />
+      <rect x="340" y="150" width="60" height="80" fill="#00cec9" data-bar="e" class="bar" style="cursor:pointer;" />
+      <!-- Axis -->
+      <line x1="10" y1="230" x2="400" y2="230" stroke="#4a4a6a" />
+      <line x1="10" y1="0" x2="10" y2="230" stroke="#4a4a6a" />
+      <!-- Labels -->
+      <text x="50" y="248" fill="#888" text-anchor="middle" font-size="12">A</text>
+      <text x="130" y="248" fill="#888" text-anchor="middle" font-size="12">B</text>
+      <text x="210" y="248" fill="#888" text-anchor="middle" font-size="12">C</text>
+      <text x="290" y="248" fill="#888" text-anchor="middle" font-size="12">D</text>
+      <text x="370" y="248" fill="#888" text-anchor="middle" font-size="12">E</text>
+    </svg>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <!-- T4: SVG with overlapping elements and z-index -->
+  <div class="test-section">
+    <h3>T4: SVG Overlapping — Click the circle on top</h3>
+    <svg id="svg-overlap" width="300" height="200" viewBox="0 0 300 200">
+      <circle cx="120" cy="100" r="60" fill="#6c5ce7" opacity="0.7" data-shape="bottom" style="cursor:pointer;" />
+      <circle cx="180" cy="100" r="60" fill="#00b894" opacity="0.7" data-shape="top" style="cursor:pointer;" />
+    </svg>
+    <div id="result-t4" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Canvas buttons
+    (function() {
+      var canvas = document.getElementById('canvas-buttons');
+      var ctx = canvas.getContext('2d');
+      var buttons = [
+        { x: 20, y: 20, w: 160, h: 60, color: '#e17055', label: 'Red', name: 'red' },
+        { x: 220, y: 20, w: 160, h: 60, color: '#00b894', label: 'Green', name: 'green' },
+        { x: 420, y: 20, w: 160, h: 60, color: '#6c5ce7', label: 'Purple', name: 'purple' },
+      ];
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        buttons.forEach(function(b) {
+          ctx.fillStyle = b.color;
+          ctx.beginPath();
+          ctx.roundRect(b.x, b.y, b.w, b.h, 8);
+          ctx.fill();
+          ctx.fillStyle = 'white';
+          ctx.font = 'bold 16px system-ui';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(b.label, b.x + b.w/2, b.y + b.h/2);
+        });
+      }
+      draw();
+      canvas.addEventListener('click', function(e) {
+        var rect = canvas.getBoundingClientRect();
+        var x = e.clientX - rect.left;
+        var y = e.clientY - rect.top;
+        buttons.forEach(function(b) {
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            window.__t1_clicked = b.name;
+            if (b.name === 'green') setResult('t1', true, 'Clicked green canvas button');
+            else setResult('t1', false, 'Clicked ' + b.name + ' instead of green');
+          }
+        });
+      });
+    })();
+
+    // T2: Canvas drawing
+    (function() {
+      var canvas = document.getElementById('canvas-draw');
+      var ctx = canvas.getContext('2d');
+      var clicks = [];
+      ctx.fillStyle = '#888';
+      ctx.font = '14px monospace';
+      ctx.fillText('Click two points to draw a line', 10, 30);
+      canvas.addEventListener('click', function(e) {
+        var rect = canvas.getBoundingClientRect();
+        var x = Math.round(e.clientX - rect.left);
+        var y = Math.round(e.clientY - rect.top);
+        clicks.push({ x: x, y: y });
+        document.getElementById('click-coords').textContent = 'Clicks: ' + JSON.stringify(clicks);
+        // Draw point
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#6c5ce7';
+        ctx.fill();
+        if (clicks.length === 2) {
+          ctx.beginPath();
+          ctx.moveTo(clicks[0].x, clicks[0].y);
+          ctx.lineTo(clicks[1].x, clicks[1].y);
+          ctx.strokeStyle = '#00b894';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          // Check if roughly correct
+          var ok = Math.abs(clicks[0].x - 100) < 30 && Math.abs(clicks[0].y - 100) < 30 &&
+                   Math.abs(clicks[1].x - 300) < 30 && Math.abs(clicks[1].y - 100) < 30;
+          window.__t2_drawn = clicks;
+          if (ok) setResult('t2', true, 'Drew line from ~(100,100) to ~(300,100)');
+          else setResult('t2', false, 'Points were at ' + JSON.stringify(clicks) + ', expected ~(100,100) and ~(300,100)');
+        }
+      });
+    })();
+
+    // T3: SVG chart bars
+    document.querySelectorAll('#svg-chart .bar').forEach(function(bar) {
+      bar.addEventListener('click', function() {
+        var name = bar.getAttribute('data-bar');
+        window.__t3_clicked = name;
+        if (name === 'c') setResult('t3', true, 'Clicked tallest bar (C, height=200)');
+        else setResult('t3', false, 'Clicked bar ' + name + ' — expected C (tallest)');
+      });
+    });
+
+    // T4: SVG overlapping circles
+    document.querySelectorAll('#svg-overlap circle').forEach(function(circle) {
+      circle.addEventListener('click', function() {
+        var shape = circle.getAttribute('data-shape');
+        window.__t4_clicked = shape;
+        if (shape === 'top') setResult('t4', true, 'Clicked the top circle (green)');
+        else setResult('t4', false, 'Clicked bottom circle — expected top');
+      });
+    });
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

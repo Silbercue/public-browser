@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stress Test 13: Responsive & Viewport Challenges</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+
+    /* T1: Mobile-only hamburger menu */
+    .nav-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #0f0f2a; border-radius: 8px; }
+    .nav-links { display: flex; gap: 16px; }
+    .nav-link { color: #888; text-decoration: none; cursor: pointer; }
+    .nav-link:hover { color: #6c5ce7; }
+    .hamburger { display: none; background: none; border: none; color: #e0e0e8; font-size: 24px; cursor: pointer; }
+    .mobile-menu { display: none; background: #0f0f2a; border-radius: 8px; padding: 12px; margin-top: 8px; }
+    .mobile-menu.open { display: block; }
+
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hamburger { display: block; }
+    }
+
+    /* T2: Responsive grid */
+    .responsive-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    @media (max-width: 900px) { .responsive-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .responsive-grid { grid-template-columns: 1fr; } }
+    .grid-card { background: #0f0f2a; border: 1px solid #2a2a4a; border-radius: 8px; padding: 16px; text-align: center; }
+    .grid-card button { margin-top: 8px; padding: 6px 16px; background: #6c5ce7; color: white; border: none; border-radius: 4px; cursor: pointer; }
+
+    /* T3: Sticky header that changes on scroll */
+    .sticky-header { position: sticky; top: 0; background: #16213e; padding: 12px 20px; border-radius: 8px; z-index: 10; transition: all 0.3s; }
+    .sticky-header.scrolled { background: #6c5ce7; padding: 8px 20px; }
+
+    /* T4: Scroll-triggered animation */
+    .scroll-reveal { opacity: 0; transform: translateY(30px); transition: all 0.6s ease; }
+    .scroll-reveal.visible { opacity: 1; transform: translateY(0); }
+
+    /* T5: Position:fixed bottom bar */
+    .bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #16213e; border-top: 1px solid #2a2a4a; padding: 12px 32px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
+    .bottom-bar.hidden { transform: translateY(100%); }
+  </style>
+</head>
+<body>
+  <h1>13 — Responsive & Viewport Challenges</h1>
+
+  <!-- T1: Hamburger menu (mobile) -->
+  <div class="test-section">
+    <h3>T1: Hamburger Menu — Click hamburger if visible, or "About" link</h3>
+    <div class="nav-bar">
+      <span style="font-weight:bold;">Logo</span>
+      <div class="nav-links">
+        <span class="nav-link" data-nav="home">Home</span>
+        <span class="nav-link" data-nav="about" id="about-link">About</span>
+        <span class="nav-link" data-nav="contact">Contact</span>
+      </div>
+      <button class="hamburger" id="hamburger-btn">&#9776;</button>
+    </div>
+    <div class="mobile-menu" id="mobile-menu">
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <span class="nav-link" data-nav="home">Home</span>
+        <span class="nav-link" data-nav="about" id="mobile-about">About</span>
+        <span class="nav-link" data-nav="contact">Contact</span>
+      </div>
+    </div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Responsive grid -->
+  <div class="test-section">
+    <h3>T2: Responsive Grid — Read viewport width and click card #3</h3>
+    <div id="viewport-info" style="font-family:monospace;color:#888;margin-bottom:12px;"></div>
+    <div class="responsive-grid">
+      <div class="grid-card"><strong>Card 1</strong><br><button data-card="1">Select</button></div>
+      <div class="grid-card"><strong>Card 2</strong><br><button data-card="2">Select</button></div>
+      <div class="grid-card"><strong>Card 3</strong><br><button data-card="3" id="card-3-btn">Select</button></div>
+      <div class="grid-card"><strong>Card 4</strong><br><button data-card="4">Select</button></div>
+    </div>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: Long scrollable content with scroll-triggered elements -->
+  <div class="test-section">
+    <h3>T3: Scroll-Reveal — Scroll down to reveal hidden button</h3>
+    <div style="height:400px;overflow-y:auto;border:1px solid #2a2a4a;border-radius:8px;padding:16px;" id="scroll-container">
+      <div style="height:300px;">
+        <p>Scroll down to find the hidden content...</p>
+        <p style="color:#888;">Keep scrolling...</p>
+      </div>
+      <div class="scroll-reveal" id="reveal-target">
+        <button id="revealed-btn" style="padding:12px 24px;background:#00b894;color:white;border:none;border-radius:6px;cursor:pointer;font-size:16px;">I was hidden until you scrolled!</button>
+      </div>
+      <div style="height:200px;"></div>
+    </div>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <!-- Bottom bar -->
+  <div class="bottom-bar" id="bottom-bar">
+    <span>Viewport: <span id="vp-width"></span>px</span>
+    <button id="bottom-action" style="padding:6px 16px;background:#6c5ce7;color:white;border:none;border-radius:4px;cursor:pointer;">Bottom Action</button>
+  </div>
+
+  <!-- Extra space for scrolling -->
+  <div style="height:100px;"></div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // Viewport info
+    function updateVP() {
+      var w = window.innerWidth;
+      document.getElementById('viewport-info').textContent = 'Viewport: ' + w + 'x' + window.innerHeight;
+      document.getElementById('vp-width').textContent = w;
+    }
+    updateVP();
+    window.addEventListener('resize', updateVP);
+
+    // T1: Hamburger / About
+    document.getElementById('hamburger-btn').addEventListener('click', function() {
+      document.getElementById('mobile-menu').classList.toggle('open');
+    });
+    document.querySelectorAll('[data-nav="about"]').forEach(function(el) {
+      el.addEventListener('click', function() {
+        window.__t1_about = true;
+        setResult('t1', true, 'Clicked "About" navigation link');
+      });
+    });
+
+    // T2: Grid card selection
+    document.querySelectorAll('[data-card]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var card = btn.getAttribute('data-card');
+        window.__t2_selected = parseInt(card);
+        if (card === '3') setResult('t2', true, 'Selected card #3');
+        else setResult('t2', false, 'Selected card #' + card + ', expected #3');
+      });
+    });
+
+    // T3: Scroll reveal
+    (function() {
+      var container = document.getElementById('scroll-container');
+      var target = document.getElementById('reveal-target');
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            target.classList.add('visible');
+          }
+        });
+      }, { root: container, threshold: 0.3 });
+      observer.observe(target);
+
+      document.getElementById('revealed-btn').addEventListener('click', function() {
+        window.__t3_clicked = true;
+        setResult('t3', true, 'Clicked scroll-revealed button');
+      });
+    })();
+
+    // Bottom bar action
+    document.getElementById('bottom-action').addEventListener('click', function() {
+      window.__bottom_clicked = true;
+    });
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

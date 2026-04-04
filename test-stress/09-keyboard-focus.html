@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 09: Keyboard Navigation & Focus Traps</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    .kbd { background: #0f0f2a; border: 1px solid #4a4a6a; border-radius: 4px; padding: 2px 8px; font-family: monospace; font-size: 13px; }
+    .key-display { font-size: 24px; font-weight: bold; color: #6c5ce7; margin: 12px 0; min-height: 36px; }
+    .focus-indicator { outline: 2px solid #6c5ce7; outline-offset: 2px; }
+    .tab-trap { border: 2px solid #e17055; border-radius: 8px; padding: 16px; }
+    .combo-display { font-family: monospace; font-size: 16px; color: #00b894; margin: 8px 0; min-height: 24px; }
+    .shortcut-panel { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .shortcut-btn { padding: 12px; background: #0f0f2a; border: 1px solid #2a2a4a; border-radius: 6px; text-align: center; cursor: pointer; }
+    .shortcut-btn.active { border-color: #00b894; background: rgba(0,184,148,0.1); }
+    .shortcut-btn kbd { display: block; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>09 — Keyboard Navigation & Focus</h1>
+
+  <!-- T1: Keyboard shortcut detection -->
+  <div class="test-section">
+    <h3>T1: Press Ctrl+Shift+K (or Cmd+Shift+K on Mac)</h3>
+    <p>Detect keyboard shortcut combination.</p>
+    <div class="key-display" id="key-display">Waiting for keypress...</div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Tab navigation through form -->
+  <div class="test-section">
+    <h3>T2: Tab through form fields and submit with Enter</h3>
+    <form id="tab-form" onsubmit="return false;">
+      <div style="display:flex;flex-direction:column;gap:12px;max-width:300px;">
+        <input type="text" id="field-1" placeholder="First name" tabindex="1" style="padding:8px;background:#0a0a1a;color:#e0e0e8;border:1px solid #4a4a6a;border-radius:4px;" />
+        <input type="text" id="field-2" placeholder="Last name" tabindex="2" style="padding:8px;background:#0a0a1a;color:#e0e0e8;border:1px solid #4a4a6a;border-radius:4px;" />
+        <input type="email" id="field-3" placeholder="Email" tabindex="3" style="padding:8px;background:#0a0a1a;color:#e0e0e8;border:1px solid #4a4a6a;border-radius:4px;" />
+        <button type="submit" id="field-submit" tabindex="4" style="padding:10px;background:#00b894;color:white;border:none;border-radius:4px;cursor:pointer;">Submit</button>
+      </div>
+    </form>
+    <div class="combo-display" id="focus-log"></div>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: Focus trap (modal-like) -->
+  <div class="test-section">
+    <h3>T3: Focus Trap — Tab cycles only within the box</h3>
+    <button id="enter-trap" style="padding:10px 20px;background:#6c5ce7;color:white;border:none;border-radius:6px;cursor:pointer;margin-bottom:12px;">Enter Focus Trap</button>
+    <div id="focus-trap" class="tab-trap" style="display:none;">
+      <p style="color:#e17055;margin-bottom:12px;">Focus is trapped! Tab cycles within this box.</p>
+      <input type="text" id="trap-input-1" placeholder="Input 1" style="padding:8px;background:#0a0a1a;color:#e0e0e8;border:1px solid #4a4a6a;border-radius:4px;display:block;margin:8px 0;" />
+      <input type="text" id="trap-input-2" placeholder="Input 2" style="padding:8px;background:#0a0a1a;color:#e0e0e8;border:1px solid #4a4a6a;border-radius:4px;display:block;margin:8px 0;" />
+      <button id="trap-escape" style="padding:8px 16px;background:#e17055;color:white;border:none;border-radius:4px;cursor:pointer;">Escape (or press Esc)</button>
+    </div>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <!-- T4: Arrow key navigation in grid -->
+  <div class="test-section">
+    <h3>T4: Arrow Key Grid — Navigate to bottom-right cell using arrow keys</h3>
+    <div id="arrow-grid" style="display:grid;grid-template-columns:repeat(4,60px);gap:4px;"></div>
+    <div class="combo-display" id="grid-position">Position: [0,0]</div>
+    <div id="result-t4" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+      var combo = [];
+      if (e.ctrlKey || e.metaKey) combo.push('Ctrl');
+      if (e.shiftKey) combo.push('Shift');
+      if (e.altKey) combo.push('Alt');
+      if (e.key !== 'Control' && e.key !== 'Shift' && e.key !== 'Alt' && e.key !== 'Meta') combo.push(e.key.toUpperCase());
+      var display = combo.join('+');
+      document.getElementById('key-display').textContent = display;
+
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toUpperCase() === 'K') {
+        e.preventDefault();
+        window.__t1_shortcut = true;
+        setResult('t1', true, 'Detected Ctrl+Shift+K');
+      }
+    });
+
+    // T2: Tab navigation form
+    (function() {
+      var focusLog = [];
+      var fields = ['field-1', 'field-2', 'field-3', 'field-submit'];
+      fields.forEach(function(id) {
+        document.getElementById(id).addEventListener('focus', function() {
+          focusLog.push(id);
+          document.getElementById('focus-log').textContent = 'Focus path: ' + focusLog.join(' → ');
+        });
+      });
+      document.getElementById('tab-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var f1 = document.getElementById('field-1').value;
+        var f2 = document.getElementById('field-2').value;
+        var f3 = document.getElementById('field-3').value;
+        if (f1 && f2 && f3) {
+          window.__t2_submitted = { first: f1, last: f2, email: f3, focusPath: focusLog };
+          setResult('t2', true, 'Form submitted via tab+enter: ' + f1 + ' ' + f2);
+        }
+      });
+    })();
+
+    // T3: Focus trap
+    (function() {
+      var trap = document.getElementById('focus-trap');
+      var focusableInTrap = null;
+
+      document.getElementById('enter-trap').addEventListener('click', function() {
+        trap.style.display = 'block';
+        focusableInTrap = trap.querySelectorAll('input, button');
+        focusableInTrap[0].focus();
+      });
+
+      trap.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab' && focusableInTrap) {
+          var first = focusableInTrap[0];
+          var last = focusableInTrap[focusableInTrap.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+        if (e.key === 'Escape') {
+          trap.style.display = 'none';
+          document.getElementById('enter-trap').focus();
+        }
+      });
+
+      document.getElementById('trap-escape').addEventListener('click', function() {
+        var val1 = document.getElementById('trap-input-1').value;
+        var val2 = document.getElementById('trap-input-2').value;
+        trap.style.display = 'none';
+        if (val1 && val2) {
+          window.__t3_escaped = { val1: val1, val2: val2 };
+          setResult('t3', true, 'Focus trap escaped with values: ' + val1 + ', ' + val2);
+        }
+      });
+    })();
+
+    // T4: Arrow key grid
+    (function() {
+      var grid = document.getElementById('arrow-grid');
+      var ROWS = 4, COLS = 4;
+      var pos = { r: 0, c: 0 };
+      var cells = [];
+
+      for (var r = 0; r < ROWS; r++) {
+        cells[r] = [];
+        for (var c = 0; c < COLS; c++) {
+          var cell = document.createElement('div');
+          cell.style.cssText = 'width:60px;height:40px;background:#0f0f2a;border:1px solid #2a2a4a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;font-family:monospace;';
+          cell.textContent = r + ',' + c;
+          cell.setAttribute('data-pos', r + '-' + c);
+          cells[r][c] = cell;
+          grid.appendChild(cell);
+        }
+      }
+
+      function updateGrid() {
+        for (var r = 0; r < ROWS; r++) {
+          for (var c = 0; c < COLS; c++) {
+            cells[r][c].style.background = (r === pos.r && c === pos.c) ? '#6c5ce7' : '#0f0f2a';
+            cells[r][c].style.color = (r === pos.r && c === pos.c) ? 'white' : '#e0e0e8';
+          }
+        }
+        document.getElementById('grid-position').textContent = 'Position: [' + pos.r + ',' + pos.c + ']';
+        if (pos.r === ROWS - 1 && pos.c === COLS - 1) {
+          window.__t4_reached = true;
+          setResult('t4', true, 'Reached bottom-right cell [3,3]');
+        }
+      }
+      updateGrid();
+
+      // Make grid focusable
+      grid.tabIndex = 0;
+      grid.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowDown' && pos.r < ROWS - 1) { pos.r++; e.preventDefault(); }
+        else if (e.key === 'ArrowUp' && pos.r > 0) { pos.r--; e.preventDefault(); }
+        else if (e.key === 'ArrowRight' && pos.c < COLS - 1) { pos.c++; e.preventDefault(); }
+        else if (e.key === 'ArrowLeft' && pos.c > 0) { pos.c--; e.preventDefault(); }
+        updateGrid();
+      });
+    })();
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 04: Nested iframes</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    iframe { border: 1px solid #2a2a4a; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>04 — Nested iframes</h1>
+
+  <!-- T1: Button inside an iframe -->
+  <div class="test-section">
+    <h3>T1: Click button inside iframe</h3>
+    <iframe id="frame-1" width="400" height="120" srcdoc="
+      <html><body style='font-family:system-ui;background:#0f0f2a;color:#e0e0e8;padding:16px;'>
+        <button id='iframe-btn' onclick='window.__clicked=true;this.textContent=&quot;Clicked!&quot;;this.style.background=&quot;#00b894&quot;' style='padding:10px 20px;background:#6c5ce7;color:white;border:none;border-radius:6px;cursor:pointer;'>Click me in iframe</button>
+      </body></html>
+    "></iframe>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Input inside nested iframe (iframe in iframe) -->
+  <div class="test-section">
+    <h3>T2: Type into input inside nested iframe (depth 2)</h3>
+    <iframe id="frame-2" width="500" height="180" srcdoc="
+      <html><body style='font-family:system-ui;background:#0f0f2a;color:#e0e0e8;padding:16px;'>
+        <p>Outer iframe</p>
+        <iframe id='inner-frame' width='400' height='100' srcdoc='
+          <html><body style=&quot;font-family:system-ui;background:#1a0a2a;color:#e0e0e8;padding:12px;&quot;>
+            <input type=&quot;text&quot; id=&quot;nested-input&quot; placeholder=&quot;Type here...&quot; style=&quot;padding:8px;background:#0a0a1a;color:#e0e0e8;border:1px solid #4a4a6a;border-radius:4px;&quot; />
+          </body></html>
+        '></iframe>
+      </body></html>
+    "></iframe>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: Form spanning parent and iframe -->
+  <div class="test-section">
+    <h3>T3: Fill form in parent, then click submit in iframe</h3>
+    <input type="text" id="parent-input" placeholder="Enter code here" style="padding:8px;background:#0a0a1a;color:#e0e0e8;border:1px solid #4a4a6a;border-radius:4px;margin-bottom:12px;display:block;" />
+    <iframe id="frame-3" width="400" height="80" srcdoc="
+      <html><body style='font-family:system-ui;background:#0f0f2a;color:#e0e0e8;padding:16px;'>
+        <button id='submit-btn' onclick='window.parent.postMessage({type:&quot;iframe-submit&quot;},&quot;*&quot;);this.textContent=&quot;Submitted!&quot;' style='padding:10px 20px;background:#00b894;color:white;border:none;border-radius:6px;cursor:pointer;'>Submit from iframe</button>
+      </body></html>
+    "></iframe>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <!-- T4: Dynamically created iframe -->
+  <div class="test-section">
+    <h3>T4: Click button that creates iframe, then interact with iframe content</h3>
+    <button id="create-iframe-btn" style="padding:10px 20px;background:#fdcb6e;color:#1a1a2e;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Create iframe</button>
+    <div id="dynamic-frame-container" style="margin-top:12px;"></div>
+    <div id="result-t4" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Check iframe button click
+    document.getElementById('frame-1').addEventListener('load', function() {
+      var iframeDoc = this.contentDocument;
+      if (iframeDoc) {
+        var origClick = iframeDoc.getElementById('iframe-btn');
+        if (origClick) {
+          var origHandler = origClick.onclick;
+          origClick.onclick = null;
+          origClick.addEventListener('click', function() {
+            window.__t1_clicked = true;
+            setResult('t1', true, 'Button inside iframe clicked');
+          });
+        }
+      }
+    });
+
+    // T2: Verify via polling
+    setInterval(function() {
+      try {
+        var outer = document.getElementById('frame-2').contentDocument;
+        var inner = outer.getElementById('inner-frame').contentDocument;
+        var input = inner.getElementById('nested-input');
+        if (input && input.value === 'iframe-test') {
+          window.__t2_typed = true;
+          setResult('t2', true, 'Typed into nested iframe input');
+        }
+      } catch(e) {}
+    }, 500);
+
+    // T3: Cross-frame communication
+    window.addEventListener('message', function(e) {
+      if (e.data && e.data.type === 'iframe-submit') {
+        var code = document.getElementById('parent-input').value;
+        if (code === 'test-code') {
+          window.__t3_submitted = true;
+          setResult('t3', true, 'Cross-frame form submitted with code: ' + code);
+        }
+      }
+    });
+
+    // T4: Dynamic iframe creation
+    document.getElementById('create-iframe-btn').addEventListener('click', function() {
+      var container = document.getElementById('dynamic-frame-container');
+      var iframe = document.createElement('iframe');
+      iframe.width = '400';
+      iframe.height = '100';
+      iframe.style.border = '1px solid #2a2a4a';
+      iframe.style.borderRadius = '8px';
+      iframe.srcdoc = '<html><body style="font-family:system-ui;background:#0f0f2a;color:#e0e0e8;padding:16px;"><button id="dynamic-btn" style="padding:10px 20px;background:#e17055;color:white;border:none;border-radius:6px;cursor:pointer;">Dynamic iframe button</button></body></html>';
+      container.appendChild(iframe);
+      iframe.addEventListener('load', function() {
+        var btn = iframe.contentDocument.getElementById('dynamic-btn');
+        if (btn) {
+          btn.addEventListener('click', function() {
+            window.__t4_clicked = true;
+            setResult('t4', true, 'Clicked button in dynamically created iframe');
+          });
+        }
+      });
+    });
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

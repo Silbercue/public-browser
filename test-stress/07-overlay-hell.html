@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 07: Overlay Hell</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    .cookie-banner { position: fixed; bottom: 0; left: 0; right: 0; background: #16213e; border-top: 1px solid #2a2a4a; padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
+    .cookie-banner.hidden { display: none; }
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+    .toast { background: #16213e; border: 1px solid #2a2a4a; border-left: 3px solid #6c5ce7; padding: 12px 16px; border-radius: 6px; min-width: 250px; display: flex; justify-content: space-between; align-items: center; animation: slideIn 0.3s ease; }
+    .toast .close-toast { background: none; border: none; color: #888; cursor: pointer; font-size: 18px; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .tooltip { position: absolute; background: #0f0f2a; border: 1px solid #6c5ce7; border-radius: 6px; padding: 8px 12px; font-size: 13px; z-index: 50; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+    .tooltip.visible { opacity: 1; pointer-events: auto; }
+    .dropdown-menu { position: absolute; background: #16213e; border: 1px solid #2a2a4a; border-radius: 6px; min-width: 180px; z-index: 150; display: none; }
+    .dropdown-menu.open { display: block; }
+    .dropdown-item { padding: 10px 16px; cursor: pointer; }
+    .dropdown-item:hover { background: rgba(108,92,231,0.1); }
+    .notification-badge { position: absolute; top: -6px; right: -6px; background: #e17055; color: white; font-size: 11px; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .btn-primary { background: #6c5ce7; color: white; }
+    .btn-success { background: #00b894; color: white; }
+    .btn-danger { background: #e17055; color: white; }
+    .btn-small { padding: 4px 12px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>07 — Overlay Hell: Stacking Context Chaos</h1>
+
+  <!-- Cookie banner (blocks bottom) -->
+  <div id="cookie-banner" class="cookie-banner">
+    <span>This site uses cookies for testing purposes.</span>
+    <div style="display:flex;gap:8px;">
+      <button id="cookie-reject" class="btn btn-danger btn-small">Reject</button>
+      <button id="cookie-accept" class="btn btn-success btn-small">Accept All</button>
+    </div>
+  </div>
+
+  <!-- T1: Close cookie banner to reveal button below -->
+  <div class="test-section">
+    <h3>T1: Close cookie banner, then click hidden button</h3>
+    <p>A button is partially covered by the cookie banner. Accept cookies first.</p>
+    <div style="margin-top: 60px; text-align: center;">
+      <button id="hidden-btn" class="btn btn-primary" style="margin-bottom: 0;">Previously Hidden Button</button>
+    </div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Dismiss 3 stacked toasts to reach action button -->
+  <div class="test-section">
+    <h3>T2: Dismiss all toasts, then click the action button</h3>
+    <button id="spawn-toasts" class="btn btn-primary" style="margin-bottom:12px;">Spawn 3 Toasts</button>
+    <button id="toast-action" class="btn btn-success">Action After Toasts</button>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: Dropdown menu with nested submenu -->
+  <div class="test-section">
+    <h3>T3: Open dropdown, hover submenu, click "Export CSV"</h3>
+    <div style="position:relative;display:inline-block;">
+      <button id="dropdown-trigger" class="btn btn-primary" style="position:relative;">
+        Actions
+        <span class="notification-badge">3</span>
+      </button>
+      <div id="dropdown-main" class="dropdown-menu">
+        <div class="dropdown-item" data-action="edit">Edit</div>
+        <div class="dropdown-item" data-action="export" id="export-trigger" style="position:relative;">
+          Export &rarr;
+          <div id="dropdown-sub" class="dropdown-menu" style="left:100%;top:0;">
+            <div class="dropdown-item" data-action="export-pdf">Export PDF</div>
+            <div class="dropdown-item" data-action="export-csv" id="export-csv">Export CSV</div>
+            <div class="dropdown-item" data-action="export-json">Export JSON</div>
+          </div>
+        </div>
+        <div class="dropdown-item" data-action="delete" style="color:#e17055;">Delete</div>
+      </div>
+    </div>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <!-- T4: Tooltip that covers a button — must read tooltip text -->
+  <div class="test-section">
+    <h3>T4: Hover to show tooltip, read its text</h3>
+    <div style="position:relative;display:inline-block;">
+      <button id="tooltip-trigger" class="btn btn-primary">Hover me for secret</button>
+      <div id="tooltip" class="tooltip" style="top:-40px;left:0;">Secret: alpha-42-omega</div>
+    </div>
+    <div id="result-t4" class="result"></div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Cookie banner + hidden button
+    var cookieBanner = document.getElementById('cookie-banner');
+    document.getElementById('cookie-accept').addEventListener('click', function() {
+      cookieBanner.classList.add('hidden');
+      window.__t1_cookie_accepted = true;
+    });
+    document.getElementById('cookie-reject').addEventListener('click', function() {
+      cookieBanner.classList.add('hidden');
+    });
+    document.getElementById('hidden-btn').addEventListener('click', function() {
+      if (window.__t1_cookie_accepted) {
+        window.__t1_clicked = true;
+        setResult('t1', true, 'Cookie banner dismissed and hidden button clicked');
+      } else {
+        setResult('t1', false, 'Button clicked but cookie banner was not accepted first');
+      }
+    });
+
+    // T2: Toast dismissal
+    (function() {
+      var toastContainer = document.getElementById('toast-container');
+      var toastCount = 0;
+      var dismissedCount = 0;
+
+      document.getElementById('spawn-toasts').addEventListener('click', function() {
+        toastCount = 3;
+        dismissedCount = 0;
+        for (var i = 1; i <= 3; i++) {
+          var toast = document.createElement('div');
+          toast.className = 'toast';
+          toast.setAttribute('data-toast', i);
+          var text = document.createElement('span');
+          text.textContent = 'Notification #' + i;
+          var closeBtn = document.createElement('button');
+          closeBtn.className = 'close-toast';
+          closeBtn.textContent = '\u00d7';
+          (function(t) {
+            closeBtn.addEventListener('click', function() {
+              t.remove();
+              dismissedCount++;
+            });
+          })(toast);
+          toast.appendChild(text);
+          toast.appendChild(closeBtn);
+          toastContainer.appendChild(toast);
+        }
+      });
+
+      document.getElementById('toast-action').addEventListener('click', function() {
+        if (dismissedCount >= 3 || toastContainer.children.length === 0) {
+          window.__t2_done = true;
+          setResult('t2', true, 'All toasts dismissed and action button clicked');
+        } else {
+          setResult('t2', false, 'Action button clicked but ' + toastContainer.children.length + ' toasts still visible');
+        }
+      });
+    })();
+
+    // T3: Dropdown + submenu
+    (function() {
+      var trigger = document.getElementById('dropdown-trigger');
+      var mainMenu = document.getElementById('dropdown-main');
+      var exportTrigger = document.getElementById('export-trigger');
+      var subMenu = document.getElementById('dropdown-sub');
+
+      trigger.addEventListener('click', function(e) {
+        e.stopPropagation();
+        mainMenu.classList.toggle('open');
+      });
+      exportTrigger.addEventListener('mouseenter', function() {
+        subMenu.classList.add('open');
+      });
+      exportTrigger.addEventListener('mouseleave', function(e) {
+        // Keep open if moving into submenu
+        if (!subMenu.contains(e.relatedTarget)) subMenu.classList.remove('open');
+      });
+      subMenu.addEventListener('mouseleave', function() {
+        subMenu.classList.remove('open');
+      });
+
+      document.getElementById('export-csv').addEventListener('click', function() {
+        window.__t3_exported = 'csv';
+        mainMenu.classList.remove('open');
+        subMenu.classList.remove('open');
+        setResult('t3', true, 'Export CSV selected from nested dropdown');
+      });
+
+      document.addEventListener('click', function() {
+        mainMenu.classList.remove('open');
+        subMenu.classList.remove('open');
+      });
+    })();
+
+    // T4: Tooltip
+    (function() {
+      var trigger = document.getElementById('tooltip-trigger');
+      var tooltip = document.getElementById('tooltip');
+      trigger.addEventListener('mouseenter', function() {
+        tooltip.classList.add('visible');
+        window.__t4_tooltip_shown = true;
+        // Auto-verify: MCP should read the tooltip text
+        setTimeout(function() {
+          if (window.__t4_read) setResult('t4', true, 'Tooltip text read: ' + tooltip.textContent);
+        }, 500);
+      });
+      trigger.addEventListener('mouseleave', function() {
+        tooltip.classList.remove('visible');
+      });
+    })();
+
+    // Expose verification for tooltip
+    window.verifyTooltipRead = function(text) {
+      if (text === 'Secret: alpha-42-omega') {
+        window.__t4_read = true;
+        setResult('t4', true, 'Tooltip text correctly read');
+        return true;
+      }
+      return false;
+    };
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 01: Shadow DOM & Web Components</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+  </style>
+</head>
+<body>
+  <h1>01 — Shadow DOM & Web Components</h1>
+  <p>Tests: read_page/click/type penetration into shadow roots at various depths.</p>
+
+  <div class="test-section">
+    <h3>T1: Button inside Shadow Root</h3>
+    <div id="shadow-host-1"></div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>T2: Input inside Nested Shadow (2 levels deep)</h3>
+    <div id="shadow-host-2"></div>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>T3: Closed Shadow Root (mode: closed)</h3>
+    <closed-component></closed-component>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>T4: Shadow DOM with Slotted Content</h3>
+    <slot-component>
+      <button slot="action" id="slotted-btn" onclick="window.__t4_clicked = true; document.getElementById('result-t4').textContent = 'PASS: Slotted button clicked'; document.getElementById('result-t4').className = 'result pass';">Slotted Button</button>
+    </slot-component>
+    <div id="result-t4" class="result"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>T5: Shadow DOM Form with Custom Properties</h3>
+    <styled-form></styled-form>
+    <div id="result-t5" class="result"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>T6: 5-Level Deep Shadow Nesting</h3>
+    <div id="shadow-host-deep"></div>
+    <div id="result-t6" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) {
+        el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg;
+        el.className = 'result ' + (pass ? 'pass' : 'fail');
+      }
+    }
+
+    // T1: Simple shadow button
+    (function() {
+      var host = document.getElementById('shadow-host-1');
+      var shadow = host.attachShadow({ mode: 'open' });
+      var btn = document.createElement('button');
+      btn.textContent = 'Shadow Button';
+      btn.id = 'shadow-btn-1';
+      btn.style.cssText = 'padding: 10px 20px; background: #6c5ce7; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;';
+      btn.addEventListener('click', function() {
+        window.__t1_clicked = true;
+        setResult('t1', true, 'Shadow button clicked successfully');
+      });
+      shadow.appendChild(btn);
+    })();
+
+    // T2: Nested shadow (2 levels)
+    (function() {
+      var host = document.getElementById('shadow-host-2');
+      var shadow1 = host.attachShadow({ mode: 'open' });
+      var inner = document.createElement('div');
+      inner.id = 'shadow-inner';
+      shadow1.appendChild(inner);
+      var shadow2 = inner.attachShadow({ mode: 'open' });
+      var label = document.createElement('label');
+      label.textContent = 'Deep Input: ';
+      label.style.color = '#e0e0e8';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.id = 'deep-input';
+      input.placeholder = 'Type here...';
+      input.style.cssText = 'padding: 8px; background: #0a0a1a; color: #e0e0e8; border: 1px solid #4a4a6a; border-radius: 4px; margin-left: 8px;';
+      input.addEventListener('input', function() {
+        if (input.value === 'shadow-test') {
+          window.__t2_typed = true;
+          setResult('t2', true, 'Typed into 2-level nested shadow input');
+        }
+      });
+      shadow2.appendChild(label);
+      shadow2.appendChild(input);
+    })();
+
+    // T3: Closed shadow root
+    class ClosedComponent extends HTMLElement {
+      constructor() {
+        super();
+        var shadow = this.attachShadow({ mode: 'closed' });
+        var btn = document.createElement('button');
+        btn.textContent = 'Closed Shadow Button';
+        btn.style.cssText = 'padding: 10px 20px; background: #e17055; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;';
+        btn.addEventListener('click', function() {
+          window.__t3_clicked = true;
+          setResult('t3', true, 'Closed shadow button clicked!');
+        });
+        shadow.appendChild(btn);
+      }
+    }
+    customElements.define('closed-component', ClosedComponent);
+
+    // T4: Shadow DOM with slots
+    class SlotComponent extends HTMLElement {
+      constructor() {
+        super();
+        var shadow = this.attachShadow({ mode: 'open' });
+        var wrapper = document.createElement('div');
+        wrapper.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px dashed #6c5ce7; border-radius: 8px;';
+        var label = document.createElement('span');
+        label.textContent = 'Slot projection: ';
+        label.style.color = '#888';
+        var slot = document.createElement('slot');
+        slot.name = 'action';
+        wrapper.appendChild(label);
+        wrapper.appendChild(slot);
+        shadow.appendChild(wrapper);
+      }
+    }
+    customElements.define('slot-component', SlotComponent);
+
+    // T5: Styled form in shadow DOM
+    class StyledForm extends HTMLElement {
+      constructor() {
+        super();
+        var shadow = this.attachShadow({ mode: 'open' });
+        var style = document.createElement('style');
+        style.textContent = ':host { display: block; --form-bg: #0f0f2a; --input-border: #4a4a6a; } form { background: var(--form-bg); padding: 16px; border-radius: 8px; } input { background: transparent; border: 1px solid var(--input-border); color: #e0e0e8; padding: 8px; border-radius: 4px; display: block; margin: 8px 0; width: 200px; } button { background: #00b894; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }';
+        shadow.appendChild(style);
+        var form = document.createElement('form');
+        var nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.id = 'sf-name';
+        nameInput.placeholder = 'Name';
+        var emailInput = document.createElement('input');
+        emailInput.type = 'email';
+        emailInput.id = 'sf-email';
+        emailInput.placeholder = 'Email';
+        var submitBtn = document.createElement('button');
+        submitBtn.type = 'button';
+        submitBtn.id = 'sf-submit';
+        submitBtn.textContent = 'Submit';
+        submitBtn.addEventListener('click', function() {
+          if (nameInput.value && emailInput.value) {
+            window.__t5_submitted = { name: nameInput.value, email: emailInput.value };
+            setResult('t5', true, 'Form submitted: ' + nameInput.value + ', ' + emailInput.value);
+          }
+        });
+        form.appendChild(nameInput);
+        form.appendChild(emailInput);
+        form.appendChild(submitBtn);
+        shadow.appendChild(form);
+      }
+    }
+    customElements.define('styled-form', StyledForm);
+
+    // T6: 5-level deep shadow nesting
+    (function() {
+      var current = document.getElementById('shadow-host-deep');
+      for (var i = 0; i < 5; i++) {
+        var shadow = current.attachShadow({ mode: 'open' });
+        if (i < 4) {
+          var next = document.createElement('div');
+          next.id = 'deep-level-' + (i + 1);
+          next.style.cssText = 'padding: 8px; border-left: 2px solid hsl(' + (i * 60) + ', 70%, 50%);';
+          shadow.appendChild(next);
+          current = next;
+        } else {
+          var btn = document.createElement('button');
+          btn.textContent = 'Level 5 Deep Button';
+          btn.style.cssText = 'padding: 10px 20px; background: #fdcb6e; color: #1a1a2e; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;';
+          btn.addEventListener('click', function() {
+            window.__t6_clicked = true;
+            setResult('t6', true, 'Clicked button at shadow depth 5');
+          });
+          shadow.appendChild(btn);
+        }
+      }
+    })();
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

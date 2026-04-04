@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 11: CSS Tricks & Visual Deception</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+
+    /* T1: Button visually moved by CSS transform but DOM position unchanged */
+    #transform-btn { transform: translateX(200px) translateY(20px); background: #6c5ce7; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; }
+
+    /* T2: Hidden by clip-path but still in DOM */
+    .clipped { clip-path: inset(0 100% 0 0); }
+    .clipped.revealed { clip-path: inset(0); transition: clip-path 0.5s; }
+
+    /* T3: Pseudo-element button (::after creates clickable area) */
+    .pseudo-btn { position: relative; padding: 12px 24px; background: transparent; border: 2px solid #6c5ce7; color: #6c5ce7; border-radius: 6px; cursor: pointer; font-size: 16px; overflow: visible; }
+    .pseudo-btn::after { content: 'Real Target'; position: absolute; left: 120%; top: 0; background: #00b894; color: white; padding: 12px 24px; border-radius: 6px; white-space: nowrap; pointer-events: auto; }
+
+    /* T4: Absolutely positioned over another */
+    .overlap-container { position: relative; height: 60px; }
+    .bottom-btn { position: absolute; top: 0; left: 0; padding: 12px 24px; background: #e17055; color: white; border: none; border-radius: 6px; cursor: pointer; z-index: 1; }
+    .top-overlay { position: absolute; top: 0; left: 0; width: 200px; height: 50px; background: rgba(26,26,46,0.95); z-index: 2; display: flex; align-items: center; justify-content: center; border: 1px solid #2a2a4a; border-radius: 6px; }
+    .top-overlay.removed { display: none; }
+
+    /* T5: opacity: 0 but interactive */
+    .invisible-btn { opacity: 0; padding: 12px 24px; background: #fdcb6e; color: #1a1a2e; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
+    .invisible-btn:hover { opacity: 1; }
+  </style>
+</head>
+<body>
+  <h1>11 — CSS Tricks & Visual Deception</h1>
+
+  <!-- T1: CSS Transform displacement -->
+  <div class="test-section">
+    <h3>T1: CSS Transform — Button is visually shifted 200px right by transform</h3>
+    <p>The button's DOM position is at the left, but CSS transform moves it right. Click the visual position.</p>
+    <div style="min-height: 80px;">
+      <button id="transform-btn">Transformed Button</button>
+    </div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Clip-path hidden content -->
+  <div class="test-section">
+    <h3>T2: Clip-Path Hidden — Reveal and click the hidden button</h3>
+    <button id="reveal-btn" style="padding:10px 20px;background:#6c5ce7;color:white;border:none;border-radius:6px;cursor:pointer;margin-bottom:12px;">Reveal Hidden Content</button>
+    <div id="clipped-container" class="clipped" style="margin-top:8px;">
+      <button id="clipped-btn" style="padding:12px 24px;background:#00b894;color:white;border:none;border-radius:6px;cursor:pointer;font-size:16px;">Hidden by Clip-Path</button>
+    </div>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: z-index overlay removal -->
+  <div class="test-section">
+    <h3>T3: Z-Index Overlay — Remove overlay to click button beneath</h3>
+    <div class="overlap-container">
+      <button id="beneath-btn" class="bottom-btn">Click Me (hidden)</button>
+      <div id="overlay-div" class="top-overlay">
+        <button id="dismiss-overlay" style="background:none;border:1px solid #888;color:#888;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;">Dismiss</button>
+      </div>
+    </div>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <!-- T4: Invisible (opacity: 0) but interactive -->
+  <div class="test-section">
+    <h3>T4: Invisible Button — opacity:0 but still clickable. Find it!</h3>
+    <p>Hint: It's after this paragraph, invisible until hovered.</p>
+    <button id="invisible-btn" class="invisible-btn">I'm invisible!</button>
+    <div id="result-t4" class="result"></div>
+  </div>
+
+  <!-- T5: CSS Grid reorder (visual order != DOM order) -->
+  <div class="test-section">
+    <h3>T5: CSS Grid Reorder — Click the visually first button (which is DOM-last)</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+      <button class="grid-btn" data-order="1" style="order:3;padding:12px;background:#e17055;color:white;border:none;border-radius:6px;cursor:pointer;">DOM First (Visual Last)</button>
+      <button class="grid-btn" data-order="2" style="order:2;padding:12px;background:#fdcb6e;color:#1a1a2e;border:none;border-radius:6px;cursor:pointer;">DOM Middle</button>
+      <button class="grid-btn" data-order="3" style="order:1;padding:12px;background:#00b894;color:white;border:none;border-radius:6px;cursor:pointer;">DOM Last (Visual First)</button>
+    </div>
+    <div id="result-t5" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Transform button
+    document.getElementById('transform-btn').addEventListener('click', function() {
+      window.__t1_clicked = true;
+      setResult('t1', true, 'Clicked CSS-transformed button at visual position');
+    });
+
+    // T2: Clip-path
+    document.getElementById('reveal-btn').addEventListener('click', function() {
+      document.getElementById('clipped-container').classList.add('revealed');
+    });
+    document.getElementById('clipped-btn').addEventListener('click', function() {
+      window.__t2_clicked = true;
+      setResult('t2', true, 'Clicked clip-path-revealed button');
+    });
+
+    // T3: Z-index overlay
+    document.getElementById('dismiss-overlay').addEventListener('click', function() {
+      document.getElementById('overlay-div').classList.add('removed');
+    });
+    document.getElementById('beneath-btn').addEventListener('click', function() {
+      window.__t3_clicked = true;
+      setResult('t3', true, 'Clicked button beneath overlay after dismissal');
+    });
+
+    // T4: Invisible button
+    document.getElementById('invisible-btn').addEventListener('click', function() {
+      window.__t4_clicked = true;
+      setResult('t4', true, 'Clicked invisible (opacity:0) button');
+    });
+
+    // T5: CSS Grid reorder
+    document.querySelectorAll('.grid-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var order = btn.getAttribute('data-order');
+        window.__t5_clicked = order;
+        if (order === '3') setResult('t5', true, 'Clicked visual-first (DOM-last) button');
+        else setResult('t5', false, 'Clicked DOM order ' + order + ', expected visual first (DOM order 3)');
+      });
+    });
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

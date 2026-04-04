@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 06: Drag & Drop</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    .sort-list { list-style: none; padding: 0; }
+    .sort-item { padding: 12px 16px; background: #0f0f2a; border: 1px solid #2a2a4a; border-radius: 6px; margin: 6px 0; cursor: grab; user-select: none; display: flex; align-items: center; gap: 12px; }
+    .sort-item .handle { color: #888; }
+    .sort-item.dragging { opacity: 0.4; border-color: #6c5ce7; }
+    .sort-item.drag-over { border-color: #00b894; background: rgba(0,206,201,0.05); }
+    .drop-zones { display: flex; gap: 16px; }
+    .drop-zone { width: 200px; min-height: 150px; border: 2px dashed #2a2a4a; border-radius: 8px; padding: 16px; text-align: center; }
+    .drop-zone.hover { border-color: #6c5ce7; background: rgba(108,92,231,0.1); }
+    .draggable-item { padding: 8px 16px; background: #6c5ce7; color: white; border-radius: 4px; display: inline-block; cursor: grab; margin: 4px; }
+    .slider-track { width: 300px; height: 8px; background: #2a2a4a; border-radius: 4px; position: relative; margin: 20px 0; }
+    .slider-thumb { width: 24px; height: 24px; background: #6c5ce7; border-radius: 50%; position: absolute; top: -8px; cursor: grab; }
+    .slider-value { font-family: monospace; font-size: 18px; color: #6c5ce7; }
+  </style>
+</head>
+<body>
+  <h1>06 — Drag & Drop Interactions</h1>
+
+  <!-- T1: Sortable list — move item 3 to position 1 -->
+  <div class="test-section">
+    <h3>T1: Sortable List — Move "Cherry" to top</h3>
+    <ul id="sort-list" class="sort-list">
+      <li class="sort-item" data-value="apple" draggable="true"><span class="handle">&#9776;</span> Apple</li>
+      <li class="sort-item" data-value="banana" draggable="true"><span class="handle">&#9776;</span> Banana</li>
+      <li class="sort-item" data-value="cherry" draggable="true"><span class="handle">&#9776;</span> Cherry</li>
+      <li class="sort-item" data-value="date" draggable="true"><span class="handle">&#9776;</span> Date</li>
+      <li class="sort-item" data-value="elderberry" draggable="true"><span class="handle">&#9776;</span> Elderberry</li>
+    </ul>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Drop zones — drag correct item to matching zone -->
+  <div class="test-section">
+    <h3>T2: Drop Zones — Drag "Code" to the "Development" zone</h3>
+    <div style="margin-bottom:12px;">
+      <span class="draggable-item" id="drag-code" draggable="true" data-type="code">Code</span>
+      <span class="draggable-item" id="drag-design" draggable="true" data-type="design" style="background:#e17055;">Design</span>
+      <span class="draggable-item" id="drag-docs" draggable="true" data-type="docs" style="background:#00b894;">Docs</span>
+    </div>
+    <div class="drop-zones">
+      <div class="drop-zone" id="zone-dev" data-accepts="code">
+        <p style="color:#888;">Development</p>
+      </div>
+      <div class="drop-zone" id="zone-design" data-accepts="design">
+        <p style="color:#888;">Design</p>
+      </div>
+      <div class="drop-zone" id="zone-docs" data-accepts="docs">
+        <p style="color:#888;">Documentation</p>
+      </div>
+    </div>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: Custom slider (no native range input) -->
+  <div class="test-section">
+    <h3>T3: Custom Slider — Drag to value 75 (±5)</h3>
+    <div class="slider-track" id="slider-track">
+      <div class="slider-thumb" id="slider-thumb" style="left: 0px;"></div>
+    </div>
+    <div class="slider-value">Value: <span id="slider-value">0</span></div>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Sortable list
+    (function() {
+      var list = document.getElementById('sort-list');
+      var dragItem = null;
+      list.addEventListener('dragstart', function(e) {
+        dragItem = e.target.closest('.sort-item');
+        if (dragItem) dragItem.classList.add('dragging');
+      });
+      list.addEventListener('dragend', function() {
+        if (dragItem) dragItem.classList.remove('dragging');
+        dragItem = null;
+        document.querySelectorAll('.sort-item').forEach(function(i) { i.classList.remove('drag-over'); });
+        // Check order
+        var items = Array.from(list.querySelectorAll('.sort-item'));
+        var order = items.map(function(i) { return i.getAttribute('data-value'); });
+        window.__t1_order = order;
+        if (order[0] === 'cherry') setResult('t1', true, 'Cherry moved to top! Order: ' + order.join(', '));
+      });
+      list.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        var target = e.target.closest('.sort-item');
+        if (target && target !== dragItem) {
+          target.classList.add('drag-over');
+          var items = Array.from(list.querySelectorAll('.sort-item'));
+          var dragIdx = items.indexOf(dragItem);
+          var targetIdx = items.indexOf(target);
+          if (dragIdx > targetIdx) list.insertBefore(dragItem, target);
+          else list.insertBefore(dragItem, target.nextSibling);
+        }
+      });
+      list.addEventListener('dragleave', function(e) {
+        var target = e.target.closest('.sort-item');
+        if (target) target.classList.remove('drag-over');
+      });
+    })();
+
+    // T2: Drop zones
+    (function() {
+      var dragging = null;
+      document.querySelectorAll('.draggable-item').forEach(function(item) {
+        item.addEventListener('dragstart', function(e) {
+          dragging = item;
+          e.dataTransfer.setData('text/plain', item.getAttribute('data-type'));
+        });
+      });
+      document.querySelectorAll('.drop-zone').forEach(function(zone) {
+        zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('hover'); });
+        zone.addEventListener('dragleave', function() { zone.classList.remove('hover'); });
+        zone.addEventListener('drop', function(e) {
+          e.preventDefault();
+          zone.classList.remove('hover');
+          var type = e.dataTransfer.getData('text/plain');
+          var accepts = zone.getAttribute('data-accepts');
+          if (type === 'code' && accepts === 'code') {
+            zone.appendChild(dragging);
+            window.__t2_dropped = { type: type, zone: zone.id };
+            setResult('t2', true, 'Code dropped into Development zone');
+          }
+        });
+      });
+    })();
+
+    // T3: Custom slider
+    (function() {
+      var track = document.getElementById('slider-track');
+      var thumb = document.getElementById('slider-thumb');
+      var valueDisplay = document.getElementById('slider-value');
+      var isDragging = false;
+
+      function updateValue(clientX) {
+        var rect = track.getBoundingClientRect();
+        var x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+        var pct = Math.round((x / rect.width) * 100);
+        thumb.style.left = (x - 12) + 'px';
+        valueDisplay.textContent = pct;
+        window.__t3_value = pct;
+        if (pct >= 70 && pct <= 80) setResult('t3', true, 'Slider at ' + pct + ' (target: 75±5)');
+      }
+
+      thumb.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        e.preventDefault();
+      });
+      document.addEventListener('mousemove', function(e) {
+        if (isDragging) updateValue(e.clientX);
+      });
+      document.addEventListener('mouseup', function() { isDragging = false; });
+      // Also allow click on track
+      track.addEventListener('click', function(e) { updateValue(e.clientX); });
+    })();
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>

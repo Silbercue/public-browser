@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stress Test 03: SPA Dynamic Content</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #e0e0e8; padding: 32px; }
+    h1 { color: #6c5ce7; }
+    .test-section { background: #16213e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .result { font-family: monospace; margin-top: 8px; padding: 8px; border-radius: 4px; }
+    .pass { background: rgba(0,184,148,0.15); color: #00b894; }
+    .fail { background: rgba(225,112,85,0.15); color: #e17055; }
+    .tab-bar { display: flex; gap: 0; border-bottom: 2px solid #2a2a4a; margin-bottom: 16px; }
+    .tab-btn { padding: 10px 20px; background: none; border: none; color: #888; cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tab-btn.active { color: #6c5ce7; border-bottom-color: #6c5ce7; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .counter { font-size: 2em; font-weight: bold; color: #6c5ce7; margin: 12px 0; }
+    .live-feed { height: 200px; overflow-y: auto; border: 1px solid #2a2a4a; border-radius: 8px; }
+    .feed-item { padding: 8px 12px; border-bottom: 1px solid #2a2a4a; font-size: 13px; }
+    .feed-item.new { animation: flash 0.5s; }
+    @keyframes flash { from { background: rgba(108,92,231,0.3); } to { background: transparent; } }
+    .search-results { margin-top: 12px; }
+    .search-result-item { padding: 8px 12px; background: #0f0f2a; border-radius: 4px; margin: 4px 0; cursor: pointer; }
+    .search-result-item:hover { background: #1f1f3a; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-overlay.visible { display: flex; }
+    .modal { background: #16213e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 24px; min-width: 300px; }
+    .modal h3 { margin-bottom: 12px; }
+    .modal input { width: 100%; padding: 8px; background: #0a0a1a; border: 1px solid #4a4a6a; color: #e0e0e8; border-radius: 4px; margin: 8px 0; box-sizing: border-box; }
+    .modal button { background: #6c5ce7; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>03 — SPA Dynamic Content & State Changes</h1>
+
+  <!-- T1: Tab navigation with dynamic content replacement -->
+  <div class="test-section">
+    <h3>T1: Tab Navigation — Switch to "Settings" tab and toggle dark mode</h3>
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="home">Home</button>
+      <button class="tab-btn" data-tab="profile">Profile</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </div>
+    <div id="tab-home" class="tab-content active">
+      <p>Welcome to the SPA test. Navigate to the Settings tab.</p>
+    </div>
+    <div id="tab-profile" class="tab-content">
+      <p>User profile content.</p>
+    </div>
+    <div id="tab-settings" class="tab-content">
+      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+        <input type="checkbox" id="dark-mode-toggle" />
+        <span>Dark Mode</span>
+      </label>
+    </div>
+    <div id="result-t1" class="result"></div>
+  </div>
+
+  <!-- T2: Async counter with debounced button -->
+  <div class="test-section">
+    <h3>T2: Increment counter 3 times (button has 500ms debounce)</h3>
+    <div class="counter" id="counter-display">0</div>
+    <button id="increment-btn" style="padding: 10px 20px; background: #00b894; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;">Increment</button>
+    <div id="result-t2" class="result"></div>
+  </div>
+
+  <!-- T3: Live feed with auto-updating content -->
+  <div class="test-section">
+    <h3>T3: Live Feed — Wait for 5th message, then click it</h3>
+    <div id="live-feed" class="live-feed"></div>
+    <div id="result-t3" class="result"></div>
+  </div>
+
+  <!-- T4: Search with debounced autocomplete -->
+  <div class="test-section">
+    <h3>T4: Search "react" — select second result from dropdown</h3>
+    <input type="search" id="search-input" placeholder="Search frameworks..." style="width: 300px;" />
+    <div id="search-results" class="search-results"></div>
+    <div id="result-t4" class="result"></div>
+  </div>
+
+  <!-- T5: Dynamic modal chain -->
+  <div class="test-section">
+    <h3>T5: Open modal, fill form, submit — triggers confirmation modal</h3>
+    <button id="open-modal-btn" style="padding: 10px 20px; background: #6c5ce7; color: white; border: none; border-radius: 6px; cursor: pointer;">Open Form</button>
+    <div id="result-t5" class="result"></div>
+  </div>
+
+  <!-- Modal Layer -->
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal" id="modal-content"></div>
+  </div>
+
+  <script>
+    window.__test_results = {};
+    function setResult(id, pass, msg) {
+      window.__test_results[id] = { pass, msg };
+      var el = document.getElementById('result-' + id);
+      if (el) { el.textContent = (pass ? 'PASS' : 'FAIL') + ': ' + msg; el.className = 'result ' + (pass ? 'pass' : 'fail'); }
+    }
+
+    // T1: Tab navigation
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.getAttribute('data-tab')).classList.add('active');
+      });
+    });
+    document.getElementById('dark-mode-toggle').addEventListener('change', function(e) {
+      if (e.target.checked) {
+        window.__t1_toggled = true;
+        setResult('t1', true, 'Navigated to Settings and toggled dark mode');
+      }
+    });
+
+    // T2: Debounced counter
+    (function() {
+      var count = 0;
+      var debouncing = false;
+      document.getElementById('increment-btn').addEventListener('click', function() {
+        if (debouncing) return;
+        debouncing = true;
+        count++;
+        document.getElementById('counter-display').textContent = count;
+        if (count >= 3) {
+          window.__t2_count = count;
+          setResult('t2', true, 'Counter reached ' + count);
+        }
+        setTimeout(function() { debouncing = false; }, 500);
+      });
+    })();
+
+    // T3: Live feed (new message every 800ms)
+    (function() {
+      var feed = document.getElementById('live-feed');
+      var msgCount = 0;
+      var interval = setInterval(function() {
+        msgCount++;
+        var item = document.createElement('div');
+        item.className = 'feed-item new';
+        item.setAttribute('data-msg', msgCount);
+        item.textContent = 'Message #' + msgCount + ' — ' + new Date().toLocaleTimeString();
+        item.style.cursor = 'pointer';
+        (function(n) {
+          item.addEventListener('click', function() {
+            window.__t3_clicked = n;
+            if (n === 5) setResult('t3', true, 'Clicked message #5 in live feed');
+          });
+        })(msgCount);
+        feed.insertBefore(item, feed.firstChild);
+        if (msgCount >= 10) clearInterval(interval);
+      }, 800);
+    })();
+
+    // T4: Search autocomplete (300ms debounce)
+    (function() {
+      var frameworks = ['react', 'react-native', 'redux', 'vue', 'angular', 'svelte', 'solid', 'preact', 'remix', 'next.js'];
+      var input = document.getElementById('search-input');
+      var results = document.getElementById('search-results');
+      var timeout;
+      input.addEventListener('input', function() {
+        clearTimeout(timeout);
+        timeout = setTimeout(function() {
+          var query = input.value.toLowerCase();
+          while (results.firstChild) results.removeChild(results.firstChild);
+          if (!query) return;
+          var matches = frameworks.filter(function(f) { return f.includes(query); });
+          matches.forEach(function(match, idx) {
+            var item = document.createElement('div');
+            item.className = 'search-result-item';
+            item.setAttribute('data-result', idx);
+            item.textContent = match;
+            item.addEventListener('click', function() {
+              window.__t4_selected = match;
+              input.value = match;
+              while (results.firstChild) results.removeChild(results.firstChild);
+              if (idx === 1) setResult('t4', true, 'Selected second result: ' + match);
+            });
+            results.appendChild(item);
+          });
+        }, 300);
+      });
+    })();
+
+    // T5: Modal chain
+    (function() {
+      var overlay = document.getElementById('modal-overlay');
+      var content = document.getElementById('modal-content');
+
+      function showFormModal() {
+        while (content.firstChild) content.removeChild(content.firstChild);
+        var h3 = document.createElement('h3');
+        h3.textContent = 'Contact Form';
+        var nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.id = 'modal-name';
+        nameInput.placeholder = 'Your name';
+        var emailInput = document.createElement('input');
+        emailInput.type = 'email';
+        emailInput.id = 'modal-email';
+        emailInput.placeholder = 'Your email';
+        var submitBtn = document.createElement('button');
+        submitBtn.id = 'modal-submit';
+        submitBtn.textContent = 'Submit';
+        submitBtn.addEventListener('click', function() {
+          if (nameInput.value && emailInput.value) showConfirmModal(nameInput.value, emailInput.value);
+        });
+        content.appendChild(h3);
+        content.appendChild(nameInput);
+        content.appendChild(emailInput);
+        content.appendChild(submitBtn);
+        overlay.classList.add('visible');
+      }
+
+      function showConfirmModal(name, email) {
+        while (content.firstChild) content.removeChild(content.firstChild);
+        var h3 = document.createElement('h3');
+        h3.textContent = 'Confirm Submission';
+        var p = document.createElement('p');
+        p.textContent = 'Submit form for ' + name + ' (' + email + ')?';
+        var confirmBtn = document.createElement('button');
+        confirmBtn.id = 'modal-confirm';
+        confirmBtn.textContent = 'Confirm';
+        confirmBtn.addEventListener('click', function() {
+          window.__t5_confirmed = { name: name, email: email };
+          overlay.classList.remove('visible');
+          setResult('t5', true, 'Modal chain completed: ' + name);
+        });
+        var cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.style.marginLeft = '8px';
+        cancelBtn.style.background = '#e17055';
+        cancelBtn.addEventListener('click', function() { overlay.classList.remove('visible'); });
+        content.appendChild(h3);
+        content.appendChild(p);
+        content.appendChild(confirmBtn);
+        content.appendChild(cancelBtn);
+      }
+
+      document.getElementById('open-modal-btn').addEventListener('click', showFormModal);
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.classList.remove('visible'); });
+    })();
+
+    window.getTestResults = function() { return JSON.stringify(window.__test_results); };
+  </script>
+</body>
+</html>
