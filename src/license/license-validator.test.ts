@@ -323,15 +323,307 @@ describe("LicenseValidator", () => {
     });
   });
 
-  // ---- Review findings: cache invalidation, HTTP status, strict typing ----
-  describe("review findings", () => {
-    it("remote valid=false updates cache → offline returns isPro()=false", async () => {
+  // ---- Story 9.3: Grace-Period (7 days) ----
+  describe("grace-period", () => {
+    it("uses cache within grace-period when network fails", async () => {
+      mockFetchNetworkError();
       const cacheDir = tmpCacheDir();
-      // Pre-seed cache with valid=true
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: threeDaysAgo,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+    });
+
+    it("falls back to free tier when cache is older than 7 days", async () => {
+      mockFetchNetworkError();
+      const cacheDir = tmpCacheDir();
+      const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: eightDaysAgo,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(false);
+    });
+
+    it("falls back to free tier when cache has no lastCheck", async () => {
+      mockFetchNetworkError();
+      const cacheDir = tmpCacheDir();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(false);
+    });
+
+    it("treats cache as stale when lastCheck is in the future (clock rolled back)", async () => {
+      vi.useFakeTimers();
+      const now = new Date("2026-04-04T12:00:00Z");
+      vi.setSystemTime(now);
+
+      // lastCheck is 2 days in the future — simulates clock rollback
+      const futureDate = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
+      const cacheDir = tmpCacheDir();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: futureDate,
+        features: [],
+      });
+
+      mockFetchOk(true);
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      // Future lastCheck → Date.now() - ts is negative → isCacheFresh returns false
+      // → remote call should happen
+      expect(fetch).toHaveBeenCalled();
+      expect(v.isPro()).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    it("falls back to free tier when cache has invalid lastCheck", async () => {
+      mockFetchNetworkError();
+      const cacheDir = tmpCacheDir();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: "not-a-date",
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(false);
+    });
+
+    it("falls back to free tier when cache is exactly 7 days old (boundary)", async () => {
+      vi.useFakeTimers();
+      const now = new Date("2026-04-04T12:00:00Z");
+      vi.setSystemTime(now);
+
+      mockFetchNetworkError();
+      const cacheDir = tmpCacheDir();
+      const exactlySevenDaysAgo = new Date(now.getTime() - 604_800_000).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: exactlySevenDaysAgo,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      // Exactly 7 days = NOT within grace period (< 7 days required)
+      expect(v.isPro()).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it("uses cache at 6 days 23 hours (just within grace-period)", async () => {
+      vi.useFakeTimers();
+      const now = new Date("2026-04-04T12:00:00Z");
+      vi.setSystemTime(now);
+
+      mockFetchNetworkError();
+      const cacheDir = tmpCacheDir();
+      const almostSevenDays = new Date(now.getTime() - (604_800_000 - 3_600_000)).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: almostSevenDays,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+
+      vi.useRealTimers();
+    });
+  });
+
+  // ---- Story 9.3: Auto-Recheck (24h) ----
+  describe("auto-recheck", () => {
+    it("skips remote call when cache is fresh (< 24h)", async () => {
+      const spy = vi.fn();
+      vi.stubGlobal("fetch", spy);
+      const cacheDir = tmpCacheDir();
       writeCache(cacheDir, {
         key: "my-key",
         valid: true,
         lastCheck: new Date().toISOString(),
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("calls remote when cache is stale (>= 24h)", async () => {
+      mockFetchOk(true);
+      const cacheDir = tmpCacheDir();
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: twoDaysAgo,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    it("calls remote when no cache exists", async () => {
+      mockFetchOk(true);
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir: tmpCacheDir() }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    it("calls remote when cache key does not match", async () => {
+      mockFetchOk(true);
+      const cacheDir = tmpCacheDir();
+      writeCache(cacheDir, {
+        key: "different-key",
+        valid: true,
+        lastCheck: new Date().toISOString(),
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    it("calls remote when cache valid=false even if fresh", async () => {
+      mockFetchOk(true);
+      const cacheDir = tmpCacheDir();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: false,
+        lastCheck: new Date().toISOString(),
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    it("uses stale cache (within grace-period) when remote fails", async () => {
+      mockFetchNetworkError();
+      const cacheDir = tmpCacheDir();
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: twoDaysAgo,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+    });
+
+    it("falls back to free tier when remote fails and cache is beyond grace-period", async () => {
+      mockFetchNetworkError();
+      const cacheDir = tmpCacheDir();
+      const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: tenDaysAgo,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(false);
+    });
+
+    it("skips remote at exactly 23h59m (boundary — still fresh)", async () => {
+      vi.useFakeTimers();
+      const now = new Date("2026-04-04T12:00:00Z");
+      vi.setSystemTime(now);
+
+      const spy = vi.fn();
+      vi.stubGlobal("fetch", spy);
+      const cacheDir = tmpCacheDir();
+      const justUnder24h = new Date(now.getTime() - (86_400_000 - 60_000)).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: justUnder24h,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it("calls remote at exactly 24h (boundary — stale)", async () => {
+      vi.useFakeTimers();
+      const now = new Date("2026-04-04T12:00:00Z");
+      vi.setSystemTime(now);
+
+      mockFetchOk(true);
+      const cacheDir = tmpCacheDir();
+      const exactly24h = new Date(now.getTime() - 86_400_000).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: exactly24h,
+        features: [],
+      });
+
+      const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
+      await v.validate();
+      expect(v.isPro()).toBe(true);
+      expect(fetch).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+  });
+
+  // ---- Review findings: cache invalidation, HTTP status, strict typing ----
+  describe("review findings", () => {
+    it("remote valid=false updates cache → offline returns isPro()=false", async () => {
+      const cacheDir = tmpCacheDir();
+      // Pre-seed cache with valid=true but stale (> 24h) so remote call is triggered
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      writeCache(cacheDir, {
+        key: "my-key",
+        valid: true,
+        lastCheck: twoDaysAgo,
         features: [],
       });
 
@@ -355,19 +647,22 @@ describe("LicenseValidator", () => {
 
     it("non-2xx response falls back to cache (like network error)", async () => {
       const cacheDir = tmpCacheDir();
+      // Cache must be > 24h old so the fresh-cache shortcut doesn't skip the remote call
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
       writeCache(cacheDir, {
         key: "my-key",
         valid: true,
-        lastCheck: new Date().toISOString(),
+        lastCheck: twoDaysAgo,
         features: [],
       });
 
-      // Remote returns 500
+      // Remote returns 500 — should throw and fall back to cache
       mockFetchStatus(500, { valid: false });
       const v = new LicenseValidator(makeConfig({ licenseKey: "my-key", cacheDir }));
       await v.validate();
-      // Should fall back to cache (valid=true)
+      // Should fall back to cache (valid=true, within 7-day grace-period)
       expect(v.isPro()).toBe(true);
+      expect(fetch).toHaveBeenCalled();
     });
 
     it("truthy non-boolean valid (e.g. string) is NOT treated as Pro", async () => {
