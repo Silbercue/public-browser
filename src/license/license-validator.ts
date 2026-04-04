@@ -33,6 +33,8 @@ interface LicenseCache {
 
 const CACHE_FILENAME = "license-cache.json";
 const REMOTE_TIMEOUT_MS = 5000;
+const GRACE_PERIOD_MS = 604_800_000; // 7 days
+const RECHECK_INTERVAL_MS = 86_400_000; // 24 hours
 
 /**
  * Validates a license key and provides synchronous `isPro()` access.
@@ -57,7 +59,9 @@ export class LicenseValidator implements LicenseStatus {
 
   /**
    * Performs the one-time license validation.
-   * Tries remote first, falls back to local cache on network failure.
+   * If the cache is fresh (< 24h), skips the remote call entirely.
+   * If the cache is stale or missing, tries remote first, falls back to
+   * local cache on network failure (with grace-period check).
    * NEVER throws — worst-case falls back to Free Tier.
    */
   async validate(): Promise<void> {
@@ -69,6 +73,18 @@ export class LicenseValidator implements LicenseStatus {
       return;
     }
 
+    // Check if cache is fresh enough to skip remote call
+    const cache = this.readCache();
+    if (cache && cache.key === licenseKey && cache.valid && this.isCacheFresh(cache)) {
+      // Fresh cache (< 24h) is always within grace-period (< 7d),
+      // so no grace-period check needed here. The else-branch was
+      // mathematically unreachable (RECHECK_INTERVAL_MS < GRACE_PERIOD_MS).
+      this.pro = true;
+      debug("License cache fresh — skipping remote check");
+      return;
+    }
+
+    // Cache stale or missing — try remote
     try {
       await this.validateRemote(licenseKey);
     } catch {
@@ -126,18 +142,49 @@ export class LicenseValidator implements LicenseStatus {
 
   /**
    * Falls back to the local cache file.
-   * Only uses the cache if the stored key matches the current key.
+   * Only uses the cache if the stored key matches and the cache is
+   * within the 7-day grace period.
    */
   private validateFromCache(licenseKey: string): void {
     const cache = this.readCache();
 
     if (cache && cache.key === licenseKey && cache.valid) {
-      this.pro = true;
-      debug("License cache used (offline)");
+      if (this.isCacheWithinGracePeriod(cache)) {
+        this.pro = true;
+        debug("License cache used (offline, grace-period active)");
+      } else {
+        this.pro = false;
+        debug("License-Check abgelaufen — Pro-Features deaktiviert bis zur naechsten Online-Validierung");
+      }
     } else {
       this.pro = false;
       debug("License invalid — running Free Tier");
     }
+  }
+
+  /** Parses the lastCheck ISO string to a timestamp; returns null if invalid. */
+  private parseLastCheck(cache: LicenseCache): number | null {
+    if (!cache.lastCheck) return null;
+    const ts = Date.parse(cache.lastCheck);
+    return Number.isNaN(ts) ? null : ts;
+  }
+
+  /** Returns true when the cache was checked less than 24 hours ago. */
+  private isCacheFresh(cache: LicenseCache): boolean {
+    const ts = this.parseLastCheck(cache);
+    if (ts === null) return false;
+    const age = Date.now() - ts;
+    // Negative age means lastCheck is in the future (clock rolled back) → treat as stale
+    return age >= 0 && age < RECHECK_INTERVAL_MS;
+  }
+
+  /** Returns true when the cache was checked less than 7 days ago. */
+  private isCacheWithinGracePeriod(cache: LicenseCache): boolean {
+    const ts = this.parseLastCheck(cache);
+    if (ts === null) return false;
+    const age = Date.now() - ts;
+    // Negative age means lastCheck is in the future (clock rolled back) → treat as expired
+    return age >= 0 && age < GRACE_PERIOD_MS;
   }
 
   /** Writes the cache file, creating the directory if needed. */
@@ -157,7 +204,18 @@ export class LicenseValidator implements LicenseStatus {
     try {
       const filePath = path.join(this.config.cacheDir, CACHE_FILENAME);
       const raw = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(raw) as LicenseCache;
+      const parsed = JSON.parse(raw);
+
+      // Runtime validation — reject structurally invalid cache
+      if (
+        typeof parsed.valid !== "boolean" ||
+        typeof parsed.lastCheck !== "string" ||
+        typeof parsed.key !== "string"
+      ) {
+        return null;
+      }
+
+      return parsed as LicenseCache;
     } catch {
       return null;
     }
