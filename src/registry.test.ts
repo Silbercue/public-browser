@@ -628,6 +628,59 @@ describe("ToolRegistry", () => {
     expect(text).not.toContain("ist ein Pro-Feature");
   });
 
+  // --- Story 7.2: network_monitor registration with NetworkCollector ---
+
+  it("network_monitor is registered when NetworkCollector is provided", () => {
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+
+    // Provide a mock NetworkCollector as the 11th constructor argument
+    const mockNetworkCollector = {
+      isMonitoring: false,
+      start: vi.fn(),
+      stop: vi.fn(),
+      getAll: vi.fn().mockReturnValue([]),
+      getFiltered: vi.fn().mockReturnValue([]),
+      count: 0,
+    } as never;
+
+    const registry = new ToolRegistry(
+      mockServer,
+      {} as never,
+      "session-1",
+      {} as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      mockNetworkCollector,
+    );
+    registry.registerAll();
+
+    const networkMonitorCall = toolFn.mock.calls.find(
+      (call: unknown[]) => call[0] === "network_monitor",
+    );
+    expect(networkMonitorCall).toBeDefined();
+    expect(networkMonitorCall![1]).toBe(
+      "Monitor network requests: start recording, retrieve recorded requests (with optional filter/pattern), or stop and return all collected data.",
+    );
+  });
+
+  it("network_monitor is NOT registered when no NetworkCollector is provided", () => {
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+
+    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
+    registry.registerAll();
+
+    const networkMonitorCall = toolFn.mock.calls.find(
+      (call: unknown[]) => call[0] === "network_monitor",
+    );
+    expect(networkMonitorCall).toBeUndefined();
+  });
+
   it("featureGate is NOT registered when a featureGate hook already exists (Pro-Repo override)", async () => {
     // Simulate Pro-Repo registering its own featureGate before registerAll()
     const customGate = vi.fn().mockReturnValue({ allowed: true });
