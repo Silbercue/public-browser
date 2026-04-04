@@ -37,6 +37,9 @@ import type { FillFormParams } from "./tools/fill-form.js";
 import { consoleLogsSchema, consoleLogsHandler } from "./tools/console-logs.js";
 import type { ConsoleLogsParams } from "./tools/console-logs.js";
 import type { ConsoleCollector } from "./cdp/console-collector.js";
+import { networkMonitorSchema, networkMonitorHandler } from "./tools/network-monitor.js";
+import type { NetworkMonitorParams } from "./tools/network-monitor.js";
+import type { NetworkCollector } from "./cdp/network-collector.js";
 import { createMicroLlmFromEnv } from "./operator/micro-llm.js";
 import { createHumanTouchFromEnv } from "./operator/human-touch.js";
 import { Captain } from "./operator/captain.js";
@@ -60,6 +63,7 @@ export class ToolRegistry {
   private _licenseStatus: LicenseStatus;
   private _freeTierConfig: FreeTierConfig;
   private _consoleCollector: ConsoleCollector | undefined;
+  private _networkCollector: NetworkCollector | undefined;
 
   constructor(
     private server: McpServer,
@@ -72,6 +76,7 @@ export class ToolRegistry {
     licenseStatus?: LicenseStatus,
     freeTierConfig?: FreeTierConfig,
     consoleCollector?: ConsoleCollector,
+    networkCollector?: NetworkCollector,
   ) {
     this._sessionId = sessionId;
     this._getConnectionStatus = getConnectionStatus ?? null;
@@ -80,6 +85,7 @@ export class ToolRegistry {
     this._licenseStatus = licenseStatus ?? new FreeTierLicenseStatus();
     this._freeTierConfig = freeTierConfig ?? loadFreeTierConfig();
     this._consoleCollector = consoleCollector;
+    this._networkCollector = networkCollector;
   }
 
   get sessionId(): string {
@@ -450,6 +456,22 @@ export class ToolRegistry {
       );
     }
 
+    // Story 7.2: network_monitor — start/stop/get network request monitoring
+    if (this._networkCollector) {
+      this.server.tool(
+        "network_monitor",
+        "Monitor network requests: start recording, retrieve recorded requests (with optional filter/pattern), or stop and return all collected data.",
+        {
+          action: networkMonitorSchema.shape.action,
+          filter: networkMonitorSchema.shape.filter,
+          pattern: networkMonitorSchema.shape.pattern,
+        },
+        wrap(async (params) => {
+          return networkMonitorHandler(params as unknown as NetworkMonitorParams, this._networkCollector!);
+        }),
+      );
+    }
+
     // C1: Create Micro-LLM provider from environment for Operator mode
     const microLlm = createMicroLlmFromEnv();
 
@@ -582,6 +604,11 @@ export class ToolRegistry {
     if (this._consoleCollector) {
       this._handlers.set("console_logs", async (params) => {
         return consoleLogsHandler(params as unknown as ConsoleLogsParams, this._consoleCollector!);
+      });
+    }
+    if (this._networkCollector) {
+      this._handlers.set("network_monitor", async (params) => {
+        return networkMonitorHandler(params as unknown as NetworkMonitorParams, this._networkCollector!);
       });
     }
   }
