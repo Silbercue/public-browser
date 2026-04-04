@@ -1,9 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ToolRegistry } from "./registry.js";
 import type { LicenseStatus } from "./license/license-status.js";
 import type { FreeTierConfig } from "./license/free-tier-config.js";
+import { registerProHooks } from "./hooks/pro-hooks.js";
 
 describe("ToolRegistry", () => {
+  // Story 9.5: Reset Pro hooks between tests
+  beforeEach(() => {
+    registerProHooks({});
+  });
+
   it("should be instantiable with McpServer, CdpClient, sessionId, and TabStateCache", () => {
     const registry = new ToolRegistry({} as never, {} as never, "session-1", {} as never);
     expect(registry).toBeDefined();
@@ -421,5 +427,110 @@ describe("ToolRegistry", () => {
     expect(result._meta).toBeDefined();
     expect(result._meta!.truncated).toBeUndefined();
     expect(result._meta!.stepsCompleted).toBe(4);
+  });
+
+  // --- Story 9.5: Feature-Gate Hook integration tests ---
+
+  it("wrapWithGate blocks tool when featureGate returns { allowed: false }", async () => {
+    registerProHooks({
+      featureGate: (toolName) => {
+        if (toolName === "dom_snapshot") {
+          return { allowed: false, message: "dom_snapshot requires Pro license" };
+        }
+        return { allowed: true };
+      },
+    });
+
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
+
+    // Import getProHooks to pass to wrapWithGate
+    const { getProHooks } = await import("./hooks/pro-hooks.js");
+    const hooks = getProHooks();
+
+    const innerHandler = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: "snapshot data" }],
+      _meta: { elapsedMs: 50, method: "dom_snapshot" },
+    });
+
+    const gated = registry.wrapWithGate("dom_snapshot", innerHandler, hooks);
+    const result = await gated({});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toHaveProperty("text", "dom_snapshot requires Pro license");
+    expect(result._meta).toEqual({ elapsedMs: 0, method: "dom_snapshot" });
+    // Inner handler should NOT have been called
+    expect(innerHandler).not.toHaveBeenCalled();
+  });
+
+  it("wrapWithGate allows tool when featureGate returns { allowed: true }", async () => {
+    registerProHooks({
+      featureGate: () => ({ allowed: true }),
+    });
+
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
+
+    const { getProHooks } = await import("./hooks/pro-hooks.js");
+    const hooks = getProHooks();
+
+    const expectedResponse = {
+      content: [{ type: "text" as const, text: "snapshot data" }],
+      _meta: { elapsedMs: 50, method: "dom_snapshot" },
+    };
+    const innerHandler = vi.fn().mockResolvedValue(expectedResponse);
+
+    const gated = registry.wrapWithGate("dom_snapshot", innerHandler, hooks);
+    const result = await gated({ ref: "e1" });
+
+    expect(result).toBe(expectedResponse);
+    expect(innerHandler).toHaveBeenCalledWith({ ref: "e1" });
+  });
+
+  it("wrapWithGate passes through when no featureGate hook is registered", async () => {
+    // Default empty hooks — no featureGate
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
+
+    const { getProHooks } = await import("./hooks/pro-hooks.js");
+    const hooks = getProHooks();
+
+    const expectedResponse = {
+      content: [{ type: "text" as const, text: "result" }],
+      _meta: { elapsedMs: 10, method: "evaluate" },
+    };
+    const innerHandler = vi.fn().mockResolvedValue(expectedResponse);
+
+    const gated = registry.wrapWithGate("evaluate", innerHandler, hooks);
+    const result = await gated({ expression: "1+1" });
+
+    expect(result).toBe(expectedResponse);
+    expect(innerHandler).toHaveBeenCalledWith({ expression: "1+1" });
+  });
+
+  it("wrapWithGate uses default message when featureGate returns no message", async () => {
+    registerProHooks({
+      featureGate: () => ({ allowed: false }),
+    });
+
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
+
+    const { getProHooks } = await import("./hooks/pro-hooks.js");
+    const hooks = getProHooks();
+
+    const innerHandler = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: "data" }],
+    });
+
+    const gated = registry.wrapWithGate("my_tool", innerHandler, hooks);
+    const result = await gated({});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toHaveProperty("text", "my_tool is a Pro feature");
   });
 });

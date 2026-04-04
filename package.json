@@ -7,6 +7,10 @@
     "silbercuechrome": "./build/index.js"
   },
   "main": "./build/index.js",
+  "exports": {
+    ".": "./build/index.js",
+    "./hooks": "./build/hooks/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
