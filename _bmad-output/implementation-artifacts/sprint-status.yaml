@@ -116,9 +116,9 @@ development_status:
   epic-8-retrospective: optional
 
   # Epic 9: Monetarisierung & Publish-Pipeline (MVP-Infrastruktur)
-  epic-9: backlog
-  9-1-free-tier-step-limit-fuer-run-plan: backlog
-  9-2-license-key-validierung-aktivierung: backlog
+  epic-9: in-progress
+  9-1-free-tier-step-limit-fuer-run-plan: done
+  9-2-license-key-validierung-aktivierung: ready-for-dev
   9-3-offline-grace-period: backlog
   9-4-cli-kommandos-fuer-lizenzverwaltung: backlog
   9-5-dual-repo-code-trennung: backlog
