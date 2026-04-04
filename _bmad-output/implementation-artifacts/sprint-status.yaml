@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-03
-last_updated: 2026-04-04  # Story 8-4 done — Chrome Profile Support
+last_updated: 2026-04-04  # Story 8-5 done — Human Touch Patterns
 project: SilbercueChrome
 project_key: NOKEY
 tracking_system: file-system
@@ -106,5 +106,5 @@ development_status:
   8-2-micro-llm-integration: done
   8-3-captain-escalation-protocol: done
   8-4-chrome-profile-support: done
-  8-5-human-touch-patterns: ready-for-dev
+  8-5-human-touch-patterns: done
   epic-8-retrospective: optional
