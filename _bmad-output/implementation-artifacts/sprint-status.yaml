@@ -121,7 +121,7 @@ development_status:
   9-2-license-key-validierung-aktivierung: done
   9-3-offline-grace-period: done
   9-4-cli-kommandos-fuer-lizenzverwaltung: done
-  9-5-dual-repo-code-trennung: ready-for-dev
-  9-6-dom-snapshot-pro-feature-gate: backlog
+  9-5-dual-repo-code-trennung: done
+  9-6-dom-snapshot-pro-feature-gate: ready-for-dev
   9-7-publish-pipeline: backlog
   epic-9-retrospective: optional

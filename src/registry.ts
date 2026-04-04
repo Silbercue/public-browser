@@ -44,6 +44,7 @@ import type { LicenseStatus } from "./license/license-status.js";
 import type { FreeTierConfig } from "./license/free-tier-config.js";
 import { FreeTierLicenseStatus } from "./license/license-status.js";
 import { loadFreeTierConfig } from "./license/free-tier-config.js";
+import { getProHooks } from "./hooks/pro-hooks.js";
 
 export class ToolRegistry {
   private _sessionId: string;
@@ -163,7 +164,34 @@ export class ToolRegistry {
     };
   }
 
+  /**
+   * Story 9.5: Wrap a tool handler with a Pro feature gate check.
+   * If a featureGate hook is registered and returns { allowed: false },
+   * the tool is blocked with an isError response.
+   * When no hook is registered, the tool executes normally.
+   */
+  wrapWithGate<T>(
+    toolName: string,
+    fn: (params: T) => Promise<ToolResponse>,
+    hooks: ReturnType<typeof getProHooks>,
+  ): (params: T) => Promise<ToolResponse> {
+    return async (params: T): Promise<ToolResponse> => {
+      const gate = hooks.featureGate?.(toolName);
+      if (gate && !gate.allowed) {
+        return {
+          content: [{ type: "text", text: gate.message ?? `${toolName} is a Pro feature` }],
+          isError: true,
+          _meta: { elapsedMs: 0, method: toolName },
+        };
+      }
+      return fn(params);
+    };
+  }
+
   registerAll(): void {
+    // Story 9.5: Read Pro hooks once at startup
+    const hooks = getProHooks();
+
     // Create Human Touch config from environment (once at startup)
     const humanTouch = createHumanTouchFromEnv();
     if (humanTouch.enabled) {
