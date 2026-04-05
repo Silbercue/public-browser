@@ -107,6 +107,7 @@
   <button data-level="2">Level 2 — Intermediate</button>
   <button data-level="3">Level 3 — Advanced</button>
   <button data-level="4">Level 4 — Hardest</button>
+  <button data-level="5">Level 5 — Community Pain Points</button>
   <button data-level="results">Results</button>
   <button data-level="compare">Compare</button>
 </nav>
@@ -580,6 +581,70 @@
   </div>
 </div>
 
+<!-- LEVEL 5 -->
+<section class="level-section" data-level="5">
+  <div class="level-header">
+    <h2>Level 5 — Community Pain Points</h2>
+    <p>Session Persistence, CDP-Fingerprint, Console-Logs, File-Upload, SPA-Navigation, Reconnect.</p>
+  </div>
+
+  <div class="test-card" data-test="5.1">
+    <h3><span class="test-id">T5.1</span> Session Persistence (Cookie/localStorage)</h3>
+    <p class="test-desc">Setze Session-Daten per Cookie und localStorage, navigiere weg und zurueck, pruefe ob die Daten erhalten bleiben.</p>
+    <div class="test-area">
+      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.2 implementiert.</p>
+    </div>
+    <span class="test-status pending" id="t5-1-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="5.2">
+    <h3><span class="test-id">T5.2</span> CDP Fingerprint Detection</h3>
+    <p class="test-desc">Pruefe ob die Automatisierung per CDP-Fingerprint erkannt wird (navigator.webdriver, Runtime-Artefakte).</p>
+    <div class="test-area">
+      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.3 implementiert.</p>
+    </div>
+    <span class="test-status pending" id="t5-2-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="5.3">
+    <h3><span class="test-id">T5.3</span> Console Log Capture</h3>
+    <p class="test-desc">Logge verschiedene Typen (log, warn, error) in die Console und pruefe ob der MCP-Server sie vollstaendig erfasst.</p>
+    <div class="test-area">
+      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.4 implementiert.</p>
+    </div>
+    <span class="test-status pending" id="t5-3-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="5.4">
+    <h3><span class="test-id">T5.4</span> File Upload</h3>
+    <p class="test-desc">Lade eine Datei ueber ein File-Input-Element hoch und pruefe ob Dateiname und Inhalt korrekt gelesen werden.</p>
+    <div class="test-area">
+      <input type="file" id="benchmark-upload">
+      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.5 implementiert.</p>
+    </div>
+    <span class="test-status pending" id="t5-4-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="5.5">
+    <h3><span class="test-id">T5.5</span> SPA Navigation (History API)</h3>
+    <p class="test-desc">Navigiere per History API (pushState/popstate) zwischen SPA-Views und pruefe ob der Content korrekt wechselt.</p>
+    <div class="test-area">
+      <div id="t5-5-spa-content"></div>
+      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.6 implementiert.</p>
+    </div>
+    <span class="test-status pending" id="t5-5-status">PENDING</span>
+  </div>
+
+  <div class="test-card" data-test="5.6">
+    <h3><span class="test-id">T5.6</span> Reconnect Recovery</h3>
+    <p class="test-desc">Trenne die CDP-Verbindung und pruefe ob der MCP-Server sich automatisch reconnected und weiterarbeitet.</p>
+    <div class="test-area">
+      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.7 implementiert.</p>
+    </div>
+    <span class="test-status pending" id="t5-6-status">PENDING</span>
+  </div>
+</section>
+
 <!-- COMPARE -->
 <section class="level-section" data-level="compare">
   <div class="level-header">
@@ -708,8 +773,10 @@ const Benchmark = {
     this._complete(id, 'fail', details);
   },
   setResult(id, el, pass, msg) {
-    el.textContent = msg;
-    el.className = 'verify-output ' + (pass ? 'success' : 'error');
+    if (el) {
+      el.textContent = msg;
+      el.className = 'verify-output ' + (pass ? 'success' : 'error');
+    }
     pass ? this.pass(id, msg) : this.fail(id, msg);
   },
   updateUI() {
@@ -1369,8 +1436,8 @@ const Tests = {
   }
 };
 
-const ALL_TESTS = ['1.1','1.2','1.3','1.4','1.5','1.6','2.1','2.2','2.3','2.4','2.5','2.6','3.1','3.2','3.3','3.4','3.5','3.6','4.1','4.2','4.3','4.4','4.5','4.6','4.7'];
-const TEST_LABELS = {'1.1':'Click Button','1.2':'Read Text','1.3':'Fill Form','1.4':'Selector Challenge','1.5':'Nav Sequence','1.6':'Table Sum','2.1':'Async Content','2.2':'Infinite Scroll','2.3':'Wizard','2.4':'Searchable Dropdown','2.5':'Tab Management','2.6':'Sort Table','3.1':'Shadow DOM','3.2':'Nested iFrame','3.3':'Drag & Drop','3.4':'Canvas Click','3.5':'Keyboard Shortcut','3.6':'Contenteditable','4.1':'Unpredictable Timing','4.2':'Counter Race','4.3':'10K DOM Needle','4.4':'LocalStorage+Cookie','4.5':'Mutation Observer','4.6':'Modal Token','4.7':'Token Budget'};
+const ALL_TESTS = ['1.1','1.2','1.3','1.4','1.5','1.6','2.1','2.2','2.3','2.4','2.5','2.6','3.1','3.2','3.3','3.4','3.5','3.6','4.1','4.2','4.3','4.4','4.5','4.6','4.7','5.1','5.2','5.3','5.4','5.5','5.6'];
+const TEST_LABELS = {'1.1':'Click Button','1.2':'Read Text','1.3':'Fill Form','1.4':'Selector Challenge','1.5':'Nav Sequence','1.6':'Table Sum','2.1':'Async Content','2.2':'Infinite Scroll','2.3':'Wizard','2.4':'Searchable Dropdown','2.5':'Tab Management','2.6':'Sort Table','3.1':'Shadow DOM','3.2':'Nested iFrame','3.3':'Drag & Drop','3.4':'Canvas Click','3.5':'Keyboard Shortcut','3.6':'Contenteditable','4.1':'Unpredictable Timing','4.2':'Counter Race','4.3':'10K DOM Needle','4.4':'LocalStorage+Cookie','4.5':'Mutation Observer','4.6':'Modal Token','4.7':'Token Budget','5.1':'Session Persistence','5.2':'CDP Fingerprint','5.3':'Console Log Capture','5.4':'File Upload','5.5':'SPA Navigation','5.6':'Reconnect Recovery'};
 
 const PRELOADED_RUNS = [
   {"name":"SilbercueChrome Pro","timestamp":"2026-04-05T05:12:58.080Z","elapsed_s":555,"tests":{"1.1":{"status":"pass"},"1.2":{"status":"pass"},"1.3":{"status":"pass"},"1.4":{"status":"pass"},"1.5":{"status":"pass"},"1.6":{"status":"pass"},"2.1":{"status":"pass"},"2.2":{"status":"pass"},"2.3":{"status":"pass"},"2.4":{"status":"pass"},"2.5":{"status":"pass"},"2.6":{"status":"pass"},"3.1":{"status":"pass"},"3.2":{"status":"pass"},"3.3":{"status":"pass"},"3.4":{"status":"pass"},"3.5":{"status":"pass"},"3.6":{"status":"pass"},"4.1":{"status":"pass"},"4.2":{"status":"pass"},"4.3":{"status":"pass"},"4.4":{"status":"pass"},"4.5":{"status":"pass"},"4.6":{"status":"pass"},"4.7":{"status":"pass"}}},

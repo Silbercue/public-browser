@@ -1,5 +1,5 @@
 # generated: 2026-04-03
-# last_updated: 2026-04-05
+# last_updated: 2026-04-06
 # project: SilbercueChrome
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-03
-last_updated: 2026-04-05
+last_updated: 2026-04-06
 project: SilbercueChrome
 project_key: NOKEY
 tracking_system: file-system
@@ -144,14 +144,14 @@ development_status:
   epic-10-retrospective: optional
 
   # Epic 11: Benchmark-Suite v2 — Community Pain Points
-  epic-11: backlog
-  11-1-level5-infrastruktur: backlog
-  11-2-session-persistence-test: backlog
+  epic-11: in-progress
+  11-1-level5-infrastruktur: done
+  11-2-session-persistence-test: ready-for-dev
   11-3-cdp-fingerprint-test: backlog
   11-4-console-log-capture-test: backlog
   11-5-file-upload-test: backlog
   11-6-spa-navigation-test: backlog
-  11-7-reconnect-recovery-test: backlog
+  11-7-reconnect-recovery-test: ready-for-dev
   11-8-benchmark-runner-integration: backlog
   epic-11-retrospective: optional
 
@@ -162,3 +162,9 @@ development_status:
   12-3-token-budget-benchmark-test: done
   12-4-tool-definitions-token-zaehler: done
   epic-12-retrospective: optional
+
+  # Epic 13: Visual Developer Intelligence (Phase 3)
+  epic-13: backlog
+  13-1-inspect-element-tool: backlog
+  13-2-visual-feedback-nach-edits: backlog
+  epic-13-retrospective: optional
