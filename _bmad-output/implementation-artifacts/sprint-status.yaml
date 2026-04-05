@@ -135,12 +135,12 @@ development_status:
   # ═══════════════════════════════════════════════════════════
 
   # Epic 10: Pre-Launch Stabilisierung
-  epic-10: in-progress
+  epic-10: done
   10-1-fix-license-commands-test: done
   10-2-autolaunch-tests-doku: done
   10-3-smoke-test-env-fix: done
   10-4-benchmark-runner-finalisieren: done
-  10-5-prd-addendum: ready-for-dev
+  10-5-prd-addendum: done
   epic-10-retrospective: optional
 
   # Epic 11: Benchmark-Suite v2 — Community Pain Points
