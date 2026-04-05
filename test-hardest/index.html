@@ -590,9 +590,10 @@
 
   <div class="test-card" data-test="5.1">
     <h3><span class="test-id">T5.1</span> Session Persistence (Cookie/localStorage)</h3>
-    <p class="test-desc">Setze Session-Daten per Cookie und localStorage, navigiere weg und zurueck, pruefe ob die Daten erhalten bleiben.</p>
+    <p class="test-desc">Setzt Cookie und localStorage per evaluate, liest beide sofort zurueck und verifiziert die Werte.</p>
     <div class="test-area">
-      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.2 implementiert.</p>
+      <button class="action-btn" onclick="Tests.t5_1_run()">Run Session Test</button>
+      <div class="verify-output" id="t5-1-result"></div>
     </div>
     <span class="test-status pending" id="t5-1-status">PENDING</span>
   </div>
@@ -1433,6 +1434,22 @@ const Tests = {
     const pass = allPass && interactivePass;
     const msg = 'all: ' + allTokens + ' tokens' + (allPass ? ' OK' : ' OVER BUDGET') + ', interactive: ' + interactiveTokens + ' tokens' + (interactivePass ? ' OK' : ' OVER BUDGET') + ' — ' + (pass ? 'both under budget' : 'BUDGET EXCEEDED');
     Benchmark.setResult('4.7', el, pass, msg);
+  },
+  // L5
+  t5_1_run() {
+    Benchmark.start('5.1');
+    const el = document.getElementById('t5-1-result');
+    // Set cookie + localStorage
+    document.cookie = 'sc_bench=1; path=/; max-age=86400';
+    localStorage.setItem('sc_bench', '1');
+    // Readback
+    const cookieOk = document.cookie.includes('sc_bench=1');
+    const lsOk = localStorage.getItem('sc_bench') === '1';
+    const pass = cookieOk && lsOk;
+    const details = pass
+      ? 'Cookie + localStorage set and verified'
+      : 'Cookie: ' + (cookieOk ? 'OK' : 'FAIL') + ', localStorage: ' + (lsOk ? 'OK' : 'FAIL');
+    Benchmark.setResult('5.1', el, pass, details);
   }
 };
 

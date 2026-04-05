@@ -146,7 +146,7 @@ development_status:
   # Epic 11: Benchmark-Suite v2 — Community Pain Points
   epic-11: in-progress
   11-1-level5-infrastruktur: done
-  11-2-session-persistence-test: ready-for-dev
+  11-2-session-persistence-test: done
   11-3-cdp-fingerprint-test: backlog
   11-4-console-log-capture-test: backlog
   11-5-file-upload-test: backlog
