@@ -2,7 +2,7 @@
 
 Bugs, Verbesserungen und offene Punkte die waehrend der Arbeit entdeckt, aber nicht sofort behoben wurden.
 
-## Status-Uebersicht (Stand 2026-04-05)
+## Status-Uebersicht (Stand 2026-04-06)
 
 | Bug | Status | Fix |
 |-----|--------|-----|
@@ -18,10 +18,19 @@ Bugs, Verbesserungen und offene Punkte die waehrend der Arbeit entdeckt, aber ni
 | BUG-010 | GEFIXT | Precomputed-Cache sofort bei DOM-Mutation invalidiert (DomWatcher + server.ts) |
 | BUG-011 | GEFIXT | wrapCdpError in 9 Tools nachgeruestet |
 | BUG-012 | GEFIXT | getBoundingClientRect + JS-Click Fallback in click.ts |
-| BUG-013 | OFFEN | Stale-Ref "Did you mean" schlaegt identischen Ref vor |
-| BUG-014 | OFFEN | read_page max_tokens harte Validierung statt Clamping |
+| BUG-013 | GEFIXT | Stale-Ref "Did you mean" schlaegt identischen Ref vor |
+| BUG-014 | GEFIXT | read_page max_tokens harte Validierung statt Clamping |
 | UX-001 | OFFEN | click — kein Text-basiertes Matching |
 | TD-001 | OFFEN | AutoLaunch Tests + Doku |
+| FR-001 | GEFIXT | Scroll-Container in read_page nicht erkennbar — kein Scroll-Tool |
+| FR-002 | GEFIXT | click auf target=_blank-Link warnt nicht / oeffnet keinen neuen Tab |
+| FR-003 | GEFIXT | Same-origin srcdoc-iframes unsichtbar in read_page |
+| FR-004 | GEFIXT | type/click Page Context zu verbose — voller Baum statt lokaler Kontext |
+| FR-005 | GEFIXT | evaluate gibt undefined bei impliziten Return-Values |
+| FR-006 | GEFIXT | contenteditable-Elemente als "generic" in read_page |
+| FR-007 | GEFIXT | Stale-Ref nach Navigation — kein Auto-Recovery |
+| FR-008 | OFFEN | Canvas-Elemente komplett opak fuer read_page |
+| FR-009 | OFFEN | Kein observe/poll-Mechanismus fuer Timing-sensitive DOM-Aenderungen |
 
 ---
 
@@ -365,3 +374,322 @@ Neues Verhalten: Wenn `SILBERCUE_CHROME_HEADLESS=false`, dann `autoLaunch` autom
 - Tests fuer das neue AutoLaunch-Verhalten schreiben
 - Dokumentation (README) aktualisieren
 - Env-Variable `SILBERCUE_CHROME_AUTO_LAUNCH` in Schema/Docs aufnehmen
+
+---
+
+## FR-001: Scroll-Container in read_page nicht erkennbar — kein Scroll-Tool
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T2.2 Infinite Scroll)
+**Schwere:** P1 — Hoch (5 Extra-Roundtrips, haeufiges Pattern)
+**Betrifft:** `src/tools/read-page.ts`, `src/cache/a11y-tree.ts`
+**Typ:** LLM Friction
+
+### Problem
+Bei T2.2 (Infinite Scroll) brauchte das LLM 5 evaluate-Aufrufe um den scrollbaren Container zu finden und zu scrollen:
+1. `#t2-2-list` → null (ID geraten)
+2. `[class*="scroll"]` → undefined
+3. `div[style*="overflow"]` → undefined
+4. Brute-Force alle divs mit computed overflow → gefunden: `#t2-2-scroller`
+5. Scroll-Loop mit Delays
+
+read_page zeigte `[e227] generic` fuer den Container — kein Hinweis auf Scrollbarkeit, kein Hinweis auf die ID.
+
+### Warum das ein MCP-Problem ist
+Das LLM hat keine Moeglichkeit, scrollbare Container zu erkennen oder zu scrollen, ausser ueber evaluate(). Das ist ein generisches Web-Pattern (Infinite Scroll, Chat-Fenster, Log-Viewer) das ohne Scroll-Support immer zu Workarounds fuehrt.
+
+### Fix-Vorschlag
+**Option A — read_page Annotation:**
+```
+[e227] generic (scrollable, id="t2-2-scroller") ← 10 items, more below
+```
+Scrollbare Container (overflow: auto/scroll + scrollHeight > clientHeight) annotieren.
+
+**Option B — Scroll-Tool:**
+```typescript
+scroll(ref: "e227", direction: "bottom")  // oder: position: "end"
+scroll(selector: "#t2-2-scroller", by: 500)  // px
+```
+
+**Option C — Click-Parameter:**
+```typescript
+click(ref: "e227", scroll: "bottom")  // Scroll-Container vor Click
+```
+
+Option A hat den hoechsten Impact bei geringstem Aufwand.
+
+---
+
+## FR-002: click auf target=_blank-Link warnt nicht / oeffnet keinen neuen Tab
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T2.5 Tab Management)
+**Schwere:** P1 — Hoch (verursachte Test-Fail)
+**Betrifft:** `src/tools/click.ts`
+**Typ:** LLM Friction
+
+### Problem
+Bei T2.5 klickte das LLM den Link "Open Target Tab" mit dem click-Tool. Der Link hatte `target="_blank"`, aber click navigierte im gleichen Tab. Die Hauptseite ging verloren, der erwartete Test-Wert aenderte sich → Test fehlgeschlagen.
+
+Das LLM musste den Test wiederholen mit `switch_tab(action: "open")`.
+
+### Warum das ein MCP-Problem ist
+Das LLM sieht in read_page: `[e245] link "Open Target Tab" → /tab-target.html`. Kein Hinweis auf `target="_blank"`. Der click verhielt sich wie navigate statt wie "neuen Tab oeffnen". Das LLM muss raten, ob es navigate oder switch_tab braucht.
+
+### Fix-Vorschlag
+**Option A — Action Result Warnung:**
+Wenn click auf einen Link mit `target="_blank"` trifft, im Action Result melden:
+```
+Clicked link "Open Target Tab" — note: link has target="_blank".
+Use switch_tab(action: "open", url: "/tab-target.html") to open in new tab.
+```
+
+**Option B — read_page Annotation:**
+```
+[e245] link "Open Target Tab" → /tab-target.html (opens new tab)
+```
+
+**Option C — Automatisches Verhalten:**
+click auf `target="_blank"`-Links oeffnet automatisch einen neuen Tab und switched dorthin. Action Result zeigt neuen Tab-Kontext.
+
+Option B ist am effizientesten — das LLM sieht VOR dem Click, dass ein neuer Tab noetig ist.
+
+---
+
+## FR-003: Same-origin srcdoc-iframes unsichtbar in read_page
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T3.2 Nested iFrame)
+**Schwere:** P2 — Mittel (2 Extra-Roundtrips)
+**Betrifft:** `src/cache/a11y-tree.ts` (OOPIF-Handling, Zeilen 701-753)
+**Typ:** LLM Friction
+
+### Problem
+read_page zeigte nur `[e69] Iframe` ohne Inhalt. Der iframe nutzte `srcdoc` (same-origin inline), was KEIN OOPIF erzeugt. Das bestehende OOPIF-Handling in a11y-tree.ts greift nicht, weil same-origin srcdoc-iframes im selben Prozess laufen.
+
+Das LLM brauchte 2 evaluate-Aufrufe:
+1. `iframe.contentDocument` → fand aeusseren Frame-Inhalt mit verschachteltem srcdoc
+2. Parse des srcdoc-HTML → extrahierte "FRAME-X6WGKK"
+
+### Warum das ein MCP-Problem ist
+iframes sind ein Standard-Web-Pattern (Eingebettete Widgets, Payment-Forms, Editors). Wenn read_page sie nicht traversiert, muss das LLM immer auf evaluate ausweichen.
+
+### Technischer Hintergrund
+`Accessibility.getFullAXTree` liefert KEINE Nodes aus same-origin iframes — nur aus dem Hauptframe. OOPIF-Sessions werden separat abgefragt (Zeile 720-740), aber srcdoc-iframes haben keine eigene Session.
+
+### Fix-Vorschlag
+**Option A — Inline-Expansion:**
+Wenn der AXTree einen iframe-Node enthaelt und der iframe same-origin ist:
+1. CDP `DOM.describeNode` → frameId
+2. `Page.getFrameTree` → alle Frames inkl. srcdoc
+3. `Accessibility.getFullAXTree` mit frameId-Filter (nicht sessionId)
+4. Nodes inline in den Hauptbaum einhaengen
+
+**Option B — Annotation:**
+```
+[e69] Iframe (same-origin, use evaluate to access content)
+```
+Mindestens dem LLM signalisieren, dass der iframe lesbar ist.
+
+---
+
+## FR-004: type/click Page Context zu verbose — voller Baum statt lokaler Kontext
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — durchgehend)
+**Schwere:** P1 — Hoch (Token-Verschwendung bei jeder Aktion)
+**Betrifft:** `src/registry.ts` (Ambient Context Injection, Zeilen 175-230)
+**Typ:** LLM Friction
+
+### Problem
+Nach jedem `type`-Aufruf wird der volle Page Context (alle interaktiven Elemente) zurueckgegeben. Bei T4.7 (Large DOM, 185 interactive Elements) waren das hunderte Zeilen nur fuer den Context nach einem einzigen type-Call.
+
+**Beispiel:** Nach dem Tippen in T2.1-Input kamen 35 interactive Elements, obwohl nur der benachbarte Verify-Button relevant war. Alle Level-1-Elemente (die schon erledigt waren) erschienen weiterhin.
+
+### Kontrast: click macht es besser
+click gibt ein kompaktes "Action Result" mit nur den DOM-Aenderungen:
+```
+--- Action Result (1 changes) — / ---
+ NEW    StaticText "T1.1 pass!"
+```
+Das ist perfekt — kurz, relevant, actionable.
+
+### Warum das ein MCP-Problem ist
+Jeder Token im Context kostet das LLM Aufmerksamkeit und Budget. Irrelevanter Context (Level-1-Buttons waehrend Level-4-Arbeit) verwirrt und verlangsamt.
+
+### Fix-Vorschlag
+**Option A — Nur Action Result, kein Page Context bei type:**
+type gibt nur den DOM-Diff zurueck (wie click). Wenn das LLM den vollen Baum braucht, ruft es read_page auf.
+
+**Option B — Lokaler Context:**
+Statt ALLER interaktiven Elemente nur die Geschwister und Eltern des interagierten Elements:
+```
+--- Action Result — typed into #t2-1-input ---
+ Parent: [e205] T2.1 Wait for Async Content
+ Sibling: [e222] button "Verify"
+ Sibling: [e224] generic "PENDING"
+```
+
+**Option C — Smart Context mit Threshold:**
+Wenn die Seite > 30 interactive Elements hat, nur Action Result. Unter 30: voller Context wie bisher.
+
+Option A ist der sauberste Ansatz und konsistent mit click-Verhalten.
+
+---
+
+## FR-005: evaluate gibt undefined bei impliziten Return-Values
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T3.2, T3.3, T3.4, T4.5)
+**Schwere:** P2 — Mittel (1 Extra-Roundtrip pro Vorfall)
+**Betrifft:** `src/tools/evaluate.ts`, IIFE-Wrapping-Logik
+**Typ:** LLM Friction
+
+### Problem
+Ausdruecke die als Statement (nicht Expression) geschrieben sind, geben undefined zurueck:
+
+```javascript
+// Gibt undefined:
+if (el) el.textContent; else { 'fallback'; }
+
+// Gibt den Wert:
+el ? el.textContent : 'fallback'
+```
+
+Die Tool-Description sagt "top-level const/let/class are auto-wrapped in IIFE to prevent redeclaration errors", aber erklaert nicht wie das den Return-Value beeinflusst.
+
+### Warum das ein MCP-Problem ist
+LLMs schreiben natuerlich eher `if/else`-Bloecke als ternaries. Wenn der Rueckgabewert stillschweigend verloren geht, muss das LLM den gleichen Code nochmal mit `return` oder ternary ausfuehren.
+
+### Fix-Vorschlag
+**Option A — Smarterer IIFE-Wrapper:**
+Letztes Statement automatisch als Return-Value verwenden (wie Node REPL / Chrome Console):
+```javascript
+// Wrapper-Logik: Wenn letztes Statement ein ExpressionStatement ist,
+// automatisch "return" davor setzen
+(function() { if (el) return el.textContent; else { return 'fallback'; } })()
+```
+
+**Option B — Bessere Tool-Description:**
+```
+Tip: Use ternary expressions (a ? b : c) or explicit return statements
+for reliable return values. if/else blocks may return undefined.
+```
+
+Option B ist minimal-invasiv und sofort wirksam.
+
+---
+
+## FR-006: contenteditable-Elemente als "generic" in read_page
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T3.6 Rich Text Editor)
+**Schwere:** P3 — Niedrig
+**Betrifft:** `src/cache/a11y-tree.ts` (formatLine)
+**Typ:** LLM Friction
+
+### Problem
+Der contenteditable-Editor in T3.6 erschien als `[e94] generic` — kein Hinweis auf Editierbarkeit. Das LLM wusste nur aus dem Test-Titel ("Rich Text Editor"), dass es ein Editor ist.
+
+### Warum das ein MCP-Problem ist
+contenteditable-Elemente brauchen andere Interaktion als normale Inputs (innerHTML statt value, Ctrl+B fuer Bold etc.). Wenn sie nicht als editierbar erkennbar sind, greift das LLM zu Workarounds.
+
+### Technischer Hintergrund
+Chrome's AXTree meldet contenteditable-divs als role "generic" wenn kein explizites ARIA-role gesetzt ist. Die Information steckt in den AXNode-Properties (`editable: "plaintext"` oder `editable: "richtext"`).
+
+### Fix-Vorschlag
+In `formatLine()`: Wenn AXNode-Properties `editable` enthalten:
+```
+[e94] generic (contenteditable) value="Hello World"
+```
+
+---
+
+## FR-007: Stale-Ref nach Navigation — kein Auto-Recovery
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T2.5 nach Tab-Rueckkehr)
+**Schwere:** P2 — Mittel (1 Extra-Roundtrip)
+**Betrifft:** `src/tools/element-utils.ts`, `src/cache/a11y-tree.ts`
+**Typ:** LLM Friction
+
+### Problem
+Nach Navigation (navigate, switch_tab close) sind alle Refs ungueltig. Der Fehler ist gut formuliert:
+```
+Element e87 not found — refs may be stale after page navigation or DOM changes.
+Use read_page to get fresh refs, or use a CSS selector instead.
+```
+Aber das LLM muss trotzdem einen Extra-Roundtrip machen (read_page oder CSS-Fallback).
+
+### Warum das ein MCP-Problem ist
+Die Error-Message ist gut. Aber der Workaround (read_page → neuer ref → retry) kostet 2 Extra-Calls. CSS-Selektoren als Fallback funktionieren, sind aber nicht immer offensichtlich.
+
+### Fix-Vorschlag
+**Option A — Auto-Recovery:**
+Wenn ein Ref stale ist UND eine eindeutige CSS-ID verfuegbar ist (z.B. `#t2-5-input`):
+1. Automatisch read_page ausfuehren
+2. Neuen Ref finden der zum alten Element passt (gleiche ID, gleiches Label)
+3. Aktion mit neuem Ref ausfuehren
+4. Im Result melden: "Ref was stale — auto-recovered via #t2-5-input → e87(new)"
+
+**Option B — Proaktiver Ref-Refresh:**
+Nach navigate/switch_tab automatisch `a11yTree.reset()` + `refreshPrecomputed()` ausfuehren, sodass der naechste Tool-Call frische Refs hat.
+
+Option B ist sauberer — switch_tab macht das bereits (laut Explore-Ergebnis). navigate muesste das gleiche tun.
+
+---
+
+## FR-008: Canvas-Elemente komplett opak fuer read_page
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T3.4 Canvas Click)
+**Schwere:** P3 — Niedrig (Canvas ist inherent opak)
+**Betrifft:** `src/tools/read-page.ts`
+**Typ:** LLM Friction
+
+### Problem
+read_page zeigte nur `[e82] Canvas` — keinerlei Information ueber den Inhalt. Das LLM brauchte 3 evaluate-Aufrufe mit verschiedenen Pixel-Schwellwerten um den roten Kreis zu finden (Hintergrund war dunkel, "rot" war eher ein warmer Gradient).
+
+### Warum das begrenzt loesbar ist
+Canvas-Inhalte sind gerenderte Pixel, keine DOM-Elemente. Es gibt keine programmatische Moeglichkeit, "den roten Kreis" zu erkennen ohne Pixel-Analyse oder Screenshot.
+
+### Fix-Vorschlag
+**Option A — Screenshot-Hint:**
+```
+[e82] Canvas (500x250) — use screenshot(som: true) or evaluate with getImageData to inspect content
+```
+Mindestens die Canvas-Groesse und einen Hinweis auf moegliche Analyse-Methoden geben.
+
+**Option B — Canvas-Describe-Helper:**
+evaluate-Snippet in der Tool-Description als Beispiel:
+```
+// Scan canvas for colored regions:
+const ctx = canvas.getContext('2d');
+const data = ctx.getImageData(0,0,w,h).data;
+```
+
+Niedrige Prioritaet — Canvas-Interaktion ist selten.
+
+---
+
+## FR-009: Kein observe/poll-Mechanismus fuer Timing-sensitive DOM-Aenderungen
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T4.2 Racing Counter, T4.5 Mutations)
+**Schwere:** P3 — Niedrig (evaluate-Workaround funktioniert)
+**Betrifft:** Architektur / neue Tool-Idee
+**Typ:** LLM Friction
+
+### Problem
+Fuer T4.2 (Counter bei Wert 8 capturen) und T4.5 (3 Mutationen in 3 Sekunden sammeln) musste das LLM Promise-basierte evaluate-Aufrufe mit setInterval/setTimeout schreiben. Der erste T4.2-Versuch scheiterte am CDP-Timeout (30s).
+
+### Warum das ein MCP-Problem ist
+Timing-sensitive Interaktionen (Wert abwarten, Counter beobachten, Animation-Ende erkennen) erfordern aktuell komplexe evaluate-Workarounds. Das ist fehleranfaellig und der CDP-Timeout kann zuschlagen.
+
+### Fix-Vorschlag
+**Option A — wait_for Erweiterung:**
+```typescript
+// Warte auf Wert UND fuehre Aktion aus:
+wait_for(condition: "js", expression: "counterEl.textContent === '8'",
+         then_click: "#capture-btn", timeout: 15000)
+```
+
+**Option B — observe Tool:**
+```typescript
+// Sammle DOM-Aenderungen ueber Zeit:
+observe(selector: "#mutation-target", duration: 4000, collect: "text_changes")
+// → ["MUT-VSS", "MUT-EMH", "MUT-9S4"]
+```
+
+Niedrige Prioritaet — evaluate-Workaround funktioniert, diese Patterns sind selten.
