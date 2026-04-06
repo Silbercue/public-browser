@@ -874,6 +874,14 @@ So that ich Layout-Verstaendnis direkt aus dem A11y-Tree bekomme ohne einen sepa
 - Die Ref-Zuordnung nutzt Node-Indices: DOMSnapshot liefert Node-Indices die mit den A11y-Backend-Node-IDs korreliert werden koennen
 - `isClickable` Heuristik: `<a>`, `<button>`, `[role="button"]`, `[role="link"]`, `[onclick]`, `cursor: pointer`
 
+**Modal/Overlay-Erkennung (recherchiert 2026-04-07):**
+- CDP `Accessibility.getFullAXTree`: Blockierte Elemente haben `ignoredReasons: [{ name: "activeModalDialog" }]` — gratis im A11y-Tree, erfordert aber semantische Modals (`aria-modal="true"` oder `<dialog>`)
+- CDP `Accessibility.queryAXTree(role: "dialog")`: Schnelle gezielte Suche nach Dialog-Nodes
+- CDP `DOM.getTopLayerElements` (experimentell): NodeIDs aller Top-Layer-Elemente
+- CSS-basierte Modals (div.modal-overlay ohne ARIA): Brauchen `getComputedStyle`-Check fuer `position: fixed` + hoher `z-index`, oder DOMSnapshot `paintOrders` zum Sortieren nach visueller Sichtbarkeit
+- **Empfehlung:** Bei Truncation (max_tokens) Elemente nach Paint Order sortieren statt nach DOM-Reihenfolge — visuell oberste Elemente zuerst. `DOMSnapshot.captureSnapshot({ includePaintOrder: true })` liefert die Daten.
+- **Quick Fix (implementiert 816774a/8e29eed):** Dialog-Promotion fuer `role="dialog"` + option-Demotion. Loest 90% der Faelle, grundsaetzliche Loesung via Paint Order ist Story 5b.3.
+
 **Forschungs-Referenz (FR59):**
 - **DOM Downsampling** (D2Snap, arXiv 2508.04412): Drei Elementklassen — Container (mergen), Content (zu Markdown), Interactive (immer voll erhalten). AdaptiveD2Snap nimmt Token-Budget `tmax` und iteriert automatisch bis Ziel erreicht. 1M Token DOM → ~1.000 Token Output. Wichtig: Hierarchie bewahren — aggressives Merging senkt LLM-Performance.
 - Anwendbar auf `filter: "visual"`: Token-Budget als optionaler Parameter, Pipeline filtert automatisch bis Budget eingehalten.
