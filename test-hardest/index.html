@@ -602,9 +602,10 @@
 
   <div class="test-card" data-test="5.2">
     <h3><span class="test-id">T5.2</span> CDP Fingerprint Detection</h3>
-    <p class="test-desc">Pruefe ob die Automatisierung per CDP-Fingerprint erkannt wird (navigator.webdriver, Runtime-Artefakte).</p>
+    <p class="test-desc">Prueft CDP-Detection-Flags: navigator.webdriver, cdc-Variablen, DOM-Injections. Alle Flags muessen unauffaellig sein.</p>
     <div class="test-area">
-      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.3 implementiert.</p>
+      <button class="action-btn" onclick="Tests.t5_2_run()">Run Fingerprint Test</button>
+      <div class="verify-output" id="t5-2-result"></div>
     </div>
     <span class="test-status pending" id="t5-2-status">PENDING</span>
   </div>
@@ -613,7 +614,8 @@
     <h3><span class="test-id">T5.3</span> Console Log Capture</h3>
     <p class="test-desc">Logge verschiedene Typen (log, warn, error) in die Console und pruefe ob der MCP-Server sie vollstaendig erfasst.</p>
     <div class="test-area">
-      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.4 implementiert.</p>
+      <p style="color:var(--muted);font-style:italic">Runner-Only Test &mdash; wird via MCP Benchmark Runner ausgefuehrt (evaluate &rarr; console.log &rarr; console_logs). Kann nicht manuell im Browser gestartet werden.</p>
+      <div class="verify-output" id="t5-3-result"></div>
     </div>
     <span class="test-status pending" id="t5-3-status">PENDING</span>
   </div>
@@ -1453,6 +1455,47 @@ const Tests = {
       ? 'Cookie + localStorage set and verified'
       : 'Cookie: ' + (cookieOk ? 'OK' : 'FAIL') + ', localStorage: ' + (lsOk ? 'OK' : 'FAIL');
     Benchmark.setResult('5.1', el, pass, details);
+  },
+  t5_2_run() {
+    Benchmark.start('5.2');
+    const el = document.getElementById('t5-2-result');
+    const checks = [];
+    // Check 1: navigator.webdriver
+    const wd = navigator.webdriver;
+    checks.push({ name: 'navigator.webdriver', exposed: wd === true, value: String(wd) });
+    // Check 2: cdc_ property on window.chrome (DevTools control flag)
+    let cdcFound = false;
+    if (window.chrome) {
+      for (const key of Object.keys(window.chrome)) {
+        if (key.startsWith('cdc_')) { cdcFound = true; break; }
+      }
+    }
+    checks.push({ name: 'chrome.cdc_*', exposed: cdcFound, value: cdcFound ? 'found' : 'clean' });
+    // Check 3: cdc_ DOM elements
+    const cdcDom = document.querySelector('[id^="cdc_"]') || document.querySelector('[name^="cdc_"]');
+    checks.push({ name: 'DOM cdc_* element', exposed: !!cdcDom, value: cdcDom ? 'found' : 'clean' });
+    // Evaluate
+    const allClean = checks.every(c => !c.exposed);
+    const details = checks.map(c => c.name + ': ' + (c.exposed ? 'EXPOSED (' + c.value + ')' : 'clean')).join(', ');
+    Benchmark.setResult('5.2', el, allClean, details);
+  },
+  // T5.3 — Runner-Only: Console Log Capture (evaluate → console.log → console_logs → verify)
+  // Called by benchmark-full.mjs (Story 11.8) after console_logs MCP-call sequence
+  t5_3_verify(passed, detail) {
+    Benchmark.start('5.3');
+    const el = document.getElementById('t5-3-result');
+    if (passed === undefined) {
+      Benchmark.setResult('5.3', el, false, 'No result provided — run via benchmark runner (requires MCP console_logs tool)');
+      return;
+    }
+    if (!passed && typeof detail === 'string' && detail.startsWith('SKIP:')) {
+      Benchmark.setResult('5.3', el, false, detail);
+      el.className = 'verify-output skip';
+      const badge = document.getElementById('t5-3-status');
+      if (badge) { badge.textContent = 'SKIP'; badge.className = 'test-status skip'; }
+      return;
+    }
+    Benchmark.setResult('5.3', el, !!passed, detail || (passed ? 'Console logs captured successfully' : 'Console log capture failed'));
   },
   // T5.6 — Runner-Only: Reconnect Recovery (chrome://crash → tab_status)
   // Called by benchmark-full.mjs (Story 11.8) after crash+recovery sequence
