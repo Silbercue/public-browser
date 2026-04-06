@@ -79,8 +79,8 @@ describe("A11yTreeProcessor", () => {
     expect(result.text).toContain('[e3] link "Home" → /home');
   });
 
-  // Test 3: Depth limitation
-  it("should respect depth parameter", async () => {
+  // Test 3: Depth limitation — filter=all passes depth directly to CDP
+  it("should respect depth parameter (filter=all passes depth directly to CDP)", async () => {
     const nodes: AXNode[] = [
       makeNode({
         nodeId: "1",
@@ -97,10 +97,10 @@ describe("A11yTreeProcessor", () => {
       }),
     ];
     const cdp = mockCdpClient(nodes);
-    const result = await processor.getTree(cdp, "s1", { depth: 1 });
+    const result = await processor.getTree(cdp, "s1", { depth: 1, filter: "all" });
 
     expect(result.depth).toBe(1);
-    // CDP depth parameter is passed through
+    // FR-002: filter=all → CDP depth = display depth
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
       { depth: 1 },
@@ -1861,8 +1861,8 @@ describe("A11yTreeProcessor", () => {
       // Reset call count
       (cdp.send as ReturnType<typeof vi.fn>).mockClear();
 
-      // getTree should use cached nodes
-      const result = await processor.getTree(cdp, "s1");
+      // getTree should use cached nodes — use filter=all so cdpFetchDepth=3 matches cached depth=3
+      const result = await processor.getTree(cdp, "s1", { filter: "all" });
 
       // Should have called Runtime.evaluate (URL check) but NOT Accessibility.getFullAXTree
       const calls = (cdp.send as ReturnType<typeof vi.fn>).mock.calls;
@@ -1896,12 +1896,13 @@ describe("A11yTreeProcessor", () => {
       const cdp = mockCdpClient(nodes, "https://example.com/pc-cache-miss");
 
       // No cache primed — should fall back to CDP
+      // FR-002: default filter=interactive → cdpFetchDepth = max(3, 10) = 10
       const result = await processor.getTree(cdp, "s1");
 
-      // Should have called Accessibility.getFullAXTree
+      // Should have called Accessibility.getFullAXTree with cdpFetchDepth=10
       expect(cdp.send).toHaveBeenCalledWith(
         "Accessibility.getFullAXTree",
-        { depth: 3 },
+        { depth: 10 },
         "s1",
       );
       expect(result.text).toContain('[e2] button "Fresh"');
@@ -2000,8 +2001,9 @@ describe("A11yTreeProcessor", () => {
       await processor.refreshPrecomputed(cdp, "s1");
       (cdp.send as ReturnType<typeof vi.fn>).mockClear();
 
+      // FR-002: Use filter=all so cdpFetchDepth = display depth = 5
       // Request with depth 5 — exceeds cached depth 3 → cache miss
-      await processor.getTree(cdp, "s1", { depth: 5 });
+      await processor.getTree(cdp, "s1", { depth: 5, filter: "all" });
       const calls = (cdp.send as ReturnType<typeof vi.fn>).mock.calls;
       const a11yCalls = calls.filter((c: unknown[]) => c[0] === "Accessibility.getFullAXTree");
       expect(a11yCalls.length).toBeGreaterThan(0);
@@ -2031,8 +2033,9 @@ describe("A11yTreeProcessor", () => {
       await processor.refreshPrecomputed(cdp, "s1");
       (cdp.send as ReturnType<typeof vi.fn>).mockClear();
 
+      // FR-002: Use filter=all so cdpFetchDepth = display depth = 2
       // Request with depth 2 — within cached depth → cache hit
-      await processor.getTree(cdp, "s1", { depth: 2 });
+      await processor.getTree(cdp, "s1", { depth: 2, filter: "all" });
       const calls = (cdp.send as ReturnType<typeof vi.fn>).mock.calls;
       const a11yCalls = calls.filter((c: unknown[]) => c[0] === "Accessibility.getFullAXTree");
       expect(a11yCalls).toHaveLength(0);

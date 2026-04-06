@@ -38,6 +38,8 @@ export interface TreeOptions {
   ref?: string;
   filter?: "interactive" | "all" | "landmark" | "visual";
   max_tokens?: number;
+  /** Bypass precomputed cache and fetch fresh data from CDP (fixes stale data after SPA navigation) */
+  fresh?: boolean;
 }
 
 export interface TreeResult {
@@ -290,6 +292,16 @@ export class A11yTreeProcessor {
     this._precomputedDepth = 3;
     this._cacheVersion++;
 
+    // 5. Register root node for Accessibility.nodesUpdated tracking (Story 13a.2 fix).
+    // getFullAXTree does NOT populate Chrome's nodes_requested_ set, so nodesUpdated
+    // never fires. A single getRootAXNode call registers the root — 1 extra CDP call.
+    try {
+      await cdpClient.send("Accessibility.getRootAXNode", {}, sessionId);
+    } catch {
+      // Non-critical — nodesUpdated won't work but everything else still does
+      debug("A11yTreeProcessor: getRootAXNode failed (nodesUpdated tracking disabled)");
+    }
+
     debug("A11yTreeProcessor: precomputed cache refreshed, %d nodes cached (v%d)", result.nodes.length, this._cacheVersion);
   }
 
@@ -499,6 +511,15 @@ export class A11yTreeProcessor {
     const depth = options.depth ?? 3;
     const filter = options.filter ?? "interactive";
 
+    // FR-002: Separate CDP fetch depth from display depth.
+    // Interactive/visual filters need deeper fetch to find elements nested beyond display depth.
+    // "all" uses display depth (user explicitly wants that depth). "landmark" uses moderate depth.
+    const cdpFetchDepth = (filter === "interactive" || filter === "visual")
+      ? Math.max(depth, 10)
+      : filter === "landmark"
+        ? Math.max(depth, 6)
+        : depth;
+
     // Navigation detection — reset refs on URL change
     const urlResult = await cdpClient.send<{ result: { value: string } }>(
       "Runtime.evaluate",
@@ -518,21 +539,24 @@ export class A11yTreeProcessor {
     // Precomputed cache check — bypass CDP call if cache is valid (Story 7.4)
     // Subtree queries (options.ref) always load fresh — cached tree may not have full depth
     // M1: Depth mismatch → cache miss (cached depth must be >= requested depth)
+    // Story 13a.2 fix: fresh=true bypasses cache (read_page after SPA navigation)
     let nodes: AXNode[];
     if (
-      this._precomputedNodes
+      !options.fresh
+      && this._precomputedNodes
       && this._precomputedSessionId === sessionId
       && currentUrl === this._precomputedUrl
       && !options.ref
-      && depth <= this._precomputedDepth
+      && cdpFetchDepth <= this._precomputedDepth
     ) {
       nodes = this._precomputedNodes;
       debug("A11yTreeProcessor: precomputed cache hit");
     } else {
       // Fetch A11y tree from CDP — main frame (fallback / cache miss)
+      // FR-002: Use cdpFetchDepth (not display depth) so interactive/visual filters find deeply nested elements
       const result = await cdpClient.send<{ nodes: AXNode[] }>(
         "Accessibility.getFullAXTree",
-        { depth },
+        { depth: cdpFetchDepth },
         sessionId,
       );
       nodes = result.nodes;
@@ -543,7 +567,7 @@ export class A11yTreeProcessor {
         this._precomputedNodes = nodes;
         this._precomputedUrl = currentUrl;
         this._precomputedSessionId = sessionId;
-        this._precomputedDepth = depth;
+        this._precomputedDepth = cdpFetchDepth;
         debug("A11yTreeProcessor: cache primed from fallback, %d nodes", nodes.length);
       }
     }
@@ -594,7 +618,7 @@ export class A11yTreeProcessor {
             try {
               const oopifResult = await cdpClient.send<{ nodes: AXNode[] }>(
                 "Accessibility.getFullAXTree",
-                { depth },
+                { depth: cdpFetchDepth },
                 s.sessionId,
               );
               return { url: s.url, nodes: oopifResult.nodes ?? [], sessionId: s.sessionId };

@@ -3,6 +3,28 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { ToolResponse } from "../types.js";
 import { wrapCdpError } from "./error-utils.js";
 
+/**
+ * Detects top-level const/let/class declarations and wraps the expression in
+ * an IIFE to avoid "Identifier has already been declared" errors across
+ * repeated Runtime.evaluate calls (which share the global scope).
+ *
+ * The last ExpressionStatement is automatically returned so callers still
+ * get the evaluation result.
+ */
+export function wrapInIIFE(expression: string): string {
+  // Quick check: does the code contain any top-level const/let/class?
+  // We match at the beginning of a line (after optional whitespace) to avoid
+  // matching inside strings/comments in most practical cases.
+  const needsWrap = /^[ \t]*(const|let|class)\s/m.test(expression);
+  if (!needsWrap) return expression;
+
+  // Already wrapped in an IIFE? Don't double-wrap.
+  const trimmed = expression.trim();
+  if (/^\([\s\S]*\)\s*\(\s*\)\s*;?\s*$/.test(trimmed)) return expression;
+
+  return `(() => {\n${expression}\n})()`;
+}
+
 export const evaluateSchema = z.object({
   expression: z.string().describe("JavaScript code to execute in the page context"),
   await_promise: z
@@ -42,10 +64,12 @@ export async function evaluateHandler(
   const start = performance.now();
 
   try {
+    const wrappedExpression = wrapInIIFE(params.expression);
+
     const cdpResult = await cdpClient.send<RuntimeEvaluateResult>(
       "Runtime.evaluate",
       {
-        expression: params.expression,
+        expression: wrappedExpression,
         returnByValue: true,
         awaitPromise: params.await_promise,
       },

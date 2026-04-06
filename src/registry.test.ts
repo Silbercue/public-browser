@@ -33,7 +33,7 @@ describe("ToolRegistry", () => {
     expect(toolFn).toHaveBeenCalledTimes(14);
     expect(toolFn).toHaveBeenCalledWith(
       "evaluate",
-      "Execute JavaScript in the browser page context and return the result",
+      "Execute JavaScript in the browser page context and return the result. Scope is shared between calls — top-level const/let/class are auto-wrapped in IIFE to prevent redeclaration errors.",
       expect.objectContaining({
         expression: expect.anything(),
         await_promise: expect.anything(),
@@ -117,7 +117,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "virtual_desk",
-      "Compact overview of all open browser tabs with state (URL, title, loading status, active/inactive)",
+      "Lists all open tabs with IDs and state. Use this first when starting a session, after reconnect, or when a tab session is lost.",
       {},
       expect.any(Function),
     );
@@ -1288,7 +1288,7 @@ describe("ToolRegistry", () => {
     );
     expect(virtualDeskCall).toBeDefined();
     expect(virtualDeskCall![1]).toBe(
-      "Compact overview of all open browser tabs with state (URL, title, loading status, active/inactive)",
+      "Lists all open tabs with IDs and state. Use this first when starting a session, after reconnect, or when a tab session is lost.",
     );
   });
 

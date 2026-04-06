@@ -196,8 +196,9 @@ export async function clickHandler(
       };
     }
     const elapsedMs = Math.round(performance.now() - start);
+    const elementHint = params.ref ?? params.selector;
     return {
-      content: [{ type: "text", text: wrapCdpError(err, "click") }],
+      content: [{ type: "text", text: wrapCdpError(err, "click", elementHint) }],
       isError: true,
       _meta: { elapsedMs, method: "click" },
     };

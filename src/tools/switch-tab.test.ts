@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { switchTabHandler, _resetSwitchLock } from "./switch-tab.js";
+import { switchTabHandler, _resetSwitchLock, _resetOriginTab, _getOriginTabId } from "./switch-tab.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { DEVICE_METRICS_OVERRIDE } from "../cdp/emulation.js";
@@ -92,6 +92,7 @@ describe("switchTabHandler — action: open", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     _resetSwitchLock();
+    _resetOriginTab();
   });
 
   afterEach(() => {
@@ -235,6 +236,7 @@ describe("switchTabHandler — action: open", () => {
 describe("switchTabHandler — action: switch", () => {
   beforeEach(() => {
     _resetSwitchLock();
+    _resetOriginTab();
   });
 
   it("switches to existing tab, returns cached state", async () => {
@@ -322,7 +324,7 @@ describe("switchTabHandler — action: switch", () => {
     expect(onSessionChange).not.toHaveBeenCalled();
   });
 
-  it("returns error when tab_id missing for switch action", async () => {
+  it("lists tabs when tab_id missing for switch action", async () => {
     const { cdpClient } = createMockCdp(defaultCdpResponses);
     const cache = new TabStateCache({ ttlMs: 30_000 });
     cache.setActiveTarget("T1");
@@ -336,8 +338,13 @@ describe("switchTabHandler — action: switch", () => {
       onSessionChange,
     );
 
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("tab_id is required");
+    expect(result.isError).toBeUndefined();
+    const text = result.content[0].text;
+    expect(text).toContain("Tabs (2 open):");
+    expect(text).toContain("★ Tab 1:");
+    expect(text).toContain("Tab 2:");
+    expect(text).toContain("T1");
+    expect(text).toContain("T2");
     expect(result._meta?.method).toBe("switch_tab");
   });
 
@@ -374,11 +381,49 @@ describe("switchTabHandler — action: switch", () => {
     // Session should not have changed
     expect(onSessionChange).not.toHaveBeenCalled();
   });
+
+  it("switches to tab by numeric index (1-based)", async () => {
+    const { cdpClient } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const onSessionChange = vi.fn();
+
+    // tab_id "2" should resolve to T2 (second entry in pageTabs)
+    const result = await switchTabHandler(
+      { action: "switch", tab_id: "2" },
+      cdpClient,
+      "session-old",
+      cache,
+      onSessionChange,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("Switched to tab: T2");
+  });
+
+  it("returns error for out-of-range numeric index", async () => {
+    const { cdpClient } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const onSessionChange = vi.fn();
+
+    const result = await switchTabHandler(
+      { action: "switch", tab_id: "5" },
+      cdpClient,
+      "session-old",
+      cache,
+      onSessionChange,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Tab not found: 5");
+  });
 });
 
 describe("switchTabHandler — action: close", () => {
   beforeEach(() => {
     _resetSwitchLock();
+    _resetOriginTab();
   });
 
   it("closes active tab, switches to next available tab", async () => {
@@ -538,11 +583,31 @@ describe("switchTabHandler — action: close", () => {
     );
     expect(onSessionChange).not.toHaveBeenCalled();
   });
+
+  it("closes tab by numeric index", async () => {
+    const { cdpClient } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const onSessionChange = vi.fn();
+
+    // tab_id "2" should resolve to T2 (non-active tab)
+    const result = await switchTabHandler(
+      { action: "close", tab_id: "2" },
+      cdpClient,
+      "session-old",
+      cache,
+      onSessionChange,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("Tab closed: T2");
+  });
 });
 
 describe("switchTabHandler — error handling", () => {
   beforeEach(() => {
     _resetSwitchLock();
+    _resetOriginTab();
   });
 
   it("returns error when CDP connection fails", async () => {
@@ -586,17 +651,17 @@ describe("switchTabHandler — error handling", () => {
     expect(successResult._meta!.method).toBe("switch_tab");
     expect(typeof successResult._meta!.elapsedMs).toBe("number");
 
-    // Error case
-    const errorResult = await switchTabHandler(
+    // Tab listing case (no tab_id)
+    const listResult = await switchTabHandler(
       { action: "switch" },
       cdpClient,
       "session-old",
       cache,
       onSessionChange,
     );
-    expect(errorResult._meta).toBeDefined();
-    expect(errorResult._meta!.method).toBe("switch_tab");
-    expect(typeof errorResult._meta!.elapsedMs).toBe("number");
+    expect(listResult._meta).toBeDefined();
+    expect(listResult._meta!.method).toBe("switch_tab");
+    expect(typeof listResult._meta!.elapsedMs).toBe("number");
   });
 
   it("M1: returns error when attachToTarget fails during switch", async () => {
@@ -724,6 +789,7 @@ describe("switchTabHandler — error handling", () => {
 describe("switchTabHandler — serialisation (H3)", () => {
   beforeEach(() => {
     _resetSwitchLock();
+    _resetOriginTab();
   });
 
   it("H3: serialises concurrent switch calls", async () => {
@@ -765,5 +831,163 @@ describe("switchTabHandler — serialisation (H3)", () => {
     expect(callOrder[1]).toBe("attach-end");
     expect(callOrder[2]).toBe("attach-start");
     expect(callOrder[3]).toBe("attach-end");
+  });
+});
+
+describe("switchTabHandler — origin tab tracking (FR-001)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    _resetSwitchLock();
+    _resetOriginTab();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("open saves originTabId and close returns to it", async () => {
+    const { cdpClient, emitLifecycle } = createMockCdp({
+      ...defaultCdpResponses,
+      "Target.getTargets": {
+        targetInfos: [
+          { targetId: "BENCHMARK", type: "page", url: "https://bench.com", title: "Bench" },
+          { targetId: "T-NEW", type: "page", url: "https://target.com", title: "Target" },
+        ],
+      },
+    });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("BENCHMARK");
+    const onSessionChange = vi.fn();
+
+    // 1. Open a new tab (should save BENCHMARK as origin)
+    const openPromise = switchTabHandler(
+      { action: "open", url: "https://target.com" },
+      cdpClient,
+      "session-old",
+      cache,
+      onSessionChange,
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    emitLifecycle({ frameId: "frame-1", loaderId: "l1", name: "networkIdle", timestamp: 1 });
+    await vi.advanceTimersByTimeAsync(500);
+
+    const openResult = await openPromise;
+    expect(openResult.content[0].text).toContain("Origin tab: BENCHMARK");
+    expect(_getOriginTabId()).toBe("BENCHMARK");
+
+    // 2. Close the new tab (should return to BENCHMARK)
+    // Update getTargets to reflect the new tab is now active
+    (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") {
+        return {
+          targetInfos: [
+            { targetId: "BENCHMARK", type: "page", url: "https://bench.com", title: "Bench" },
+            { targetId: "T-NEW", type: "page", url: "https://target.com", title: "Target" },
+          ],
+        };
+      }
+      if (method === "Target.attachToTarget") return { sessionId: "session-bench" };
+      if (method === "Page.getNavigationHistory") {
+        return { currentIndex: 0, entries: [{ url: "https://bench.com", title: "Bench" }] };
+      }
+      if (method === "Runtime.evaluate") return { result: { value: "complete" } };
+      return {};
+    });
+    cache.setActiveTarget("T-NEW");
+
+    const closeResult = await switchTabHandler(
+      { action: "close" },
+      cdpClient,
+      "session-new",
+      cache,
+      onSessionChange,
+    );
+
+    expect(closeResult.isError).toBeUndefined();
+    const closeText = closeResult.content[0].text;
+    expect(closeText).toContain("Tab closed: T-NEW");
+    expect(closeText).toContain("Returned to origin tab: BENCHMARK");
+    expect(cache.activeTargetId).toBe("BENCHMARK");
+    // Origin should be reset after close
+    expect(_getOriginTabId()).toBeUndefined();
+  });
+
+  it("close falls back when originTabId no longer exists", async () => {
+    const { cdpClient } = createMockCdp({
+      ...defaultCdpResponses,
+      "Target.getTargets": {
+        targetInfos: [
+          { targetId: "T1", type: "page", url: "https://a.com", title: "A" },
+          { targetId: "T-NEW", type: "page", url: "https://b.com", title: "B" },
+        ],
+      },
+    });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("BENCHMARK");
+
+    // Simulate: open set origin to BENCHMARK, but BENCHMARK was closed externally
+    const openPromise = switchTabHandler(
+      { action: "open" },
+      cdpClient,
+      "session-old",
+      cache,
+      vi.fn(),
+    );
+    await openPromise;
+    expect(_getOriginTabId()).toBe("BENCHMARK");
+
+    // Now close the active tab — origin BENCHMARK is not in pageTabs anymore
+    cache.setActiveTarget("T-NEW");
+    const closeResult = await switchTabHandler(
+      { action: "close" },
+      cdpClient,
+      "session-new",
+      cache,
+      vi.fn(),
+    );
+
+    expect(closeResult.isError).toBeUndefined();
+    const text = closeResult.content[0].text;
+    expect(text).toContain("Tab closed: T-NEW");
+    expect(text).toContain("Active tab: T1");
+    expect(text).toContain("origin tab no longer available");
+    expect(_getOriginTabId()).toBeUndefined();
+  });
+
+  it("switch saves originTabId", async () => {
+    const { cdpClient } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const onSessionChange = vi.fn();
+
+    await switchTabHandler(
+      { action: "switch", tab_id: "T2" },
+      cdpClient,
+      "session-old",
+      cache,
+      onSessionChange,
+    );
+
+    expect(_getOriginTabId()).toBe("T1");
+  });
+
+  it("_resetOriginTab() clears the origin", async () => {
+    const { cdpClient } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+
+    // Trigger switch to set origin
+    await switchTabHandler(
+      { action: "switch", tab_id: "T2" },
+      cdpClient,
+      "session-old",
+      cache,
+      vi.fn(),
+    );
+    expect(_getOriginTabId()).toBe("T1");
+
+    _resetOriginTab();
+    expect(_getOriginTabId()).toBeUndefined();
   });
 });

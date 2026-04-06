@@ -6,7 +6,7 @@ import { a11yTree, RefNotFoundError } from "../cache/a11y-tree.js";
 import { wrapCdpError } from "./error-utils.js";
 
 export const readPageSchema = z.object({
-  depth: z.number().optional().default(3).describe("Tree depth to return (default: 3)"),
+  depth: z.number().optional().default(3).describe("Display depth — how deep to show the tree structure (default: 3). Interactive elements are always found regardless of depth."),
   ref: z.string().optional().describe("Element ref (e.g. 'e5') to get subtree for"),
   filter: z
     .enum(["interactive", "all", "landmark", "visual"])
@@ -33,6 +33,7 @@ export async function readPageHandler(
       ref: params.ref,
       filter: params.filter,
       max_tokens: params.max_tokens,
+      fresh: true, // Story 13a.2 fix: always fetch fresh data — precomputed cache may be stale after SPA navigation
     }, sessionManager);
 
     const elapsedMs = Math.round(performance.now() - start);

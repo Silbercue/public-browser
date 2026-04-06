@@ -179,6 +179,21 @@ export class ToolRegistry {
     if (PAGE_CONTEXT_TOOLS.has(toolName)) return;
     if (result.isError) return;
 
+    // Tab switch/open: session changed → force-refresh a11yTree for the new tab
+    if (toolName === "switch_tab") {
+      try {
+        a11yTree.reset(); // Clear stale refs from previous tab (prevents duplicates with same-URL tabs)
+        await a11yTree.refreshPrecomputed(this.cdpClient, this._sessionId, this._sessionManager);
+      } catch {
+        return; // Refresh failed (e.g. chrome:// page) — skip context gracefully
+      }
+      const snapshot = a11yTree.getCompactSnapshot();
+      if (!snapshot) return;
+      result.content.push({ type: "text", text: snapshot });
+      this._lastSentCacheVersion = a11yTree.cacheVersion;
+      return;
+    }
+
     const elementClass = result._meta?.elementClass as string | undefined;
 
     // Story 13a.2: Pre-click classification — skip immediately for disabled/static
@@ -187,7 +202,8 @@ export class ToolRegistry {
     // Story 13a.2: Widget-state or unknown clickable — wait for AX change
     if (elementClass === "widget-state" || elementClass === "clickable") {
       if (this._waitForAXChange) {
-        const timeoutMs = elementClass === "widget-state" ? 300 : 100;
+        // Story 13a.2 fix: Chrome has a 250ms throttle on nodesUpdated — use 350ms+ to avoid false negatives
+        const timeoutMs = elementClass === "widget-state" ? 500 : 350;
         const changed = await this._waitForAXChange(timeoutMs);
         if (changed) {
           // Refresh the precomputed cache to get fresh data
@@ -197,8 +213,19 @@ export class ToolRegistry {
             // Refresh failed — fall through to version check below
           }
         } else if (elementClass === "clickable") {
-          // No change detected for unknown element — skip injection
-          return;
+          // Hash-probe fallback: nodesUpdated didn't fire (CSS-only toggle?).
+          // Fetch fresh tree and compare snapshot — inject only if tree actually changed.
+          const snapshotBefore = a11yTree.getCompactSnapshot();
+          try {
+            await a11yTree.refreshPrecomputed(this.cdpClient, this._sessionId, this._sessionManager);
+          } catch {
+            return; // Refresh failed — can't determine if page changed
+          }
+          const snapshotAfter = a11yTree.getCompactSnapshot();
+          if (snapshotBefore === snapshotAfter) {
+            return; // Tree identical — nothing changed, skip injection
+          }
+          // Tree changed despite no nodesUpdated — fall through to inject
         }
         // widget-state: always inject even if no nodesUpdated (e.g. server-side toggle)
       }
@@ -401,7 +428,7 @@ export class ToolRegistry {
 
     this.server.tool(
       "evaluate",
-      "Execute JavaScript in the browser page context and return the result",
+      "Execute JavaScript in the browser page context and return the result. Scope is shared between calls — top-level const/let/class are auto-wrapped in IIFE to prevent redeclaration errors.",
       {
         expression: evaluateSchema.shape.expression,
         await_promise: evaluateSchema.shape.await_promise,

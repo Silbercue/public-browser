@@ -184,10 +184,24 @@ describe("readPageHandler", () => {
     expect(result._meta!.method).toBe("read_page");
   });
 
-  // Test 6: Handler with depth
-  it("should pass depth to CDP", async () => {
+  // Test 6: Handler with depth — FR-002: interactive filter uses cdpFetchDepth = max(depth, 10)
+  it("should pass cdpFetchDepth (not display depth) to CDP for interactive filter", async () => {
     const cdp = mockCdpClient(sampleNodes);
     await readPageHandler({ depth: 5, filter: "interactive" }, cdp, "s1");
+
+    // FR-002: interactive filter → cdpFetchDepth = max(5, 10) = 10
+    expect(cdp.send).toHaveBeenCalledWith(
+      "Accessibility.getFullAXTree",
+      { depth: 10 },
+      "s1",
+    );
+  });
+
+  // Test 6b: filter=all passes display depth directly to CDP
+  it("should pass display depth directly to CDP for filter=all", async () => {
+    a11yTree.reset();
+    const cdp = mockCdpClient(sampleNodes, "https://example.com/all-depth");
+    await readPageHandler({ depth: 5, filter: "all" }, cdp, "s1");
 
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
@@ -558,5 +572,134 @@ describe("readPageHandler", () => {
     expect(result.content[0].text).toContain("link");
     expect(result.content[0].text).toContain("More Info");
     expect(result._meta!.downsampled).toBe(true);
+  });
+
+  // --- FR-002: CDP Fetch Depth vs Display Depth ---
+
+  // FR-002: interactive filter finds deeply nested elements (depth 7) even with display depth 3
+  it("FR-002: should find interactive elements at depth 7 with filter=interactive, depth=3", async () => {
+    a11yTree.reset();
+    // Build a deeply nested tree: WebArea > generic > generic > generic > generic > generic > generic > textbox
+    // The textbox is at nesting level 7 (beyond display depth 3)
+    const deepNodes: AXNode[] = [
+      makeNode({
+        nodeId: "d0",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Deep Form" },
+        backendDOMNodeId: 5000,
+        childIds: ["d1"],
+      }),
+      makeNode({
+        nodeId: "d1",
+        parentId: "d0",
+        role: { type: "role", value: "generic" },
+        name: { type: "computedString", value: "" },
+        backendDOMNodeId: 5001,
+        childIds: ["d2"],
+      }),
+      makeNode({
+        nodeId: "d2",
+        parentId: "d1",
+        role: { type: "role", value: "generic" },
+        name: { type: "computedString", value: "" },
+        backendDOMNodeId: 5002,
+        childIds: ["d3"],
+      }),
+      makeNode({
+        nodeId: "d3",
+        parentId: "d2",
+        role: { type: "role", value: "generic" },
+        name: { type: "computedString", value: "" },
+        backendDOMNodeId: 5003,
+        childIds: ["d4"],
+      }),
+      makeNode({
+        nodeId: "d4",
+        parentId: "d3",
+        role: { type: "role", value: "generic" },
+        name: { type: "computedString", value: "" },
+        backendDOMNodeId: 5004,
+        childIds: ["d5"],
+      }),
+      makeNode({
+        nodeId: "d5",
+        parentId: "d4",
+        role: { type: "role", value: "generic" },
+        name: { type: "computedString", value: "" },
+        backendDOMNodeId: 5005,
+        childIds: ["d6"],
+      }),
+      makeNode({
+        nodeId: "d6",
+        parentId: "d5",
+        role: { type: "role", value: "form" },
+        name: { type: "computedString", value: "Contact" },
+        backendDOMNodeId: 5006,
+        childIds: ["d7"],
+      }),
+      makeNode({
+        nodeId: "d7",
+        parentId: "d6",
+        role: { type: "role", value: "textbox" },
+        name: { type: "computedString", value: "Email" },
+        backendDOMNodeId: 5007,
+      }),
+    ];
+
+    const cdp = mockCdpClient(deepNodes, "https://example.com/fr002-deep");
+    const result = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+
+    // The textbox at depth 7 MUST be found — FR-002 fix
+    expect(result.content[0].text).toContain("textbox");
+    expect(result.content[0].text).toContain("Email");
+
+    // CDP must have been called with cdpFetchDepth=10, not display depth=3
+    expect(cdp.send).toHaveBeenCalledWith(
+      "Accessibility.getFullAXTree",
+      { depth: 10 },
+      "s1",
+    );
+  });
+
+  // FR-002: filter=all with depth=3 does NOT fetch deeper than 3 (behavior unchanged)
+  it("FR-002: filter=all with depth=3 should NOT fetch deeper than 3", async () => {
+    a11yTree.reset();
+    const cdp = mockCdpClient(sampleNodes, "https://example.com/fr002-all");
+    await readPageHandler({ depth: 3, filter: "all" }, cdp, "s1");
+
+    expect(cdp.send).toHaveBeenCalledWith(
+      "Accessibility.getFullAXTree",
+      { depth: 3 },
+      "s1",
+    );
+  });
+
+  // FR-002: filter=landmark uses cdpFetchDepth = max(depth, 6)
+  it("FR-002: filter=landmark with depth=3 should fetch at depth 6", async () => {
+    a11yTree.reset();
+    const cdp = mockCdpClient(sampleNodes, "https://example.com/fr002-landmark");
+    await readPageHandler({ depth: 3, filter: "landmark" }, cdp, "s1");
+
+    expect(cdp.send).toHaveBeenCalledWith(
+      "Accessibility.getFullAXTree",
+      { depth: 6 },
+      "s1",
+    );
+  });
+
+  // FR-002: filter=visual uses cdpFetchDepth = max(depth, 10) (same as interactive)
+  it("FR-002: filter=visual with depth=3 should fetch at depth 10", async () => {
+    a11yTree.reset();
+    const snapshot = makeDomSnapshot([
+      { backendNodeId: 100, nodeName: "HTML", bounds: [0, 0, 1280, 800] },
+    ]);
+    const cdp = mockCdpClient(sampleNodes, "https://example.com/fr002-visual", snapshot);
+    await readPageHandler({ depth: 3, filter: "visual" }, cdp, "s1");
+
+    expect(cdp.send).toHaveBeenCalledWith(
+      "Accessibility.getFullAXTree",
+      { depth: 10 },
+      "s1",
+    );
   });
 });
