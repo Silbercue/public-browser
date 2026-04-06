@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { evaluateHandler, evaluateSchema } from "./evaluate.js";
+import { evaluateHandler, evaluateSchema, wrapInIIFE } from "./evaluate.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 
 function mockCdpClient(
@@ -206,5 +206,95 @@ describe("evaluateHandler", () => {
     const response = await evaluateHandler({ expression: "null", await_promise: true }, cdp);
 
     expect(response.content[0].text).toBe("null");
+  });
+
+  it("should auto-wrap top-level const/let/class in IIFE before sending to CDP", async () => {
+    const sendFn = vi.fn(async () => ({
+      result: { type: "string", value: "ok" },
+    }));
+    const cdp = mockCdpClient(sendFn);
+
+    await evaluateHandler(
+      { expression: 'const x = 1;\nreturn x;', await_promise: true },
+      cdp,
+    );
+
+    const sentExpression = sendFn.mock.calls[0][1]?.expression as string;
+    expect(sentExpression).toContain("(() => {");
+    expect(sentExpression).toContain("const x = 1;");
+    expect(sentExpression).toContain("})()");
+  });
+
+  it("should NOT auto-wrap expressions without top-level declarations", async () => {
+    const sendFn = vi.fn(async () => ({
+      result: { type: "number", value: 42 },
+    }));
+    const cdp = mockCdpClient(sendFn);
+
+    await evaluateHandler(
+      { expression: "document.title", await_promise: true },
+      cdp,
+    );
+
+    const sentExpression = sendFn.mock.calls[0][1]?.expression as string;
+    expect(sentExpression).toBe("document.title");
+  });
+});
+
+describe("wrapInIIFE", () => {
+  it("should wrap code with top-level const", () => {
+    const code = 'const x = 1;\nx;';
+    const result = wrapInIIFE(code);
+    expect(result).toBe(`(() => {\n${code}\n})()`);
+  });
+
+  it("should wrap code with top-level let", () => {
+    const code = 'let y = 2;\ny;';
+    const result = wrapInIIFE(code);
+    expect(result).toBe(`(() => {\n${code}\n})()`);
+  });
+
+  it("should wrap code with top-level class", () => {
+    const code = 'class Foo {}\nnew Foo();';
+    const result = wrapInIIFE(code);
+    expect(result).toBe(`(() => {\n${code}\n})()`);
+  });
+
+  it("should NOT wrap code without declarations", () => {
+    expect(wrapInIIFE("document.title")).toBe("document.title");
+    expect(wrapInIIFE("1 + 1")).toBe("1 + 1");
+    expect(wrapInIIFE("var x = 1")).toBe("var x = 1");
+  });
+
+  it("should NOT wrap code that is already an IIFE", () => {
+    const iife = "(() => { const x = 1; return x; })()";
+    expect(wrapInIIFE(iife)).toBe(iife);
+  });
+
+  it("should wrap const that appears after other statements", () => {
+    const code = 'document.title;\nconst x = 1;';
+    const result = wrapInIIFE(code);
+    expect(result).toContain("(() => {");
+  });
+
+  it("should wrap indented const/let declarations", () => {
+    const code = '  const x = 1;\n  x;';
+    const result = wrapInIIFE(code);
+    expect(result).toContain("(() => {");
+  });
+
+  it("should handle the real-world benchmark scenario (repeated calls)", () => {
+    // Simulates the FR-007 scenario: two calls with const declarations
+    const call1 = 'const container = document.querySelector("#t2-2-list");\ncontainer?.textContent;';
+    const call2 = 'const section = document.querySelector("[data-test=\\"2.2\\"]");\nsection?.textContent;';
+
+    const wrapped1 = wrapInIIFE(call1);
+    const wrapped2 = wrapInIIFE(call2);
+
+    // Both should be wrapped independently — no shared-scope collision
+    expect(wrapped1).toContain("(() => {");
+    expect(wrapped2).toContain("(() => {");
+    expect(wrapped1).toContain("const container");
+    expect(wrapped2).toContain("const section");
   });
 });

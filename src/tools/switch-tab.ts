@@ -4,7 +4,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import type { TabStateCache } from "../cache/tab-state-cache.js";
 import { settle } from "../cdp/settle.js";
-import { DEVICE_METRICS_OVERRIDE } from "../cdp/emulation.js";
+import { DEVICE_METRICS_OVERRIDE, isHeadless } from "../cdp/emulation.js";
 import { wrapCdpError } from "./error-utils.js";
 
 export const switchTabSchema = z.object({
@@ -19,7 +19,7 @@ export const switchTabSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Tab ID to switch to or close (for switch/close actions, defaults to active tab for close)",
+      "Tab ID or tab number (1-based index, e.g. '2') to switch to or close (defaults to active tab for close)",
     ),
 });
 
@@ -30,6 +30,18 @@ interface TargetInfo {
   type: string;
   url: string;
   title: string;
+}
+
+/**
+ * Resolve a tab_id that may be a 1-based numeric index (e.g. "2")
+ * or a CDP targetId (32-char hex). Returns the actual targetId or undefined.
+ */
+function resolveTabId(tabId: string, pageTabs: TargetInfo[]): string | undefined {
+  if (/^\d{1,3}$/.test(tabId)) {
+    const idx = parseInt(tabId, 10) - 1;
+    return pageTabs[idx]?.targetId;
+  }
+  return pageTabs.find((t) => t.targetId === tabId)?.targetId;
 }
 
 interface FrameTree {
@@ -57,6 +69,22 @@ export function _resetSwitchLock(): void {
 }
 
 /**
+ * Tracks the tab the user was on before open/switch navigated away.
+ * Used by close to return to the origin tab instead of picking a random one.
+ */
+let _originTabId: string | undefined;
+
+/** Visible for testing — resets the origin tab tracking. */
+export function _resetOriginTab(): void {
+  _originTabId = undefined;
+}
+
+/** Visible for testing — reads the current origin tab. */
+export function _getOriginTabId(): string | undefined {
+  return _originTabId;
+}
+
+/**
  * Attach to a target, enable CDP domains, re-attach TabStateCache listeners,
  * and propagate the new sessionId. Shared by all three actions.
  */
@@ -77,7 +105,7 @@ async function activateSession(
   await cdpClient.send("Page.enable", {}, newSessionId);
   await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, newSessionId);
   await cdpClient.send("Accessibility.enable", {}, newSessionId);
-  if (process.env.SILBERCUE_CHROME_HEADLESS !== "false") {
+  if (isHeadless()) {
     await cdpClient.send("Emulation.setDeviceMetricsOverride", DEVICE_METRICS_OVERRIDE, newSessionId);
   }
 
@@ -152,6 +180,9 @@ async function handleOpen(
 ): Promise<ToolResponse> {
   const url = params.url ?? "about:blank";
 
+  // Remember origin tab before switching away
+  _originTabId = tabStateCache.activeTargetId ?? undefined;
+
   // Create new tab
   const { targetId } = await cdpClient.send<{ targetId: string }>("Target.createTarget", {
     url,
@@ -180,11 +211,15 @@ async function handleOpen(
   const { state } = await tabStateCache.getOrFetch(cdpClient, targetId, newSessionId);
   const elapsedMs = Math.round(performance.now() - start);
 
+  const originLine = _originTabId
+    ? `\nOrigin tab: ${_originTabId} — use switch_tab(action: "close") to return`
+    : "";
+
   return {
     content: [
       {
         type: "text",
-        text: `Tab opened: ${targetId}\nURL: ${state.url}\nTitle: ${state.title}`,
+        text: `Tab opened: ${targetId}\nURL: ${state.url}\nTitle: ${state.title}${originLine}`,
       },
     ],
     _meta: { elapsedMs, method },
@@ -201,36 +236,47 @@ async function handleSwitch(
   sessionManager?: SessionManager,
 ): Promise<ToolResponse> {
   if (!params.tab_id) {
+    // No tab_id: list available tabs so the LLM can pick one
+    const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
+    const pageTabs = targetInfos.filter((t) => t.type === "page");
+    const activeId = tabStateCache.activeTargetId;
+    const lines = pageTabs.map((t, i) => {
+      const marker = t.targetId === activeId ? "★" : " ";
+      return `${marker} Tab ${i + 1}: ${t.targetId} | ${t.title} | ${t.url}`;
+    });
     return {
-      content: [{ type: "text", text: "tab_id is required for switch action" }],
+      content: [{ type: "text", text: `Tabs (${pageTabs.length} open):\n${lines.join("\n")}` }],
+      _meta: { elapsedMs: Math.round(performance.now() - start), method },
+    };
+  }
+
+  // Verify tab exists before switching (supports numeric index or targetId)
+  const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
+  const pageTabs = targetInfos.filter((t) => t.type === "page");
+  const resolvedId = resolveTabId(params.tab_id!, pageTabs);
+  if (!resolvedId) {
+    return {
+      content: [{ type: "text", text: `Tab not found: ${params.tab_id}. Use virtual_desk to discover available tabs.` }],
       isError: true,
       _meta: { elapsedMs: Math.round(performance.now() - start), method },
     };
   }
 
-  // Verify tab exists before switching
-  const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
-  const target = targetInfos.find((t) => t.targetId === params.tab_id && t.type === "page");
-  if (!target) {
-    return {
-      content: [{ type: "text", text: `Tab not found: ${params.tab_id}` }],
-      isError: true,
-      _meta: { elapsedMs: Math.round(performance.now() - start), method },
-    };
-  }
+  // Remember origin tab before switching away
+  _originTabId = tabStateCache.activeTargetId ?? undefined;
 
   // C1: Remember previous state for rollback if attachToTarget fails
   const previousTargetId = tabStateCache.activeTargetId;
 
   // Bring tab to front visually
-  await cdpClient.send("Target.activateTarget", { targetId: params.tab_id });
+  await cdpClient.send("Target.activateTarget", { targetId: resolvedId });
 
   // C1: Activate CDP session — rollback on failure
   let newSessionId: string;
   try {
     newSessionId = await activateSession(
       cdpClient,
-      params.tab_id,
+      resolvedId,
       tabStateCache,
       onSessionChange,
     );
@@ -252,14 +298,14 @@ async function handleSwitch(
   }
 
   // Fetch state for response
-  const { state } = await tabStateCache.getOrFetch(cdpClient, params.tab_id, newSessionId);
+  const { state } = await tabStateCache.getOrFetch(cdpClient, resolvedId, newSessionId);
   const elapsedMs = Math.round(performance.now() - start);
 
   return {
     content: [
       {
         type: "text",
-        text: `Switched to tab: ${params.tab_id}\nURL: ${state.url}\nTitle: ${state.title}`,
+        text: `Switched to tab: ${resolvedId}\nURL: ${state.url}\nTitle: ${state.title}`,
       },
     ],
     _meta: { elapsedMs, method },
@@ -275,29 +321,31 @@ async function handleClose(
   start: number,
   method: string,
 ): Promise<ToolResponse> {
-  const targetTab = params.tab_id ?? tabStateCache.activeTargetId;
-  if (!targetTab) {
-    return {
-      content: [{ type: "text", text: "No active tab to close" }],
-      isError: true,
-      _meta: { elapsedMs: Math.round(performance.now() - start), method },
-    };
-  }
-
   // Get all page tabs to check if this is the last one
   const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
   const pageTabs = targetInfos.filter((t) => t.type === "page");
 
-  // H2: Validate that the specified tab_id actually exists among page targets
+  // Resolve tab_id (supports numeric index or targetId)
+  let targetTab: string | undefined;
   if (params.tab_id) {
-    const tabExists = pageTabs.some((t) => t.targetId === params.tab_id);
-    if (!tabExists) {
+    targetTab = resolveTabId(params.tab_id, pageTabs);
+    if (!targetTab) {
       return {
         content: [{ type: "text", text: `Tab not found: ${params.tab_id}` }],
         isError: true,
         _meta: { elapsedMs: Math.round(performance.now() - start), method },
       };
     }
+  } else {
+    targetTab = tabStateCache.activeTargetId ?? undefined;
+  }
+
+  if (!targetTab) {
+    return {
+      content: [{ type: "text", text: "No active tab to close" }],
+      isError: true,
+      _meta: { elapsedMs: Math.round(performance.now() - start), method },
+    };
   }
 
   const isLastTab = pageTabs.length <= 1;
@@ -312,8 +360,17 @@ async function handleClose(
     );
     newActiveTab = blankTabId;
   } else if (isActiveTab) {
-    // Find the next available tab to switch to
-    newActiveTab = pageTabs.find((t) => t.targetId !== targetTab)?.targetId;
+    // Prefer origin tab (the tab we came from) if it still exists
+    const originAlive =
+      _originTabId &&
+      _originTabId !== targetTab &&
+      pageTabs.some((t) => t.targetId === _originTabId);
+    if (originAlive) {
+      newActiveTab = _originTabId;
+    } else {
+      // Fallback: pick the next available tab
+      newActiveTab = pageTabs.find((t) => t.targetId !== targetTab)?.targetId;
+    }
   }
 
   // C2/H1: If switching to a new tab, complete the switch BEFORE closing & cleanup.
@@ -349,6 +406,7 @@ async function handleClose(
           // Still close the intended target
           await cdpClient.send("Target.closeTarget", { targetId: targetTab });
           tabStateCache.invalidate(targetTab);
+          _originTabId = undefined; // Reset after close
           const { state } = await tabStateCache.getOrFetch(
             cdpClient,
             fallback.targetId,
@@ -375,14 +433,21 @@ async function handleClose(
     await cdpClient.send("Target.closeTarget", { targetId: targetTab });
     tabStateCache.invalidate(targetTab);
 
+    const usedOrigin = newActiveTab === _originTabId;
+    _originTabId = undefined; // Reset after close
+
     const { state } = await tabStateCache.getOrFetch(cdpClient, newActiveTab, newSessionId);
     const elapsedMs = Math.round(performance.now() - start);
+
+    const activeLine = usedOrigin
+      ? `Returned to origin tab: ${newActiveTab}`
+      : `Active tab: ${newActiveTab} (origin tab no longer available)`;
 
     return {
       content: [
         {
           type: "text",
-          text: `Tab closed: ${targetTab}\nActive tab: ${newActiveTab}\nURL: ${state.url}\nTitle: ${state.title}`,
+          text: `Tab closed: ${targetTab}\n${activeLine}\nURL: ${state.url}\nTitle: ${state.title}`,
         },
       ],
       _meta: { elapsedMs, method },
