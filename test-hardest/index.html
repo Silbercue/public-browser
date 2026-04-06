@@ -625,7 +625,8 @@
     <p class="test-desc">Lade eine Datei ueber ein File-Input-Element hoch und pruefe ob Dateiname und Inhalt korrekt gelesen werden.</p>
     <div class="test-area">
       <input type="file" id="benchmark-upload">
-      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.5 implementiert.</p>
+      <p style="color:var(--muted);font-style:italic">Runner-Only Test &mdash; wird via MCP Benchmark Runner ausgefuehrt (file_upload &rarr; evaluate &rarr; verify). Kann nicht manuell im Browser gestartet werden.</p>
+      <div class="verify-output" id="t5-4-result"></div>
     </div>
     <span class="test-status pending" id="t5-4-status">PENDING</span>
   </div>
@@ -634,8 +635,8 @@
     <h3><span class="test-id">T5.5</span> SPA Navigation (History API)</h3>
     <p class="test-desc">Navigiere per History API (pushState/popstate) zwischen SPA-Views und pruefe ob der Content korrekt wechselt.</p>
     <div class="test-area">
-      <div id="t5-5-spa-content"></div>
-      <p style="color:var(--muted);font-style:italic">Test wird in Story 11.6 implementiert.</p>
+      <p style="color:var(--muted);font-style:italic">Runner-Only Test &mdash; wird via MCP Benchmark Runner ausgefuehrt (evaluate &rarr; pushState &rarr; wait_for &rarr; read_page). Kann nicht manuell im Browser gestartet werden.</p>
+      <div class="verify-output" id="t5-5-result"></div>
     </div>
     <span class="test-status pending" id="t5-5-status">PENDING</span>
   </div>
@@ -1496,6 +1497,42 @@ const Tests = {
       return;
     }
     Benchmark.setResult('5.3', el, !!passed, detail || (passed ? 'Console logs captured successfully' : 'Console log capture failed'));
+  },
+  // T5.4 — Runner-Only: File Upload (file_upload → evaluate → verify)
+  // Called by benchmark-full.mjs (Story 11.8) after file_upload MCP-call sequence
+  t5_4_verify(passed, detail) {
+    Benchmark.start('5.4');
+    const el = document.getElementById('t5-4-result');
+    if (passed === undefined) {
+      Benchmark.setResult('5.4', el, false, 'No result provided — run via benchmark runner (requires MCP file_upload tool)');
+      return;
+    }
+    if (!passed && typeof detail === 'string' && detail.startsWith('SKIP:')) {
+      Benchmark.setResult('5.4', el, false, detail);
+      el.className = 'verify-output skip';
+      const badge = document.getElementById('t5-4-status');
+      if (badge) { badge.textContent = 'SKIP'; badge.className = 'test-status skip'; }
+      return;
+    }
+    Benchmark.setResult('5.4', el, !!passed, detail || (passed ? 'File upload verified successfully' : 'File upload verification failed'));
+  },
+  // T5.5 — Runner-Only: SPA Navigation (evaluate → pushState → wait_for → read_page → verify)
+  // Called by benchmark-full.mjs (Story 11.8) after SPA navigation MCP-call sequence
+  t5_5_verify(passed, detail) {
+    Benchmark.start('5.5');
+    const el = document.getElementById('t5-5-result');
+    if (passed === undefined) {
+      Benchmark.setResult('5.5', el, false, 'No result provided — run via benchmark runner (requires MCP evaluate + wait_for + read_page)');
+      return;
+    }
+    if (!passed && typeof detail === 'string' && detail.startsWith('SKIP:')) {
+      Benchmark.setResult('5.5', el, false, detail);
+      el.className = 'verify-output skip';
+      const badge = document.getElementById('t5-5-status');
+      if (badge) { badge.textContent = 'SKIP'; badge.className = 'test-status skip'; }
+      return;
+    }
+    Benchmark.setResult('5.5', el, !!passed, detail || (passed ? 'SPA navigation verified — pushState + content update detected' : 'SPA navigation test failed'));
   },
   // T5.6 — Runner-Only: Reconnect Recovery (chrome://crash → tab_status)
   // Called by benchmark-full.mjs (Story 11.8) after crash+recovery sequence
