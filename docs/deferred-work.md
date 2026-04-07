@@ -2,7 +2,7 @@
 
 Bugs, Verbesserungen und offene Punkte die waehrend der Arbeit entdeckt, aber nicht sofort behoben wurden.
 
-## Status-Uebersicht (Stand 2026-04-06)
+## Status-Uebersicht (Stand 2026-04-07)
 
 | Bug | Status | Fix |
 |-----|--------|-----|
@@ -20,8 +20,8 @@ Bugs, Verbesserungen und offene Punkte die waehrend der Arbeit entdeckt, aber ni
 | BUG-012 | GEFIXT | getBoundingClientRect + JS-Click Fallback in click.ts |
 | BUG-013 | GEFIXT | Stale-Ref "Did you mean" schlaegt identischen Ref vor |
 | BUG-014 | GEFIXT | read_page max_tokens harte Validierung statt Clamping |
-| UX-001 | OFFEN | click — kein Text-basiertes Matching |
-| TD-001 | OFFEN | AutoLaunch Tests + Doku |
+| UX-001 | GEFIXT | click text-Parameter — findByText in A11y-Tree |
+| TD-001 | GEFIXT | AutoLaunch Tests + Doku (Story 10.2) |
 | FR-001 | GEFIXT | Scroll-Container in read_page nicht erkennbar — kein Scroll-Tool |
 | FR-002 | GEFIXT | click auf target=_blank-Link warnt nicht / oeffnet keinen neuen Tab |
 | FR-003 | GEFIXT | Same-origin srcdoc-iframes unsichtbar in read_page |
@@ -29,8 +29,17 @@ Bugs, Verbesserungen und offene Punkte die waehrend der Arbeit entdeckt, aber ni
 | FR-005 | GEFIXT | evaluate gibt undefined bei impliziten Return-Values |
 | FR-006 | GEFIXT | contenteditable-Elemente als "generic" in read_page |
 | FR-007 | GEFIXT | Stale-Ref nach Navigation — kein Auto-Recovery |
-| FR-008 | OFFEN | Canvas-Elemente komplett opak fuer read_page |
+| FR-008 | GEFIXT | Canvas-Annotation mit screenshot(som: true) Hint |
 | FR-009 | OFFEN | Kein observe/poll-Mechanismus fuer Timing-sensitive DOM-Aenderungen |
+| FR-010 | GEFIXT | click(x,y) scroll-kompensiert — headed raw coords, headless scroll-kompensiert |
+| FR-011 | GEFIXT | await-Regex vereinfacht zu /\bawait\b/ — erkennt alle Patterns |
+| FR-012 | GEFIXT | Truncation-Warnung mit Original-Token-Anzahl und Tipp |
+| FR-013 | OFFEN | FR-003 Regression — verschachtelte srcdoc-iFrames unsichtbar in read_page |
+| FR-014 | GEFIXT | switch_tab Stale-Refs Hint bei Tab-Wechsel |
+| FR-015 | GEFIXT | scroll container_ref/container_selector fuer Container-Scroll |
+| FR-016 | GEFIXT | Stale-Ref Leaf-Node Heuristik-Warnung in read_page |
+| FR-017 | GEFIXT | press_key ref/selector Parameter fuer Target-Focus |
+| BUG-015 | GEFIXT | setFocusEmulationEnabled + CDPScreenshotNewSurface (Dual-Layer Anti-Occlusion) |
 
 ---
 
@@ -337,27 +346,14 @@ Leitprinzip: Der MCP wird von LLMs konsumiert. Werte die offensichtlich korrigie
 
 **Entdeckt:** 2026-04-05 (Live-Nutzung SteuerDB-Anwendung)
 **Schwere:** P2 — Mittel (erzeugt 3-5 Extra-Roundtrips)
-**Betrifft:** `src/tools/click.ts` (Zeile 12-21)
+**Betrifft:** `src/tools/click.ts`
+**Status:** GEFIXT (2026-04-07)
 
 ### Problem
-Das LLM sieht einen Button mit Text "Umsaetze anzeigen" und will ihn klicken. Aktuell moeglich:
-- `click(ref: "e96")` — erfordert vorheriges `read_page` um den Ref zu kennen
-- `click(selector: "button...")` — CSS-Selektoren sind fehleranfaellig (`:has-text()` ist Playwright-Syntax, kein gueltiges CSS)
+Das LLM brauchte 3-6 Tool-Calls um einen Button per Text zu klicken (read_page → ref → click, ggf. stale-retry).
 
-Tatsaechlicher Ablauf fuer einen einzelnen Klick: 6 Tool-Calls (read_page → click stale → navigate → read_page → click). Optimal waere 1 Call.
-
-### Feature-Vorschlag
-`text`-Parameter fuer click:
-
-```typescript
-click(text: "Umsaetze anzeigen")          // Exakt-Match
-click(text: "Umsaetze", partial: true)     // Partial-Match
-```
-
-Intern: A11y-Tree nach dem Text durchsuchen, Element direkt klicken. Kein vorheriges `read_page` noetig, keine Stale-Ref-Problematik.
-
-### Abgrenzung
-Dies ist ein Feature-Request, kein Bug. Aber die Auswirkung auf LLM-Effizienz ist erheblich: Jeder vermeidbare Roundtrip kostet Latenz und Tokens.
+### Fix
+Neuer `text` Parameter in clickSchema: `click(text: "Submit")`. Intern nutzt `a11yTree.findByText()` die nodeInfoMap — Matching-Prioritaet: exact → case-insensitive → partial substring. Interaktive Rollen (button, link) werden bevorzugt. Wenn kein Match, werden verfuegbare Elemente im Fehler aufgelistet. Kein vorheriges read_page noetig — wenn der A11y-Tree nicht populiert ist, wird er automatisch geholt.
 
 ---
 
@@ -366,14 +362,13 @@ Dies ist ein Feature-Request, kein Bug. Aber die Auswirkung auf LLM-Effizienz is
 **Entdeckt:** 2026-04-05
 **Schwere:** Low
 **Betrifft:** `src/server.ts`, `src/cdp/chrome-launcher.ts`
+**Status:** GEFIXT (Story 10.2)
 
 ### Aenderung
 Neues Verhalten: Wenn `SILBERCUE_CHROME_HEADLESS=false`, dann `autoLaunch` automatisch `false` (es sei denn explizit `SILBERCUE_CHROME_AUTO_LAUNCH=true` gesetzt). Neue Env-Variable `SILBERCUE_CHROME_AUTO_LAUNCH` hinzugefuegt.
 
-### Offene Punkte
-- Tests fuer das neue AutoLaunch-Verhalten schreiben
-- Dokumentation (README) aktualisieren
-- Env-Variable `SILBERCUE_CHROME_AUTO_LAUNCH` in Schema/Docs aufnehmen
+### Fix
+Tests in `src/cdp/chrome-launcher.test.ts`: WebSocket-Fallback, Pipe-Launch, autoLaunch-disabled, env-Variable-Overrides (SILBERCUE_CHROME_AUTO_LAUNCH). CLAUDE.md dokumentiert Connection Modes und Env-Variablen.
 
 ---
 
@@ -636,31 +631,15 @@ Option B ist sauberer — switch_tab macht das bereits (laut Explore-Ergebnis). 
 
 **Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T3.4 Canvas Click)
 **Schwere:** P3 — Niedrig (Canvas ist inherent opak)
-**Betrifft:** `src/tools/read-page.ts`
+**Betrifft:** `src/cache/a11y-tree.ts` (formatLine)
 **Typ:** LLM Friction
+**Status:** GEFIXT (2026-04-07)
 
 ### Problem
-read_page zeigte nur `[e82] Canvas` — keinerlei Information ueber den Inhalt. Das LLM brauchte 3 evaluate-Aufrufe mit verschiedenen Pixel-Schwellwerten um den roten Kreis zu finden (Hintergrund war dunkel, "rot" war eher ein warmer Gradient).
+read_page zeigte nur `[e82] Canvas` — keinerlei Information ueber den Inhalt. Das LLM brauchte 3 evaluate-Aufrufe um den roten Kreis zu finden.
 
-### Warum das begrenzt loesbar ist
-Canvas-Inhalte sind gerenderte Pixel, keine DOM-Elemente. Es gibt keine programmatische Moeglichkeit, "den roten Kreis" zu erkennen ohne Pixel-Analyse oder Screenshot.
-
-### Fix-Vorschlag
-**Option A — Screenshot-Hint:**
-```
-[e82] Canvas (500x250) — use screenshot(som: true) or evaluate with getImageData to inspect content
-```
-Mindestens die Canvas-Groesse und einen Hinweis auf moegliche Analyse-Methoden geben.
-
-**Option B — Canvas-Describe-Helper:**
-evaluate-Snippet in der Tool-Description als Beispiel:
-```
-// Scan canvas for colored regions:
-const ctx = canvas.getContext('2d');
-const data = ctx.getImageData(0,0,w,h).data;
-```
-
-Niedrige Prioritaet — Canvas-Interaktion ist selten.
+### Fix
+Canvas-Annotation in formatLine(): `[e71] Canvas ⚠ Canvas content is pixels, not DOM. Use screenshot(som: true) to see what's inside.` Lenkt das LLM direkt zum bereits implementierten Set-of-Mark Feature (Story 5b.4) statt zu evaluate-Workarounds.
 
 ---
 
@@ -693,3 +672,156 @@ observe(selector: "#mutation-target", duration: 4000, collect: "text_changes")
 ```
 
 Niedrige Prioritaet — evaluate-Workaround funktioniert, diese Patterns sind selten.
+
+---
+
+## FR-010: click(x,y) kein auto-scroll wenn Koordinaten ausserhalb Viewport
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run 9254a969 — T3.4 Canvas Click)
+**Schwere:** P1 — Hoch (6 Extra-Calls, 40s verschwendet)
+**Betrifft:** `src/tools/click.ts`
+**Typ:** LLM Friction
+**Status:** GEFIXT (2026-04-06, bab5c23)
+
+### Problem
+`click(x: 313, y: 814)` ging ins Leere weil das Canvas-Element nicht im sichtbaren Viewport lag (Viewport-Hoehe war kleiner). Der Klick wurde dispatcht, aber auf den falschen Bereich. Erst nach manuellem `scrollIntoView` + neuen Koordinaten (313, 444) klappte es.
+
+### Fix
+click(x,y) nutzt jetzt scroll-kompensierte Koordinaten: Headed-Modus verwendet raw viewport coords, Headless-Modus kompensiert scrollY. Canvas-Click T3.4 funktioniert bei beliebigem Scroll-Zustand.
+
+---
+
+## FR-011: evaluate await-Regression — bestimmte Patterns nicht auto-wrapped
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run 9254a969 — T4.5 Mutations)
+**Schwere:** P2 — Mittel (verursacht SyntaxError, LLM muss erneut senden)
+**Betrifft:** `src/tools/evaluate.ts` (wrapInIIFE)
+**Typ:** Bug-Regression
+**Status:** GEFIXT (2026-04-06, 816774a)
+
+### Problem
+Fix FR-3 (a60fb4b) hat `wrapInIIFE()` eingefuehrt, das Top-Level `await` erkennt und in async IIFE wrappelt. Aber bestimmte Code-Patterns werden nicht erkannt. In T4.5 trat `SyntaxError: await is only valid in async functions` auf.
+
+### Fix
+await-Regex vereinfacht zu `/\bawait\b/` — erkennt jetzt alle Patterns (Destructuring, Parenthesized, MutationObserver+Promise). Jeder Code mit `await` wird in async IIFE gewrapped.
+
+---
+
+## FR-012: read_page Token-Metadata nicht strukturiert
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run 9254a969 — T4.7 Token Budget)
+**Schwere:** P2 — Mittel (7 Extra-Calls, 40s — LLM muss Token-Info aus Header-Text parsen)
+**Betrifft:** `src/tools/read-page.ts`
+**Typ:** LLM Friction
+**Status:** GEFIXT (2026-04-06, 816774a)
+
+### Problem
+read_page gab Token-Informationen nur als Prosa im Header-Text zurueck. Das LLM konnte diese Zahlen nicht effizient nutzen.
+
+### Fix
+Truncation-Warnung mit Original-Token-Anzahl und Tipp. Token-Estimation-Ratio von chars/4 auf chars/3.5 verschaerft (8bb4e1c) fuer zuverlaessigere max_tokens-Durchsetzung.
+
+---
+
+## FR-013: FR-003 Regression — verschachtelte srcdoc-iFrames unsichtbar
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run 9254a969 — T3.2 Nested iFrame)
+**Schwere:** P2 — Mittel (3 Extra-Calls)
+**Betrifft:** `src/cache/a11y-tree.ts`
+**Typ:** Regression
+
+### Problem
+FR-003 wurde als GEFIXT markiert, aber read_page(depth=8) zeigt den Inhalt von verschachtelten srcdoc-iFrames immer noch nicht. Der Benchmark T3.2 nutzt:
+- Aeusserer iFrame mit `srcdoc` → enthalt inneren iFrame mit `srcdoc`
+- `Accessibility.getFullAXTree` traversiert keine same-origin srcdoc-Frames
+
+Das LLM brauchte 3 evaluate-Aufrufe um den Wert aus dem inneren Frame zu lesen.
+
+### Zu pruefen
+Was genau hat der FR-003 Fix geaendert? Moeglicherweise nur einfache (nicht verschachtelte) srcdoc-iframes. Der verschachtelte Fall muss separat behandelt werden.
+
+---
+
+## FR-014: switch_tab gibt keine Warnung ueber invalidierte Refs
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run 9254a969 — T2.5 Tab Management)
+**Schwere:** P3 — Niedrig (1 Extra-Call, gute Fehlermeldung beim type-Call)
+**Betrifft:** `src/tools/switch-tab.ts`
+**Typ:** LLM Friction
+**Status:** GEFIXT (2026-04-07)
+
+### Problem
+Nach `switch_tab(action: "close")` zurueck zum Haupttab sind alle alten Refs ungueltig. Die switch_tab-Response selbst warnte nicht.
+
+### Fix
+`STALE_REFS_HINT` wird an alle Responses angehaengt die den aktiven Tab wechseln (open, switch, close mit Tab-Wechsel). Nicht-aktive Tab-Schliessungen (kein Kontextwechsel) erhalten keinen Hint.
+
+---
+
+## FR-015: scroll kein Container-until-Element Support
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run 9254a969 — T2.2 Infinite Scroll)
+**Schwere:** P3 — Niedrig (2 Extra-Calls)
+**Betrifft:** `src/tools/scroll.ts`
+**Typ:** LLM Friction
+**Status:** GEFIXT (2026-04-07, 707aff0)
+
+### Problem
+Das LLM nutzte evaluate statt scroll fuer Infinite-Scroll, weil scroll kein "scroll Container X bis Element Y erscheint" unterstuetzt.
+
+### Fix
+Neue Parameter `container_ref` / `container_selector` in scroll.ts. Scrollt innerhalb eines spezifischen Containers (Sidebar, Modal-Body) statt immer die ganze Seite. Gibt Container-Scroll-Position zurueck (scrollTop/scrollHeight).
+
+---
+
+## FR-016: Stale Ref gibt stille falsche Daten statt Fehler
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run 9254a969 — T2.6 Sort Table)
+**Schwere:** P3 — Niedrig (1 Extra-Call)
+**Betrifft:** `src/tools/read-page.ts`
+**Typ:** LLM Friction
+**Status:** GEFIXT (2026-04-07)
+
+### Problem
+`read_page(ref="e253")` gab `StaticText "$4.50"` zurueck — ein voellig anderes Element als erwartet. Kein Fehler, keine Warnung.
+
+### Fix
+Heuristik in readPageHandler: Wenn `params.ref` gesetzt ist UND `refCount <= 1` UND der Output ein Leaf-Node ist (StaticText, img, separator, none oder <=2 Zeilen), wird eine Warnung angehaengt.
+
+---
+
+## FR-017: press_key kein Target-Focus
+
+**Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run 9254a969 — T3.5 Keyboard Shortcuts)
+**Schwere:** P3 — Niedrig (1 Extra-Call)
+**Betrifft:** `src/tools/press-key.ts`
+**Typ:** LLM Friction
+**Status:** GEFIXT (2026-04-07, 707aff0)
+
+### Problem
+Das LLM musste vor press_key manuell per evaluate `.focus()` auf das richtige Element setzen.
+
+### Fix
+Neue optionale Parameter `ref` / `selector` in press_key. Fokussiert das Element vor Key-Events. OOPIF-aware via resolveElement + effectiveSessionId. Standard-Verhalten (kein Target) bleibt unveraendert.
+
+---
+
+## BUG-015: screenshot schwarz bei verdecktem Fenster / sekundaerem Monitor (macOS)
+
+**Entdeckt:** 2026-04-07 (Live-Test mit Benchmark-Seite auf sekundaerem Monitor)
+**Schwere:** P2 — Mittel (screenshot unbrauchbar, read_page/evaluate funktionieren)
+**Betrifft:** `src/tools/screenshot.ts`, macOS Occlusion Tracking
+**Typ:** Plattform-Limitation
+**Status:** GEFIXT (2026-04-07) — Dual-Layer-Fix
+
+### Problem
+`screenshot` liefert schwarze Bilder wenn das Chrome-Fenster auf einem sekundaeren Monitor liegt oder von anderen Fenstern verdeckt ist.
+
+### Fix
+Dual-Layer-Ansatz basierend auf Deep Research des Chromium-Quellcodes:
+
+1. **`Emulation.setFocusEmulationEnabled({ enabled: true })`** — Runtime-CDP-Call bei Session-Aufbau. Haelt `visible_capturer_count_ > 0` via `WebContents::IncrementCapturerCount(stay_hidden=false)`, sodass der Renderer im `kVisible`-Zustand bleibt. Implementiert in `server.ts` (Init + Reconnect) und `switch-tab.ts` (activateSession).
+
+2. **`--enable-features=CDPScreenshotNewSurface`** — Chrome-Launch-Flag. Erzeugt neuen Compositor Surface pro Screenshot (`ForceRedraw` + `RequestRepaintOnNewSurface` + `CopyFromSurface`), umgeht Screen-Praesentation. Implementiert in `chrome-launcher.ts` CHROME_FLAGS.
+
+Vollstaendiger Forschungsbericht: `docs/bug-015-screenshot-occlusion.md`

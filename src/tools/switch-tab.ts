@@ -86,6 +86,9 @@ export function _getOriginTabId(): string | undefined {
   return _originTabId;
 }
 
+/** FR-014: Hint appended to responses where the active tab changes. */
+const STALE_REFS_HINT = "\n\nNote: Element refs from the previous tab are no longer valid. Call read_page for fresh refs.";
+
 /**
  * Attach to a target, enable CDP domains, re-attach TabStateCache listeners,
  * and propagate the new sessionId. Shared by all three actions.
@@ -107,6 +110,10 @@ async function activateSession(
   await cdpClient.send("Page.enable", {}, newSessionId);
   await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, newSessionId);
   await cdpClient.send("Accessibility.enable", {}, newSessionId);
+  // BUG-015 fix: Keep renderer alive when window is occluded on macOS (per-tab).
+  if (!isHeadless()) {
+    await cdpClient.send("Emulation.setFocusEmulationEnabled", { enabled: true }, newSessionId);
+  }
   if (isHeadless()) {
     await cdpClient.send("Emulation.setDeviceMetricsOverride", DEVICE_METRICS_OVERRIDE, newSessionId);
   }
@@ -221,7 +228,7 @@ async function handleOpen(
     content: [
       {
         type: "text",
-        text: `Tab opened: ${targetId}\nURL: ${state.url}\nTitle: ${state.title}${originLine}`,
+        text: `Tab opened: ${targetId}\nURL: ${state.url}\nTitle: ${state.title}${originLine}${STALE_REFS_HINT}`,
       },
     ],
     _meta: { elapsedMs, method },
@@ -319,7 +326,7 @@ async function handleSwitch(
     content: [
       {
         type: "text",
-        text: `Switched to tab: ${resolvedId}\nURL: ${state.url}\nTitle: ${state.title}`,
+        text: `Switched to tab: ${resolvedId}\nURL: ${state.url}\nTitle: ${state.title}${STALE_REFS_HINT}`,
       },
     ],
     _meta: { elapsedMs, method },
@@ -431,7 +438,7 @@ async function handleClose(
             content: [
               {
                 type: "text",
-                text: `Tab closed: ${targetTab}\nActive tab: ${fallback.targetId} (fallback)\nURL: ${state.url}\nTitle: ${state.title}`,
+                text: `Tab closed: ${targetTab}\nActive tab: ${fallback.targetId} (fallback)\nURL: ${state.url}\nTitle: ${state.title}${STALE_REFS_HINT}`,
               },
             ],
             _meta: { elapsedMs, method },
@@ -461,7 +468,7 @@ async function handleClose(
       content: [
         {
           type: "text",
-          text: `Tab closed: ${targetTab}\n${activeLine}\nURL: ${state.url}\nTitle: ${state.title}`,
+          text: `Tab closed: ${targetTab}\n${activeLine}\nURL: ${state.url}\nTitle: ${state.title}${STALE_REFS_HINT}`,
         },
       ],
       _meta: { elapsedMs, method },
