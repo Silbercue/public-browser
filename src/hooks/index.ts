@@ -1,2 +1,7 @@
-export type { ProHooks, ToolRegistryPublic } from "./pro-hooks.js";
+export type {
+  ProHooks,
+  ToolRegistryPublic,
+  A11yTreePublic,
+  A11yTreeDiffs,
+} from "./pro-hooks.js";
 export { registerProHooks, getProHooks, proFeatureError } from "./pro-hooks.js";
