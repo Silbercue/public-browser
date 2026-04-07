@@ -63,6 +63,12 @@ export async function startServer(): Promise<void> {
   await cdpClient.send("Page.enable", {}, sessionId);
   await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, sessionId);
   await cdpClient.send("Accessibility.enable", {}, sessionId);
+  // BUG-015 fix: Keep renderer alive when window is occluded on macOS.
+  // setFocusEmulationEnabled calls WebContents::IncrementCapturerCount(stay_hidden=false),
+  // which keeps visible_capturer_count_ > 0 → renderer stays in kVisible state.
+  if (!headless) {
+    await cdpClient.send("Emulation.setFocusEmulationEnabled", { enabled: true }, sessionId);
+  }
   if (headless) {
     await cdpClient.send("Emulation.setDeviceMetricsOverride", DEVICE_METRICS_OVERRIDE, sessionId);
   } else {
@@ -193,6 +199,10 @@ export async function startServer(): Promise<void> {
     await newCdpClient.send("Page.enable", {}, newSessionId);
     await newCdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, newSessionId);
     await newCdpClient.send("Accessibility.enable", {}, newSessionId);
+    // BUG-015 fix: Keep renderer alive on reconnect (same as initial setup)
+    if (!headless) {
+      await newCdpClient.send("Emulation.setFocusEmulationEnabled", { enabled: true }, newSessionId);
+    }
     if (headless) {
       await newCdpClient.send("Emulation.setDeviceMetricsOverride", DEVICE_METRICS_OVERRIDE, newSessionId);
     }

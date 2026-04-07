@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
-import { EMULATED_WIDTH, EMULATED_HEIGHT } from "../cdp/emulation.js";
+import { EMULATED_WIDTH, EMULATED_HEIGHT, isHeadless } from "../cdp/emulation.js";
 import { wrapCdpError } from "./error-utils.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { CLICKABLE_TAGS, CLICKABLE_ROLES, COMPUTED_STYLES } from "./visual-constants.js";
@@ -205,13 +205,32 @@ export async function screenshotHandler(
   const start = performance.now();
 
   try {
+    // In headed mode (no Emulation.setDeviceMetricsOverride), clip coordinates are
+    // in page/document space. We must offset by scroll position to capture the
+    // visible viewport, otherwise we capture the top of the page (which may be
+    // off-screen and return a black image from the compositor).
+    let clipX = 0;
+    let clipY = 0;
+    if (!isHeadless() && !params.full_page) {
+      const scrollResult = await cdpClient.send<{ result: { value: string } }>(
+        "Runtime.evaluate",
+        { expression: "JSON.stringify({x:window.scrollX,y:window.scrollY})", returnByValue: true },
+        sessionId,
+      );
+      try {
+        const scroll = JSON.parse(scrollResult.result.value);
+        clipX = scroll.x || 0;
+        clipY = scroll.y || 0;
+      } catch { /* fallback to 0,0 */ }
+    }
+
     const captureParams: Record<string, unknown> = {
       format: "webp",
       quality: QUALITY,
       optimizeForSpeed: true,
       clip: {
-        x: 0,
-        y: 0,
+        x: clipX,
+        y: clipY,
         width: EMULATED_WIDTH,
         height: EMULATED_HEIGHT,
         scale: MAX_WIDTH / EMULATED_WIDTH,
@@ -280,9 +299,7 @@ export async function screenshotHandler(
             }, sessionId);
 
             let result = await cdpClient.send<{ data: string }>(
-              "Page.captureScreenshot",
-              captureParams,
-              sessionId,
+              "Page.captureScreenshot", captureParams, sessionId,
             );
 
             let bytes = Math.ceil(result.data.length * 3 / 4);
@@ -291,9 +308,7 @@ export async function screenshotHandler(
             if (bytes > MAX_BYTES) {
               captureParams.quality = RETRY_QUALITY;
               result = await cdpClient.send<{ data: string }>(
-                "Page.captureScreenshot",
-                captureParams,
-                sessionId,
+                "Page.captureScreenshot", captureParams, sessionId,
               );
               bytes = Math.ceil(result.data.length * 3 / 4);
             }
@@ -325,9 +340,7 @@ export async function screenshotHandler(
 
     // Normal screenshot (som === false OR som with 0 labels)
     let result = await cdpClient.send<{ data: string }>(
-      "Page.captureScreenshot",
-      captureParams,
-      sessionId,
+      "Page.captureScreenshot", captureParams, sessionId,
     );
 
     let bytes = Math.ceil(result.data.length * 3 / 4);
@@ -336,9 +349,7 @@ export async function screenshotHandler(
     if (bytes > MAX_BYTES) {
       captureParams.quality = RETRY_QUALITY;
       result = await cdpClient.send<{ data: string }>(
-        "Page.captureScreenshot",
-        captureParams,
-        sessionId,
+        "Page.captureScreenshot", captureParams, sessionId,
       );
       bytes = Math.ceil(result.data.length * 3 / 4);
     }
