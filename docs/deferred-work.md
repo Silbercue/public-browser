@@ -30,11 +30,11 @@ Bugs, Verbesserungen und offene Punkte die waehrend der Arbeit entdeckt, aber ni
 | FR-006 | GEFIXT | contenteditable-Elemente als "generic" in read_page |
 | FR-007 | GEFIXT | Stale-Ref nach Navigation — kein Auto-Recovery |
 | FR-008 | GEFIXT | Canvas-Annotation mit screenshot(som: true) Hint |
-| FR-009 | OFFEN | Kein observe/poll-Mechanismus fuer Timing-sensitive DOM-Aenderungen |
+| FR-009 | GEFIXT | observe Tool — MutationObserver + Polling Hybrid fuer DOM-Aenderungen |
 | FR-010 | GEFIXT | click(x,y) scroll-kompensiert — headed raw coords, headless scroll-kompensiert |
 | FR-011 | GEFIXT | await-Regex vereinfacht zu /\bawait\b/ — erkennt alle Patterns |
 | FR-012 | GEFIXT | Truncation-Warnung mit Original-Token-Anzahl und Tipp |
-| FR-013 | OFFEN | FR-003 Regression — verschachtelte srcdoc-iFrames unsichtbar in read_page |
+| FR-013 | GESTRICHEN | Nischenfall (verschachtelte srcdoc-iFrames), evaluate-Workaround ausreichend |
 | FR-014 | GEFIXT | switch_tab Stale-Refs Hint bei Tab-Wechsel |
 | FR-015 | GEFIXT | scroll container_ref/container_selector fuer Container-Scroll |
 | FR-016 | GEFIXT | Stale-Ref Leaf-Node Heuristik-Warnung in read_page |
@@ -647,31 +647,32 @@ Canvas-Annotation in formatLine(): `[e71] Canvas ⚠ Canvas content is pixels, n
 
 **Entdeckt:** 2026-04-06 (Opus 4.6 Benchmark Run — T4.2 Racing Counter, T4.5 Mutations)
 **Schwere:** P3 — Niedrig (evaluate-Workaround funktioniert)
-**Betrifft:** Architektur / neue Tool-Idee
+**Betrifft:** `src/tools/observe.ts`
 **Typ:** LLM Friction
+**Status:** GEFIXT (2026-04-07)
 
 ### Problem
 Fuer T4.2 (Counter bei Wert 8 capturen) und T4.5 (3 Mutationen in 3 Sekunden sammeln) musste das LLM Promise-basierte evaluate-Aufrufe mit setInterval/setTimeout schreiben. Der erste T4.2-Versuch scheiterte am CDP-Timeout (30s).
 
-### Warum das ein MCP-Problem ist
-Timing-sensitive Interaktionen (Wert abwarten, Counter beobachten, Animation-Ende erkennen) erfordern aktuell komplexe evaluate-Workarounds. Das ist fehleranfaellig und der CDP-Timeout kann zuschlagen.
+### Fix
+Neues `observe` Tool mit MutationObserver + Polling Hybrid. Zwei Modi:
 
-### Fix-Vorschlag
-**Option A — wait_for Erweiterung:**
+**Collect-Modus** (T4.5): Sammelt alle Aenderungen ueber eine Zeitspanne.
 ```typescript
-// Warte auf Wert UND fuehre Aktion aus:
-wait_for(condition: "js", expression: "counterEl.textContent === '8'",
-         then_click: "#capture-btn", timeout: 15000)
+observe(selector: "#mutation-target", duration: 4000)
+// → Text changes (3): MUT-VSS, MUT-EMH, MUT-9S4
 ```
 
-**Option B — observe Tool:**
+**Until-Modus** (T4.2): Wartet auf eine Bedingung, optional mit sofortigem Click.
 ```typescript
-// Sammle DOM-Aenderungen ueber Zeit:
-observe(selector: "#mutation-target", duration: 4000, collect: "text_changes")
-// → ["MUT-VSS", "MUT-EMH", "MUT-9S4"]
+observe(selector: "#counter", until: "el.textContent === '8'",
+        then_click: "#capture-btn", timeout: 10000)
+// → Condition met after 4100ms — value: "8" / Clicked #capture-btn
 ```
 
-Niedrige Prioritaet — evaluate-Workaround funktioniert, diese Patterns sind selten.
+Technisch: `Runtime.callFunctionOn` mit `awaitPromise: true` auf dem resolved Element (ref oder CSS).
+MutationObserver fuer DOM-Events + Polling-Fallback fuer CSS-only-Aenderungen.
+Max Timeout 25s (unter CDP 30s Limit). Unterstuetzt ref und CSS selector, OOPIF-kompatibel.
 
 ---
 
