@@ -91,12 +91,17 @@ await test("read_page — a11y tree", async () => {
   log(PASS, "read_page — a11y tree", r.ms, `${refCount} refs`);
 });
 
-// ── 4. virtual_desk (Epic 4, Story 4.3) ──
-await test("virtual_desk — tab overview", async () => {
+// ── 4. virtual_desk (Epic 4, Story 4.3) — Story 15.6: Pro-Feature in Free-Tier ──
+// Epic 9.9 / Story 15.6: virtual_desk is gated as Pro-Feature in the Free tier.
+// The Free-Tier smoke-test expects a Pro-Feature error response (no crash).
+await test("virtual_desk — Pro-Feature gated in Free tier", async () => {
   const r = await callTool(client, "virtual_desk");
-  assert(!r.isError, `virtual_desk error: ${r.text}`);
-  assert(r.text.includes("localhost:4242"), `benchmark tab not listed`);
-  log(PASS, "virtual_desk — tab overview", r.ms);
+  assert(r.isError, `expected Pro-Feature error, got success: ${r.text?.slice(0, 100)}`);
+  assert(
+    r.text?.includes("Pro-Feature"),
+    `expected "Pro-Feature" in error text, got: ${r.text?.slice(0, 100)}`,
+  );
+  log(PASS, "virtual_desk — Pro-Feature gated in Free tier", r.ms);
 });
 
 // ── 5. screenshot ──
@@ -139,15 +144,17 @@ await test("evaluate — count test cards", async () => {
   log(PASS, "evaluate — count test cards", r.ms, `${count} cards`);
 });
 
-// ── 9. switch_tab open + close (Epic 4, Story 4.2) ──
-await test("switch_tab — open & close tab", async () => {
+// ── 9. switch_tab (Epic 4, Story 4.2) — Story 15.6: Pro-Feature in Free-Tier ──
+// Epic 9.9 / Story 15.6: switch_tab is gated as Pro-Feature in the Free tier.
+// The Free-Tier smoke-test expects a Pro-Feature error response (no crash).
+await test("switch_tab — Pro-Feature gated in Free tier", async () => {
   const r1 = await callTool(client, "switch_tab", { action: "open", url: "about:blank" });
-  assert(!r1.isError, `open error: ${r1.text}`);
-  log(PASS, "switch_tab open", r1.ms);
-
-  const r2 = await callTool(client, "switch_tab", { action: "close" });
-  assert(!r2.isError, `close error: ${r2.text}`);
-  log(PASS, "switch_tab close", r2.ms);
+  assert(r1.isError, `expected Pro-Feature error, got success: ${r1.text?.slice(0, 100)}`);
+  assert(
+    r1.text?.includes("Pro-Feature"),
+    `expected "Pro-Feature" in error text, got: ${r1.text?.slice(0, 100)}`,
+  );
+  log(PASS, "switch_tab — Pro-Feature gated in Free tier", r1.ms);
 });
 
 // ── 10. run_plan — batch execution (Epic 5, Story 5.1) ──
@@ -165,58 +172,34 @@ await test("run_plan — 3-step batch", async () => {
   log(PASS, "run_plan — 3-step batch", r.ms);
 });
 
-// ── 11. inspect_element — CSS debugging (Epic 13, Story 13.1) ──
-await test("inspect_element — computed styles + rules", async () => {
-  // Navigate to benchmark if needed (already there from above)
-  const r = await callTool(client, "inspect_element", { selector: "#t6-2-target" });
-  assert(!r.isError, `inspect_element error: ${r.text}`);
-  assert(r.text.includes("Element:"), `missing Element header: ${r.text?.slice(0, 100)}`);
-  assert(r.text.includes("Computed:"), `missing Computed section`);
-  assert(r.text.includes("Rules:"), `missing Rules section`);
-  assert(r.text.includes("color:"), `missing color property`);
-  log(PASS, "inspect_element — computed + rules", r.ms, r.text?.split("\n")[0]);
+// ── 11. inspect_element (Epic 13, Story 13.1) — Story 15.6: Pro-Feature in Free-Tier ──
+// Story 15.2 / 15.6: inspect_element is extracted to the Pro repo and is
+// NOT registered in the Free-Tier tools/list. Calling it MUST fail with
+// an "Unknown tool" MCP error. The Free-Tier smoke-test only verifies that
+// the tool is absent from the listed tools.
+await test("inspect_element — absent from Free tools/list", async () => {
+  const listed = tools.tools.map((t) => t.name);
+  assert(
+    !listed.includes("inspect_element"),
+    `inspect_element must NOT be in Free-Tier tools/list, got: ${listed.join(", ")}`,
+  );
+  log(PASS, "inspect_element — absent from Free tools/list", 0);
 });
 
-await test("inspect_element — styles filter", async () => {
-  const r = await callTool(client, "inspect_element", {
-    selector: "#t6-1-target",
-    styles: ["display", "flex*"],
-    include_rules: false,
-    include_inherited: false,
-  });
-  assert(!r.isError, `inspect_element error: ${r.text}`);
-  assert(r.text.includes("display:"), `missing display`);
-  assert(!r.text.includes("Rules:"), `Rules should not appear with include_rules=false`);
-  assert(!r.text.includes("Inherited:"), `Inherited should not appear`);
-  log(PASS, "inspect_element — styles filter", r.ms);
-});
-
-await test("inspect_element — ref-based", async () => {
-  // First get a ref from read_page
-  const rp = await callTool(client, "read_page");
-  const refMatch = rp.text.match(/\[(e\d+)\].*Click Me/);
-  if (refMatch) {
-    const ref = refMatch[1];
-    const r = await callTool(client, "inspect_element", { selector: ref });
-    assert(!r.isError, `inspect_element ref error: ${r.text}`);
-    assert(r.text.includes("Element:"), `missing Element header`);
-    log(PASS, "inspect_element — ref " + ref, r.ms, r.text?.split("\n")[0]);
-  } else {
-    // Fallback: use CSS selector
-    const r = await callTool(client, "inspect_element", { selector: "button.action-btn" });
-    assert(!r.isError, `inspect_element error: ${r.text}`);
-    log(PASS, "inspect_element — CSS fallback", r.ms);
-  }
-});
-
-// ── 12. Visual Feedback nach evaluate (Epic 13, Story 13.3) ──
-await test("evaluate style-change → screenshot in response", async () => {
+// ── 12. Visual Feedback nach evaluate (Epic 13, Story 13.3) — Story 15.6 ──
+// Story 15.2 / 15.6: Visual Feedback (Geometry-Diff + Clip-Screenshot) is
+// a Pro-Feature. In the Free-Tier the evaluate tool still runs style-change
+// expressions, but the response MUST NOT contain a screenshot.
+await test("evaluate style-change → NO screenshot in Free tier", async () => {
   const r = await callTool(client, "evaluate", {
     expression: `document.querySelector('#t1-1-btn').style.border = '3px solid red'`,
   });
   assert(!r.isError, `evaluate error: ${r.text}`);
-  assert(r.hasImage, "style-change evaluate should include screenshot");
-  log(PASS, "evaluate style-change → screenshot", r.ms);
+  assert(
+    !r.hasImage,
+    "Free tier evaluate style-change must NOT include a screenshot (Visual Feedback is Pro)",
+  );
+  log(PASS, "evaluate style-change → NO screenshot in Free tier", r.ms);
 });
 
 await test("evaluate no style-change → no screenshot", async () => {
@@ -228,26 +211,30 @@ await test("evaluate no style-change → no screenshot", async () => {
   log(PASS, "evaluate no style-change → no screenshot", r.ms);
 });
 
-await test("evaluate style-change with selector → clip screenshot", async () => {
+await test("evaluate style-change (background) → NO screenshot in Free tier", async () => {
   const r = await callTool(client, "evaluate", {
     expression: `document.querySelector('#t1-1-btn').style.backgroundColor = 'yellow'`,
   });
   assert(!r.isError, `evaluate error: ${r.text}`);
-  assert(r.hasImage, "clip screenshot missing");
-  // The geometry text should mention the selector
-  const hasVisual = r.text?.includes("Visual:") || true; // geometry optional if no size change
-  assert(hasVisual, "expected visual feedback text");
-  log(PASS, "evaluate style-change + selector → clip", r.ms, r.text?.split("\n")[0]);
+  assert(
+    !r.hasImage,
+    "Free tier evaluate style-change must NOT include a screenshot (Visual Feedback is Pro)",
+  );
+  log(PASS, "evaluate style-change (background) → NO screenshot in Free tier", r.ms);
 });
 
-await test("evaluate style-change without selector → viewport screenshot", async () => {
-  // document.body has no querySelector/getElementById pattern → falls back to viewport
+await test("evaluate style-change (outline on body) → NO screenshot in Free tier", async () => {
+  // document.body style-change — in Pro this would fall back to a viewport
+  // screenshot; in Free the hook is not registered so no screenshot at all.
   const r = await callTool(client, "evaluate", {
     expression: `document.body.style.outline = '3px solid blue'`,
   });
   assert(!r.isError, `evaluate error: ${r.text}`);
-  assert(r.hasImage, "viewport fallback screenshot missing");
-  log(PASS, "evaluate style-change no selector → viewport", r.ms);
+  assert(
+    !r.hasImage,
+    "Free tier evaluate style-change must NOT include a screenshot (Visual Feedback is Pro)",
+  );
+  log(PASS, "evaluate style-change (outline on body) → NO screenshot in Free tier", r.ms);
 });
 
 // Restore original styles
