@@ -5,6 +5,7 @@ import type { ToolResponse } from "../types.js";
 import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
 import { wrapCdpError } from "./error-utils.js";
 import { a11yTree } from "../cache/a11y-tree.js";
+import { toolSequence } from "../telemetry/tool-sequence.js";
 
 // --- Schema (Task 2) ---
 
@@ -296,6 +297,9 @@ export async function typeHandler(
     // FR-023: Emit fill_form hint once per streak when the LLM makes consecutive
     // type calls into the SAME form (form-scoped via probeFormScope above).
     const fillFormHint = recordTypeCallAndMaybeHint(sessionId, formScopeId) ?? "";
+    // BUG-018: Anti-Spiral telemetry — successful type resets the
+    // per-session evaluate-streak.
+    toolSequence.record("type", undefined, sessionId);
     return {
       content: [
         {

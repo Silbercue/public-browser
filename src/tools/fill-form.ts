@@ -4,6 +4,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
 import { wrapCdpError } from "./error-utils.js";
+import { toolSequence } from "../telemetry/tool-sequence.js";
 
 // --- Constants ---
 
@@ -382,6 +383,14 @@ export async function fillFormHandler(
   }
 
   const allFailed = okCount === 0;
+
+  // BUG-018: Anti-Spiral telemetry — any successful field counts as a
+  // happy-path tool call and resets the per-session evaluate-streak.
+  // Only reset if at least one field succeeded, so an all-error call
+  // does NOT erase a legitimate "you are stuck" warning for the LLM.
+  if (!allFailed) {
+    toolSequence.record("fill_form", undefined, sessionId);
+  }
 
   return {
     content: [{ type: "text", text: lines.join("\n") }],

@@ -6,6 +6,7 @@ import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./eleme
 import { wrapCdpError } from "./error-utils.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { isHeadless } from "../cdp/emulation.js";
+import { toolSequence } from "../telemetry/tool-sequence.js";
 
 // --- Schema (Task 2) ---
 
@@ -336,6 +337,11 @@ export async function clickHandler(
 
     const elapsedMs = Math.round(performance.now() - start);
     const suffix = clickResult.method !== "cdp" ? `, fallback: ${clickResult.method}` : "";
+
+    // BUG-018: Anti-Spiral telemetry — successful click resets the
+    // per-session evaluate-streak.
+    toolSequence.record("click", undefined, sessionId);
+
     return {
       content: [
         {
