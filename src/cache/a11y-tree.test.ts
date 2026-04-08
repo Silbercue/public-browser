@@ -1689,7 +1689,16 @@ describe("A11yTreeProcessor", () => {
     });
 
     it("should truncate as last resort with marker", async () => {
-      // Create a huge tree that even level 4 can't compress enough
+      // Create a huge tree that even level 4 can't compress enough.
+      // Ticket-1 Token-Aggregation collapses ≥10 consecutive same-class
+      // sibling leaves, so we deliberately give each button a unique word
+      // (no shared prefix, no trailing-digit pattern) to bypass it and
+      // exercise the truncation code path.
+      const uniqueWords = [
+        "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf",
+        "hotel", "india", "juliet", "kilo", "lima", "mike", "november",
+        "oscar", "papa", "quebec", "romeo", "sierra", "tango",
+      ];
       const childIds = Array.from({ length: 200 }, (_, i) => `b${i}`);
       const nodes: AXNode[] = [
         makeNode({
@@ -1704,7 +1713,14 @@ describe("A11yTreeProcessor", () => {
             nodeId: `b${i}`,
             parentId: "root",
             role: { type: "role", value: "button" },
-            name: { type: "computedString", value: `Action Button ${i}` },
+            name: {
+              type: "computedString",
+              // Each name is structurally unique: a word from the rotating
+              // dictionary plus a long unique tail string. No shared
+              // alphabetic prefix between adjacent buttons → aggregator
+              // never matches → original truncation path runs.
+              value: `${uniqueWords[i % uniqueWords.length]}-button-${i.toString(36)}-payload`,
+            },
             backendDOMNodeId: 10001 + i,
           }),
         ),
@@ -1713,7 +1729,8 @@ describe("A11yTreeProcessor", () => {
       const result = await processor.getTree(cdp, "s1", { filter: "interactive", max_tokens: 500 });
 
       expect(result.downsampled).toBe(true);
-      // Should truncate since 200 buttons can't fit in 500 tokens even at L4
+      // Should truncate since 200 unique buttons can't fit in 500 tokens
+      // even at L4 (and the aggregator doesn't apply to non-similar names).
       expect(result.text).toContain("truncated");
       expect(result.text).toContain("omitted");
     });
@@ -2868,6 +2885,191 @@ describe("A11yTreeProcessor", () => {
       const cdp = mockCdpClient(nodes);
       const result = await proc.getTree(cdp, "s1", { filter: "interactive" });
       expect(result.hiddenContentCount).toBe(0);
+    });
+  });
+
+  // ============================================================
+  // Ticket-1 — Sibling-aggregation (T4.7 token reduction)
+  // ============================================================
+  //
+  // Collapses runs of ≥10 consecutive same-class sibling leaves into a
+  // single line so generated lists like the 240-button benchmark page
+  // do not blow the token budget. Aggregation never kicks in below the
+  // threshold; small lists keep their per-element rendering.
+
+  describe("Ticket-1 sibling aggregation", () => {
+    function buildButtonList(count: number, namePattern: (i: number) => string): AXNode[] {
+      const childIds = Array.from({ length: count }, (_, i) => `b${i}`);
+      return [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Aggregation Test" },
+          backendDOMNodeId: 1000,
+          childIds,
+        }),
+        ...Array.from({ length: count }, (_, i) =>
+          makeNode({
+            nodeId: `b${i}`,
+            parentId: "root",
+            role: { type: "role", value: "button" },
+            name: { type: "computedString", value: namePattern(i) },
+            backendDOMNodeId: 1001 + i,
+          }),
+        ),
+      ];
+    }
+
+    it("does NOT aggregate when fewer than 10 consecutive same-pattern siblings", async () => {
+      const nodes = buildButtonList(9, (i) => `Action ${i + 1}`);
+      const cdp = mockCdpClient(nodes, "https://example.com/small-list");
+      const result = await processor.getTree(cdp, "s1");
+
+      // Each button should still render as its own line
+      expect(result.text).toContain('[e2] button "Action 1"');
+      expect(result.text).toContain('[e10] button "Action 9"');
+      // No aggregate marker
+      expect(result.text).not.toMatch(/\d+× button/);
+      expect(result.refCount).toBe(9);
+    });
+
+    it("aggregates 10+ consecutive same-pattern siblings into one line", async () => {
+      const nodes = buildButtonList(10, (i) => `Action ${i + 1}`);
+      const cdp = mockCdpClient(nodes, "https://example.com/threshold");
+      const result = await processor.getTree(cdp, "s1");
+
+      // Single aggregate line covering the whole run
+      expect(result.text).toContain('[e2..e11] 10× button "Action 1" .. "Action 10"');
+      // Individual lines must NOT appear anymore
+      expect(result.text).not.toContain('[e2] button "Action 1"');
+      expect(result.text).not.toContain('[e11] button "Action 10"');
+    });
+
+    it("aggregates a 240-button list into a single line (T4.7 benchmark case)", async () => {
+      const nodes = buildButtonList(240, (i) => `Action ${i + 1}`);
+      const cdp = mockCdpClient(nodes, "https://example.com/t4-7");
+      const result = await processor.getTree(cdp, "s1");
+
+      expect(result.text).toContain('[e2..e241] 240× button "Action 1" .. "Action 240"');
+      // The whole tree must now fit comfortably below the 2000-token budget
+      // that the benchmark check uses for T4.7. We assert ≤ 200 tokens to
+      // give plenty of headroom and lock in the magnitude of the saving.
+      expect(result.tokenCount).toBeLessThan(200);
+      // Aggregation runs in the standard render pipeline, so the result is
+      // NOT marked downsampled.
+      expect(result.downsampled).toBeUndefined();
+    });
+
+    it("aggregates identical-name siblings (no trailing-digit pattern)", async () => {
+      // 12 unnamed-but-identical buttons all called "Add" — common in
+      // table-row action columns. Should still collapse.
+      const nodes = buildButtonList(12, () => "Add");
+      const cdp = mockCdpClient(nodes, "https://example.com/identical");
+      const result = await processor.getTree(cdp, "s1");
+
+      expect(result.text).toContain('[e2..e13] 12× button "Add"');
+      // No "..first .. last" form because the names are identical
+      expect(result.text).not.toContain('"Add" .. "Add"');
+    });
+
+    it("does NOT aggregate across different roles", async () => {
+      // 10 children alternating button / link → no consecutive run of 10
+      const childIds = Array.from({ length: 10 }, (_, i) => `c${i}`);
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Mixed" },
+          backendDOMNodeId: 1000,
+          childIds,
+        }),
+        ...Array.from({ length: 10 }, (_, i) =>
+          makeNode({
+            nodeId: `c${i}`,
+            parentId: "root",
+            role: { type: "role", value: i % 2 === 0 ? "button" : "link" },
+            name: { type: "computedString", value: `Item ${i + 1}` },
+            backendDOMNodeId: 1001 + i,
+          }),
+        ),
+      ];
+      const cdp = mockCdpClient(nodes, "https://example.com/mixed-roles");
+      const result = await processor.getTree(cdp, "s1");
+
+      // None of the buttons / links forms a run of 10 → no aggregation
+      expect(result.text).not.toMatch(/\d+× button/);
+      expect(result.text).not.toMatch(/\d+× link/);
+      expect(result.refCount).toBe(10);
+    });
+
+    it("does NOT aggregate across different name prefixes", async () => {
+      const nodes = buildButtonList(20, (i) => (i < 10 ? `Open ${i + 1}` : `Close ${i + 1}`));
+      const cdp = mockCdpClient(nodes, "https://example.com/two-prefixes");
+      const result = await processor.getTree(cdp, "s1");
+
+      // Two distinct runs of 10 — both meet the threshold and aggregate
+      // separately, never merging across the prefix boundary.
+      expect(result.text).toContain('[e2..e11] 10× button "Open 1" .. "Open 10"');
+      expect(result.text).toContain('[e12..e21] 10× button "Close 11" .. "Close 20"');
+    });
+
+    it("does NOT aggregate elements with renderable child interactives", async () => {
+      // Each "wrapper" button contains a nested textbox — the parent is
+      // therefore not a leaf and aggregation must skip it even though the
+      // wrappers themselves look identical.
+      const wrapperIds = Array.from({ length: 12 }, (_, i) => `w${i}`);
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "root",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Wrapped inputs" },
+          backendDOMNodeId: 2000,
+          childIds: wrapperIds,
+        }),
+      ];
+      for (let i = 0; i < 12; i++) {
+        nodes.push(
+          makeNode({
+            nodeId: `w${i}`,
+            parentId: "root",
+            role: { type: "role", value: "button" },
+            name: { type: "computedString", value: `Row ${i + 1}` },
+            backendDOMNodeId: 2001 + i * 2,
+            childIds: [`t${i}`],
+          }),
+          makeNode({
+            nodeId: `t${i}`,
+            parentId: `w${i}`,
+            role: { type: "role", value: "textbox" },
+            name: { type: "computedString", value: `Field ${i + 1}` },
+            backendDOMNodeId: 2002 + i * 2,
+          }),
+        );
+      }
+      const cdp = mockCdpClient(nodes, "https://example.com/wrapped");
+      const result = await processor.getTree(cdp, "s1");
+
+      // Wrappers must render individually because they have renderable
+      // descendants (the nested textboxes).
+      expect(result.text).not.toMatch(/\d+× button/);
+      // The textboxes themselves are leaves and could collapse — verify
+      // that path still works for the inner level.
+      expect(result.text).toContain("Row 1");
+      expect(result.text).toContain("Field 1");
+    });
+
+    it("preserves ref resolution for elements inside an aggregated run", async () => {
+      // The whole point of aggregation: the LLM still issues click({ ref:
+      // 'eN' }) for any individual button in the range, even though the
+      // text response only shows the [start..end] band.
+      const nodes = buildButtonList(15, (i) => `Step ${i + 1}`);
+      const cdp = mockCdpClient(nodes, "https://example.com/refs");
+      await processor.getTree(cdp, "s1");
+
+      // backendDOMNodeId is 1001 + i, refs are e2 + i (e1 = WebArea root)
+      expect(processor.resolveRef("e2")).toBe(1001);
+      expect(processor.resolveRef("e8")).toBe(1007);
+      expect(processor.resolveRef("e16")).toBe(1015);
     });
   });
 });
