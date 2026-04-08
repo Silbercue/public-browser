@@ -3466,6 +3466,86 @@ describe("A11yTreeProcessor", () => {
       expect(full!.sessionId).toBe("tab2-session");
     });
 
+    it("BUG-016 CRITICAL (final review): nodeInfoMap is session-scoped so findByText and classifyRef cannot cross-bleed metadata", async () => {
+      // Final codex review finding #1: the first composite-key pass
+      // only covered refMap/reverseMap, but nodeInfoMap was still bare
+      // backendNodeId-keyed. That meant two sessions with the same
+      // backendNodeId overwrote each other's role/name/widget-state,
+      // and findByText / classifyRef / getNodeInfo could silently
+      // return the wrong element's metadata — the exact same collision
+      // class as T2.5, just via the text-based lookup instead of the
+      // ref lookup.
+      const mainNodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 10,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "radio" },
+          name: { type: "computedString", value: "Pro plan" },
+          backendDOMNodeId: 257,
+        }),
+      ];
+      const iframeNodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 5,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: "YouTube" },
+          backendDOMNodeId: 257, // intentional collision with the main radio
+        }),
+      ];
+
+      await processor.getTree(mockCdpClient(mainNodes), "main-page");
+      await processor.refreshPrecomputed(
+        mockCdpClient(iframeNodes),
+        "webstore-iframe",
+      );
+
+      // findByText('Pro plan') must return the main-page radio, not
+      // the iframe link. With the bare-keyed nodeInfoMap the second
+      // registerNode would have overwritten the main entry's name, so
+      // either the search would fail entirely or it would return the
+      // iframe element.
+      const proHit = processor.findByText("Pro plan");
+      expect(proHit).not.toBeNull();
+      expect(proHit!.backendNodeId).toBe(257);
+      // The owning session of this ref must be main-page (checked via
+      // the full resolver — the test proves both lookups agree).
+      const proOwner = processor.resolveRefFull(proHit!.ref);
+      expect(proOwner?.sessionId).toBe("main-page");
+
+      // findByText('YouTube') must return the iframe link.
+      const ytHit = processor.findByText("YouTube");
+      expect(ytHit).not.toBeNull();
+      expect(ytHit!.backendNodeId).toBe(257);
+      const ytOwner = processor.resolveRefFull(ytHit!.ref);
+      expect(ytOwner?.sessionId).toBe("webstore-iframe");
+
+      // classifyRef must also see the session-correct metadata.
+      expect(processor.classifyRef(proHit!.ref)).toBe("clickable");
+      expect(processor.classifyRef(ytHit!.ref)).toBe("clickable");
+
+      // getNodeInfo with the explicit sessionId must return each owner's
+      // metadata independently, even though the backendNodeIds collide.
+      const mainInfo = processor.getNodeInfo(257, "main-page");
+      const iframeInfo = processor.getNodeInfo(257, "webstore-iframe");
+      expect(mainInfo?.role).toBe("radio");
+      expect(mainInfo?.name).toBe("Pro plan");
+      expect(iframeInfo?.role).toBe("link");
+      expect(iframeInfo?.name).toBe("YouTube");
+    });
+
     it("BUG-016 CRITICAL: subtree query routes to the correct frame even when backendNodeIds collide", async () => {
       // codex review finding #4 — the old getSubtree path merged all
       // frames into one nodeMap keyed by `nodeId`, silently overwriting

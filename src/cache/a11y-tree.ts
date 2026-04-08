@@ -237,7 +237,14 @@ export class A11yTreeProcessor {
   private refMap = new Map<string, number>(); // `${sessionId}:${backendNodeId}` → refNumber
   private reverseMap = new Map<number, { backendNodeId: number; sessionId: string }>(); // refNumber → owner
   // Story 13a.2: Extended with widget-state props for pre-click classification
-  private nodeInfoMap = new Map<number, NodeInfo>(); // backendDOMNodeId → NodeInfo
+  // BUG-016 follow-up (final codex review CRITICAL #1): nodeInfoMap must
+  // also be session-scoped. When main frame and an OOPIF share a
+  // backendNodeId, a bare-keyed map lets the second registration
+  // overwrite the first element's role/name/widget-state — so
+  // `findByText`, `classifyRef`, and `getNodeInfo` silently return the
+  // wrong element. Same collision class as the T2.5 bug, just via
+  // metadata instead of the ref lookup.
+  private nodeInfoMap = new Map<string, NodeInfo>(); // `${sessionId}:${backendDOMNodeId}` → NodeInfo
   private sessionNodeMap = new Map<string, Set<number>>(); // sessionId → Set<backendDOMNodeId>
   private nextRef = 1;
   private lastUrl = "";
@@ -322,6 +329,35 @@ export class A11yTreeProcessor {
     return false;
   }
 
+  /**
+   * BUG-016 follow-up: composite-key lookup for nodeInfoMap. Same
+   * precedence rules as `refLookup` — explicit sessionId wins, then the
+   * active render session, then a linear-scan fallback (first match).
+   * The linear scan is only safe in the absence of collisions; prefer
+   * passing sessionId (or setting _renderSessionId) at call sites that
+   * touch OOPIFs.
+   */
+  private nodeInfoLookup(backendNodeId: number, sessionId?: string): NodeInfo | undefined {
+    const sid = sessionId ?? this._renderSessionId;
+    if (sid) {
+      return this.nodeInfoMap.get(this.refKey(backendNodeId, sid));
+    }
+    const suffix = `:${backendNodeId}`;
+    for (const [key, info] of this.nodeInfoMap) {
+      if (key.endsWith(suffix)) return info;
+    }
+    return undefined;
+  }
+
+  /**
+   * BUG-016 follow-up: composite-key write for nodeInfoMap. Callers
+   * that build the tree already carry the owning sessionId, so the
+   * write is always unambiguous.
+   */
+  private nodeInfoSet(backendNodeId: number, sessionId: string, info: NodeInfo): void {
+    this.nodeInfoMap.set(this.refKey(backendNodeId, sessionId), info);
+  }
+
   /** Invalidiert den Precomputed-Cache (z.B. nach Navigation oder Reconnect) */
   invalidatePrecomputed(): void {
     this._precomputedNodes = null;
@@ -370,7 +406,9 @@ export class A11yTreeProcessor {
         this.refMap.set(key, refNum);
         this.reverseMap.set(refNum, { backendNodeId: node.backendDOMNodeId, sessionId });
       }
-      this.nodeInfoMap.set(node.backendDOMNodeId, extractNodeInfo(node));
+      // Composite-keyed write so cross-session nodes with the same
+      // backendNodeId do not clobber each other's role/name metadata.
+      this.nodeInfoSet(node.backendDOMNodeId, sessionId, extractNodeInfo(node));
       if (!this.sessionNodeMap.has(sessionId)) {
         this.sessionNodeMap.set(sessionId, new Set());
       }
@@ -440,6 +478,9 @@ export class A11yTreeProcessor {
 
     // BUG-016: delete composite-key entries only. Another session's
     // identical backendNodeId is untouched because the key differs.
+    // Both refMap and nodeInfoMap are session-scoped now, so the cleanup
+    // is straightforward — no need to check "is this node still owned
+    // by another session" before deleting metadata.
     for (const backendNodeId of nodeIds) {
       const key = this.refKey(backendNodeId, sessionId);
       const refNum = this.refMap.get(key);
@@ -447,31 +488,9 @@ export class A11yTreeProcessor {
         this.reverseMap.delete(refNum);
       }
       this.refMap.delete(key);
-      // nodeInfoMap is keyed by bare backendNodeId — only safe to delete
-      // when no other session owns this node. Conservative: keep it for
-      // now (harmless stale metadata, cleaned on full reset). Aggressive
-      // cleanup is out of scope for BUG-016.
-      if (!this._isBackendNodeIdUsedByOtherSessions(backendNodeId, sessionId)) {
-        this.nodeInfoMap.delete(backendNodeId);
-      }
+      this.nodeInfoMap.delete(key);
     }
     this.sessionNodeMap.delete(sessionId);
-  }
-
-  /**
-   * BUG-016: Helper for removeNodesForSession. Returns true if another
-   * session still references this backendNodeId, so the shared nodeInfo
-   * metadata must be kept.
-   */
-  private _isBackendNodeIdUsedByOtherSessions(
-    backendNodeId: number,
-    excludeSessionId: string,
-  ): boolean {
-    for (const [sid, ids] of this.sessionNodeMap.entries()) {
-      if (sid === excludeSessionId) continue;
-      if (ids.has(backendNodeId)) return true;
-    }
-    return false;
   }
 
   /**
@@ -497,8 +516,14 @@ export class A11yTreeProcessor {
     return this.reverseMap.get(refNum);
   }
 
-  getNodeInfo(backendNodeId: number): { role: string; name: string } | undefined {
-    return this.nodeInfoMap.get(backendNodeId);
+  /**
+   * BUG-016 follow-up: takes an optional `sessionId` so callers that
+   * already know the owning session can pin the lookup unambiguously.
+   * Omitting `sessionId` falls back to the composite-aware linear scan
+   * (first match wins) for legacy callers and tests.
+   */
+  getNodeInfo(backendNodeId: number, sessionId?: string): NodeInfo | undefined {
+    return this.nodeInfoLookup(backendNodeId, sessionId);
   }
 
   /**
@@ -515,19 +540,20 @@ export class A11yTreeProcessor {
     const iexact: Candidate[] = [];
     const partial: Candidate[] = [];
 
-    // BUG-016: reverseMap value is now { backendNodeId, sessionId }; we
-    // expose only the backendNodeId in the public return type for
-    // backward compat. Callers that need sessionId should use resolveRefFull.
-    for (const [refNum, { backendNodeId }] of this.reverseMap) {
-      const info = this.nodeInfoMap.get(backendNodeId);
+    // BUG-016 follow-up: iterate reverseMap which already owns the
+    // session context. nodeInfoLookup(bid, sessionId) routes to the
+    // owner session's metadata — no cross-session collisions possible.
+    for (const [refNum, owner] of this.reverseMap) {
+      const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
       if (!info || !info.name) continue;
       const interactive = INTERACTIVE_ROLES.has(info.role) || !!info.isClickable;
+      const cand = { refNum, backendNodeId: owner.backendNodeId, interactive };
       if (info.name === text) {
-        exact.push({ refNum, backendNodeId, interactive });
+        exact.push(cand);
       } else if (info.name.toLowerCase() === lower) {
-        iexact.push({ refNum, backendNodeId, interactive });
+        iexact.push(cand);
       } else if (info.name.toLowerCase().includes(lower)) {
-        partial.push({ refNum, backendNodeId, interactive });
+        partial.push(cand);
       }
     }
 
@@ -598,6 +624,13 @@ export class A11yTreeProcessor {
       layoutMap.set(doc.layout.nodeIndex[li], li);
     }
 
+    // BUG-016 follow-up: set render session context for the duration of
+    // this DOMSnapshot walk so computeIsClickable (and any future helper
+    // that resolves metadata by bare backendNodeId) sees the correct
+    // session via nodeInfoLookup.
+    const previousRenderSession = this._renderSessionId;
+    this._renderSessionId = sessionId;
+
     const totalNodes = doc.nodes.backendNodeId.length;
 
     for (let ni = 0; ni < totalNodes; ni++) {
@@ -654,6 +687,7 @@ export class A11yTreeProcessor {
       });
     }
 
+    this._renderSessionId = previousRenderSession;
     return visualMap;
   }
 
@@ -666,9 +700,16 @@ export class A11yTreeProcessor {
   private async _enrichNodeMetadata(cdpClient: CdpClient, sessionId: string): Promise<void> {
     const POTENTIALLY_CLICKABLE_ROLES = new Set(["columnheader", "rowheader", "cell", "generic", "listitem"]);
     try {
+      // BUG-016 follow-up: only iterate nodes owned by THIS session.
+      // sessionNodeMap already partitions per session, so we can filter
+      // without touching other sessions' metadata.
+      const ownedBackendIds = this.sessionNodeMap.get(sessionId);
+      if (!ownedBackendIds || ownedBackendIds.size === 0) return;
       const interactiveNodes: number[] = [];
       const checkClickNodes: number[] = [];
-      for (const [backendNodeId, info] of this.nodeInfoMap) {
+      for (const backendNodeId of ownedBackendIds) {
+        const info = this.nodeInfoLookup(backendNodeId, sessionId);
+        if (!info) continue;
         if (INTERACTIVE_ROLES.has(info.role) || CONTEXT_ROLES.has(info.role)) {
           interactiveNodes.push(backendNodeId);
         } else if (POTENTIALLY_CLICKABLE_ROLES.has(info.role)) {
@@ -686,7 +727,7 @@ export class A11yTreeProcessor {
             );
             const attrs = desc.node?.attributes;
             if (!attrs) return;
-            const info = this.nodeInfoMap.get(backendNodeId);
+            const info = this.nodeInfoLookup(backendNodeId, sessionId);
             if (!info) return;
             for (let i = 0; i < attrs.length; i += 2) {
               if (attrs[i] === "id" && attrs[i + 1]) {
@@ -705,7 +746,7 @@ export class A11yTreeProcessor {
 
       // Phase 2: DOMDebugger.getEventListeners for non-interactive nodes without onclick attribute.
       // Detects addEventListener, React synthetic events, jQuery — anything that registered a click handler.
-      const clickCandidates = checkClickNodes.filter(id => !this.nodeInfoMap.get(id)?.isClickable);
+      const clickCandidates = checkClickNodes.filter(id => !this.nodeInfoLookup(id, sessionId)?.isClickable);
       if (clickCandidates.length > 0 && clickCandidates.length <= 200) {
         await Promise.allSettled(clickCandidates.map(async (backendNodeId) => {
           try {
@@ -718,7 +759,7 @@ export class A11yTreeProcessor {
               "DOMDebugger.getEventListeners", { objectId }, sessionId,
             );
             if (result.listeners?.some(l => l.type === "click" || l.type === "mousedown" || l.type === "pointerdown")) {
-              const info = this.nodeInfoMap.get(backendNodeId);
+              const info = this.nodeInfoLookup(backendNodeId, sessionId);
               if (info) info.isClickable = true;
             }
             await cdpClient.send("Runtime.releaseObject", { objectId }, sessionId).catch(() => {});
@@ -727,8 +768,15 @@ export class A11yTreeProcessor {
       }
       // Phase 3: FR-H5 — Enrich unnamed clickable generics with innerText.
       // Separate pass with fresh resolveNode to avoid stale objectId issues.
-      const unnamedClickables = [...this.nodeInfoMap.entries()]
-        .filter(([, info]) => info.isClickable && !info.name && POTENTIALLY_CLICKABLE_ROLES.has(info.role));
+      // BUG-016 follow-up: iterate THIS session's owned nodes only so we
+      // never read metadata that belongs to a parallel OOPIF.
+      const unnamedClickables: Array<[number, NodeInfo]> = [];
+      for (const backendNodeId of ownedBackendIds) {
+        const info = this.nodeInfoLookup(backendNodeId, sessionId);
+        if (info && info.isClickable && !info.name && POTENTIALLY_CLICKABLE_ROLES.has(info.role)) {
+          unnamedClickables.push([backendNodeId, info]);
+        }
+      }
       if (unnamedClickables.length > 0 && unnamedClickables.length <= 100) {
         await Promise.allSettled(unnamedClickables.map(async ([backendNodeId, info]) => {
           try {
@@ -778,8 +826,12 @@ export class A11yTreeProcessor {
     const tag = this.getSnapshotString(strings, doc.nodes.nodeName[nodeIndex]);
     if (CLICKABLE_TAGS.has(tag)) return true;
 
-    // Role from A11y tree nodeInfoMap
-    const nodeInfo = this.nodeInfoMap.get(backendNodeId);
+    // Role from A11y tree nodeInfoMap.
+    // BUG-016 follow-up: this helper is called from fetchVisualData
+    // which already runs per-session, so _renderSessionId is not
+    // reliable here. Instead pass through the session-aware lookup;
+    // the caller context lives in fetchVisualData below.
+    const nodeInfo = this.nodeInfoLookup(backendNodeId);
     if (nodeInfo && CLICKABLE_ROLES.has(nodeInfo.role)) return true;
 
     return false;
@@ -796,10 +848,10 @@ export class A11yTreeProcessor {
     const requested = parseInt(match[1], 10);
 
     // Build candidate list, optionally filtered by role
-    // BUG-016: reverseMap value shape is `{ backendNodeId, sessionId }`.
+    // BUG-016 follow-up: session-scoped metadata lookup via owner.
     const candidates: Array<{ refNum: number; backendNodeId: number; role: string; name: string }> = [];
     for (const [refNum, owner] of this.reverseMap.entries()) {
-      const info = this.nodeInfoMap.get(owner.backendNodeId);
+      const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
       const role = info?.role ?? "";
       if (roleFilter && !roleFilter.has(role)) continue;
       candidates.push({ refNum, backendNodeId: owner.backendNodeId, role, name: info?.name ?? "" });
@@ -925,8 +977,9 @@ export class A11yTreeProcessor {
         this.refMap.set(key, refNum);
         this.reverseMap.set(refNum, { backendNodeId: node.backendDOMNodeId, sessionId });
       }
-      // Always update nodeInfoMap with latest role/name
-      this.nodeInfoMap.set(node.backendDOMNodeId, extractNodeInfo(node));
+      // Always update nodeInfoMap with latest role/name — composite-keyed
+      // so cross-session collisions don't clobber metadata.
+      this.nodeInfoSet(node.backendDOMNodeId, sessionId, extractNodeInfo(node));
       // Track which session owns this node (H1: for cleanup on detach)
       if (!this.sessionNodeMap.has(sessionId)) {
         this.sessionNodeMap.set(sessionId, new Set());
@@ -981,7 +1034,7 @@ export class A11yTreeProcessor {
                   sessionId: oopifResult.sessionId,
                 });
               }
-              this.nodeInfoMap.set(node.backendDOMNodeId, {
+              this.nodeInfoSet(node.backendDOMNodeId, oopifResult.sessionId, {
                 role: (node.role?.value as string) ?? "",
                 name: (node.name?.value as string) ?? "",
               });
@@ -2143,9 +2196,10 @@ export class A11yTreeProcessor {
     if (filter === "landmark") return LANDMARK_ROLES.has(role);
     // interactive and visual filters use the same element selection
     if (INTERACTIVE_ROLES.has(role)) return true;
-    // FR-005: Elements with onclick handlers (e.g. sortable table headers)
+    // FR-005: Elements with onclick handlers (e.g. sortable table headers).
+    // BUG-016 follow-up: session-scoped lookup via _renderSessionId.
     if (node.backendDOMNodeId !== undefined) {
-      const info = this.nodeInfoMap.get(node.backendDOMNodeId);
+      const info = this.nodeInfoLookup(node.backendDOMNodeId);
       if (info?.isClickable) return true;
     }
     // Check focusable property
@@ -2159,19 +2213,22 @@ export class A11yTreeProcessor {
 
   private formatLine(indent: string, refNum: number, role: string, node: AXNode, nodeMap?: Map<string, AXNode>): string {
     // FR-004: Append HTML id if available
+    // BUG-016 follow-up: all nodeInfoMap reads route through the
+    // session-aware nodeInfoLookup so render output cannot bleed
+    // metadata across OOPIFs with colliding backendNodeIds.
     const backendNodeId = node.backendDOMNodeId;
-    const htmlId = backendNodeId !== undefined ? this.nodeInfoMap.get(backendNodeId)?.htmlId : undefined;
+    const htmlId = backendNodeId !== undefined ? this.nodeInfoLookup(backendNodeId)?.htmlId : undefined;
     const idSuffix = htmlId ? `#${htmlId}` : "";
     let line = `${indent}[e${refNum}] ${role}${idSuffix}`;
 
     // FR-H5: Prefer AXNode name, fall back to nodeInfoMap (enriched by Phase 3 for clickable generics)
     const name = (node.name?.value as string | undefined)
-      || (backendNodeId !== undefined ? this.nodeInfoMap.get(backendNodeId)?.name : undefined);
+      || (backendNodeId !== undefined ? this.nodeInfoLookup(backendNodeId)?.name : undefined);
     if (name) {
       line += ` "${name}"`;
       // FR-021: Signal truncation so the LLM knows hidden text exists (reached for evaluate otherwise)
       if (backendNodeId !== undefined) {
-        const fullLen = this.nodeInfoMap.get(backendNodeId)?.nameFullLength;
+        const fullLen = this.nodeInfoLookup(backendNodeId)?.nameFullLength;
         if (fullLen && fullLen > name.length) {
           const extra = fullLen - name.length;
           line += ` …[+${extra} chars; use filter:"all" with ref to read subtree]`;
@@ -2212,7 +2269,7 @@ export class A11yTreeProcessor {
       }
       // FR-002: target=_blank annotation
       if (backendNodeId !== undefined) {
-        const linkInfo = this.nodeInfoMap.get(backendNodeId);
+        const linkInfo = this.nodeInfoLookup(backendNodeId);
         if (linkInfo?.linkTarget === "_blank") {
           line += " (opens new tab)";
         }
@@ -2251,7 +2308,7 @@ export class A11yTreeProcessor {
 
     // FR-001: scrollable container annotation
     if (backendNodeId !== undefined) {
-      const scrollInfo = this.nodeInfoMap.get(backendNodeId);
+      const scrollInfo = this.nodeInfoLookup(backendNodeId);
       if (scrollInfo?.isScrollable) {
         line += " (scrollable)";
       }
@@ -2308,10 +2365,11 @@ export class A11yTreeProcessor {
     const match = ref.match(/^e?(\d+)$/);
     if (!match) return "static";
     const refNum = parseInt(match[1], 10);
-    // BUG-016: reverseMap value is `{ backendNodeId, sessionId }`.
+    // BUG-016 follow-up: owner carries sessionId so nodeInfoLookup routes
+    // to the correct session's metadata without cross-session bleed.
     const owner = this.reverseMap.get(refNum);
     if (!owner) return "static";
-    const info = this.nodeInfoMap.get(owner.backendNodeId);
+    const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
     if (!info) return "static";
     if (info.disabled) return "disabled";
     // hasPopup can be "false" (string) — only classify as widget-state for truthy popup types
@@ -2334,9 +2392,10 @@ export class A11yTreeProcessor {
     const lines: string[] = [];
     const sortedRefs = [...this.reverseMap.entries()].sort((a, b) => a[0] - b[0]);
 
-    // BUG-016: reverseMap value is `{ backendNodeId, sessionId }`.
+    // BUG-016 follow-up: route through nodeInfoLookup so metadata is
+    // session-scoped.
     for (const [refNum, owner] of sortedRefs) {
-      const info = this.nodeInfoMap.get(owner.backendNodeId);
+      const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
       if (!info || !(INTERACTIVE_ROLES.has(info.role) || info.isClickable)) continue;
       const name = info.name ? ` '${info.name}'` : "";
       const idSuffix = info.htmlId ? `#${info.htmlId}` : "";
@@ -2354,9 +2413,10 @@ export class A11yTreeProcessor {
    */
   getSnapshotMap(): SnapshotMap {
     const map: SnapshotMap = new Map();
-    // BUG-016: reverseMap value is `{ backendNodeId, sessionId }`.
+    // BUG-016 follow-up: route through nodeInfoLookup so metadata is
+    // session-scoped.
     for (const [refNum, owner] of this.reverseMap) {
-      const info = this.nodeInfoMap.get(owner.backendNodeId);
+      const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
       if (!info || (!info.name && !CONTEXT_ROLES.has(info.role) && !INTERACTIVE_ROLES.has(info.role) && !info.isClickable)) continue;
       map.set(refNum, `${info.role}\0${info.name ?? ""}`);
     }
@@ -2464,9 +2524,9 @@ export class A11yTreeProcessor {
 
     const sortedRefs = [...this.reverseMap.entries()].sort((a, b) => a[0] - b[0]);
 
-    // BUG-016: reverseMap value is `{ backendNodeId, sessionId }`.
+    // BUG-016 follow-up: session-scoped metadata lookup.
     for (const [refNum, owner] of sortedRefs) {
-      const info = this.nodeInfoMap.get(owner.backendNodeId);
+      const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
       if (!info) continue;
 
       let line: string | null = null;
@@ -2498,7 +2558,7 @@ export class A11yTreeProcessor {
       const lineTokens = Math.ceil(line.length / 4);
 
       if (tokensSoFar + lineTokens > maxTokens) {
-        const remaining = sortedRefs.filter(([, o]) => INTERACTIVE_ROLES.has(this.nodeInfoMap.get(o.backendNodeId)?.role ?? "")).length - interactiveLines.length;
+        const remaining = sortedRefs.filter(([, o]) => INTERACTIVE_ROLES.has(this.nodeInfoLookup(o.backendNodeId, o.sessionId)?.role ?? "")).length - interactiveLines.length;
         interactiveLines.push(`... (${remaining} more)`);
         break;
       }
