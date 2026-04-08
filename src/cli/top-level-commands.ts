@@ -59,12 +59,36 @@ const KNOWN_SUBCOMMANDS = [
 ] as const;
 
 /**
+ * Build-time-Konstanten, die der esbuild-SEA-Bundler via `--define` injiziert.
+ * In Source-Mode (tsc → node build/index.js) sind sie nicht definiert; das
+ * `typeof`-Guard im `readPackageVersion`-Body greift dann den fs-Pfad.
+ */
+declare const __SCC_VERSION__: string;
+declare const __SCC_NAME__: string;
+
+/**
  * Liest die Version aus `package.json` relativ zur kompilierten JS-Datei.
  *
  * Robustness: Sucht von `import.meta.url` ausgehend nach oben — funktioniert
  * sowohl im `build/`-Layout als auch im `src/`-Layout (Tests via vitest).
+ *
+ * SEA-Path (Phase 3b): In einem Single-Executable-Application-Bundle gibt es
+ * keinen filesystem-Pfad zur `package.json`. Stattdessen injiziert das
+ * Build-Skript Name + Version als esbuild `--define`-Konstanten. Diese werden
+ * via `typeof`-Guard erkannt — im Source-Mode bleibt die Konstante undefined
+ * und wir fallen auf den fs-Pfad zurueck.
  */
 export function readPackageVersion(currentFileUrl: string): { name: string; version: string } {
+  // Build-time constants (SEA / bundled mode)
+  if (
+    typeof __SCC_VERSION__ === "string" &&
+    __SCC_VERSION__ !== "" &&
+    typeof __SCC_NAME__ === "string" &&
+    __SCC_NAME__ !== ""
+  ) {
+    return { name: __SCC_NAME__, version: __SCC_VERSION__ };
+  }
+
   try {
     const here = fileURLToPath(currentFileUrl);
     let dir = path.dirname(here);
