@@ -2359,6 +2359,41 @@ So that ich nach Navigation oder Klick sofort frische Refs habe und kein separat
 - Dokumentiert in `docs/deferred-work.md` als UX-002
 - **Abhaengigkeit:** Keine (a11yTree-Infrastruktur existiert bereits komplett)
 
+### Story 12.6: Echte Ambient-Context-Token-Delta-Messung
+
+As a **AI-Agent-Entwickler / Produkt-Owner**,
+I want fuer jeden Tool-Call mit Ambient-Context-Injection eine gemessene Zahl wieviel Tokens der Diff gegenueber einem Full-Tree-Read gespart hat,
+So that ich im Session-Overlay (Story 14.2) und in Telemetrie-Auswertungen echte Token-Ersparnis-Zahlen statt erfundener Heuristiken zeigen kann.
+
+**Acceptance Criteria:**
+
+**Given** ein Action-Tool wird ausgefuehrt und `_injectAmbientContext` injiziert einen DOM-Diff oder kompakten Snapshot
+**When** die Tool-Response zurueckgegeben wird
+**Then** enthaelt `_meta.ambient_tokens_saved` die geschaetzte Anzahl Tokens, die gegenueber einem hypothetischen Full-Tree-Read gespart wurden
+**And** `_meta.ambient_tokens_used` enthaelt die Anzahl tatsaechlich injizierter Tokens
+
+**Given** ein Tool das laut `PAGE_CONTEXT_TOOLS` keinen Ambient-Context bekommt (z.B. read_page, dom_snapshot, screenshot)
+**When** die Tool-Response zurueckgegeben wird
+**Then** sind `_meta.ambient_tokens_saved` und `_meta.ambient_tokens_used` NICHT gesetzt
+
+**Given** identische Page und identische Aktion zweimal hintereinander
+**When** beide Calls die Delta-Berechnung durchlaufen
+**Then** ist `ambient_tokens_saved` in beiden Calls identisch (±5 Token Toleranz)
+
+**Given** Story 14.2 ist implementiert
+**When** ein Tool-Call mit `_meta.ambient_tokens_saved > 0` durch `wrap()` laeuft
+**Then** wird der Wert zur Session-Summe `_sessionAmbientSaved` addiert
+**And** das Stats-Panel zeigt eine zusaetzliche Sektion `AMBIENT | <n>k saved`
+
+**Technical Notes:**
+- Berechnung: `fullTreeTokens = ceil(byteLength(getCompactSnapshot()) / 4)`, `usedTokens = ceil(byteLength(injectedAmbientText) / 4)`, `saved = max(0, fullTreeTokens - usedTokens)`
+- Token-Approximation konsistent mit Story 12.2 (`Math.ceil(bytes / 4)`)
+- Performance-Budget: <5ms p95 Overhead pro Action-Tool, KEINE zusaetzlichen CDP-Roundtrips (precomputed Tree wiederverwenden)
+- Phase 4 (Session-Overlay-Integration) ist optional und kann nach Story 14.2 nachgezogen werden — Phase 1-3 liefern eigenstaendigen Wert via `_meta`-Felder
+- Argumentation: Approximation unterschaetzt eher die echte Ersparnis (Roundtrip-Overhead nicht eingerechnet) — daher konservativ
+- **Abhaengigkeit:** Story 13a.2 (Ambient Context v2) — existiert; Story 14.2 (nur fuer Phase 4)
+- **FRs:** FR79 (Token-Transparenz)
+
 ---
 
 ## Epic 13: Visual Developer Intelligence (Phase 3)
@@ -2448,3 +2483,724 @@ So that ich sofort sehe ob meine Aenderung korrekt uebernommen wurde, ohne manue
 - **Hintergrund:** In der Praxis braucht der Agent 4-5 Tool-Calls pro Verifikation (navigate → read_page → durchklicken → screenshot). Ein Mensch schaut einfach auf den Browser. Dieses Feature schliesst diese Luecke.
 - **Abhaengigkeit:** Screenshot-Tool existiert bereits (Story 2.3), CDP-Infrastruktur komplett vorhanden
 - **Empfohlene Reihenfolge:** Tier 2 → Tier 3 → Tier 4 (jeder Tier baut auf dem vorherigen auf)
+
+### Story 13.3: Visual Feedback nach CSS-Aenderungen via evaluate
+
+As a **AI-Agent (LLM)**,
+I want automatisches visuelles Feedback wenn ich CSS/Styles im Browser via evaluate aendere,
+So that ich sofort sehe ob meine Style-Aenderung korrekt uebernommen wurde, ohne manuell inspect_element + screenshot aufrufen zu muessen.
+
+**Acceptance Criteria:**
+
+**Given** der Agent fuehrt einen evaluate-Call aus der CSS/Style-Aenderungen enthaelt (z.B. `.style.gridTemplateColumns = '50px ...'`)
+**When** die Expression Style-aendernde Patterns enthaelt
+**Then** wird ein gezielter Screenshot des betroffenen Elements automatisch in die Tool-Response eingefuegt
+**And** eine Geometrie-Zusammenfassung zeigt Vorher/Nachher-Masse (z.B. "Element .beleg-row: 40x50px → 50x50px")
+
+**Given** der Agent fuehrt einen lesenden evaluate-Call aus (querySelector, getBoundingClientRect, etc.)
+**When** keine Style-aendernden Patterns erkannt werden
+**Then** wird KEIN Screenshot gemacht — die Response bleibt wie bisher
+
+**Technical Notes:**
+- Im MCP-Server (`src/tools/evaluate.ts`) implementiert, nicht als externer Hook — Server hat bereits CDP-Verbindung
+- Heuristische Pattern-Erkennung: `.style.`, `classList.add/remove/toggle`, `setAttribute('style'`, `.setProperty(`, `.cssText`
+- Selektor-Extraktion aus Expression: `querySelector('...')` → Clip-Screenshot um erstes Element
+- Performance: ~30-60ms Overhead nur bei Style-Changes, 0ms bei normalen evaluate-Calls
+- **Abhaengigkeit:** Keine (CDP + Screenshot-Infrastruktur existiert)
+
+---
+
+## Epic 15: Pro-Code-Extraktion & IP-Schutz (Sprint Change 2026-04-07)
+
+**Ziel:** Pro-Features physisch vom Free-Repo trennen, sodass das oeffentliche Repo keine proprietaere Logik mehr enthaelt. Blockiert npm-Publish / oeffentlichen Launch.
+
+**Trigger:** Sprint Change Proposal `sprint-change-proposal-2026-04-07.md`
+
+**Empfohlene Reihenfolge:** 15.5 → 15.1 → 15.4 → 15.2 → 15.3 → 15.6
+
+### Story 15.1: Operator-Modul ins Pro-Repo extrahieren + Click-Hook-Refactoring
+
+As a **Produkt-Owner**,
+I want die Operator-Logik (rule-engine, micro-llm, captain, human-touch) physisch im Pro-Repo,
+So that der proprietaere Anti-Detection- und Auto-Recovery-Code nicht im oeffentlichen Repo liegt.
+
+**Acceptance Criteria:**
+
+**Given** das Free-Repo nach der Extraktion
+**When** ein Entwickler den Quellcode durchsucht
+**Then** existiert kein `src/operator/`-Verzeichnis mehr
+
+**Given** der Free-Tier click-Handler
+**When** ein Klick ausgefuehrt wird
+**Then** funktioniert click ohne Human Touch (normaler CDP-Dispatch)
+**And** kein Laufzeitfehler durch fehlende Imports
+
+**Given** das Pro-Repo mit registrierten Hooks
+**When** ein Klick ausgefuehrt wird
+**Then** wird Human Touch via `enhanceTool`-Hook injiziert
+
+**Technical Notes:**
+- 7 Dateien in `src/operator/` komplett ins Pro-Repo verschieben (inkl. Tests)
+- `src/tools/click.ts`: `import { humanMouseMove }` entfernen, Human-Touch-Aufruf durch `enhanceTool`-Hook ersetzen
+- Der `enhanceTool`-Hook existiert bereits im ProHooks-Interface
+- Free-Click funktioniert ohne Human Touch — nur ohne realistische Mausbewegung
+- **Aufwand:** Medium
+- **Risiko:** Niedrig
+
+---
+
+### Story 15.2: inspect_element + Visual Feedback ins Pro-Repo
+
+As a **Produkt-Owner**,
+I want inspect_element und die Visual-Feedback-Heuristik physisch im Pro-Repo,
+So that die CSS-Debugging-Logik und Style-Change-Detection nicht im oeffentlichen Repo liegen.
+
+**Acceptance Criteria:**
+
+**Given** das Free-Repo nach der Extraktion
+**When** ein LLM `inspect_element` aufruft
+**Then** erhaelt es eine klare Pro-Feature-Fehlermeldung
+
+**Given** das Pro-Repo mit registrierten Tools
+**When** ein LLM `inspect_element` aufruft
+**Then** funktioniert CSS-Debugging wie bisher
+
+**Given** das Free-Repo nach der Extraktion
+**When** ein Entwickler den Quellcode durchsucht
+**Then** existiert keine `style-change-detection.ts` und keine `inspect-element.ts` mehr
+
+**Technical Notes:**
+- `src/tools/inspect-element.ts` (520 Zeilen) + Tests ins Pro-Repo
+- `src/tools/style-change-detection.ts` (134 Zeilen) + Tests ins Pro-Repo
+- Neues Hook-Interface `registerProTools` einfuehren:
+  ```typescript
+  registerProTools?: (registry: ToolRegistryPublic) => void;
+  ```
+- `ToolRegistryPublic`-Interface definieren: `registerTool(name, schema, handler)`
+- inspect_element wird im Pro-Repo als zusaetzliches MCP-Tool registriert
+- **Aufwand:** Medium
+- **Risiko:** Niedrig — inspect_element hat keine Abhaengigkeiten von anderen Tools
+- **Abhaengigkeit:** `registerProTools`-Interface muss zuerst definiert werden
+
+---
+
+### Story 15.3: Ambient-Context-Logik auf onToolResult-Hook umbauen
+
+As a **Produkt-Owner**,
+I want die Ambient-Context-Enrichment-Logik (3-Stufen-Klick-Analyse) im Pro-Repo,
+So that die intelligente Klick-Klassifizierung und AX-Change-Detection nicht im oeffentlichen Repo liegen.
+
+**Acceptance Criteria:**
+
+**Given** das Free-Repo nach dem Refactoring
+**When** ein Klick auf ein Element ausgefuehrt wird
+**Then** liefert die Response das nackte Klick-Ergebnis ohne Ambient Context
+
+**Given** das Pro-Repo mit registriertem onToolResult-Hook
+**When** ein Klick auf ein interaktives Element ausgefuehrt wird
+**Then** wird die Response mit Page-Context-Diff angereichert (wie bisher)
+
+**Given** das Free-Repo
+**When** ein Entwickler `registry.ts` durchsucht
+**Then** gibt es keine Ambient-Context-Logik mehr — nur einen `onToolResult`-Hook-Aufruf
+
+**Technical Notes:**
+- ~100 Zeilen Ambient-Context-Logik aus `registry.ts` extrahieren
+- `onToolResult`-Hook erweitern mit Context-Parameter:
+  ```typescript
+  onToolResult?: (
+    toolName: string,
+    result: ToolResponse,
+    context: { a11yTree: A11yTreePublic; waitForAXChange?: (ms: number) => Promise<boolean> }
+  ) => Promise<ToolResponse>;
+  ```
+- `A11yTreePublic`-Interface definieren: `classifyRef()`, `getSnapshotMap()`, `getDiffSummary()`
+- Pro-Repo implementiert die 3-Stufen-Logik: classifyRef → waitForAXChange → Diff → Inject
+- `a11yTree.classifyRef()` bleibt im Free-Repo (cache/a11y-tree.ts) — wird ueber Public-Interface exponiert
+- **Aufwand:** Hoch — groesstes Refactoring, tiefster Eingriff in die Tool-Dispatch-Pipeline
+- **Risiko:** Mittel — Regressions bei der Ambient-Context-Injection moeglich
+- **Abhaengigkeit:** Story 15.2 (registerProTools-Interface muss stehen)
+
+---
+
+### Story 15.4: executeParallel ins Pro-Repo
+
+As a **Produkt-Owner**,
+I want die Multi-Tab-Parallel-Logik physisch im Pro-Repo,
+So that die Parallel-Execution-Engine nicht im oeffentlichen Repo liegt.
+
+**Acceptance Criteria:**
+
+**Given** das Free-Repo nach der Extraktion
+**When** ein LLM `run_plan` mit `parallel`-Parameter aufruft
+**Then** erhaelt es eine klare Pro-Feature-Fehlermeldung
+
+**Given** das Free-Repo
+**When** ein LLM `run_plan` mit Steps (ohne parallel) aufruft
+**Then** funktioniert sequentielles run_plan wie bisher (3-Step-Limit)
+
+**Given** das Pro-Repo
+**When** ein LLM `run_plan` mit `parallel`-Parameter aufruft
+**Then** funktioniert Multi-Tab-Parallel wie bisher
+
+**Technical Notes:**
+- `executeParallel()`, `buildParallelResponse()`, `createSemaphore()` aus `plan-executor.ts` (Zeilen 348-576) entfernen
+- `src/plan/tab-scoped-registry.ts` ins Pro-Repo (nur fuer Parallel relevant)
+- `src/tools/run-plan.ts`: Parallel-Pfad durch Pro-Hook ersetzen
+- Free-Version behaelt nur `executePlan()` (sequentiell, 3-Step-Limit)
+- **Aufwand:** Low
+- **Risiko:** Niedrig — klare Trennlinie zwischen sequentiell und parallel
+
+---
+
+### Story 15.5: License-Validator ins Pro-Repo verschieben
+
+As a **Produkt-Owner**,
+I want den License-Validator physisch im Pro-Repo,
+So that die Polar.sh-Integrations-Logik und Validierungs-Algorithmen nicht im oeffentlichen Repo liegen.
+
+**Acceptance Criteria:**
+
+**Given** das Free-Repo nach der Extraktion
+**When** ein Entwickler den Quellcode durchsucht
+**Then** existiert keine `license-validator.ts` mehr
+**And** nur das LicenseStatus-Interface und FreeTierLicenseStatus bleiben
+
+**Given** das Pro-Repo
+**When** der Server startet
+**Then** wird der LicenseValidator mit Polar.sh-Integration geladen
+
+**Technical Notes:**
+- `src/license/license-validator.ts` + Tests ins Pro-Repo
+- Im Free-Repo verbleibt:
+  - `src/license/license-status.ts` — Interface + FreeTierLicenseStatus
+  - `src/license/free-tier-config.ts` — Step-Limits
+  - `src/license/index.ts` — Exports anpassen
+- Saubere Interface-Trennung existiert bereits (LicenseStatus)
+- **Aufwand:** Low
+- **Risiko:** Niedrig
+- **Empfehlung:** Als erste Story implementieren (niedrigstes Risiko, validiert den Extraktions-Workflow)
+
+---
+
+### Story 15.6: Regressions-Tests — Free-Tier-Benchmark
+
+As a **Produkt-Owner**,
+I want verifizieren dass der Free-Tier nach der Code-Extraktion voll funktionsfaehig bleibt,
+So that der oeffentliche Launch mit einem stabilen Free-Produkt stattfindet.
+
+**Acceptance Criteria:**
+
+**Given** das Free-Repo nach allen Extraktionen (15.1–15.5)
+**When** `npm test` ausgefuehrt wird
+**Then** sind alle verbleibenden Unit-Tests gruen (keine fehlenden Imports, keine toten Referenzen)
+
+**Given** das Free-Repo
+**When** der Benchmark (24 Tests) ausgefuehrt wird
+**Then** besteht der Free-Tier 23/24 Tests (nur T2.5 Tab-Management scheitert)
+
+**Given** das Pro-Repo mit allen extrahierten Features
+**When** der Benchmark ausgefuehrt wird
+**Then** besteht der Pro-Tier 24/24 Tests
+
+**Given** das Free-Repo
+**When** ein LLM ein entferntes Tool aufruft (inspect_element, dom_snapshot, switch_tab, virtual_desk)
+**Then** erhaelt es eine klare Pro-Feature-Fehlermeldung (kein Crash, kein undefined-Fehler)
+
+**Given** das Free-Repo
+**When** `run_plan` mit `parallel` aufgerufen wird
+**Then** erhaelt das LLM eine Pro-Feature-Fehlermeldung
+
+**Technical Notes:**
+- Alle `npm test`-Laeufe in beiden Repos muessen gruen sein
+- Smoke-Test (`node test-hardest/smoke-test.mjs`) muss im Free-Repo laufen
+- Entfernte Features: saubere Fehlermeldungen, keine undefined-Exceptions
+- **Aufwand:** Medium
+- **Risiko:** Niedrig — Test-getrieben, Probleme werden frueh erkannt
+- **Abhaengigkeit:** Alle Stories 15.1–15.5 muessen abgeschlossen sein
+
+---
+
+## Epic 16: Pro-Repo Implementierung (Sprint Change 2026-04-08)
+
+**Ziel:** Das physische Pro-Repo unter `/Users/silbercue/Documents/Cursor/Skills/silbercuechrome-pro` aufbauen und alle in Epic 15 aus dem Free-Repo entfernten Pro-Features dort neu implementieren. Das Free-Repo bleibt unveraendert — saubere Abhaengigkeitsrichtung: Pro-Repo importiert `@silbercuechrome/mcp` via `file:../SilbercueChrome`, niemals umgekehrt. Blockiert npm-Publish und Pro-Tier-Launch.
+
+**Trigger:** Sprint Change Proposal `sprint-change-proposal-2026-04-08-epic16.md`. Epic 15 hat den Pro-Code vollstaendig aus dem Free-Repo extrahiert; das Pro-Repo existiert aktuell nur konzeptuell in `src/hooks/README-PRO-REPO.md` und in `scripts/publish.ts:29` als Pfad-Konvention. Es gibt kein Verzeichnis, keine `package.json`, keinen Source-Code.
+
+**Hook-Interface-Referenz:** Alle Pro-Hooks sind in `src/hooks/pro-hooks.ts` (Zeilen 73-125) definiert. Das Pro-Repo implementiert genau diese Hooks via `registerProHooks({ ... })` im Entry-Point `src/index.ts`.
+
+**Pfad-Konventionen:**
+- Pro-Repo absolut: `/Users/silbercue/Documents/Cursor/Skills/silbercuechrome-pro`
+- Pro-Repo relativ zum Free-Repo: `../silbercuechrome-pro`
+- Pro-Repo-Dependency auf Free-Repo: `file:../SilbercueChrome` in `package.json`
+- Alle Imports im Pro-Repo nutzen `.js`-Erweiterungen (Node16 module resolution)
+- Tests im Pro-Repo nutzen vitest (gleiche Test-Infrastruktur wie Free-Repo)
+
+**Empfohlene Reihenfolge:** 16.1 → 16.2 → 16.3 → 16.4 → 16.5 → 16.6 → 16.7 (Bootstrap zuerst als harte Vorbedingung, danach nach steigendem Risiko sortiert, Integration zuletzt)
+
+### Story 16.1: Pro-Repo Bootstrap
+
+As a **Produkt-Owner**,
+I want ein physisches Pro-Repo-Verzeichnis mit funktionierender Build-Pipeline,
+So that alle folgenden Pro-Stories Code in eine kompilierbare Repo-Struktur einsetzen koennen.
+
+**Acceptance Criteria:**
+
+**Given** die aktuelle Umgebung ohne Pro-Repo
+**When** Story 16.1 abgeschlossen ist
+**Then** existiert das Verzeichnis `/Users/silbercue/Documents/Cursor/Skills/silbercuechrome-pro`
+**And** es enthaelt `package.json`, `tsconfig.json`, `vitest.config.ts` und `src/index.ts`
+
+**Given** das neu angelegte Pro-Repo
+**When** ein Entwickler die `package.json` oeffnet
+**Then** hat sie den `name` `@silbercuechrome/mcp-pro`
+**And** `type` ist `module`
+**And** `main` zeigt auf `./build/index.js`
+**And** `bin.silbercuechrome-pro` zeigt auf `./build/index.js`
+**And** `dependencies` enthaelt `@silbercuechrome/mcp` mit dem Wert `file:../SilbercueChrome`
+**And** `devDependencies` enthaelt `typescript`, `vitest` und `@types/node`
+**And** `scripts.build` ist `tsc`
+**And** `scripts.test` ist `vitest run`
+
+**Given** das Pro-Repo `tsconfig.json`
+**When** ein Entwickler die Datei oeffnet
+**Then** ist `module` auf `Node16` gesetzt
+**And** `moduleResolution` auf `Node16`
+**And** `target` auf `ES2022`
+**And** `strict` auf `true`
+**And** `declaration` auf `true`
+**And** `outDir` auf `./build`
+**And** `rootDir` auf `./src`
+**And** `include` listet `src/**/*.ts`
+**And** `exclude` listet `node_modules`, `build` und `src/**/*.test.ts`
+
+**Given** der Pro-Repo Entry-Point `src/index.ts`
+**When** ein Entwickler die Datei oeffnet
+**Then** enthaelt sie einen Shebang `#!/usr/bin/env node`
+**And** importiert `registerProHooks` aus `@silbercuechrome/mcp/hooks`
+**And** importiert `startServer` aus `@silbercuechrome/mcp`
+**And** ruft `registerProHooks({})` vor `startServer()` auf (leeres Hook-Objekt als Skeleton)
+
+**Given** das neu angelegte Pro-Repo
+**When** `npm install && npm run build` im Pro-Repo ausgefuehrt wird
+**Then** laeuft der Build ohne Fehler durch
+**And** `build/index.js` existiert und ist ausfuehrbar
+
+**Technical Notes:**
+- Absoluter Pfad: `/Users/silbercue/Documents/Cursor/Skills/silbercuechrome-pro`
+- Soll-Struktur ist dokumentiert in `src/hooks/README-PRO-REPO.md` (Zeilen 9-56 fuer package.json/tsconfig, Zeilen 58-111 fuer Entry-Point)
+- `scripts/publish.ts:29` erwartet den Pfad `../../silbercuechrome-pro` relativ vom Free-Repo `scripts/`-Ordner — das stimmt mit dem absoluten Pfad ueberein
+- Keine Tests noetig — `npm run build` + manueller Start validiert die Bootstrap
+- Der leere `registerProHooks({})`-Aufruf ist beabsichtigt; nachfolgende Stories fuellen die Hook-Felder
+- **Aufwand:** Low
+- **Risiko:** Niedrig
+- **Abhaengigkeit:** Keine — Vorbedingung fuer alle anderen 16er-Stories
+
+---
+
+### Story 16.2: License Validator im Pro-Repo
+
+As a **Produkt-Owner**,
+I want den License-Validator (Polar.sh-Integration) physisch im Pro-Repo,
+So that die proprietaere Lizenz-Validierungs-Logik vom Pro-Tier geladen und ausgefuehrt wird, statt nur als Stub im Free-Repo zu existieren.
+
+**Acceptance Criteria:**
+
+**Given** das Pro-Repo nach 16.1
+**When** ein Entwickler den Quellcode durchsucht
+**Then** existiert `src/license/license-validator.ts` im Pro-Repo
+**And** die Polar.sh-Validierungs-Logik (Lizenz-Key-Format, Offline-Grace-Period, HTTP-Call an Polar.sh-API) ist vollstaendig implementiert
+**And** es gibt einen Test `src/license/license-validator.test.ts`
+
+**Given** das Pro-Repo `src/index.ts`
+**When** ein Entwickler die Datei oeffnet
+**Then** registriert `registerProHooks` den `provideLicenseStatus`-Hook
+**And** der Hook liefert eine `LicenseStatus`-Instanz via `licenseValidator.getStatus()` (oder aequivalent)
+**And** der Import-Typ `LicenseStatus` kommt aus `@silbercuechrome/mcp/license/license-status.js`
+
+**Given** das Pro-Repo nach 16.2
+**When** `npm test` ausgefuehrt wird
+**Then** sind alle License-Validator-Tests gruen
+**And** der `provideLicenseStatus`-Hook-Pfad ist getestet (aktiviert, abgelaufen, offline-grace, ungueltiger Key)
+
+**Given** der Pro-Repo-Server
+**When** er ohne gueltigen License-Key gestartet wird
+**Then** liefert `provideLicenseStatus()` einen `LicenseStatus` mit `tier === "free"` oder einer klaren Fehlermeldung (kein Crash)
+
+**Technical Notes:**
+- Pro-Hook: `provideLicenseStatus` — definiert in `src/hooks/pro-hooks.ts:99-100`:
+  ```typescript
+  provideLicenseStatus?: () => Promise<LicenseStatus>;
+  ```
+- Das `LicenseStatus`-Interface + `FreeTierLicenseStatus` bleiben im Free-Repo unter `src/license/license-status.ts` — der Pro-Validator implementiert dasselbe Interface
+- Polar.sh-Integration: HTTP-Call an `https://api.polar.sh/v1/...` (exakte Endpoints aus der vor Epic 15 im Free-Repo existierenden `license-validator.ts` uebernehmen)
+- Offline-Grace-Period: 7 Tage (aus Epic 9.3 bekannt)
+- Tests: vitest, Mock von `fetch()` via `vi.fn()` + `vi.spyOn()`
+- Imports mit `.js`-Erweiterung: `import { LicenseStatus } from "@silbercuechrome/mcp/license/license-status.js"`
+- Sicheres Fail-Closed: Bei unerreichbarem Polar.sh + abgelaufener Grace Period liefert der Validator einen Free-Tier-Status zurueck, nie einen kuenstlich aktivierten Pro-Status
+- **Aufwand:** Low
+- **Risiko:** Niedrig — klares Interface, saubere Trennung
+- **Abhaengigkeit:** 16.1
+
+---
+
+### Story 16.3: executeParallel im Pro-Repo
+
+As a **Produkt-Owner**,
+I want die Multi-Tab-Parallel-Execution-Engine physisch im Pro-Repo,
+So that `run_plan` mit `parallel`-Parameter im Pro-Tier funktioniert, ohne dass die Engine-Logik im oeffentlichen Repo liegt.
+
+**Acceptance Criteria:**
+
+**Given** das Pro-Repo nach 16.1
+**When** ein Entwickler den Quellcode durchsucht
+**Then** existiert `src/plan/parallel-executor.ts` im Pro-Repo
+**And** die Datei exportiert `executeParallel`, `buildParallelResponse` und `createSemaphore`
+**And** es gibt `src/plan/parallel-executor.test.ts`
+
+**Given** das Pro-Repo `src/index.ts`
+**When** `registerProHooks` aufgerufen wird
+**Then** ist der `executeParallel`-Hook-Feld mit einer Funktion belegt, die `executeParallel(groups, registryFactory, options)` aufruft
+**And** die Hook-Signatur matcht `src/hooks/pro-hooks.ts:101-108` exakt
+
+**Given** das Pro-Repo
+**When** `run_plan` mit einer `parallel`-Konfiguration (mehrere Tabs, mehrere Steps pro Tab) im Pro-Tier aufgerufen wird
+**Then** fuehrt `executeParallel` die Steps pro Tab parallel aus
+**And** respektiert den `concurrencyLimit`-Parameter aus `options`
+**And** respektiert die `errorStrategy` (`abort`, `continue`, `rollback`)
+**And** liefert eine `ToolResponse` mit kombiniertem Ergebnis via `buildParallelResponse`
+
+**Given** der `createSemaphore`-Helper
+**When** er mit `limit: 2` initialisiert wird und 5 parallele Tasks startet
+**Then** laufen nie mehr als 2 Tasks gleichzeitig
+**And** alle 5 Tasks werden irgendwann abgearbeitet
+
+**Given** das Pro-Repo nach 16.3
+**When** `npm test` ausgefuehrt wird
+**Then** sind alle parallel-executor-Tests gruen
+**And** die Tests decken `executeParallel`, `buildParallelResponse` und `createSemaphore` einzeln ab
+
+**Technical Notes:**
+- Pro-Hook: `executeParallel` — definiert in `src/hooks/pro-hooks.ts:101-108`:
+  ```typescript
+  executeParallel?: (
+    groups: Array<{ tab: string; steps: PlanStep[] }>,
+    registryFactory: (tabTargetId: string) => Promise<{
+      executeTool: (name: string, params: Record<string, unknown>) => Promise<ToolResponse>;
+    }>,
+    options?: { vars?: VarsMap; errorStrategy?: ErrorStrategy; concurrencyLimit?: number },
+  ) => Promise<ToolResponse>;
+  ```
+- `PlanStep`, `ErrorStrategy` kommen aus `@silbercuechrome/mcp/plan/plan-executor.js`
+- `VarsMap` kommt aus `@silbercuechrome/mcp/plan/plan-variables.js`
+- `ToolResponse` kommt aus `@silbercuechrome/mcp/types.js`
+- Original-Code lag vor Epic 15 in `src/plan/plan-executor.ts:348-576` — als Referenz aus der Git-Historie des Free-Repos extrahierbar
+- Kein `tab-scoped-registry.ts` mehr — die `registryFactory` wird vom Free-Repo geliefert und bereits im Aufrufer gewrappt
+- Tests decken: Happy-Path mit 2 Tabs, Concurrency-Limit, Error-Strategy `abort`, Error-Strategy `continue`, leere Gruppen
+- **Aufwand:** Low-Medium
+- **Risiko:** Niedrig — klare Trennlinie, der Free-Repo-Code ist vor Epic 15 bereits getestet gewesen
+- **Abhaengigkeit:** 16.1
+
+---
+
+### Story 16.4: inspect_element + Visual Feedback im Pro-Repo
+
+As a **Produkt-Owner**,
+I want `inspect_element` als zusaetzliches MCP-Tool und die Visual-Feedback-Heuristik physisch im Pro-Repo,
+So that CSS-Debugging und automatische Screenshot-Anreicherung nach `evaluate` im Pro-Tier funktionieren, ohne dass die Logik im oeffentlichen Repo liegt.
+
+**Acceptance Criteria:**
+
+**Given** das Pro-Repo nach 16.1
+**When** ein Entwickler den Quellcode durchsucht
+**Then** existiert `src/tools/inspect-element.ts` im Pro-Repo
+**And** existiert `src/visual/style-change-detection.ts` im Pro-Repo
+**And** beide Dateien haben begleitende Tests
+
+**Given** das Pro-Repo `src/index.ts`
+**When** `registerProHooks` aufgerufen wird
+**Then** ist der `registerProTools`-Hook mit einer Funktion belegt, die `registry.registerTool("inspect_element", description, schema, handler)` aufruft
+**And** die Hook-Signatur matcht `src/hooks/pro-hooks.ts:109-114` exakt
+**And** das Tool `inspect_element` ist zur Laufzeit im Pro-Server verfuegbar
+
+**Given** der Pro-Server
+**When** ein LLM `inspect_element` mit einem Element-Ref oder Selektor aufruft
+**Then** liefert das Tool Computed Styles, Layout-Box, Matched CSS Rules und Cascade-Informationen
+**And** die Response hat die gleiche Struktur wie vor Epic 15
+
+**Given** das Pro-Repo `src/index.ts`
+**When** `registerProHooks` aufgerufen wird
+**Then** ist der `enhanceEvaluateResult`-Hook mit einer Funktion belegt, die Style-Changes via `style-change-detection` erkennt und einen Clip-Screenshot an die `ToolResponse` anhaengt
+**And** die Hook-Signatur matcht `src/hooks/pro-hooks.ts:115-124` exakt
+
+**Given** ein Pro-Server-`evaluate`-Call mit Style-aenderndem Pattern (z.B. `.style.gridTemplateColumns = ...`)
+**When** `enhanceEvaluateResult` nach dem Eval ausgefuehrt wird
+**Then** enthaelt die Response einen Clip-Screenshot des betroffenen Elements
+**And** eine Geometry-Zusammenfassung (Vorher/Nachher-Masse)
+
+**Given** ein Pro-Server-`evaluate`-Call ohne Style-aenderndes Pattern (z.B. `document.title`)
+**When** `enhanceEvaluateResult` nach dem Eval ausgefuehrt wird
+**Then** bleibt die Response unveraendert — kein Screenshot, kein Overhead
+
+**Given** das Pro-Repo nach 16.4
+**When** `npm test` ausgefuehrt wird
+**Then** sind alle inspect_element- und style-change-detection-Tests gruen
+
+**Technical Notes:**
+- Pro-Hooks:
+  - `registerProTools` — `src/hooks/pro-hooks.ts:109-114`:
+    ```typescript
+    registerProTools?: (registry: ToolRegistryPublic) => void;
+    ```
+  - `enhanceEvaluateResult` — `src/hooks/pro-hooks.ts:115-124`:
+    ```typescript
+    enhanceEvaluateResult?: (
+      expression: string,
+      result: ToolResponse,
+      context: { cdpClient: CdpClient; sessionId?: string },
+    ) => Promise<ToolResponse>;
+    ```
+- `ToolRegistryPublic` kommt aus `@silbercuechrome/mcp/hooks/pro-hooks.js` (Zeilen 14-28 — `registerTool(name, description, schema, handler)`)
+- `CdpClient` kommt aus `@silbercuechrome/mcp/cdp/cdp-client.js`
+- `inspect_element`-Original (~520 Zeilen) lag vor Epic 15 in `src/tools/inspect-element.ts` (Free-Repo Git-Historie)
+- `style-change-detection`-Original (~134 Zeilen) lag vor Epic 15 in `src/tools/style-change-detection.ts`
+- Heuristische Pattern-Erkennung in `style-change-detection`: `.style.`, `classList.add/remove/toggle`, `setAttribute('style'`, `.setProperty(`, `.cssText`
+- Clip-Screenshot via `CdpClient.sendSession("Page.captureScreenshot", { clip: { x, y, width, height } })`
+- Selektor-Extraktion aus `expression`: `querySelector('...')`-Regex
+- Tests: Happy-Path Inspect, Happy-Path Style-Change, Negativ-Pfad (lesender `evaluate`), Selektor-Extraktions-Edge-Cases
+- **Aufwand:** Medium
+- **Risiko:** Niedrig-Mittel
+- **Abhaengigkeit:** 16.1
+
+---
+
+### Story 16.5: Operator-Modul im Pro-Repo
+
+As a **Produkt-Owner**,
+I want das vollstaendige Operator-Modul (7 Dateien — Rule Engine, Micro-LLM, Captain, Human Touch) physisch im Pro-Repo,
+So that die Anti-Detection- und Auto-Recovery-Logik im Pro-Tier aktiv ist, ohne dass die Algorithmen im oeffentlichen Repo liegen.
+
+**Acceptance Criteria:**
+
+**Given** das Pro-Repo nach 16.1
+**When** ein Entwickler den Quellcode durchsucht
+**Then** existiert `src/operator/` im Pro-Repo
+**And** das Verzeichnis enthaelt genau diese 7 Dateien:
+  - `rule-engine.ts`
+  - `micro-llm.ts`
+  - `micro-llm-prompt.ts`
+  - `captain.ts`
+  - `human-touch.ts`
+  - `operator.ts`
+  - `types.ts`
+**And** jede der 7 Dateien hat eine begleitende `.test.ts`-Datei
+
+**Given** das Pro-Repo `src/index.ts`
+**When** `registerProHooks` aufgerufen wird
+**Then** ist der `enhanceTool`-Hook mit einer Funktion belegt, die fuer `click`, `type` und `fill_form` Human-Touch-Parameter injiziert
+**And** die Hook-Signatur matcht `src/hooks/pro-hooks.ts:78` exakt
+**And** fuer alle anderen Tool-Namen liefert der Hook `null` zurueck (keine Aenderung)
+
+**Given** ein Pro-Server-`click`-Aufruf
+**When** der `enhanceTool`-Hook vor der Ausfuehrung lauft
+**Then** werden die Parameter um Human-Touch-Felder (z.B. `humanMouseMove`, Verzoegerungen) angereichert
+**And** der Klick wird mit der angereicherten Parameter-Liste ausgefuehrt
+
+**Given** der Operator im Pro-Repo
+**When** `rule-engine.ts` einen Captcha oder Cloudflare-Block erkennt
+**Then** eskaliert der Captain gemaess `captain.ts`-Logik
+**And** der Micro-LLM (gemaess `micro-llm.ts` und `micro-llm-prompt.ts`) wird fuer die Entscheidung konsultiert
+
+**Given** das Pro-Repo nach 16.5
+**When** `npm test` ausgefuehrt wird
+**Then** sind alle 7 Operator-Module-Tests gruen
+**And** der `enhanceTool`-Hook-Pfad fuer `click`, `type`, `fill_form` ist getestet
+
+**Technical Notes:**
+- Pro-Hook: `enhanceTool` — definiert in `src/hooks/pro-hooks.ts:78`:
+  ```typescript
+  enhanceTool?: (toolName: string, params: Record<string, unknown>) => Record<string, unknown> | null;
+  ```
+- Original-Code (~5.100 Zeilen) lag vor Epic 15 in `src/operator/` (Free-Repo Git-Historie). Alle 7 Dateien 1:1 ins Pro-Repo uebernehmen, Imports auf `.js`-Erweiterungen umstellen.
+- `click.ts`, `type.ts`, `fill-form.ts` im Free-Repo rufen keinen Operator mehr direkt auf — der Operator wird ausschliesslich ueber den `enhanceTool`-Hook angebunden (siehe Epic 15 Story 15.1)
+- Imports aus dem Free-Repo: `import { SomeType } from "@silbercuechrome/mcp/some-path.js"`
+- Operator-Sub-Struktur beibehalten — keine Datei zusammenfassen, kein Rename
+- Tests: vitest fuer alle 7 Module (Rule-Engine-Pattern-Match, Micro-LLM-Prompt-Rendering, Captain-Eskalations-State-Machine, Human-Touch-Bezier-Kurven, Operator-End-to-End, Types-Assertions)
+- `enhanceTool`-Hook kann sowohl `click`-Params als auch `type`-Params handhaben — der Hook dispatched intern pro Tool-Name
+- **Aufwand:** Gross — ~5.100 Zeilen Code, 7 Dateien + 7 Test-Dateien
+- **Risiko:** Mittel — groesster Code-Block, viele Sub-Systeme, aber der Code existiert bereits und ist getestet
+- **Abhaengigkeit:** 16.1
+
+---
+
+### Story 16.6: Ambient Context im Pro-Repo
+
+As a **Produkt-Owner**,
+I want die Ambient-Context-Anreicherung (3-Stufen-Klick-Analyse) physisch im Pro-Repo,
+So that nach Klicks auf interaktive Elemente automatisch ein Page-Context-Diff an die Tool-Response angehaengt wird, ohne dass die Analyse-Logik im oeffentlichen Repo liegt.
+
+**Acceptance Criteria:**
+
+**Given** das Pro-Repo nach 16.1
+**When** ein Entwickler den Quellcode durchsucht
+**Then** existiert `src/visual/ambient-context.ts` im Pro-Repo
+**And** die Datei implementiert die 3-Stufen-Klick-Analyse (classifyRef → waitForAXChange → diffSnapshots → formatDomDiff)
+**And** es gibt einen begleitenden Test `src/visual/ambient-context.test.ts`
+
+**Given** das Pro-Repo `src/index.ts`
+**When** `registerProHooks` aufgerufen wird
+**Then** ist der `onToolResult`-Hook mit einer async Funktion belegt, die drei Parameter akzeptiert: `toolName`, `result`, `context`
+**And** die Hook-Signatur matcht `src/hooks/pro-hooks.ts:87-98` exakt
+
+**Given** ein Pro-Server-`click`-Aufruf auf ein Element mit `result._meta.elementClass === "clickable"` oder `"widget-state"`
+**When** der `onToolResult`-Hook nach der Ausfuehrung lauft
+**Then** ruft er `context.a11yTree.getSnapshotMap()` fuer den Before-Snapshot auf
+**And** wartet via `context.waitForAXChange(350)` auf AX-Aenderungen (bis zu 350ms Timeout)
+**And** ruft `context.a11yTree.refreshPrecomputed(context.cdpClient, context.sessionId, context.sessionManager)` auf
+**And** ruft `context.a11yTree.getSnapshotMap()` fuer den After-Snapshot auf
+**And** berechnet den Diff via `context.a11yTree.diffSnapshots(before, after)`
+**And** formatiert den Diff via `context.a11yTree.formatDomDiff(changes, context.a11yTree.currentUrl)`
+**And** hangt den formatierten Diff als zusaetzlichen `{ type: "text", text: ... }`-Content an `result.content` an
+
+**Given** ein Pro-Server-`click`-Aufruf auf ein nicht-interaktives Element (z.B. `elementClass === "static"`)
+**When** der `onToolResult`-Hook lauft
+**Then** wird KEINE 3-Stufen-Analyse ausgefuehrt — die Response bleibt unveraendert
+
+**Given** ein Pro-Server-Aufruf fuer ein anderes Tool als `click` (z.B. `navigate`, `read_page`)
+**When** der `onToolResult`-Hook lauft
+**Then** wird KEINE Ambient-Context-Analyse ausgefuehrt — die Response bleibt unveraendert
+
+**Given** der Pro-Repo `onToolResult`-Hook
+**When** `context.waitForAXChange` `undefined` ist (Optional-Chaining)
+**Then** ueberspringt der Hook den Wait-Schritt ohne Crash
+
+**Given** das Pro-Repo nach 16.6
+**When** `npm test` ausgefuehrt wird
+**Then** sind alle ambient-context-Tests gruen
+**And** die Tests decken mindestens diese Faelle: clickable mit Diff, static ohne Diff, non-click-Tool, fehlendes `waitForAXChange`, leerer Diff
+
+**Technical Notes:**
+- Pro-Hook: `onToolResult` — definiert in `src/hooks/pro-hooks.ts:87-98`:
+  ```typescript
+  onToolResult?: (
+    toolName: string,
+    result: ToolResponse,
+    context: {
+      a11yTree: A11yTreePublic;
+      a11yTreeDiffs: A11yTreeDiffs;
+      waitForAXChange?: (timeoutMs: number) => Promise<boolean>;
+      cdpClient: CdpClient;
+      sessionId: string;
+      sessionManager?: SessionManager;
+    },
+  ) => Promise<ToolResponse>;
+  ```
+- `A11yTreePublic` + `A11yTreeDiffs` kommen aus `@silbercuechrome/mcp/hooks/pro-hooks.js` (definiert in `src/hooks/pro-hooks.ts:40-71`)
+- Die komplette 3-Stufen-Logik ist als Referenz-Implementierung in `src/hooks/README-PRO-REPO.md` (Zeilen 84-105) dokumentiert — die Story setzt genau dieses Muster um und haertet es
+- `context.a11yTree` liefert 5 Methoden: `classifyRef`, `getSnapshotMap`, `refreshPrecomputed`, `diffSnapshots`, `formatDomDiff` (plus `currentUrl`-Property und `reset`)
+- `context.a11yTreeDiffs` ist ein Backward-Compat-Alias und ist NICHT der primaere Pfad — die Story nutzt `context.a11yTree.diffSnapshots()` direkt
+- `ElementClassification` aus `@silbercuechrome/mcp/cache/a11y-tree.js`: `"widget-state" | "clickable" | "disabled" | "static"`
+- Timeout 350ms fuer `waitForAXChange` — bewaehrter Wert aus der ambient-context-v2-Findings-Memory-Notiz
+- Kein direkter CDP-Call im Hook — alle AX-Refreshs laufen ueber `refreshPrecomputed`
+- Tests: vitest mit Mock-`context`-Objekt, manuell konstruierte `SnapshotMap`-Before/After, Assertion auf angehaengte `content`-Eintraege
+- **Aufwand:** Mittel-Hoch
+- **Risiko:** Mittel-Hoch — feinste API im Free-Repo, 5 Methoden auf `context.a11yTree` + `waitForAXChange`-Callback, Regressions-Risiko bei Ambient-Context-Inhalt
+- **Abhaengigkeit:** 16.1
+
+---
+
+### Story 16.7: Pro-Repo Integration + Benchmark Verifikation
+
+As a **Produkt-Owner**,
+I want den End-to-End-Nachweis, dass das Pro-Repo vollstaendig funktioniert,
+So that der Pro-Tier-Launch mit einem verifiziert stabilen Pro-Produkt stattfinden kann.
+
+**Acceptance Criteria:**
+
+**Given** das Pro-Repo nach den Stories 16.1–16.6
+**When** `npm run build` im Pro-Repo ausgefuehrt wird
+**Then** laeuft der TypeScript-Compiler fehlerfrei durch
+**And** alle Dateien in `build/` sind erzeugt
+**And** `build/index.js` ist ausfuehrbar
+
+**Given** das Pro-Repo nach den Stories 16.1–16.6
+**When** `npm test` im Pro-Repo ausgefuehrt wird
+**Then** sind alle Unit-Tests gruen (license-validator, parallel-executor, inspect-element, style-change-detection, operator (7 Module), ambient-context)
+**And** keine Test ist `skipped`
+
+**Given** das Pro-Repo nach den Stories 16.1–16.6
+**When** der Pro-Server via `node build/index.js` gestartet wird
+**Then** werden alle 7 Pro-Hooks (`featureGate`, `enhanceTool`, `onToolResult`, `provideLicenseStatus`, `executeParallel`, `registerProTools`, `enhanceEvaluateResult`) registriert
+**And** `inspect_element` ist als zusaetzliches MCP-Tool verfuegbar
+**And** der Server startet ohne Exception
+
+**Given** ein laufender Pro-Server
+**When** der Smoke-Test (`node test-hardest/smoke-test.mjs` aus dem Free-Repo, gegen den Pro-Server) ausgefuehrt wird
+**Then** sind alle Smoke-Test-Schritte gruen
+
+**Given** ein laufender Pro-Server
+**When** der Benchmark aus `test-hardest/index.html` im Pro-Tier ausgefuehrt wird
+**Then** besteht der Pro-Tier die volle Test-Anzahl (Ziel: 24/24, aktuell dokumentiert als "24 Tests")
+**And** insbesondere der T2.5 Tab-Management-Test besteht (der im Free-Tier scheitert)
+
+**Given** das Free-Repo und das Pro-Repo
+**When** `scripts/publish.ts --dry-run` im Free-Repo ausgefuehrt wird
+**Then** erkennt die Publish-Pipeline beide Repos
+**And** Phase 3 (Combined Build) laeuft fehlerfrei durch
+**And** keine Phase bricht wegen fehlendem Pro-Repo ab
+
+**Technical Notes:**
+- Smoke-Test-Pfad: `test-hardest/smoke-test.mjs` — muss gegen den Pro-Server laufen (nicht den Free-Server), entweder via Env-Variable oder direkte Pfad-Angabe
+- Benchmark-Pfad: `test-hardest/index.html` via `cd test-hardest && python3 -m http.server 4242` starten, dann mit dem Pro-Server interagieren
+- `scripts/publish.ts:27-33` enthaelt die Pro-Repo-Pfad-Konvention, die in dieser Story final validiert wird
+- Falls eine einzelne Story 16.2–16.6 ein Detail offen gelassen hat, wird es hier als Bugfix nachgezogen — diese Story ist die Integrations-Klammer
+- Keine neue Produktions-Code-Datei; nur Tests, Smoke-Runs und Benchmark-Runs
+- **Aufwand:** Medium
+- **Risiko:** Niedrig — Test-getrieben, alle Komponenten sind in 16.2–16.6 bereits unit-getestet
+- **Abhaengigkeit:** 16.1, 16.2, 16.3, 16.4, 16.5, 16.6 (alle muessen abgeschlossen sein)
+
+---
+
+## Epic 16 Post-Benchmark Follow-ups (2026-04-08)
+
+Zwei Tickets tauchten beim Story 16.7 Pro-Tier-Benchmark-Run gegen v0.1.2 auf und wurden am selben Tag nachgezogen. Beide sind **DONE** und in den Releases v0.1.3 und v0.1.4 ausgeliefert.
+
+### Ticket 16.7-FU-1: a11y-tree Container-scan Aggregation — DONE
+
+**Ausloeser:** T4.7 Token-Budget-Test im Benchmark gab 2585 tokens gegen ein Budget von 2000. Grund: read_page rendert auf der generierten T4.7-Seite (60 sections × 2 action-buttons + link + textbox) jedes Element einzeln, obwohl die Struktur massiv redundant ist.
+
+**Implementierung:**
+1. **Phase 1 (Commit da26342, v0.1.3):** `tryAggregateSiblingRun` — konsekutive gleichartige Geschwister (≥10) werden in `renderChildren` zu einer Summary-Zeile gefaltet. Greift bei kompakten Listen (Dropdowns, Pickers, Auswahl-Buttons), aber nicht beim echten T4.7-Pattern wo die Buttons durch andere Elemente unterbrochen sind.
+2. **Phase 2 (Commit 371b7ff, v0.1.4):** `prepareAggregateGroups` — globaler Pre-Scan des gesamten Subtree. Buckets pro `(role, name-prefix)` quer ueber alle Ebenen, jedes Bucket mit ≥10 Mitgliedern wird zu einem Anchor/Suppress-Paar. `renderNode` emittiert am Anchor die Summary-Zeile und ueberspringt alle suppressed Mitglieder. Loest den T4.7-Fall und generalisiert sauber. Die Phase-1-Implementierung wurde entfernt, weil der globale Aggregator ein strikter Superset ist.
+
+**Token-Impact (T4.7 Repro-Test, 60 sections × 120 Action-Buttons + Links + Textboxes):**
+- vorher: ~2585 Tokens
+- nachher: <500 Tokens (getestet als harte Assertion)
+
+**Format der Summary-Zeile:** `[e20..e250] 120× button "Action 1" .. "Action 240"` — Ref-Band bleibt addressierbar, `click({ ref: "eN" })` funktioniert fuer jedes Element im Band.
+
+**Threshold:** AGGREGATE_MIN_COUNT = 10. Unterhalb dessen bleibt per-Element-Rendering aktiv, damit kleine Button-Reihen, Dialog-Actions und Nav-Menues unveraendert dargestellt werden.
+
+**Tests:** a11y-tree.test.ts wuchs von 99 auf 110 Cases. Abgedeckt: Threshold-Grenze, 10+ konsekutiv, 240-Button-Liste, identische Namen ohne Digit-Pattern, unterschiedliche Rollen, unterschiedliche Prefixes, Wrapper-mit-Kindern, Ref-Survival, interleaved Content, T4.7-Repro, interleaved Ref-Survival.
+
+### Ticket 16.7-FU-2: FR-023 Streak-Detector Form-Scoping — DONE
+
+**Ausloeser:** Der Story-16.7-Benchmark loeste den FR-023 "Try fill_form next time" Hint auch dann aus, wenn zwei `type()` Calls in unterschiedlichen Test-Cards (T6.2 → T6.4) stattfanden — also zwischen unzusammenhaengenden Formularen. Der urspruengliche Detector prueften nur `(sessionId, 10s-Fenster)`.
+
+**Fix (Commit ea621d1, v0.1.3):** Vor dem Focus wird eine `probeFormScope` Runtime-Callback am resolved Element aufgerufen. Sie walkt `closest("form")`, schreibt bei erstem Kontakt ein persistentes `dataset.__silbercueFormId` Marker und gibt die Form-ID zurueck. Der Detector keyt jetzt `(sessionId, formId)` — Streak feuert nur wenn beide Calls `formId !== null` haben UND die IDs uebereinstimmen. Form-lose Inputs und cross-form Streaks feuern keinen Hint mehr.
+
+**Tests:** type.test.ts wuchs von 27 auf 39 Cases. Neue Tests fuer same-form Happy Path, unterschiedliche Forms, beide form-los, first-in/second-out, cross-form Interlude Recovery, Probe-Call Inspection.
+
+### Ticket 16.7-FU-3: T4.7 Budget-Kalibrierung — OBSOLET
+
+War die Fallback-Option zu FU-1. Nicht noetig, da FU-1 Phase 2 den T4.7-Output deutlich unter das bestehende 2000-Token-Budget drueckt. Test-Budget muss **nicht** angepasst werden.
+
+### Release-Historie
+
+| Tag | Version | Inhalt |
+|-----|---------|--------|
+| 2026-04-08 | v0.1.2 | Story 16.7 initial Pro-Benchmark Run |
+| 2026-04-08 | v0.1.3 | FU-1 Phase 1 (konsekutiv) + FU-2 (Form-Scoping) |
+| 2026-04-08 | v0.1.4 | FU-1 Phase 2 (Container-scan, loest T4.7 wirklich) |
+
+Nach v0.1.4 ist Epic 16 inklusive aller Post-Benchmark-Findings komplett abgeschlossen.
