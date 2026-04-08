@@ -77,6 +77,8 @@ Liegen als JSON in `test-hardest/benchmark-*.json` und `test-hardest/ops-*.json`
 
 Vollstaendige Bug-Liste mit Reproduktionsschritten und Root-Cause-Analysen: `docs/deferred-work.md`
 
+**2026-04-08 — Session 6dd8f7d3 Postmortem:** BUG-016 (Cross-OOPIF Ref-Kollision via Composite-Key refMap), BUG-017 (switch_tab Cache-Reset), BUG-018 (LLM Defensive Fallback Spiral zu evaluate — dreischichtig gefixt: Tool-Descriptions, zentrale Fail-Recovery-Hints, per-Session Streak-Detector). Details: `docs/deferred-work.md#bug-016` bis `#bug-018`, `docs/friction-fixes.md#fr-018` bis `#fr-020`, Rationale in `docs/research/llm-tool-steering.md` Abschnitt "Anti-Spiral Patterns".
+
 ## Context7 — Aktuelle Library-Dokumentation
 - Vor jeder Implementierung, die externe Libraries oder Frameworks nutzt,
   automatisch Context7 MCP verwenden (resolve-library-id → get-library-docs)

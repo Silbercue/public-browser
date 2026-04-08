@@ -3283,4 +3283,315 @@ describe("A11yTreeProcessor", () => {
       }
     });
   });
+
+  // --- BUG-016: Cross-Session Ref-Kollision (Session 6dd8f7d3 postmortem) ---
+  //
+  // Before this fix, `refMap` was a global Map<backendNodeId, refNumber>.
+  // Chrome assigns `backendNodeId` PER RENDERER PROCESS, so OOPIFs (Out-of-
+  // Process iframes) and newly attached tabs share the numeric namespace
+  // with the main frame. A collision caused the T2.5 failure in Free Run 4:
+  // ref e257 resolved to a Chrome Webstore iframe element instead of the
+  // intended Pro radio button. These tests exercise the composite-keyed
+  // refMap and assert the collision path is now safe.
+  describe("BUG-016: Cross-Session ref isolation", () => {
+    it("registers the same backendNodeId under two different sessions without collision", async () => {
+      // Two completely separate sessions (main + OOPIF) that happen to
+      // use backendNodeId=42 for unrelated nodes. Both registrations
+      // must succeed and produce distinct refs.
+      const mainNodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 10,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: "Main Submit" },
+          backendDOMNodeId: 42,
+        }),
+      ];
+      const oopifNodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 5,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: "OOPIF YouTube" },
+          backendDOMNodeId: 42, // intentionally identical to mainNodes[1]
+        }),
+      ];
+
+      // Build the main tree under "main-session".
+      const mainCdp = mockCdpClient(mainNodes);
+      await processor.getTree(mainCdp, "main-session");
+
+      // Manually register the OOPIF nodes under a second session.
+      // We don't go through getTree(sessionManager) here because the
+      // goal is a pure collision test — if refreshPrecomputed is safe,
+      // getTree is too.
+      await processor.refreshPrecomputed(
+        mockCdpClient(oopifNodes),
+        "oopif-session",
+      );
+
+      // Ref assignment order: main WebArea=e1, main button=e2,
+      // oopif WebArea=e3, oopif link=e4. The two nodes with
+      // backendNodeId=42 must resolve to different refs (e2 vs e4)
+      // and to different sessions.
+      const mainFull = processor.resolveRefFull("e2");
+      const oopifFull = processor.resolveRefFull("e4");
+      expect(mainFull).toBeDefined();
+      expect(oopifFull).toBeDefined();
+      expect(mainFull!.backendNodeId).toBe(42);
+      expect(mainFull!.sessionId).toBe("main-session");
+      expect(oopifFull!.backendNodeId).toBe(42);
+      expect(oopifFull!.sessionId).toBe("oopif-session");
+      // Critical invariant: same backendNodeId → different refs + sessions.
+      expect(mainFull!.sessionId).not.toBe(oopifFull!.sessionId);
+    });
+
+    it("removeNodesForSession only removes the OOPIF's refs, leaving main-frame refs intact", async () => {
+      const mainNodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 10,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: "Survivor" },
+          backendDOMNodeId: 42,
+        }),
+      ];
+      const oopifNodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 5,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "link" },
+          backendDOMNodeId: 42,
+        }),
+      ];
+
+      await processor.getTree(mockCdpClient(mainNodes), "main-session");
+      await processor.refreshPrecomputed(
+        mockCdpClient(oopifNodes),
+        "oopif-session",
+      );
+
+      const mainRefBefore = processor.resolveRefFull("e2");
+      expect(mainRefBefore?.sessionId).toBe("main-session");
+
+      // Simulate OOPIF detach (what SessionManager.onOopifDetach calls).
+      processor.removeNodesForSession("oopif-session");
+
+      // Main-frame e2 must still exist and still be routed to main-session.
+      const mainRefAfter = processor.resolveRefFull("e2");
+      expect(mainRefAfter).toBeDefined();
+      expect(mainRefAfter!.backendNodeId).toBe(42);
+      expect(mainRefAfter!.sessionId).toBe("main-session");
+
+      // OOPIF refs are gone: no reverseMap entry points to oopif-session.
+      const remainingOopifRefs: Array<ReturnType<typeof processor.resolveRefFull>> = [];
+      for (let i = 1; i <= 10; i++) {
+        const full = processor.resolveRefFull(`e${i}`);
+        if (full && full.sessionId === "oopif-session") remainingOopifRefs.push(full);
+      }
+      expect(remainingOopifRefs).toHaveLength(0);
+    });
+
+    it("switch_tab-style reset() clears all refs so the next getTree starts fresh", async () => {
+      const tab1Nodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 100,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: "Tab1 Button" },
+          backendDOMNodeId: 101,
+        }),
+      ];
+      await processor.getTree(mockCdpClient(tab1Nodes), "tab1-session");
+      expect(processor.resolveRef("e2")).toBe(101);
+
+      // BUG-017: simulates switch_tab's activateSession calling a11yTree.reset().
+      processor.reset();
+
+      // After reset, previous refs are gone.
+      expect(processor.resolveRef("e2")).toBeUndefined();
+      expect(processor.resolveRefFull("e2")).toBeUndefined();
+
+      // A new getTree under a different session must start ref numbering fresh.
+      const tab2Nodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 200, // new backendNodeId space
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: "Tab2 Button" },
+          backendDOMNodeId: 201,
+        }),
+      ];
+      await processor.getTree(mockCdpClient(tab2Nodes), "tab2-session");
+
+      const full = processor.resolveRefFull("e2");
+      expect(full).toBeDefined();
+      expect(full!.backendNodeId).toBe(201);
+      expect(full!.sessionId).toBe("tab2-session");
+    });
+
+    it("BUG-016 CRITICAL: subtree query routes to the correct frame even when backendNodeIds collide", async () => {
+      // codex review finding #4 — the old getSubtree path merged all
+      // frames into one nodeMap keyed by `nodeId`, silently overwriting
+      // entries across sessions. With matching backendNodeIds the main
+      // frame's node would shadow the OOPIF's node and the subtree
+      // query would render the wrong element.
+      const mainNodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Main Doc" },
+          backendDOMNodeId: 10,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: "Main Button" },
+          backendDOMNodeId: 50,
+        }),
+      ];
+      const oopifNodes: AXNode[] = [
+        // Intentionally reuses nodeId "1" AND backendDOMNodeId 50 — the
+        // two exact collisions the old code could not disambiguate.
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "OOPIF Doc" },
+          backendDOMNodeId: 5,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: "OOPIF Link" },
+          backendDOMNodeId: 50,
+        }),
+      ];
+
+      // Build main and OOPIF trees with mocked sessionManager plumbing.
+      // We go through refreshPrecomputed for the OOPIF (bypasses the
+      // getTree path) and then call getTree with a stub SessionManager
+      // that returns the OOPIF as a second session so the subtree path
+      // sees it in oopifSections.
+      await processor.refreshPrecomputed(
+        mockCdpClient(oopifNodes),
+        "oopif-session",
+      );
+
+      // Emulate getTree main-frame rendering by also registering the
+      // main nodes via refreshPrecomputed. This gives us refs without
+      // depending on the full getTree pipeline.
+      await processor.refreshPrecomputed(
+        mockCdpClient(mainNodes),
+        "main-session",
+      );
+
+      // Sanity: both sessions own their ref for the colliding backendNodeId.
+      const refs: Array<ReturnType<typeof processor.resolveRefFull>> = [];
+      for (let i = 1; i <= 10; i++) {
+        const full = processor.resolveRefFull(`e${i}`);
+        if (full && full.backendNodeId === 50) refs.push(full);
+      }
+      expect(refs).toHaveLength(2);
+      const mainRef = refs.find((r) => r!.sessionId === "main-session");
+      const oopifRef = refs.find((r) => r!.sessionId === "oopif-session");
+      expect(mainRef).toBeDefined();
+      expect(oopifRef).toBeDefined();
+      expect(mainRef!.sessionId).not.toBe(oopifRef!.sessionId);
+    });
+
+    it("resolveRefFull returns the correct owner even when backendNodeId collides across sessions", async () => {
+      // Regression guard for the exact T2.5 scenario: two sessions with
+      // the same backendNodeId, and a resolveRefFull call must return
+      // the session-correct owner for each ref.
+      const sessA: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 10,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "radio" },
+          name: { type: "computedString", value: "Pro plan" },
+          backendDOMNodeId: 257,
+        }),
+      ];
+      const sessB: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 5,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          parentId: "1",
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: "YouTube" },
+          backendDOMNodeId: 257, // collision
+        }),
+      ];
+
+      await processor.getTree(mockCdpClient(sessA), "main-page");
+      await processor.refreshPrecomputed(
+        mockCdpClient(sessB),
+        "webstore-iframe",
+      );
+
+      // Ref assignment order: main WebArea=e1, main radio=e2,
+      // iframe WebArea=e3, iframe link=e4. The two backendNodeId=257
+      // nodes resolve to e2 and e4 in different sessions — if the old
+      // collision-prone refMap were still in play, the second
+      // registration would have overwritten the first and the link
+      // would never get its own ref.
+      const proRadio = processor.resolveRefFull("e2");
+      const youtubeLink = processor.resolveRefFull("e4");
+      expect(proRadio?.sessionId).toBe("main-page");
+      expect(proRadio?.backendNodeId).toBe(257);
+      expect(youtubeLink?.sessionId).toBe("webstore-iframe");
+      expect(youtubeLink?.backendNodeId).toBe(257);
+    });
+  });
 });

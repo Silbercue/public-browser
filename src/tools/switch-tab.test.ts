@@ -436,6 +436,65 @@ describe("switchTabHandler — action: switch", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("Tab not found: 5");
   });
+
+  // BUG-017: switch_tab must reset the a11y cache so refs from the
+  // previous tab cannot silently resolve into the new tab's document.
+  // Before this fix, refs survived tab switches and the LLM could type
+  // into wildly wrong elements without any error. The test seeds the
+  // cache via a synthetic a11y tree, runs switch_tab, and asserts the
+  // cache is empty afterwards.
+  it("BUG-017: resets a11y-cache refs after a successful switch", async () => {
+    const { a11yTree } = await import("../cache/a11y-tree.js");
+
+    // Seed a11y cache for the old tab using a tiny mock CDP. We drive
+    // getTree directly rather than through a real CDP attach — this
+    // test is about the cache reset, not the CDP plumbing.
+    const seedCdp = {
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: "https://old-tab.example" } };
+        if (method === "Accessibility.getFullAXTree") {
+          return {
+            nodes: [
+              { nodeId: "1", ignored: false, role: { type: "role", value: "WebArea" }, backendDOMNodeId: 1, childIds: ["2"] },
+              { nodeId: "2", ignored: false, parentId: "1", role: { type: "role", value: "button" }, name: { type: "computedString", value: "Old" }, backendDOMNodeId: 42 },
+            ],
+          };
+        }
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    a11yTree.reset();
+    await a11yTree.getTree(seedCdp, "session-old");
+    expect(a11yTree.hasRefs()).toBe(true);
+    expect(a11yTree.resolveRef("e2")).toBe(42);
+
+    // Now run the actual switch — activateSession should invalidate
+    // the cache as part of its session handover.
+    const { cdpClient } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const onSessionChange = vi.fn();
+
+    const result = await switchTabHandler(
+      { action: "switch", tab: "T2" },
+      cdpClient,
+      "session-old",
+      cache,
+      onSessionChange,
+    );
+
+    expect(result.isError).toBeUndefined();
+    // BUG-017 core assertion: the cache must be empty after the switch,
+    // so the LLM gets fresh refs on its next read_page call and cannot
+    // reuse stale refs from the old tab.
+    expect(a11yTree.hasRefs()).toBe(false);
+    expect(a11yTree.resolveRef("e2")).toBeUndefined();
+    expect(a11yTree.resolveRefFull("e2")).toBeUndefined();
+  });
 });
 
 describe("switchTabHandler — action: close", () => {

@@ -40,6 +40,9 @@ Bugs, Verbesserungen und offene Punkte die waehrend der Arbeit entdeckt, aber ni
 | FR-016 | GEFIXT | Stale-Ref Leaf-Node Heuristik-Warnung in read_page |
 | FR-017 | GEFIXT | press_key ref/selector Parameter fuer Target-Focus |
 | BUG-015 | GEFIXT | setFocusEmulationEnabled + CDPScreenshotNewSurface (Dual-Layer Anti-Occlusion) |
+| BUG-016 | GEFIXT | Cross-OOPIF/Tab Ref-Collision in a11y-tree.ts (Composite-Key refMap) |
+| BUG-017 | GEFIXT | switch_tab laesst stale refs im Cache (reset in activateSession) |
+| BUG-018 | MITIGATED | LLM "Defensive Fallback Spiral" zu evaluate (per-session Streak-Detector + Fail-Hints) |
 
 ---
 
@@ -828,3 +831,103 @@ Dual-Layer-Ansatz basierend auf Deep Research des Chromium-Quellcodes:
 2. **`--enable-features=CDPScreenshotNewSurface`** — Chrome-Launch-Flag. Erzeugt neuen Compositor Surface pro Screenshot (`ForceRedraw` + `RequestRepaintOnNewSurface` + `CopyFromSurface`), umgeht Screen-Praesentation. Implementiert in `chrome-launcher.ts` CHROME_FLAGS.
 
 Vollstaendiger Forschungsbericht: `docs/bug-015-screenshot-occlusion.md`
+
+---
+
+## BUG-016: Cross-OOPIF/Tab Ref-Collision in a11y-tree.ts
+
+**Entdeckt:** 2026-04-08 (Benchmark Session 6dd8f7d3 — Free Run 4, @silbercue/chrome@0.2.0)
+**Schwere:** P1 — Hoch (silent-wrong click auf falsches Element)
+**Betrifft:** `src/cache/a11y-tree.ts`, `src/tools/element-utils.ts`
+**Status:** GEFIXT (2026-04-08)
+
+### Problem
+Der Assistant klickte bei T2.5 "Tab Management" auf ein Element im Chrome-Webstore-iframe statt auf das beabsichtigte "Pro"-Radio-Button. Die Refs `e257` zeigten in zwei Sessions gleichzeitig auf unterschiedliche Elemente. Die `type`-Call landete im falschen Element, T2.5 schlug fehl, und der LLM wechselte auf evaluate als Defensiv-Fallback (siehe BUG-018).
+
+### Root Cause
+`src/cache/a11y-tree.ts:231` nutzte eine globale `refMap: Map<number, number>` mit `backendDOMNodeId` als Key. Via Context7-Recherche (WICG + Chromium Groups): **"BackendNodeIds are unique per-process — duplicate ids across different render processes are possible"**. Out-of-Process iframes (OOPIFs) und neue Tabs laufen in separaten Renderer-Prozessen mit eigenem Namespace. Die zweite `registerNode(42, "oopif-session")` ueberschrieb den Main-Frame-Eintrag leise.
+
+Der Linear-Scan in `SessionManager.getSessionForNode()` lieferte dann die **erste** Session, die die backendNodeId tracked — unter Kollision die falsche.
+
+### Fix (atomic commit)
+
+1. **refMap auf Composite-Key** (`a11y-tree.ts:231`): `Map<string, number>` mit Key `${sessionId}:${backendNodeId}`. `nextRef` bleibt global, sodass Refs `e1, e2, ...` weiter einzigartig im User-Output sind.
+2. **reverseMap mit Owner-Tupel**: Value-Typ `{ backendNodeId: number, sessionId: string }` statt nur `number`. Der Lookup liefert in einem Schritt die richtige Session.
+3. **Neue Methode `resolveRefFull(ref)`**: zentraler Lookup, eliminiert den SessionManager-Linear-Scan in der Hot-Path. `resolveRef(ref)` bleibt backward-compat als Wrapper.
+4. **`_renderSessionId` Instance-Variable**: Wird vor/nach jedem Render-Pass (main + OOPIF) gesetzt via `try/finally`, sodass ~6 Render-Helper (`renderNode`, `renderNodeDownsampled`, `prepareAggregateGroups`, `isRenderableLeaf`) ihre refMap-Lookups ohne Signatur-Aenderung machen koennen.
+5. **`getSubtree` routing**: Zieht jetzt die richtige Frame-Node-Liste basierend auf `full.sessionId`, anstatt eine kollisions-faehige `combinedNodeMap` ueber alle Frames zu bauen. (Codex-Review Finding #4)
+6. **`removeNodesForSession` safe cleanup**: Prueft `_isBackendNodeIdUsedByOtherSessions` bevor `nodeInfoMap`-Eintraege geloescht werden.
+7. **`element-utils.resolveElement`** nutzt `resolveRefFull` und eliminiert den Session-Lookup via `getSessionForNode`.
+
+### Coverage
+- 4 neue Tests in `src/cache/a11y-tree.test.ts > BUG-016` (Cross-Session-Isolation, OOPIF-Detach-Survival, switch_tab-Reset, Subtree-Routing).
+- 1 neuer Test in `src/tools/element-utils.test.ts` fuer resolveElement mit OOPIF-Session-Routing.
+- Bestehende 1100+ Tests bleiben gruen (Backward-compat via `resolveRef` + Linear-Scan-Fallback in `refLookup`).
+
+### Verifikation
+`npm run build && npm test` gruen. Manueller Smoke-Test der T2.5-Szene gegen `test-hardest/` steht aus (pending Smoke-Test-Phase).
+
+---
+
+## BUG-017: switch_tab laesst stale refs im Cache
+
+**Entdeckt:** 2026-04-08 (zusammen mit BUG-016 in Session 6dd8f7d3)
+**Schwere:** P2 — Mittel (stumme Wrong-Resolution nach Tab-Wechsel)
+**Betrifft:** `src/tools/switch-tab.ts`, `src/cache/a11y-tree.ts`
+**Status:** GEFIXT (2026-04-08)
+
+### Problem
+Nach `switch_tab` blieb die `refMap` im A11y-Cache unveraendert, weil `reset()` nur auf URL-Aenderung getriggert wurde. Refs aus dem vorherigen Tab konnten still-falsch aufgeloest werden, sodass `click(ref: "e5")` im neuen Tab auf ein komplett anderes Element landete.
+
+Der existierende `STALE_REFS_HINT` in `switch-tab.ts:90-91` war appended, aber nicht wahrheitsgemaess — die Refs waren trotz Hint weiter "verwendbar".
+
+### Fix
+`src/tools/switch-tab.ts` `activateSession()` ruft nach dem Session-Handover, vor der Overlay-Injection: `a11yTree.reset()`. Loescht alle Refs, refMap, reverseMap, sessionNodeMap, nodeInfoMap und `_renderSessionId`. Der naechste `read_page`-Call baut eine frische Ref-Tabelle.
+
+Der `STALE_REFS_HINT` bleibt aktiv und ist jetzt erstmals wahrheitsgemaess.
+
+### Coverage
+Neuer Test in `src/tools/switch-tab.test.ts`: "BUG-017: resets a11y-cache refs after a successful switch" — seedet Refs unter einer Session, ruft switch_tab auf, assertiert dass `a11yTree.hasRefs()` false und `resolveRef("e2")` undefined ist.
+
+### Known Limitation
+`a11yTree.reset()` loescht ALLE Refs aller Sessions, nicht nur die des alten Tabs. OOPIFs in anderen Tabs verlieren ihre Refs und muessen per `read_page` neu geladen werden. Akzeptabel fuer V1 — Tab-isolierter Cache ist ein separater Refactor (codex-Review Finding #5, deferred).
+
+---
+
+## BUG-018: LLM Defensive Fallback Spiral zu evaluate
+
+**Entdeckt:** 2026-04-08 (Session 6dd8f7d3, Follow-up von BUG-016)
+**Schwere:** P1 — Hoch (20+ verschwendete Tool-Calls pro Spiral-Episode)
+**Betrifft:** Tool-Descriptions in `src/registry.ts`, `src/tools/element-utils.ts`, neue Telemetry
+**Status:** MITIGATED (2026-04-08, nicht "GEFIXT" weil Behavioral, nicht Code-Bug)
+
+### Problem
+Nach einem einzigen Tool-Fehlschlag (Stale-Ref wegen BUG-016) wechselte der LLM fuer ~20 Folge-Calls komplett auf `evaluate(querySelector+click())` — selbst wenn `click`/`type`/`fill_form` danach problemlos funktioniert haetten. Das Muster: Single Fail → "Learned Helplessness" → Defensiv-Workaround via JS.
+
+Konkret in Session 6dd8f7d3: T2.5 fail → T2.6 durch T4.6 alle per evaluate, bis User manuell intervenierte.
+
+### Fix (3-schichtig)
+
+**Schicht 1 — Tool-Description Anti-Fluchtreflex-Hints** (`src/registry.ts`):
+- `click`, `type`, `fill_form`: "If X fails with stale-ref, call read_page for fresh refs. Avoid evaluate(querySelector) as default recovery ..."
+- `switch_tab`: "After switching, refs from the previous tab are invalid — call read_page FIRST ..."
+- `evaluate`: "Good uses: computation, reading values, shadow-root traversal. Bad use: automatic recovery after click/type/fill_form failure ..."
+
+Codex-Review Follow-ups: absolute "DO NOT" zu "Avoid ... as default recovery" abgeschwaecht, legitime Exceptions explizit erlaubt ("Legitimate exception: tests explicitly targeting synthetic event plumbing").
+
+**Schicht 2 — zentraler Fail-Recovery-Hint in `buildRefNotFoundError`** (`src/tools/element-utils.ts`):
+`click`, `type`, `fill_form` rufen alle `buildRefNotFoundError` bei Stale-Refs auf. Der Error-String empfiehlt `read_page` fuer fresh refs und warnt explizit vor evaluate-Workarounds.
+
+**Schicht 3 — Cross-Tool Streak-Detector** (`src/telemetry/tool-sequence.ts`):
+Neue `ToolSequenceTracker`-Klasse, session-scoped (Story 7.6 parallele Tab-Gruppen sicher). Trackt consecutive `evaluate` calls mit querySelector-Pattern. Bei 3+ im 60s-Fenster: Response-Hint "Warning: N consecutive querySelector-based evaluate calls. Call read_page once for fresh refs ...".
+Erfolgreicher `read_page`/`click`/`type`/`fill_form` resettet die Streak implizit (per-session).
+
+### Coverage
+- 26 Unit-Tests in `src/telemetry/tool-sequence.test.ts` (inkl. 5 Session-Scoping Tests).
+- Snapshot-Tests fuer Description-Strings in `src/registry.test.ts` (regex-basiert).
+- Manueller Smoke-Test (Session-Replay) steht aus.
+
+### Known Limitations
+- **Silent-Success-Reset**: Ein click ohne wirksamen DOM-Effekt resettet die Streak (codex-Review Finding #2 Commit 2). Akzeptabel fuer V1 — echte Silent-Successes sind selten, und `detectEvaluateAntiPattern` faengt die meisten Anti-Patterns ohnehin ab.
+- **querySelector Regex-Heuristik**: False-Positives bei String-Literalen mit `querySelector(`; False-Negatives bei `document['querySelector'](...)` oder Aliasing. Explizit dokumentiert in `tool-sequence.ts` und `tool-sequence.test.ts`.
+- **Backward-compat Linear-Scan in `refLookup`**: Wenn weder sessionId noch `_renderSessionId` gesetzt ist, faellt der Lookup auf linearen Scan zurueck. Kollisionsrisiko minimal, weil alle kritischen CDP-Callsites jetzt `resolveRefFull` nutzen. Codex-Review Finding #2 Commit 3 — deferred fuer spaeteres Hardening.
