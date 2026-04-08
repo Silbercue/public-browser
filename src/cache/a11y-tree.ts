@@ -1629,6 +1629,118 @@ export class A11yTreeProcessor {
     this.renderChildren(node, nodeMap, nextIndent, filter, lines, visualMap);
   }
 
+  /**
+   * Ticket-1 / Token-Aggregation: minimum number of consecutive same-class
+   * sibling leaf elements before they are collapsed into a single line.
+   * Set to 10 so we never aggregate small/medium lists (button bars, nav
+   * menus, dialog actions) but reliably catch large generated lists like
+   * the 240-button benchmark page.
+   */
+  private static readonly AGGREGATE_MIN_COUNT = 10;
+
+  /**
+   * Ticket-1: Build a stable aggregation key for a leaf element. Two
+   * sibling leaves share an aggregation class iff their keys are equal:
+   *
+   *   - Identical role.
+   *   - Either an identical name (e.g. 50× "Submit") OR an identical
+   *     name prefix once a trailing run of digits is stripped
+   *     (e.g. "Action 1" / "Action 240" → key "button::Action ").
+   *
+   * Returns null when the element shouldn't participate in aggregation
+   * (no role at all). Empty/missing names are treated as their own key
+   * so unnamed buttons within a row still group together.
+   */
+  private aggregationKey(role: string, name: string): string | null {
+    if (!role) return null;
+    if (!name) return `${role}::`;
+    const m = name.match(/^(.+?)(\d+)$/);
+    if (m) return `${role}::${m[1]}`;
+    return `${role}::${name}`;
+  }
+
+  /**
+   * Ticket-1: A child is a "renderable leaf" for aggregation purposes if
+   * it would emit exactly one line under the current filter and carries
+   * no descendants that would also render. We only need to look one level
+   * deep — text wrappers like <span> / <strong> inside a <button> are
+   * either ignored or non-interactive and never produce their own line.
+   */
+  private isRenderableLeaf(
+    node: AXNode,
+    nodeMap: Map<string, AXNode>,
+    filter: string,
+  ): boolean {
+    if (node.ignored) return false;
+    if (node.backendDOMNodeId === undefined) return false;
+    if (this.refMap.get(node.backendDOMNodeId) === undefined) return false;
+    const role = this.getRole(node);
+    if (!this.passesFilter(node, role, filter)) return false;
+    if (!node.childIds || node.childIds.length === 0) return true;
+    for (const childId of node.childIds) {
+      const child = nodeMap.get(childId);
+      if (!child || child.ignored) continue;
+      if (child.backendDOMNodeId === undefined) continue;
+      const childRole = this.getRole(child);
+      if (this.passesFilter(child, childRole, filter)) {
+        // The child would render its own line → parent is not a leaf.
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Ticket-1: Try to emit an aggregate line for a run of consecutive
+   * sibling leaves starting at `startIdx`. Returns the number of children
+   * consumed (0 if no aggregation happened). The caller advances by the
+   * returned amount. Aggregation never produces output longer than the
+   * individual lines because the threshold guarantees ≥10 collapsed lines.
+   */
+  private tryAggregateSiblingRun(
+    childIds: string[],
+    startIdx: number,
+    nodeMap: Map<string, AXNode>,
+    indentLevel: number,
+    filter: string,
+    lines: string[],
+  ): number {
+    const firstChild = nodeMap.get(childIds[startIdx]);
+    if (!firstChild || !this.isRenderableLeaf(firstChild, nodeMap, filter)) return 0;
+
+    const role = this.getRole(firstChild);
+    const firstName = (firstChild.name?.value as string | undefined) ?? "";
+    const key = this.aggregationKey(role, firstName);
+    if (key === null) return 0;
+
+    let runLength = 1;
+    while (startIdx + runLength < childIds.length) {
+      const sibling = nodeMap.get(childIds[startIdx + runLength]);
+      if (!sibling) break;
+      if (!this.isRenderableLeaf(sibling, nodeMap, filter)) break;
+      const sibName = (sibling.name?.value as string | undefined) ?? "";
+      if (this.aggregationKey(this.getRole(sibling), sibName) !== key) break;
+      runLength++;
+    }
+
+    if (runLength < A11yTreeProcessor.AGGREGATE_MIN_COUNT) return 0;
+
+    const lastSibling = nodeMap.get(childIds[startIdx + runLength - 1])!;
+    const firstRef = this.refMap.get(firstChild.backendDOMNodeId!)!;
+    const lastRef = this.refMap.get(lastSibling.backendDOMNodeId!)!;
+    const lastName = (lastSibling.name?.value as string | undefined) ?? "";
+
+    const indent = "  ".repeat(indentLevel);
+    let line = `${indent}[e${firstRef}..e${lastRef}] ${runLength}× ${role}`;
+    if (firstName && lastName && firstName !== lastName) {
+      line += ` "${firstName}" .. "${lastName}"`;
+    } else if (firstName) {
+      line += ` "${firstName}"`;
+    }
+    lines.push(line);
+    return runLength;
+  }
+
   private renderChildren(
     node: AXNode,
     nodeMap: Map<string, AXNode>,
@@ -1638,11 +1750,30 @@ export class A11yTreeProcessor {
     visualMap?: Map<number, VisualInfo>,
   ): void {
     if (!node.childIds) return;
-    for (const childId of node.childIds) {
-      const child = nodeMap.get(childId);
+    const childIds = node.childIds;
+    let i = 0;
+    while (i < childIds.length) {
+      // Ticket-1: Try to fold a run of similar leaf siblings into one line
+      // before falling back to per-child rendering. Aggregation only kicks in
+      // for ≥10 consecutive matches, so the typical small-list case is
+      // unaffected.
+      const consumed = this.tryAggregateSiblingRun(
+        childIds,
+        i,
+        nodeMap,
+        indentLevel,
+        filter,
+        lines,
+      );
+      if (consumed > 0) {
+        i += consumed;
+        continue;
+      }
+      const child = nodeMap.get(childIds[i]);
       if (child) {
         this.renderNode(child, nodeMap, indentLevel, filter, lines, visualMap);
       }
+      i++;
     }
   }
 
