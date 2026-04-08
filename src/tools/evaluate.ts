@@ -3,6 +3,11 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { ToolResponse } from "../types.js";
 import { wrapCdpError } from "./error-utils.js";
 import { getProHooks } from "../hooks/pro-hooks.js";
+import {
+  FLAG_QUERY_SELECTOR,
+  hasQuerySelectorPattern,
+  toolSequence,
+} from "../telemetry/tool-sequence.js";
 
 /**
  * Detects top-level const/let/class declarations and wraps the expression in
@@ -242,7 +247,20 @@ export async function evaluateHandler(
     // LLM learns better defaults over time. The result stays correct — this is
     // a "what you did isn't wrong, but there's a better tool" nudge.
     const antiPatternHint = detectEvaluateAntiPattern(params.expression);
-    const textWithHint = antiPatternHint ? text + antiPatternHint : text;
+
+    // BUG-018: Anti-Spiral telemetry — record the call BEFORE reading the
+    // streak so the current call is part of the count. Flag the event when
+    // the expression contains a DOM-query pattern typical of route-around
+    // workarounds after a tool failure. Session-scoped so parallel tab
+    // groups (Story 7.6) don't contaminate each other.
+    const qsFlag = hasQuerySelectorPattern(params.expression)
+      ? new Set([FLAG_QUERY_SELECTOR])
+      : undefined;
+    toolSequence.record("evaluate", qsFlag, sessionId);
+    const streakHint = toolSequence.maybeEvaluateStreakHint(sessionId);
+
+    const textWithHint =
+      text + (antiPatternHint ?? "") + (streakHint ?? "");
 
     const baseResult: ToolResponse = {
       content: [{ type: "text", text: textWithHint }],

@@ -4,6 +4,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { a11yTree, RefNotFoundError } from "../cache/a11y-tree.js";
 import { wrapCdpError } from "./error-utils.js";
+import { toolSequence } from "../telemetry/tool-sequence.js";
 
 export const readPageSchema = z.object({
   depth: z.number().optional().default(3).describe("Nesting depth — how many tree levels to display (default: 3). Controls indentation, not visibility. Hidden sections (display: none) require clicking tabs/buttons to reveal."),
@@ -87,6 +88,11 @@ export async function readPageHandler(
     }
 
     const elapsedMs = Math.round(performance.now() - start);
+
+    // BUG-018: Anti-Spiral telemetry — successful read_page resets the
+    // evaluate-streak counter (per session) so a healthy workflow
+    // (evaluate → oops → read_page → click) never triggers the nudge.
+    toolSequence.record("read_page", undefined, sessionId);
 
     return {
       content: [{ type: "text", text: responseText }],
