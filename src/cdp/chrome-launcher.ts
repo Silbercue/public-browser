@@ -25,6 +25,19 @@ export interface ChromeConnectionOptions {
   headless?: boolean;
   /** Pfad zu einem echten Chrome-Profil (user-data-dir). Opt-in: nur gesetzt = aktiv. */
   profilePath?: string;
+  /**
+   * Whether ChromeConnection should attempt a background reconnect loop
+   * when the CDP transport closes or the Chrome child process exits.
+   *
+   * - `true` (default) — legacy behaviour: 5 retry attempts with exponential
+   *   backoff, fired automatically from the onClose handler.
+   * - `false` — no background retries. Disconnect only flips `status` to
+   *   `"disconnected"` and the next caller (typically `BrowserSession.
+   *   ensureReady()`) is responsible for recovery. This is the mode used
+   *   by the lazy-launch architecture to avoid racing with its own
+   *   smart-retry policy.
+   */
+  autoReconnect?: boolean;
 }
 
 export interface LaunchOptions {
@@ -308,6 +321,7 @@ export class ChromeConnection {
   private readonly _headless: boolean;
   private readonly _port: number;
   private readonly _profilePath: string | undefined;
+  private readonly _autoReconnect: boolean;
 
   constructor(
     cdpClient: CdpClient,
@@ -319,6 +333,7 @@ export class ChromeConnection {
     port?: number,
     headless?: boolean,
     profilePath?: string,
+    autoReconnect?: boolean,
   ) {
     this._cdpClient = cdpClient;
     this._transport = transport;
@@ -327,6 +342,9 @@ export class ChromeConnection {
     this._port = port ?? 9222;
     this._headless = headless ?? false;
     this._profilePath = profilePath;
+    // Default to true for legacy callers (chrome-launcher.test.ts still
+    // exercises the background-retry path). BrowserSession passes `false`.
+    this._autoReconnect = autoReconnect ?? true;
 
     // C1 fix: Passive status tracking via CdpClient.onClose —
     // detects unexpected transport close (WebSocket drop, pipe break)
@@ -509,13 +527,15 @@ export class ChromeConnection {
   }
 
   /** Register onClose callback on a CdpClient to trigger reconnect on unexpected disconnect.
-   *  BUG-004 fix: fired-flag prevents handler accumulation across reconnect attempts. */
+   *  BUG-004 fix: fired-flag prevents handler accumulation across reconnect attempts.
+   *  Lazy-launch refactor: background reconnect is skipped when autoReconnect is false. */
   private _setupOnClose(client: CdpClient): void {
     let fired = false;
     client.onClose(() => {
       if (fired || this._closed) return;
       fired = true;
       this.status = "disconnected";
+      if (!this._autoReconnect) return;
       // Fire-and-forget reconnect
       this.reconnect().catch((err) => {
         debug("Reconnect error: %s", err instanceof Error ? err.message : String(err));
@@ -525,10 +545,11 @@ export class ChromeConnection {
 
   /** Setup child process exit handler and global exit cleanup */
   private _setupChildProcessHandlers(child: ChildProcess): void {
-    // Track status on child process exit + trigger reconnect
+    // Track status on child process exit + (optionally) trigger reconnect.
     child.on("exit", () => {
       if (this._closed) return; // deliberate shutdown
       this.status = "disconnected";
+      if (!this._autoReconnect) return;
       debug("Chrome process exited, attempting relaunch...");
       this.reconnect().catch((err) => {
         debug("Reconnect after crash error: %s", err instanceof Error ? err.message : String(err));
@@ -551,12 +572,27 @@ export class ChromeLauncher {
   private readonly _autoLaunch: boolean;
   private readonly _headless: boolean;
   private readonly _profilePath: string | undefined;
+  private readonly _autoReconnect: boolean;
 
   constructor(options?: ChromeConnectionOptions) {
     this._port = options?.port ?? 9222;
     this._autoLaunch = options?.autoLaunch ?? true;
     this._headless = options?.headless ?? false;
     this._profilePath = options?.profilePath;
+    this._autoReconnect = options?.autoReconnect ?? true;
+  }
+
+  /**
+   * WebSocket-only connect — probiert ausschliesslich den existierenden
+   * Chrome auf Port 9222 zu erreichen. Faellt NICHT auf Auto-Launch zurueck.
+   *
+   * Wird vom BrowserSession-Retry-Loop genutzt, wenn wir nach einem
+   * Verbindungsverlust versuchen, dieselbe Chrome-Instanz wieder zu erwischen
+   * (statt eine frische zu launchen und damit die User-Session zu verlieren).
+   */
+  async connectToExistingChrome(): Promise<ChromeConnection> {
+    debug("Trying WebSocket-only on port %d...", this._port);
+    return this._connectViaWebSocket(this._port);
   }
 
   async connect(): Promise<ChromeConnection> {
@@ -598,6 +634,7 @@ export class ChromeLauncher {
       this._port,
       this._headless,
       this._profilePath,
+      this._autoReconnect,
     );
 
     debug("Connected via pipe");
@@ -646,6 +683,8 @@ export class ChromeLauncher {
       this,
       port,
       detectedHeadless,
+      undefined, // profilePath ignored for WebSocket path
+      this._autoReconnect,
     );
   }
 }
