@@ -176,7 +176,7 @@ describe("runPlanHandler — use_operator:true returns Pro-Feature error (Story 
     expect(text).toContain("use_operator");
     expect(text).toContain("Pro feature");
     // Must NOT be the mode-validation error message
-    expect(text).not.toContain("Eines von 'steps', 'parallel' oder 'resume' muss angegeben werden");
+    expect(text).not.toContain("One of 'steps', 'parallel', or 'resume' must be provided");
   });
 });
 
@@ -201,7 +201,7 @@ describe("runPlanHandler — Suspend/Resume (Story 6.5)", () => {
     expect(result).toBeDefined();
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Eines von 'steps', 'parallel' oder 'resume' muss angegeben werden");
+    expect(text).toContain("One of 'steps', 'parallel', or 'resume' must be provided");
   });
 
   it("returns error when resume has unknown planId", async () => {
@@ -215,7 +215,7 @@ describe("runPlanHandler — Suspend/Resume (Story 6.5)", () => {
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Plan abgelaufen oder nicht gefunden");
+    expect(text).toContain("Plan expired or not found");
   });
 
   it("returns error when resume called without stateStore", async () => {
@@ -228,7 +228,7 @@ describe("runPlanHandler — Suspend/Resume (Story 6.5)", () => {
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Resume nicht verfuegbar");
+    expect(text).toContain("Resume not available");
   });
 
   it("suspend returns SuspendedPlanResponse through runPlanHandler", async () => {
@@ -304,7 +304,7 @@ describe("runPlanHandler — Suspend/Resume (Story 6.5)", () => {
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Nur eines von 'steps', 'parallel' oder 'resume' angeben");
+    expect(text).toContain("Only one of 'steps', 'parallel', or 'resume' may be provided");
   });
 
 });
@@ -531,7 +531,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Nur eines von 'steps', 'parallel' oder 'resume' angeben");
+    expect(text).toContain("Only one of 'steps', 'parallel', or 'resume' may be provided");
   });
 
   it("parallel and resume simultaneously returns error", async () => {
@@ -545,7 +545,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Nur eines von 'steps', 'parallel' oder 'resume' angeben");
+    expect(text).toContain("Only one of 'steps', 'parallel', or 'resume' may be provided");
   });
 
   it("parallel without Pro license returns feature-gate error", async () => {
@@ -593,7 +593,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("parallel darf nicht leer sein");
+    expect(text).toContain("parallel must not be empty");
   });
 
   it("parallel without deps returns error", async () => {
@@ -607,7 +607,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Parallel-Ausfuehrung benoetigt CDP-Verbindung");
+    expect(text).toContain("Parallel execution requires a CDP connection");
   });
 
   // --- Story 15.4: executeParallel Hook delegation ---
@@ -724,7 +724,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
     // muss runPlanHandler sie unveraendert weiterreichen — kein Wrapping,
     // kein Verlust der _meta-Daten.
     const hookErrorResponse: ToolResponse = {
-      content: [{ type: "text", text: "Tab xyz konnte nicht geoeffnet werden" }],
+      content: [{ type: "text", text: "Tab xyz could not be opened" }],
       isError: true,
       _meta: { elapsedMs: 17, method: "run_plan", parallel: true, tabGroups: 1 },
     };

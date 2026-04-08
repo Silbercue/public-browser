@@ -56,7 +56,7 @@ export interface SuspendedPlanResponse {
 /** executePlan kann jetzt entweder ToolResponse oder SuspendedPlanResponse zurueckgeben */
 export type PlanExecutionResult = ToolResponse | SuspendedPlanResponse;
 
-const DEFAULT_SUSPEND_QUESTION = "Plan pausiert -- Bedingung erfuellt. Wie fortfahren?";
+const DEFAULT_SUSPEND_QUESTION = "Plan paused -- condition met. How should we proceed?";
 
 export async function executePlan(
   steps: PlanStep[],

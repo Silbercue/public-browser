@@ -89,7 +89,7 @@ export async function runPlanHandler(
   const modeCount = [params.steps, params.parallel, params.resume].filter(Boolean).length;
   if (modeCount > 1) {
     return {
-      content: [{ type: "text", text: "Nur eines von 'steps', 'parallel' oder 'resume' angeben" }],
+      content: [{ type: "text", text: "Only one of 'steps', 'parallel', or 'resume' may be provided" }],
       isError: true,
       _meta: { elapsedMs: 0, method: "run_plan" },
     };
@@ -97,7 +97,7 @@ export async function runPlanHandler(
 
   if (modeCount === 0) {
     return {
-      content: [{ type: "text", text: "Eines von 'steps', 'parallel' oder 'resume' muss angegeben werden" }],
+      content: [{ type: "text", text: "One of 'steps', 'parallel', or 'resume' must be provided" }],
       isError: true,
       _meta: { elapsedMs: 0, method: "run_plan" },
     };
@@ -120,7 +120,7 @@ export async function runPlanHandler(
 
     if (params.parallel.length === 0) {
       return {
-        content: [{ type: "text", text: "parallel darf nicht leer sein" }],
+        content: [{ type: "text", text: "parallel must not be empty" }],
         isError: true,
         _meta: { elapsedMs: 0, method: "run_plan" },
       };
@@ -128,7 +128,7 @@ export async function runPlanHandler(
 
     if (!deps) {
       return {
-        content: [{ type: "text", text: "Parallel-Ausfuehrung benoetigt CDP-Verbindung" }],
+        content: [{ type: "text", text: "Parallel execution requires a CDP connection" }],
         isError: true,
         _meta: { elapsedMs: 0, method: "run_plan" },
       };
@@ -204,7 +204,7 @@ export async function runPlanHandler(
   if (params.resume) {
     if (!stateStore) {
       return {
-        content: [{ type: "text", text: "Resume nicht verfuegbar: kein PlanStateStore konfiguriert" }],
+        content: [{ type: "text", text: "Resume not available: no PlanStateStore configured" }],
         isError: true,
         _meta: { elapsedMs: 0, method: "run_plan" },
       };
@@ -212,7 +212,7 @@ export async function runPlanHandler(
     const suspended = stateStore.resume(params.resume.planId);
     if (!suspended) {
       return {
-        content: [{ type: "text", text: "Plan abgelaufen oder nicht gefunden" }],
+        content: [{ type: "text", text: "Plan expired or not found" }],
         isError: true,
         _meta: { elapsedMs: 0, method: "run_plan" },
       };

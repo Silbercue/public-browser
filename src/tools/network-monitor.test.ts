@@ -139,7 +139,7 @@ describe("networkMonitorHandler", () => {
 
     expect(result.isError).toBe(true);
     expect((result.content[0] as { text: string }).text).toContain(
-      "Network-Monitoring nicht aktiv",
+      "Network monitoring is not active",
     );
   });
 

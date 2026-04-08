@@ -68,7 +68,7 @@ export async function fileUploadHandler(
         content: [
           {
             type: "text",
-            text: `Relativer Pfad nicht erlaubt: "${filePath}". Bitte absoluten Pfad verwenden (z.B. /Users/…/datei.pdf).`,
+            text: `Relative path not allowed: "${filePath}". Please use an absolute path (e.g. /Users/…/file.pdf).`,
           },
         ],
         isError: true,
@@ -85,7 +85,7 @@ export async function fileUploadHandler(
         content: [
           {
             type: "text",
-            text: `Datei nicht gefunden: ${filePath}`,
+            text: `File not found: ${filePath}`,
           },
         ],
         isError: true,
@@ -130,9 +130,9 @@ export async function fileUploadHandler(
       );
 
       const elapsedMs = Math.round(performance.now() - start);
-      let errorText = `Element ${params.ref ?? params.selector} ist kein File-Input (${tagName.toLowerCase()} ${inputType || ""}).`;
+      let errorText = `Element ${params.ref ?? params.selector} is not a file input (${tagName.toLowerCase()} ${inputType || ""}).`;
       if (hint.result.value) {
-        errorText += ` Naechstes File-Input im DOM: ${hint.result.value}`;
+        errorText += ` Nearest file input in DOM: ${hint.result.value}`;
       }
       return {
         content: [{ type: "text", text: errorText.trimEnd() }],
@@ -159,7 +159,7 @@ export async function fileUploadHandler(
           content: [
             {
               type: "text",
-              text: "File-Input akzeptiert keine mehrfachen Dateien (multiple nicht gesetzt). Nur eine Datei hochladen.",
+              text: "File input does not accept multiple files (multiple attribute not set). Upload only one file.",
             },
           ],
           isError: true,

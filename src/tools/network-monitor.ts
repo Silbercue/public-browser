@@ -37,7 +37,7 @@ export async function networkMonitorHandler(
   if (params.action === "get") {
     if (!networkCollector.isMonitoring) {
       return {
-        content: [{ type: "text", text: "Network-Monitoring nicht aktiv — starte mit action: 'start'" }],
+        content: [{ type: "text", text: "Network monitoring is not active — start it with action: 'start'" }],
         isError: true,
         _meta: { elapsedMs: Math.round(performance.now() - start), method: "network_monitor" },
       };

@@ -214,7 +214,7 @@ describe("fileUploadHandler", () => {
     expect(result.content[0]).toEqual(
       expect.objectContaining({
         type: "text",
-        text: "Datei nicht gefunden: /tmp/test.pdf",
+        text: "File not found: /tmp/test.pdf",
       }),
     );
     expect(result._meta?.method).toBe("file_upload");
@@ -235,7 +235,7 @@ describe("fileUploadHandler", () => {
     expect(result.content[0]).toEqual(
       expect.objectContaining({
         type: "text",
-        text: "Datei nicht gefunden: /tmp/missing.pdf",
+        text: "File not found: /tmp/missing.pdf",
       }),
     );
     // Upload should NOT have been executed
@@ -399,7 +399,7 @@ describe("fileUploadHandler", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain("kein File-Input");
+    expect((result.content[0] as { text: string }).text).toContain("is not a file input");
     expect((result.content[0] as { text: string }).text).toContain("div");
   });
 
@@ -419,7 +419,7 @@ describe("fileUploadHandler", () => {
 
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("kein File-Input");
+    expect(text).toContain("is not a file input");
     expect(text).toContain("document-upload");
   });
 
@@ -516,9 +516,9 @@ describe("fileUploadHandler", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain("Relativer Pfad nicht erlaubt");
+    expect((result.content[0] as { text: string }).text).toContain("Relative path not allowed");
     expect((result.content[0] as { text: string }).text).toContain("relative/test.pdf");
-    expect((result.content[0] as { text: string }).text).toContain("absoluten Pfad");
+    expect((result.content[0] as { text: string }).text).toContain("absolute path");
   });
 
   it("returns error for relative path in array", async () => {
@@ -531,7 +531,7 @@ describe("fileUploadHandler", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain("Relativer Pfad nicht erlaubt");
+    expect((result.content[0] as { text: string }).text).toContain("Relative path not allowed");
     expect((result.content[0] as { text: string }).text).toContain("docs/relative.pdf");
   });
 });

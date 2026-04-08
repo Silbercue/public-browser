@@ -823,7 +823,7 @@ describe("executePlan — Pre-Suspend (Story 6.5)", () => {
 
     expect(isSuspended(result)).toBe(true);
     if (!isSuspended(result)) throw new Error("Expected suspended");
-    expect(result.question).toBe("Plan pausiert -- Bedingung erfuellt. Wie fortfahren?");
+    expect(result.question).toBe("Plan paused -- condition met. How should we proceed?");
   });
 });
 
@@ -855,7 +855,7 @@ describe("executePlan — Post-Suspend / Condition (Story 6.5)", () => {
     // Completed steps includes the executed step
     expect(result.completedSteps).toHaveLength(1);
     expect(result.completedSteps[0].tool).toBe("evaluate");
-    expect(result.question).toBe("Plan pausiert -- Bedingung erfuellt. Wie fortfahren?");
+    expect(result.question).toBe("Plan paused -- condition met. How should we proceed?");
   });
 
   it("does not suspend when condition is false", async () => {
