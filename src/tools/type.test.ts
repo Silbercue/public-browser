@@ -32,20 +32,41 @@ interface MockCdpSetup {
   sendFn: ReturnType<typeof vi.fn>;
 }
 
-function createMockCdp(overrides: Record<string, unknown> = {}): MockCdpSetup {
+interface MockCdpOptions {
+  /**
+   * Form-scope ID returned by the FR-023 form probe call. The mock detects
+   * the probe by inspecting the Runtime.callFunctionOn `functionDeclaration`
+   * for the `__silbercueFormId` marker the real probe writes. Default null
+   * (no form ancestor → no streak hint).
+   */
+  formId?: string | null;
+}
+
+function createMockCdp(
+  overrides: Record<string, unknown> = {},
+  opts: MockCdpOptions = {},
+): MockCdpSetup {
   const defaultResponses: Record<string, unknown> = {
     "DOM.focus": {},
     "Input.insertText": {},
-    "Runtime.callFunctionOn": { result: { value: undefined } },
+    "Runtime.callFunctionOn": (args: unknown) => {
+      const fnDecl = (args as { functionDeclaration?: string })?.functionDeclaration ?? "";
+      // FR-023 form probe — detected by the dataset marker name in the body
+      if (fnDecl.includes("__silbercueFormId")) {
+        return { result: { value: opts.formId ?? null } };
+      }
+      // Other Runtime.callFunctionOn calls (clear, JS focus fallback, etc.)
+      return { result: { value: undefined } };
+    },
     ...overrides,
   };
 
   const listeners = new Map<string, Set<{ callback: EventCallback; sessionId?: string }>>();
 
-  const sendFn = vi.fn(async (method: string) => {
+  const sendFn = vi.fn(async (method: string, args?: unknown) => {
     if (method in defaultResponses) {
       const val = defaultResponses[method];
-      if (typeof val === "function") return (val as () => unknown)();
+      if (typeof val === "function") return (val as (a?: unknown) => unknown)(args);
       return val;
     }
     return {};
@@ -369,9 +390,14 @@ describe("typeHandler", () => {
 
     await typeHandler({ ref: "e12", text: "appended", clear: false }, cdpClient, "s1");
 
-    // No Runtime.callFunctionOn should be called
+    // No clear-pattern Runtime.callFunctionOn should be issued. Note that
+    // FR-023 may issue an unrelated Runtime.callFunctionOn for the form probe;
+    // we filter to the clear function body specifically.
     const clearCalls = sendFn.mock.calls.filter(
-      (call: unknown[]) => call[0] === "Runtime.callFunctionOn",
+      (call: unknown[]) =>
+        call[0] === "Runtime.callFunctionOn" &&
+        typeof (call[1] as { functionDeclaration?: string })?.functionDeclaration === "string" &&
+        (call[1] as { functionDeclaration: string }).functionDeclaration.includes("this.value = ''"),
     );
     expect(clearCalls).toHaveLength(0);
   });
@@ -384,9 +410,13 @@ describe("typeHandler", () => {
 
     expect(result.isError).toBeUndefined();
 
-    // Clear should be called
+    // Filter explicitly to the clear-function body to avoid counting the
+    // FR-023 form probe Runtime.callFunctionOn issued before focus.
     const clearCalls = sendFn.mock.calls.filter(
-      (call: unknown[]) => call[0] === "Runtime.callFunctionOn",
+      (call: unknown[]) =>
+        call[0] === "Runtime.callFunctionOn" &&
+        typeof (call[1] as { functionDeclaration?: string })?.functionDeclaration === "string" &&
+        (call[1] as { functionDeclaration: string }).functionDeclaration.includes("this.value = ''"),
     );
     expect(clearCalls).toHaveLength(1);
 
@@ -653,17 +683,17 @@ describe("typeHandler", () => {
     });
   });
 
-  // FR-023: Consecutive type-call detector that suggests fill_form after
-  // the second type call in a short window. The hint is appended to the
-  // type response so the LLM sees "you could use fill_form instead".
-  describe("fill_form streak hint", () => {
+  // FR-023 (with scope-fix): Consecutive type-call detector that suggests
+  // fill_form ONLY when both calls land in the SAME <form> ancestor. Cross-
+  // form streaks and form-less calls do not fire the hint.
+  describe("fill_form streak hint (form-scoped)", () => {
     beforeEach(() => {
       _resetTypeStreaks();
       mockResolveElement.mockResolvedValue(mockTextbox());
     });
 
     it("does NOT emit the hint on the first type call", async () => {
-      const { cdpClient } = createMockCdp();
+      const { cdpClient } = createMockCdp({}, { formId: "form-A" });
       const result = await typeHandler(
         { ref: "e1", text: "foo", clear: false } as TypeParams,
         cdpClient,
@@ -673,8 +703,8 @@ describe("typeHandler", () => {
       expect(result.content[0].text).not.toMatch(/fill_form/);
     });
 
-    it("emits the hint on the second consecutive type call in the same session", async () => {
-      const { cdpClient } = createMockCdp();
+    it("emits the hint on the second consecutive type call in the SAME form", async () => {
+      const { cdpClient } = createMockCdp({}, { formId: "form-B" });
       await typeHandler(
         { ref: "e1", text: "foo", clear: false } as TypeParams,
         cdpClient,
@@ -687,10 +717,11 @@ describe("typeHandler", () => {
       );
       expect(result2.content[0].text).toMatch(/fill_form/);
       expect(result2.content[0].text).toMatch(/Tip:/);
+      expect(result2.content[0].text).toMatch(/same form/);
     });
 
     it("emits the hint only once per streak (not again on third call)", async () => {
-      const { cdpClient } = createMockCdp();
+      const { cdpClient } = createMockCdp({}, { formId: "form-C" });
       await typeHandler(
         { ref: "e1", text: "a", clear: false } as TypeParams,
         cdpClient,
@@ -712,23 +743,25 @@ describe("typeHandler", () => {
     });
 
     it("tracks streaks separately per sessionId", async () => {
-      const { cdpClient } = createMockCdp();
+      const cdp1 = createMockCdp({}, { formId: "form-D" });
       await typeHandler(
         { ref: "e1", text: "a", clear: false } as TypeParams,
-        cdpClient,
+        cdp1.cdpClient,
         "session-D",
       );
-      // Second call in a DIFFERENT session — no hint, fresh streak
+      // Second call in a DIFFERENT session, even into the same form — no
+      // hint, the new session starts a fresh streak.
+      const cdp2 = createMockCdp({}, { formId: "form-D" });
       const result = await typeHandler(
         { ref: "e1", text: "a", clear: false } as TypeParams,
-        cdpClient,
+        cdp2.cdpClient,
         "session-E",
       );
       expect(result.content[0].text).not.toMatch(/fill_form/);
     });
 
     it("does NOT emit hint when sessionId is undefined", async () => {
-      const { cdpClient } = createMockCdp();
+      const { cdpClient } = createMockCdp({}, { formId: "form-X" });
       const result1 = await typeHandler(
         { ref: "e1", text: "a", clear: false } as TypeParams,
         cdpClient,
@@ -741,6 +774,113 @@ describe("typeHandler", () => {
       );
       expect(result1.content[0].text).not.toMatch(/fill_form/);
       expect(result2.content[0].text).not.toMatch(/fill_form/);
+    });
+
+    // --- Scope-fix regression tests ---
+
+    it("does NOT emit hint when type calls land in DIFFERENT forms", async () => {
+      const cdp1 = createMockCdp({}, { formId: "form-login" });
+      await typeHandler(
+        { ref: "e1", text: "user@example.com", clear: false } as TypeParams,
+        cdp1.cdpClient,
+        "session-cross",
+      );
+      // Second call in a different form on the same page (e.g. T6.2 → T6.4
+      // benchmark cards). The streak detector must reset and stay quiet.
+      const cdp2 = createMockCdp({}, { formId: "form-newsletter" });
+      const result = await typeHandler(
+        { ref: "e2", text: "marketing@example.com", clear: false } as TypeParams,
+        cdp2.cdpClient,
+        "session-cross",
+      );
+      expect(result.content[0].text).not.toMatch(/fill_form/);
+    });
+
+    it("does NOT emit hint when neither call has a form ancestor", async () => {
+      // Loose inputs without a <form> wrapper — formId null in both calls.
+      const { cdpClient } = createMockCdp({}, { formId: null });
+      await typeHandler(
+        { ref: "e1", text: "a", clear: false } as TypeParams,
+        cdpClient,
+        "session-loose",
+      );
+      const result = await typeHandler(
+        { ref: "e2", text: "b", clear: false } as TypeParams,
+        cdpClient,
+        "session-loose",
+      );
+      expect(result.content[0].text).not.toMatch(/fill_form/);
+    });
+
+    it("does NOT emit hint when first call is in a form and second is not", async () => {
+      const cdp1 = createMockCdp({}, { formId: "form-Y" });
+      await typeHandler(
+        { ref: "e1", text: "a", clear: false } as TypeParams,
+        cdp1.cdpClient,
+        "session-mixed",
+      );
+      const cdp2 = createMockCdp({}, { formId: null });
+      const result = await typeHandler(
+        { ref: "e2", text: "b", clear: false } as TypeParams,
+        cdp2.cdpClient,
+        "session-mixed",
+      );
+      expect(result.content[0].text).not.toMatch(/fill_form/);
+    });
+
+    it("emits hint after a cross-form interlude resets and the user goes back to the same form twice", async () => {
+      // form-A → form-B (resets streak) → form-A → form-A (streak of 2 in form-A)
+      const cdpA1 = createMockCdp({}, { formId: "form-A" });
+      await typeHandler(
+        { ref: "e1", text: "a", clear: false } as TypeParams,
+        cdpA1.cdpClient,
+        "session-replay",
+      );
+      const cdpB = createMockCdp({}, { formId: "form-B" });
+      await typeHandler(
+        { ref: "e2", text: "b", clear: false } as TypeParams,
+        cdpB.cdpClient,
+        "session-replay",
+      );
+      const cdpA2 = createMockCdp({}, { formId: "form-A" });
+      await typeHandler(
+        { ref: "e3", text: "c", clear: false } as TypeParams,
+        cdpA2.cdpClient,
+        "session-replay",
+      );
+      const cdpA3 = createMockCdp({}, { formId: "form-A" });
+      const result = await typeHandler(
+        { ref: "e4", text: "d", clear: false } as TypeParams,
+        cdpA3.cdpClient,
+        "session-replay",
+      );
+      // The streak picked up at the third A call (count=1) and now hits
+      // count=2 → hint fires.
+      expect(result.content[0].text).toMatch(/fill_form/);
+    });
+
+    it("uses the form probe via Runtime.callFunctionOn before focusing the element", async () => {
+      const { cdpClient, sendFn } = createMockCdp({}, { formId: "form-probe" });
+      await typeHandler(
+        { ref: "e1", text: "x", clear: false } as TypeParams,
+        cdpClient,
+        "session-probe",
+      );
+      // Find the probe call by its dataset marker
+      const probeCalls = sendFn.mock.calls.filter(
+        (c: unknown[]) =>
+          c[0] === "Runtime.callFunctionOn" &&
+          typeof (c[1] as { functionDeclaration?: string })?.functionDeclaration === "string" &&
+          (c[1] as { functionDeclaration: string }).functionDeclaration.includes(
+            "__silbercueFormId",
+          ),
+      );
+      expect(probeCalls.length).toBe(1);
+      // The probe must run on the resolved objectId and the resolved session
+      expect(probeCalls[0][1]).toEqual(
+        expect.objectContaining({ objectId: "obj-42", returnByValue: true }),
+      );
+      expect(probeCalls[0][2]).toBe("s1");
     });
   });
 });

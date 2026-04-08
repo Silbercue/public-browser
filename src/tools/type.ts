@@ -56,13 +56,16 @@ function truncate(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen) + "..." : text;
 }
 
-// --- FR-023: Session-scoped detector for consecutive type calls ---
-// Tracks recent type calls per CDP session so we can hint at fill_form
-// when the LLM is filling multiple fields via single type calls.
+// --- FR-023: Form-scoped detector for consecutive type calls ---
+// Tracks recent type calls per (CDP session, form-ancestor) so we can hint at
+// fill_form when the LLM is filling multiple fields of the SAME form via
+// individual type calls. Cross-form streaks and form-less calls do not fire
+// the hint to avoid false positives.
 interface TypeStreakState {
   count: number;
   lastAt: number;
   hintShown: boolean;
+  formId: string | null;
 }
 const typeStreaks = new Map<string, TypeStreakState>();
 
@@ -71,20 +74,76 @@ export function _resetTypeStreaks(): void {
   typeStreaks.clear();
 }
 
-function recordTypeCallAndMaybeHint(sessionId: string | undefined): string | null {
+/**
+ * FR-023 scope-fix: Probe the closest <form> ancestor of the resolved element
+ * and tag it with a stable, per-form identifier (persisted via a dataset
+ * marker so subsequent probes on the same form return the same ID).
+ *
+ * Returns null when:
+ *   - the element has no <form> ancestor (e.g. a loose input field), or
+ *   - the probe fails (detached node, hostile page, etc.).
+ *
+ * A null return suppresses the streak hint, which is the safe default —
+ * we'd rather miss a hint than show one for unrelated form fills.
+ */
+async function probeFormScope(
+  cdpClient: CdpClient,
+  objectId: string,
+  targetSession: string,
+): Promise<string | null> {
+  try {
+    const res = (await cdpClient.send(
+      "Runtime.callFunctionOn",
+      {
+        functionDeclaration: `function() {
+          const f = this.closest('form');
+          if (!f) return null;
+          if (!f.dataset.__silbercueFormId) {
+            f.dataset.__silbercueFormId = '__sc_' + Math.random().toString(36).slice(2, 10);
+          }
+          return f.dataset.__silbercueFormId;
+        }`,
+        objectId,
+        returnByValue: true,
+        silent: true,
+      },
+      targetSession,
+    )) as { result?: { value?: string | null } };
+    return res?.result?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function recordTypeCallAndMaybeHint(
+  sessionId: string | undefined,
+  formId: string | null,
+): string | null {
   if (!sessionId) return null;
   const now = Date.now();
   const existing = typeStreaks.get(sessionId);
-  if (existing && now - existing.lastAt <= FILL_FORM_HINT_WINDOW_MS) {
+
+  // The streak continues only when ALL of the following hold:
+  //   1. We are still inside the time window.
+  //   2. The current call has a non-null form scope.
+  //   3. That form scope matches the previous call's form scope.
+  // Otherwise we reset the streak with the current call as the new baseline.
+  if (
+    existing &&
+    now - existing.lastAt <= FILL_FORM_HINT_WINDOW_MS &&
+    formId !== null &&
+    existing.formId === formId
+  ) {
     existing.count += 1;
     existing.lastAt = now;
     if (existing.count >= FILL_FORM_HINT_THRESHOLD && !existing.hintShown) {
       existing.hintShown = true;
-      return `\n\nTip: ${existing.count} consecutive type calls in ${Math.round(FILL_FORM_HINT_WINDOW_MS / 1000)}s — next time try fill_form({ fields: [...] }) for one-round-trip form fills. It handles text inputs, <select>, checkbox, and radio natively, so you don't need evaluate or separate click calls.`;
+      return `\n\nTip: ${existing.count} consecutive type calls into the same form in ${Math.round(FILL_FORM_HINT_WINDOW_MS / 1000)}s — next time try fill_form({ fields: [...] }) for one-round-trip form fills. It handles text inputs, <select>, checkbox, and radio natively, so you don't need evaluate or separate click calls.`;
     }
     return null;
   }
-  typeStreaks.set(sessionId, { count: 1, lastAt: now, hintShown: false });
+
+  typeStreaks.set(sessionId, { count: 1, lastAt: now, hintShown: false, formId });
   return null;
 }
 
@@ -146,6 +205,14 @@ export async function typeHandler(
     const target = params.ref ? { ref: params.ref } : { selector: params.selector };
     const element = await resolveElement(cdpClient, sessionId!, target, sessionManager);
     const targetSession = element.resolvedSessionId;
+
+    // FR-023 scope-fix: Probe the form ancestor BEFORE we mutate the DOM via
+    // focus/clear/insertText. We need a stable form-scope ID up-front so the
+    // streak detector at Step 6 only fires when both type calls land in the
+    // SAME <form>. Probe failures return null and silently suppress the hint.
+    const formScopeId = sessionId
+      ? await probeFormScope(cdpClient, element.objectId, targetSession)
+      : null;
 
     // Step 2: Role check — only for ref-resolved elements (CSS path skips check)
     if (element.resolvedVia === "ref" && element.role && !INPUT_ROLES.has(element.role)) {
@@ -226,8 +293,9 @@ export async function typeHandler(
     const displayName = element.name
       ? `${element.role} '${element.name}'`
       : (params.ref ?? params.selector);
-    // FR-023: Emit fill_form hint once per streak when the LLM makes consecutive type calls
-    const fillFormHint = recordTypeCallAndMaybeHint(sessionId) ?? "";
+    // FR-023: Emit fill_form hint once per streak when the LLM makes consecutive
+    // type calls into the SAME form (form-scoped via probeFormScope above).
+    const fillFormHint = recordTypeCallAndMaybeHint(sessionId, formScopeId) ?? "";
     return {
       content: [
         {
