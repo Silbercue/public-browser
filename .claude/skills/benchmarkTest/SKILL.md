@@ -38,17 +38,17 @@ Du misst zwei Baseline-Snapshots aus der laufenden Claude-Code-Session-JSONL. **
 
 ```bash
 # Messung 1: Session-Tokens (grob, wird vom LLM-Overhead dominiert)
-bash .claude/skills/benchmarkTest/measure-session-cost.sh "-Users-silbercue-Documents-Cursor-Skills-SilbercueChrome" > /tmp/bench-start.json
+bash "$HOME/.claude/skills/benchmarkTest/measure-session-cost.sh" > /tmp/bench-start.json
 cat /tmp/bench-start.json
 
 # Messung 2: Tool-Call-Level (die aussagekraeftigere Metrik)
-bash .claude/skills/benchmarkTest/measure-tool-calls.sh "-Users-silbercue-Documents-Cursor-Skills-SilbercueChrome" > /tmp/bench-tools-start.json
+bash "$HOME/.claude/skills/benchmarkTest/measure-tool-calls.sh" > /tmp/bench-tools-start.json
 cat /tmp/bench-tools-start.json
 ```
 
 Das erste Skript liest die JSONL, dedupliziert per `uuid` und summiert Tokens auf. Das zweite parst alle `tool_use`-Bloecke + `tool_result`-Bloecke und berechnet Call-Anzahl, Response-Chars (pro Call und pro Tool-Name), plus Avg/P50/P95.
 
-**Wenn das Projekt woanders liegt**, den Slug entsprechend anpassen (CWD mit `/` → `-` ersetzt, Leading `-`). Ohne Argument versuchen beide Skripte, den Slug automatisch aus `pwd` abzuleiten.
+**Slug-Ableitung:** Beide Skripte leiten den Session-Slug **automatisch aus dem aktuellen `pwd`** ab (CWD mit `/` → `-` ersetzt). Du musst also NUR im richtigen Verzeichnis stehen. Fuer einen frischen `/tmp`-Run bedeutet das: `cd /tmp/bench-<mcp-name>` **bevor** du das Skript aufrufst. Wenn das Verzeichnis nicht zum Session-Slug passt, schlagen die Skripte fehl und zeigen dir die verfuegbaren Slugs an — dann kannst du den richtigen Slug als erstes Argument uebergeben: `bash "$HOME/.claude/skills/benchmarkTest/measure-session-cost.sh" "<korrekter-slug>"`.
 
 Aus den JSON-Outputs liest du:
 
@@ -104,13 +104,15 @@ Sobald alle Tests durch sind (oder der Run abgebrochen wurde) UND der Export-JSO
 
 ```bash
 # Messung 1: Session-Tokens (Delta)
-bash .claude/skills/benchmarkTest/measure-session-cost.sh "-Users-silbercue-Documents-Cursor-Skills-SilbercueChrome" > /tmp/bench-end.json
+bash "$HOME/.claude/skills/benchmarkTest/measure-session-cost.sh" > /tmp/bench-end.json
 cat /tmp/bench-end.json
 
 # Messung 2: Tool-Call-Metriken + Per-Test-Breakdown via Timings-File
-bash .claude/skills/benchmarkTest/measure-tool-calls.sh "-Users-silbercue-Documents-Cursor-Skills-SilbercueChrome" --timings /tmp/run-export.json > /tmp/bench-tools-end.json
+bash "$HOME/.claude/skills/benchmarkTest/measure-tool-calls.sh" --timings /tmp/run-export.json > /tmp/bench-tools-end.json
 cat /tmp/bench-tools-end.json
 ```
+
+Beide Skripte leiten den Session-Slug wieder automatisch aus `pwd` ab — achte darauf, dass du noch im selben Verzeichnis bist wie beim Start-Snapshot.
 
 **WICHTIG zum `--timings` Flag:** Der Export aus der Benchmark-Seite enthaelt `test_timings` mit ISO-8601-Zeitstempeln pro Test. Mit `--timings /tmp/run-export.json` rechnet `measure-tool-calls.sh` automatisch den **Per-Test-Breakdown** aus — also wie viele Tool-Calls pro einzelnem Test (T1.1, T2.3, ...) und wie viele Response-Chars sie zusammen geliefert haben. Das ist die wertvollste Zahl fuer Friction-Analyse: wo steckt welcher MCP am meisten Effort rein.
 

@@ -52,7 +52,9 @@ set -euo pipefail
 PROJECTS_DIR="${HOME}/.claude/projects"
 
 derive_slug() {
-  pwd | sed 's|/|-|g'
+  # pwd -P resolves symlinks — wichtig auf macOS, wo z.B. /tmp ein Symlink
+  # auf /private/tmp ist und Claude Code den resolved path als Slug verwendet
+  pwd -P | sed 's|/|-|g'
 }
 
 # Arg parsing

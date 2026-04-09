@@ -34,8 +34,10 @@ set -euo pipefail
 PROJECTS_DIR="${HOME}/.claude/projects"
 
 # Slug ableiten: CWD → Pfad mit / durch - ersetzen, Leading-Dash
+# pwd -P resolves symlinks — wichtig auf macOS, wo z.B. /tmp ein Symlink
+# auf /private/tmp ist und Claude Code den resolved path als Slug verwendet
 derive_slug() {
-  pwd | sed 's|/|-|g'
+  pwd -P | sed 's|/|-|g'
 }
 
 SLUG="${1:-$(derive_slug)}"
