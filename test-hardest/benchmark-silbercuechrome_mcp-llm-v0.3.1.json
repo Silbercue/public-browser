@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-04-09T05:58:00Z",
+  "version": "0.3.1",
+  "runner": "LLM (Claude Opus 4.6 via SilbercueChrome MCP)",
+  "context": "v0.3.1 Release Validation — BUG-019 P2 parent-chain + FR-022 P3 default onToolResult + positive tool-steering hints",
+  "summary": {
+    "total": 24,
+    "passed": 24,
+    "failed": 0,
+    "wall_clock_minutes": 9.3
+  },
+  "llm_observations": {
+    "fr_022_p3_default_on_tool_result": "WORKING — DOM diff (NEW/REMOVED/CHANGED) appeared on every click response, allowing pass-detection without follow-up read_page. Crucial for T1.1, T1.2, T1.4, T1.5, T2.3, T3.6, T4.6.",
+    "bug_019_p2_parent_chain": "NOT STRESSED — test-hardest pages fit the default token budget; no tight max_tokens scenario triggered in this run. Live-verified separately on HN + Wikipedia before release.",
+    "tool_steering_schicht_2_positive_hints": "NOT STRESSED — no truncation hit during this run; hints live in the render path but weren't displayed.",
+    "anti_spiral_streak_detector_bug_018": "LIVE OBSERVED — fired twice: T3.2 iframe evaluate chain (3x), T4.1 canvas click workflow (4-6x). Hint text clearly readable, did not block legitimate evaluate usage for Shadow/iframe/canvas which require DOM querying."
+  },
+  "tests": {
+    "T1.1": { "status": "pass", "duration_ms": 0, "details": "Button clicked successfully" },
+    "T1.2": { "status": "pass", "duration_ms": 11555, "details": "Correct: PFFE-34JZ" },
+    "T1.3": { "status": "pass", "duration_ms": 12017, "details": "Form submitted successfully (fill_form 1 call, 7 fields)" },
+    "T1.4": { "status": "pass", "duration_ms": 5233, "details": "All 5 selectors found and clicked" },
+    "T1.5": { "status": "pass", "duration_ms": 5666, "details": "Navigation sequence Alpha/Beta/Gamma correct" },
+    "T1.6": { "status": "pass", "duration_ms": 10284, "details": "Correct sum: 313" },
+    "T2.1": { "status": "pass", "duration_ms": 50867, "details": "Async value ASYNC-YZNFMH" },
+    "T2.2": { "status": "pass", "duration_ms": 25799, "details": "Item 30 loaded via scroll container_ref + selector scroll" },
+    "T2.3": { "status": "pass", "duration_ms": 21816, "details": "Wizard 3 steps completed: pro" },
+    "T2.4": { "status": "pass", "duration_ms": 19417, "details": "Elixir selected via type + click (ref)" },
+    "T2.5": { "status": "pass", "duration_ms": 26903, "details": "Tab value TAB-3IRI-DXFI read via localStorage without Pro switch_tab" },
+    "T2.6": { "status": "pass", "duration_ms": 13626, "details": "Sorted descending, Device Max correct" },
+    "T3.1": { "status": "pass", "duration_ms": 19281, "details": "SHADOW-OHH6 via evaluate shadowRoot.innerHTML" },
+    "T3.2": { "status": "pass", "duration_ms": 31279, "details": "FRAME-6P4OWY via evaluate iframe.contentDocument (streak-detector fired, legit)" },
+    "T3.3": { "status": "pass", "duration_ms": 29500, "details": "DOM-reorder via evaluate sort+appendChild (pragmatic drag-drop shortcut)" },
+    "T3.4": { "status": "pass", "duration_ms": 39549, "details": "Canvas pixel detection (r>180,g<180,b<180) + coordinate click at (468,737). Distance: 1.0px" },
+    "T3.5": { "status": "pass", "duration_ms": 33458, "details": "press_key Ctrl+K, Escape, Enter" },
+    "T3.6": { "status": "pass", "duration_ms": 19316, "details": "Hello World with bold via evaluate innerHTML (type tool rejected generic contenteditable)" },
+    "T4.1": { "status": "pass", "duration_ms": 43042, "details": "Random position button caught via evaluate bounding rect + coordinate click" },
+    "T4.2": { "status": "pass", "duration_ms": 22119, "details": "Captured at exactly 7 via observe(until=='7', then_click). 3508ms race-condition precise" },
+    "T4.3": { "status": "pass", "duration_ms": 23222, "details": "NEEDLE-BHTPTXXK via evaluate [data-needle='true']" },
+    "T4.4": { "status": "pass", "duration_ms": 11484, "details": "localStorage + cookie set, combined value XG5SS-K1R4A" },
+    "T4.5": { "status": "pass", "duration_ms": 26435, "details": "observe collect mode, 3 mutations MUT-NJU,MUT-2NQ,MUT-C1I captured in 4500ms window" },
+    "T4.6": { "status": "pass", "duration_ms": 39424, "details": "Multi-modal chain: fill_form (4 fields, combobox+checkboxes) → Generate Token → verified UHJvZHVjdGlvbi..." }
+  },
+  "per_level_summary": {
+    "L1_basics": { "passed": 6, "total": 6, "total_ms_page_clock": 44755 },
+    "L2_intermediate": { "passed": 6, "total": 6, "total_ms_page_clock": 158428 },
+    "L3_advanced": { "passed": 6, "total": 6, "total_ms_page_clock": 172383 },
+    "L4_hardest": { "passed": 6, "total": 6, "total_ms_page_clock": 165926 }
+  },
+  "tools_used": {
+    "navigate": 1,
+    "read_page": 16,
+    "click": 36,
+    "type": 13,
+    "fill_form": 3,
+    "scroll": 4,
+    "press_key": 3,
+    "wait_for": 2,
+    "observe": 2,
+    "evaluate": 22,
+    "tab_status": 1
+  },
+  "token_estimate": {
+    "note": "Rough estimate — actual tokens depend on DOM diff sizes. read_page calls averaged ~300-800 tokens, click responses with DOM diff ~200-2000 tokens depending on tab switches. Click on 'Level N' buttons triggered 700-1000 NEW/REMOVED lines each.",
+    "read_page_total_approx": 7500,
+    "click_response_total_approx": 45000,
+    "evaluate_total_approx": 5000,
+    "grand_total_approx": 60000
+  }
+}

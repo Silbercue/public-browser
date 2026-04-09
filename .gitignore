@@ -4,5 +4,6 @@ build/
 _bmad/
 _bmad-output/
 .playwright-mcp/
+.playwright-cli/
 live-test/
 marketing/
