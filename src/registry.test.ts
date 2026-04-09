@@ -63,7 +63,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "read_page",
-      "PRIMARY tool for page understanding — call after navigate/switch_tab before any interaction. Returns accessibility tree with stable refs (e.g. 'e5') that you pass to click/type/fill_form. Use this to read visible text too — not evaluate/querySelector. Default filter:'interactive' hides static text; for cells/paragraphs/labels call read_page(ref: 'eN', filter: 'all'). ~10-30x cheaper than screenshot.",
+      "PRIMARY tool for page understanding — call after navigate/switch_tab before any interaction. Returns accessibility tree with stable refs (e.g. 'e5') that you pass to click/type/fill_form. Use this to read visible text too — not evaluate/querySelector. Default filter:'interactive' hides static text; for cells/paragraphs/labels call read_page(ref: 'eN', filter: 'all'). Under tight max_tokens, containers appear as `[eXX role, N items]` one-line summaries — call read_page(ref:'eXX', filter:'all') on that ref to expand the subtree. ~10-30x cheaper than screenshot.",
       expect.objectContaining({
         depth: expect.anything(),
         ref: expect.anything(),
@@ -2451,6 +2451,108 @@ describe("ToolRegistry", () => {
       // response_bytes must have been injected on the original _meta
       expect(typeof result._meta!.response_bytes).toBe("number");
       expect((result._meta!.response_bytes as number) > 0).toBe(true);
+    });
+
+    // FR-022 (P3 fix): registerAll() must install the default Free-tier
+    // onToolResult hook when the Pro-Repo did not register one. This is the
+    // architectural fix that makes the click tool description's "DOM diff"
+    // promise hold for Free users on every page.
+    describe("default Free-tier onToolResult hook (FR-022)", () => {
+      it("registerAll installs a default onToolResult hook when none is set", async () => {
+        const mockCdpClient = { send: vi.fn() } as never;
+        const mockServer = { tool: vi.fn() } as never;
+        // Top-level beforeEach already set registerProHooks({}).
+        const registry = new ToolRegistry(
+          mockServer,
+          mockCdpClient,
+          "sess-default",
+          {} as never,
+        );
+        registry.registerAll();
+
+        const { getProHooks } = await import("./hooks/pro-hooks.js");
+        const installed = getProHooks();
+        expect(typeof installed.onToolResult).toBe("function");
+      });
+
+      it("registerAll does NOT overwrite a Pro-Repo onToolResult hook", async () => {
+        const mockCdpClient = { send: vi.fn() } as never;
+        const mockServer = { tool: vi.fn() } as never;
+        const proHook = vi.fn<NonNullable<ProHooks["onToolResult"]>>(
+          async (_name, r, _ctx) => r,
+        );
+        registerProHooks({ onToolResult: proHook });
+        const registry = new ToolRegistry(
+          mockServer,
+          mockCdpClient,
+          "sess-pro",
+          {} as never,
+        );
+        registry.registerAll();
+
+        const { getProHooks } = await import("./hooks/pro-hooks.js");
+        const installed = getProHooks();
+        expect(installed.onToolResult).toBe(proHook);
+      });
+
+      it("default hook appends DOM diff text to a click response on a clickable button", async () => {
+        // The mock CDP client services every call refreshPrecomputed makes:
+        //   Runtime.evaluate (URL probe), Accessibility.getFullAXTree,
+        //   Accessibility.getRootAXNode, plus the click-side calls.
+        // The AX tree reports a single button so classifyRef("e1") returns
+        // "clickable" and the hook is in scope.
+        const mockCdpClient = {
+          send: vi.fn().mockImplementation(async (method: string) => {
+            if (method === "Accessibility.getFullAXTree") {
+              return {
+                nodes: [
+                  {
+                    nodeId: "1",
+                    role: { value: "button" },
+                    name: { value: "Save" },
+                    properties: [],
+                    childIds: [],
+                    backendDOMNodeId: 1,
+                  },
+                ],
+              };
+            }
+            if (method === "Accessibility.getRootAXNode") return {};
+            if (method === "Runtime.evaluate") {
+              return { result: { type: "string", value: "http://localhost/" } };
+            }
+            if (method === "DOM.resolveNode") {
+              return { object: { objectId: "obj1" } };
+            }
+            if (method === "Runtime.callFunctionOn") {
+              return { result: { type: "object", value: { x: 10, y: 10, width: 5, height: 5 } } };
+            }
+            if (method === "Input.dispatchMouseEvent") return {};
+            return {};
+          }),
+        } as never;
+        const mockServer = { tool: vi.fn() } as never;
+
+        const registry = new ToolRegistry(
+          mockServer,
+          mockCdpClient,
+          "sess-default-click",
+          {} as never,
+        );
+        registry.registerAll();
+
+        // Prime the cache so classifyRef("e1") finds the button
+        await registry.executeTool("read_page", {});
+        // Now click the same button — the default hook should detect that
+        // the AX tree did not change between before/after and append
+        // nothing (formatDomDiff returns null on empty changes), but
+        // crucially: it must NOT crash and the response_bytes path must
+        // remain stable.
+        const result = await registry.executeTool("click", { ref: "e1" });
+        expect(result.isError).toBeFalsy();
+        expect(result._meta).toBeDefined();
+        expect(typeof result._meta!.response_bytes).toBe("number");
+      });
     });
   });
 

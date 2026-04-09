@@ -56,9 +56,12 @@ export async function readPageHandler(
     }
     responseText += `\n\n[${metaParts.join(" | ")}]`;
 
-    // Truncation warning — when downsampled, hint that overlays may be hidden
+    // Truncation warning — when downsampled, tell the LLM the collapse
+    // format AND the positive action (no "avoid screenshot" negative framing
+    // — research shows that pushes the LLM toward the next defensive
+    // fallback instead of the useful action).
     if (result.downsampled && params.max_tokens) {
-      responseText += `\n⚠ Truncated to ~${params.max_tokens} tokens. Overlays/modals are prioritized but some elements may be hidden — retry without max_tokens or use screenshot to check for modals.`;
+      responseText += `\n⚠ Truncated to ~${params.max_tokens} tokens. Remaining content collapsed into \`[eXX role, N items]\` summary lines. Call read_page(ref:'eXX', filter:'all') on a summary ref to expand that subtree.`;
     }
 
     // FR-H6: Detect hidden interactive elements — hint when page has hidden sections

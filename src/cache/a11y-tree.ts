@@ -258,12 +258,27 @@ export class A11yTreeProcessor {
   private _precomputedNodes: AXNode[] | null = null;
   private _precomputedUrl = "";
   private _precomputedSessionId = "";
-  private _precomputedDepth = 3;
+  // BUG-019: Cache was primed with a finite depth (3) which made subsequent
+  // `read_page(filter:"all")` calls fall through to the fallback path whenever
+  // the requested cdpFetchDepth exceeded 3. Now that all CDP fetches are
+  // depth-unlimited, the primed cache is always considered "at least as deep"
+  // as any future request (Infinity satisfies every inequality).
+  private _precomputedDepth = Infinity;
 
   // Story 13.1: Ambient Page Context — cache version counter
   // Increments on every cache change (refresh, reset, invalidation).
   // Registry compares this against _lastSentVersion to decide whether to attach page context.
   private _cacheVersion = 0;
+
+  // FR-022 (P3 fix): Refs that were observed in the most recent
+  // refreshPrecomputed() pass — i.e. the refs that still point at a node
+  // present in the live AX tree right after the refresh. Used by the
+  // default `onToolResult` hook to detect REMOVED nodes (refs whose owner
+  // backendNodeId disappeared between two refreshes). reverseMap itself
+  // never evicts old refs by design (so the LLM can keep stale refs around
+  // long enough to react to them), so the diff logic needs an independent
+  // signal to know which refs are still live.
+  private _activeRefsAfterRefresh: Set<number> = new Set();
 
   /** Story 13.1: Current cache version — increments on every state change */
   get cacheVersion(): number {
@@ -275,11 +290,25 @@ export class A11yTreeProcessor {
     this.reverseMap.clear();
     this.nodeInfoMap.clear();
     this.sessionNodeMap.clear();
+    this._activeRefsAfterRefresh = new Set();
     this.nextRef = 1;
     this.lastUrl = "";
     this._renderSessionId = "";
     this._cacheVersion++;
     this.invalidatePrecomputed();
+  }
+
+  /**
+   * FR-022 (P3 fix): Snapshot of refs that were observed in the most recent
+   * `refreshPrecomputed()` pass. The default `onToolResult` hook compares
+   * the pre-click snapshot map against this set to derive REMOVED nodes
+   * for refs whose owning backendNodeId disappeared from the live AX tree.
+   *
+   * Returns an empty set when no refresh has run yet (or after `reset()`).
+   * The returned set is a copy — callers may mutate it freely.
+   */
+  getActiveRefs(): Set<number> {
+    return new Set(this._activeRefsAfterRefresh);
   }
 
   /**
@@ -363,7 +392,11 @@ export class A11yTreeProcessor {
     this._precomputedNodes = null;
     this._precomputedUrl = "";
     this._precomputedSessionId = "";
-    this._precomputedDepth = 3;
+    this._precomputedDepth = Infinity; // BUG-019: matches constructor default
+    // FR-022: invalidating the precomputed cache also drops the
+    // most-recent active-refs snapshot — without a fresh refresh there is
+    // no authoritative "live tree" left to compare against.
+    this._activeRefsAfterRefresh = new Set();
     this._cacheVersion++;
   }
 
@@ -387,10 +420,13 @@ export class A11yTreeProcessor {
     }
     this.lastUrl = currentUrl;
 
-    // 2. A11y-Tree via CDP laden (same depth as default getTree)
+    // 2. A11y-Tree via CDP laden — no depth limit (BUG-019).
+    // The precomputed cache previously primed only the top 3 levels, so any
+    // subsequent read_page call that fell back to the cache was pre-truncated
+    // before the first line of render code ran.
     const result = await cdpClient.send<{ nodes: AXNode[] }>(
       "Accessibility.getFullAXTree",
-      { depth: 3 },
+      {},
       sessionId,
     );
     if (!result.nodes || result.nodes.length === 0) return;
@@ -398,14 +434,19 @@ export class A11yTreeProcessor {
     // 3. Ref-IDs zuweisen (STABIL — bestehende Refs bleiben, neue bekommen neue Nummern)
     // BUG-016: composite-key writes — a backendNodeId from a different
     // session never overwrites an existing entry.
+    // FR-022: track which refs were observed in this refresh pass so that
+    // the default onToolResult hook can detect REMOVED nodes via getActiveRefs().
+    const observedRefs = new Set<number>();
     for (const node of result.nodes) {
       if (node.ignored || node.backendDOMNodeId === undefined) continue;
       const key = this.refKey(node.backendDOMNodeId, sessionId);
-      if (!this.refMap.has(key)) {
-        const refNum = this.nextRef++;
+      let refNum = this.refMap.get(key);
+      if (refNum === undefined) {
+        refNum = this.nextRef++;
         this.refMap.set(key, refNum);
         this.reverseMap.set(refNum, { backendNodeId: node.backendDOMNodeId, sessionId });
       }
+      observedRefs.add(refNum);
       // Composite-keyed write so cross-session nodes with the same
       // backendNodeId do not clobber each other's role/name metadata.
       this.nodeInfoSet(node.backendDOMNodeId, sessionId, extractNodeInfo(node));
@@ -415,12 +456,14 @@ export class A11yTreeProcessor {
       this.sessionNodeMap.get(sessionId)!.add(node.backendDOMNodeId);
       sessionManager?.registerNode(node.backendDOMNodeId, sessionId);
     }
+    this._activeRefsAfterRefresh = observedRefs;
 
-    // 4. Cache speichern
+    // 4. Cache speichern — BUG-019: primed with Infinity so subsequent
+    // cdpFetchDepth <= _precomputedDepth comparisons are always satisfied.
     this._precomputedNodes = result.nodes;
     this._precomputedUrl = currentUrl;
     this._precomputedSessionId = sessionId;
-    this._precomputedDepth = 3;
+    this._precomputedDepth = Infinity;
     this._cacheVersion++;
 
     // 5. Register root node for Accessibility.nodesUpdated tracking (Story 13a.2 fix).
@@ -885,16 +928,28 @@ export class A11yTreeProcessor {
     const depth = options.depth ?? 3;
     const filter = options.filter ?? "interactive";
 
-    // FR-002: Separate CDP fetch depth from display depth.
-    // Interactive/visual filters need deeper fetch to find elements nested beyond display depth.
-    // "all" fetches depth+2 so leaf nodes' text children (StaticText) are always included —
-    // without this, elements like <strong> at the depth limit appear empty.
-    // "landmark" uses moderate depth.
-    const cdpFetchDepth = (filter === "interactive" || filter === "visual")
-      ? Math.max(depth, 10)
-      : filter === "landmark"
-        ? Math.max(depth, 6)
-        : depth + 2;
+    // BUG-019: No CDP depth limit.
+    //
+    // Prior versions passed Accessibility.getFullAXTree({depth: Math.max(depth, 10)})
+    // which hard-capped the fetch at tree-level 10. Real-world SPAs (Polar admin,
+    // HackerNews story list, Wikipedia articles, most dashboards) nest their main
+    // content at levels 11+. Everything beyond the cap came back with empty
+    // childIds, so renderNode produced e.g. "[e44] generic" with zero children
+    // while a subsequent read_page(ref: "e44") re-rooted the walk at e44 and
+    // found 100+ descendants.
+    //
+    // CDP semantics (chromedevtools.github.io/devtools-protocol/tot/Accessibility/):
+    //   "depth: The maximum depth at which descendants of the root node should
+    //    be retrieved. If omitted, the full tree is returned."
+    //
+    // We therefore OMIT `depth` at the wire level (undefined in the CDP params).
+    // The display-`depth` option still controls rendering indent — that was never
+    // a fetch concern, just a formatting concern.
+    //
+    // The `cdpFetchDepth` variable below is kept as a cache-invalidation sentinel:
+    // `Infinity` means "fetched with no limit", so any future request for a
+    // smaller display depth is automatically a cache hit.
+    const cdpFetchDepth = Infinity;
 
     // Navigation detection — reset refs on real navigation (path change),
     // but preserve refs on hash-only changes (anchor navigation).
@@ -936,11 +991,14 @@ export class A11yTreeProcessor {
       nodes = this._precomputedNodes;
       debug("A11yTreeProcessor: precomputed cache hit");
     } else {
-      // Fetch A11y tree from CDP — main frame (fallback / cache miss)
-      // FR-002: Use cdpFetchDepth (not display depth) so interactive/visual filters find deeply nested elements
+      // Fetch A11y tree from CDP — main frame (fallback / cache miss).
+      // BUG-019: No depth parameter — see the cdpFetchDepth comment above.
+      // Omitting `depth` makes CDP return the full tree; any depth cap would
+      // silently truncate deeply nested main-content subtrees (Polar tables,
+      // HackerNews rows, Wikipedia articles, etc.).
       const result = await cdpClient.send<{ nodes: AXNode[] }>(
         "Accessibility.getFullAXTree",
-        { depth: cdpFetchDepth },
+        {},
         sessionId,
       );
       nodes = result.nodes;
@@ -1006,9 +1064,12 @@ export class A11yTreeProcessor {
         const oopifResults = await Promise.all(
           oopifSessions.map(async (s: SessionInfo) => {
             try {
+              // BUG-019: No depth — fetch full OOPIF tree. Nested iframes on
+              // modern sites (Stripe Elements, embedded YouTube, etc.) have
+              // the same level-cap problem as the main frame.
               const oopifResult = await cdpClient.send<{ nodes: AXNode[] }>(
                 "Accessibility.getFullAXTree",
-                { depth: cdpFetchDepth },
+                {},
                 s.sessionId,
               );
               return { url: s.url, nodes: oopifResult.nodes ?? [], sessionId: s.sessionId };
@@ -1310,110 +1371,389 @@ export class A11yTreeProcessor {
     return this.truncateToFit(lines, maxTokens);
   }
 
+  /**
+   * BUG-019 landmark-aware truncation.
+   *
+   * Legacy behavior bucketed every line into one of three global pools
+   * (dialog > interactive > content). Sidebar navigation links and header
+   * buttons were treated exactly the same as main-content buttons, so on a
+   * typical SPA the 30-link sidebar dominated the interactive bucket and
+   * pushed the actual main-area table cells out of the budget.
+   *
+   * New behavior: every line is tagged with its primary landmark ancestor
+   * (tracked via an indent stack, same approach as the existing dialog
+   * tracking). The priority matrix becomes:
+   *
+   *   0. Dialogs (absolute priority — must never be dropped)
+   *   1. Main / implicit-main interactive
+   *   2. Main / implicit-main content
+   *   3. No-landmark-ancestor interactive
+   *   4. No-landmark-ancestor content
+   *   5. Navigation / banner / complementary / contentinfo interactive
+   *   6. Navigation / banner / complementary / contentinfo content
+   *
+   * "Implicit main": many real-world sites (Polar, most Next.js dashboards)
+   * wrap their main content in a plain <div role="generic"> instead of a
+   * proper <main>. We pick the biggest non-landmark subtree at the root
+   * level as the implicit main so its subtree gets buckets 1+2 instead of
+   * buckets 3+4.
+   *
+   * When the main landmark is itself partially truncated we append a hint
+   * that tells the LLM exactly which ref to re-read for the full subtree.
+   */
   private truncateToFit(
     lines: string[],
     maxTokens: number,
   ): { lines: string[]; refCount: number; level: number } {
-    // C3: Prioritize elements: dialogs/modals > interactive > content
-    const dialogLines: Array<{ line: string; idx: number }> = [];
-    const interactiveLines: Array<{ line: string; idx: number }> = [];
-    const contentLines: Array<{ line: string; idx: number }> = [];
+    // --- Phase A: Categorise lines by landmark ancestor + element class ----
 
-    // Track dialog context: lines inside a dialog subtree get dialog priority
-    let insideDialog = false;
-    let dialogIndent = -1;
+    // Landmark stack entry: landmark kind + the indent level at which it started.
+    type LandmarkKind = "main" | "dialog" | "nav-like" | "other";
+    type StackEntry = { kind: LandmarkKind; indent: number; ref?: number };
+
+    const NAV_LIKE_ROLES = new Set([
+      "navigation",
+      "banner",
+      "complementary",
+      "contentinfo",
+      "search",
+    ]);
+
+    // Level 3/4 downsampling replaces containers with `[shortRole: name, N items]`
+    // summary lines. shortContainerRole() produces these short names — we need
+    // the reverse mapping so truncateToFit can still recognise which bucket
+    // those summary lines belong to.
+    const SUMMARY_ROLE_TO_LANDMARK: Record<string, "main" | "nav-like" | "other"> = {
+      main: "main",
+      nav: "nav-like",
+      aside: "nav-like",
+      footer: "nav-like",
+      header: "nav-like",
+      search: "nav-like",
+      // "div" / "group" / "region" / "form" etc. stay "other" — they can legitimately
+      // live inside main and shouldn't be auto-demoted.
+    };
+
+    // Parse either
+    //   "[eNN] rolename"            (normal line), or
+    //   "[eNN shortRole: name, N items]" (downsample summary line — BUG-019)
+    //
+    // Legacy summaries without a ref are still supported for forward-compat
+    // (and for any subtree downsamples that re-enter this path).
+    const parseHeader = (line: string): {
+      ref?: number;
+      role: string;
+      summaryLandmark?: "main" | "nav-like" | "other";
+    } => {
+      // Normal render line
+      const m = line.match(/\[e(\d+)\]\s+(\S+)/);
+      if (m) return { ref: Number(m[1]), role: m[2] };
+      // Summary with ref
+      const sRef = line.match(/^\s*\[e(\d+)\s+([a-z]+)(?::\s[^,]*)?,\s*\d+\s+items\]/);
+      if (sRef) {
+        return {
+          ref: Number(sRef[1]),
+          role: sRef[2],
+          summaryLandmark: SUMMARY_ROLE_TO_LANDMARK[sRef[2]],
+        };
+      }
+      // Legacy summary without ref
+      const sLegacy = line.match(/^\s*\[([a-z]+)(?::\s[^,]*)?,\s*\d+\s+items\]/);
+      if (sLegacy) {
+        return { role: sLegacy[1], summaryLandmark: SUMMARY_ROLE_TO_LANDMARK[sLegacy[1]] };
+      }
+      return { role: "" };
+    };
+
+    // Indent of a content line ("  " = indent level 1 etc.). Returns 0 for
+    // lines without leading whitespace or for separator lines.
+    const indentOf = (line: string): number => {
+      if (line.startsWith("--- ") || line.startsWith("...")) return -1;
+      return line.search(/\S/);
+    };
+
+    // --- Implicit main detection --------------------------------------------
+    //
+    // If no explicit role=main ever appears at root level, we pick the largest
+    // non-landmark root container (biggest descendant count inside its indent
+    // block) as the implicit main. "Root level" here means indent 0 or 2
+    // because the RootWebArea line itself lives at indent 0 and its children
+    // live at indent 2 (generic root wrappers push the structure down).
+    let hasExplicitMain = false;
+    for (const line of lines) {
+      const { role } = parseHeader(line);
+      if (role === "main") { hasExplicitMain = true; break; }
+    }
+
+    let implicitMainRef: number | undefined;
+    let implicitMainIndent = -1;
+    let implicitMainRefLocalMax: number | undefined; // deepest ref within implicit main
+    if (!hasExplicitMain) {
+      // Find the shallowest non-separator line and use its indent as the "root level"
+      let rootIndent = -1;
+      for (const line of lines) {
+        const ind = indentOf(line);
+        if (ind < 0) continue;
+        if (rootIndent < 0 || ind < rootIndent) rootIndent = ind;
+      }
+      if (rootIndent >= 0) {
+        // Walk candidates at rootIndent + 2 (children of the root webarea)
+        const childIndent = rootIndent + 2;
+        const candidates: Array<{ ref: number; start: number; end: number }> = [];
+        for (let i = 0; i < lines.length; i++) {
+          const ind = indentOf(lines[i]);
+          if (ind !== childIndent) continue;
+          const { ref, role } = parseHeader(lines[i]);
+          if (ref === undefined) continue;
+          // Skip known landmarks — only non-landmark containers are candidates.
+          if (NAV_LIKE_ROLES.has(role) || role === "main" || role === "dialog" || role === "alertdialog") continue;
+          // Compute end of this candidate's block (next line at same or shallower indent)
+          let end = lines.length;
+          for (let j = i + 1; j < lines.length; j++) {
+            const jIndent = indentOf(lines[j]);
+            if (jIndent >= 0 && jIndent <= childIndent) { end = j; break; }
+          }
+          candidates.push({ ref, start: i, end });
+        }
+        // Pick candidate with the most descendants.
+        candidates.sort((a, b) => (b.end - b.start) - (a.end - a.start));
+        if (candidates.length > 0 && (candidates[0].end - candidates[0].start) >= 3) {
+          implicitMainRef = candidates[0].ref;
+          implicitMainIndent = childIndent;
+        }
+      }
+    }
+
+    // Priority buckets — indices refer to positions in `lines`.
+    type Bucket = Array<{ line: string; idx: number }>;
+    const buckets: Record<string, Bucket> = {
+      dialog: [],
+      mainInteractive: [],
+      mainContent: [],
+      otherInteractive: [],
+      otherContent: [],
+      navInteractive: [],
+      navContent: [],
+    };
+
+    // Landmark stack — topmost entry wins.
+    const stack: StackEntry[] = [];
+    const topKind = (): LandmarkKind => (stack.length > 0 ? stack[stack.length - 1].kind : "other");
+    // Track which ref represents the main landmark currently on the stack.
+    // First match wins (outermost enclosing main).
+    let explicitMainRef: number | undefined;
+    let mainLandmarkTruncated = false;
+    let keptInsideMain = 0;
+    let totalInsideMain = 0;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const indent = line.search(/\S/);
-
-      // Detect dialog/modal boundaries
-      const roleMatch = line.match(/\[e\d+\]\s+(\S+)/);
-      const role = roleMatch ? roleMatch[1] : "";
-
-      if (role === "dialog" || role === "alertdialog") {
-        insideDialog = true;
-        dialogIndent = indent;
-        dialogLines.push({ line, idx: i });
+      if (line.startsWith("--- ")) {
+        // OOPIF separator — include regardless, counts as content.
+        buckets.otherContent.push({ line, idx: i });
         continue;
       }
-
-      // If we were inside a dialog and indentation decreased back to/beyond dialog level, we left the dialog
-      if (insideDialog && indent <= dialogIndent && i > 0) {
-        insideDialog = false;
-        dialogIndent = -1;
+      const indent = indentOf(line);
+      // Pop stack entries whose indent is no longer an ancestor.
+      while (stack.length > 0 && indent >= 0 && indent <= stack[stack.length - 1].indent) {
+        stack.pop();
       }
 
-      if (insideDialog) {
-        dialogLines.push({ line, idx: i });
-      } else if (/\[e\d+\]/.test(line) && INTERACTIVE_ROLES.has(role)) {
-        // Demote option elements to content priority — they fill token budget
-        // without adding actionable value (the combobox itself shows the current value)
-        if (role === "option") {
-          contentLines.push({ line, idx: i });
-        } else {
-          interactiveLines.push({ line, idx: i });
+      const { ref, role, summaryLandmark } = parseHeader(line);
+
+      // Enter new landmark?
+      if (role === "dialog" || role === "alertdialog") {
+        stack.push({ kind: "dialog", indent, ref });
+      } else if (role === "main") {
+        stack.push({ kind: "main", indent, ref });
+        if (explicitMainRef === undefined) explicitMainRef = ref;
+      } else if (NAV_LIKE_ROLES.has(role)) {
+        stack.push({ kind: "nav-like", indent, ref });
+      } else if (!hasExplicitMain && ref !== undefined && ref === implicitMainRef) {
+        // Implicit main landmark entry — this specific ref becomes the main anchor.
+        stack.push({ kind: "main", indent, ref });
+      } else if (summaryLandmark) {
+        // Downsample-summary line (e.g. `[e54 nav: Sidebar, 30 items]`) —
+        // treat as landmark boundary so its children inherit the right bucket.
+        stack.push({ kind: summaryLandmark, indent, ref });
+        if (summaryLandmark === "main" && explicitMainRef === undefined && ref !== undefined) {
+          explicitMainRef = ref;
         }
+      }
+
+      const landmark = topKind();
+      const isInteractive = INTERACTIVE_ROLES.has(role) && role !== "option";
+
+      if (landmark === "main") {
+        totalInsideMain++;
+        if (implicitMainRefLocalMax === undefined || (ref !== undefined && ref > implicitMainRefLocalMax)) {
+          implicitMainRefLocalMax = ref ?? implicitMainRefLocalMax;
+        }
+      }
+
+      if (landmark === "dialog") {
+        buckets.dialog.push({ line, idx: i });
+      } else if (landmark === "main") {
+        (isInteractive ? buckets.mainInteractive : buckets.mainContent).push({ line, idx: i });
+      } else if (landmark === "nav-like") {
+        (isInteractive ? buckets.navInteractive : buckets.navContent).push({ line, idx: i });
       } else {
-        contentLines.push({ line, idx: i });
+        (isInteractive ? buckets.otherInteractive : buckets.otherContent).push({ line, idx: i });
       }
     }
 
-    // Build result: dialogs first, then interactive, then content
+    // --- Phase A.5: Precompute each line's indent-ancestor chain ----------
+    //
+    // BUG-019 P2 follow-up (Session 45567c9b): bucketing splits container
+    // summary lines (mainContent) from the interactive leaves inside them
+    // (mainInteractive). Under a tight budget the interactive bucket fills
+    // first and drains the remaining budget, so the container summary lines
+    // that provide structural context get dropped — producing orphaned
+    // leaves with indent jumps of 4+ and no parent chain for the LLM to
+    // understand where they live.
+    //
+    // Every line here records its indent-ancestor chain (top-down order of
+    // `lines` indices). `consume()` force-includes any missing ancestors
+    // when it keeps a line, so structure and content always travel
+    // together. Ancestors may live in any bucket (or no bucket at all, in
+    // the case of indent-carrying root wrappers) — all that matters is
+    // that the visual nesting stays intact.
+    const parentChain: number[][] = new Array(lines.length);
+    {
+      const stack: Array<{ idx: number; indent: number }> = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.startsWith("--- ") || line.startsWith("...")) {
+          parentChain[i] = [];
+          continue;
+        }
+        const ind = indentOf(line);
+        if (ind < 0) {
+          parentChain[i] = [];
+          continue;
+        }
+        while (stack.length > 0 && stack[stack.length - 1].indent >= ind) {
+          stack.pop();
+        }
+        parentChain[i] = stack.map((e) => e.idx);
+        stack.push({ idx: i, indent: ind });
+      }
+    }
+
+    // --- Phase B: Fill buckets in priority order ---------------------------
+
     const result: string[] = [];
-    let tokensSoFar = 15; // header estimate
     const addedIndices = new Set<number>();
+    let tokensSoFar = 15; // header estimate
+    const headroom = 40; // leave room for hint + truncation marker
 
-    // Phase 0: Add all dialog/modal elements (highest priority — always visible)
-    for (const { line, idx } of dialogLines) {
-      const lineTokens = estimateTokens(line + "\n");
-      if (tokensSoFar + lineTokens > maxTokens - 15) break;
-      result.push(line);
-      addedIndices.add(idx);
-      tokensSoFar += lineTokens;
+    const consume = (bucket: Bucket): boolean => {
+      let anyDropped = false;
+      for (const { line, idx } of bucket) {
+        if (addedIndices.has(idx)) continue;
+
+        // Determine any ancestors that aren't yet in the output — these
+        // must be force-included together with the line to preserve
+        // structural context (see parentChain comment above).
+        const missingAncestors: number[] = [];
+        let ancestorTokens = 0;
+        for (const ai of parentChain[idx]) {
+          if (!addedIndices.has(ai)) {
+            missingAncestors.push(ai);
+            ancestorTokens += estimateTokens(lines[ai] + "\n");
+          }
+        }
+
+        const lineTokens = estimateTokens(line + "\n");
+        if (tokensSoFar + lineTokens + ancestorTokens > maxTokens - headroom) {
+          anyDropped = true;
+          continue;
+        }
+
+        // Add missing ancestors top-down, then the line itself.
+        for (const ai of missingAncestors) {
+          result.push(lines[ai]);
+          addedIndices.add(ai);
+          tokensSoFar += estimateTokens(lines[ai] + "\n");
+        }
+        result.push(line);
+        addedIndices.add(idx);
+        tokensSoFar += lineTokens;
+      }
+      return !anyDropped;
+    };
+
+    consume(buckets.dialog);
+    const mainInteractiveComplete = consume(buckets.mainInteractive);
+    const mainContentComplete = consume(buckets.mainContent);
+    consume(buckets.otherInteractive);
+    consume(buckets.otherContent);
+    consume(buckets.navInteractive);
+    consume(buckets.navContent);
+
+    if (!mainInteractiveComplete || !mainContentComplete) {
+      mainLandmarkTruncated = true;
     }
+    keptInsideMain = buckets.mainInteractive.filter((e) => addedIndices.has(e.idx)).length
+      + buckets.mainContent.filter((e) => addedIndices.has(e.idx)).length;
 
-    // Phase 1: Add interactive elements
-    for (const { line, idx } of interactiveLines) {
-      const lineTokens = estimateTokens(line + "\n");
-      if (tokensSoFar + lineTokens > maxTokens - 15) break;
-      result.push(line);
-      addedIndices.add(idx);
-      tokensSoFar += lineTokens;
-    }
+    // --- Phase C: Re-sort by original index so document order is preserved --
+    const sortedResult = [...addedIndices]
+      .sort((a, b) => a - b)
+      .map((i) => lines[i]);
 
-    // Phase 2: Fill remaining budget with content lines
-    for (const { line, idx } of contentLines) {
-      const lineTokens = estimateTokens(line + "\n");
-      if (tokensSoFar + lineTokens > maxTokens - 15) break;
-      result.push(line);
-      addedIndices.add(idx);
-      tokensSoFar += lineTokens;
-    }
-
-    // Add truncation marker if lines were omitted
     const omitted = lines.length - addedIndices.size;
-    if (omitted > 0) {
-      result.push(`... (truncated, ${omitted} elements omitted)`);
-    }
-
-    // Re-sort by original index to maintain document order
-    const sortedResult = result
-      .filter((l) => !l.startsWith("..."))
-      .map((l) => {
-        // Find original index
-        const origIdx = lines.indexOf(l);
-        return { line: l, idx: origIdx };
-      })
-      .sort((a, b) => a.idx - b.idx)
-      .map((entry) => entry.line);
-
-    // Append truncation marker at the end
     if (omitted > 0) {
       sortedResult.push(`... (truncated, ${omitted} elements omitted)`);
     }
 
-    const refCount = sortedResult.filter((l) => !l.startsWith("--- ") && !l.startsWith("...")).length;
+    // --- Phase D: Escape-hint ---------------------------------------------
+    //
+    // Two variants so the LLM always gets a concrete positive next step when
+    // content was dropped (Session 45567c9b research: positive + actionable
+    // hints outperform negative framing and are more reliable than
+    // description-level hints under token pressure):
+    //
+    // D1 — explicit or implicit main was detected AND partially truncated:
+    //      point directly at the main ref.
+    // D2 — no main landmark at all (HN-style LayoutTable pages) BUT there
+    //      are collapsed container summary lines in the kept output: list
+    //      the three biggest by item count as drill-down anchors so the LLM
+    //      knows which refs are worth expanding.
+    const mainAnchorRef = explicitMainRef ?? implicitMainRef;
+    if (mainLandmarkTruncated && mainAnchorRef !== undefined && totalInsideMain > keptInsideMain) {
+      sortedResult.push(
+        `\nNote: main content partially truncated (${keptInsideMain}/${totalInsideMain} elements kept). ` +
+        `Call read_page(ref: "e${mainAnchorRef}", filter: "all") for the full main subtree.`,
+      );
+    } else if (omitted > 0) {
+      // No main-landmark anchor — gather the biggest collapsed container
+      // summaries that DID survive the truncation so the LLM has concrete
+      // refs to drill into. Summary lines look like `[eNN shortRole[: name], K items]`.
+      // Role can be lowercase (`div`, `nav`) OR PascalCase from CDP
+      // (`LayoutTableRow`, `RootWebArea`) — accept both.
+      const summaryPattern = /\[e(\d+)\s+[A-Za-z]+(?::\s[^,]*)?,\s*(\d+)\s+items\]/;
+      const anchors: Array<{ ref: number; items: number }> = [];
+      for (const line of sortedResult) {
+        const m = line.match(summaryPattern);
+        if (m) anchors.push({ ref: Number(m[1]), items: Number(m[2]) });
+      }
+      if (anchors.length > 0) {
+        anchors.sort((a, b) => b.items - a.items);
+        const top = anchors.slice(0, 3)
+          .map((a) => `e${a.ref} (${a.items} items)`)
+          .join(", ");
+        sortedResult.push(
+          `\nNote: ${omitted} elements collapsed into summary lines. ` +
+          `Largest collapsed containers: ${top}. ` +
+          `Call read_page(ref: "eXX", filter: "all") on one of these refs to expand that subtree.`,
+        );
+      }
+    }
+
+    const refCount = sortedResult.filter(
+      (l) => !l.startsWith("--- ") && !l.startsWith("...") && !l.startsWith("\nNote:"),
+    ).length;
     return { lines: sortedResult, refCount, level: 4 };
   }
 
@@ -1421,10 +1761,38 @@ export class A11yTreeProcessor {
   private trimBodyToFit(lines: string[], bodyBudgetTokens: number): string[] {
     if (bodyBudgetTokens <= 0) return [];
 
-    // Separate interactive and content lines
+    // Session 45567c9b: Preserve trailing "Note:" escape-hint lines that
+    // truncateToFit appended. Without this, the Phase-D drill-down hints
+    // (main-landmark or top-3 collapsed containers) get silently trimmed
+    // because they're non-interactive, which is the opposite of what we
+    // want — the hint is the most important line for LLM recovery.
+    const trailingNotes: string[] = [];
+    const workLines = [...lines];
+    while (workLines.length > 0) {
+      const last = workLines[workLines.length - 1];
+      if (last.trimStart().startsWith("Note:") || last.startsWith("\nNote:")) {
+        trailingNotes.unshift(workLines.pop()!);
+      } else {
+        break;
+      }
+    }
+    // Also pull the `... (truncated, N omitted)` marker so it stays at the
+    // bottom after trimming the body.
+    let truncationMarker: string | undefined;
+    if (workLines.length > 0 && workLines[workLines.length - 1].startsWith("...")) {
+      truncationMarker = workLines.pop();
+    }
+
+    // Reserve budget for the preserved trailing annotations — they are
+    // small but the budget check must account for them.
+    const notesText = [truncationMarker ?? "", ...trailingNotes].filter(Boolean).join("\n");
+    const notesTokens = notesText ? estimateTokens(notesText + "\n") : 0;
+    const effectiveBudget = Math.max(0, bodyBudgetTokens - notesTokens);
+
+    // Separate interactive and content lines (same as before)
     const interactiveIndices = new Set<number>();
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (let i = 0; i < workLines.length; i++) {
+      const line = workLines[i];
       const roleMatch = line.match(/\[e\d+\]\s+(\S+)/);
       const role = roleMatch ? roleMatch[1] : "";
       if (INTERACTIVE_ROLES.has(role)) {
@@ -1433,8 +1801,8 @@ export class A11yTreeProcessor {
     }
 
     // Try removing content lines from the end first
-    const result = [...lines];
-    while (estimateTokens(result.join("\n")) > bodyBudgetTokens && result.length > 0) {
+    const result = [...workLines];
+    while (estimateTokens(result.join("\n")) > effectiveBudget && result.length > 0) {
       // Find last non-interactive line to remove
       let removedContent = false;
       for (let i = result.length - 1; i >= 0; i--) {
@@ -1451,6 +1819,10 @@ export class A11yTreeProcessor {
         result.pop();
       }
     }
+
+    // Re-append the preserved annotations at the bottom.
+    if (truncationMarker !== undefined) result.push(truncationMarker);
+    for (const note of trailingNotes) result.push(note);
     return result;
   }
 
@@ -1624,7 +1996,11 @@ export class A11yTreeProcessor {
         const name = (node.name?.value as string) ?? "";
         const shortRole = this.shortContainerRole(role);
         const nameStr = name ? `: ${name}` : "";
-        lines.push(`${indent}[${shortRole}${nameStr}, ${childCount} items]`);
+        // BUG-019: include the ref in summary lines so landmark-aware
+        // truncateToFit can still attribute downsampled subtrees to their
+        // main/nav/other bucket AND so the escape-hint can point the LLM at
+        // the exact ref to re-read for full detail.
+        lines.push(`${indent}[e${refNum} ${shortRole}${nameStr}, ${childCount} items]`);
 
         // Children rendered at indentLevel + 1
         this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
