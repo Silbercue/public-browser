@@ -289,4 +289,43 @@ könnte er noch besser sein um dir das zu ermöglichen würde wäre es schon get
 ###  Verbinde dich mit Session 9254a969-1fcb-4203-9fae-12679ce7363e das ist eine Session, in der wir mit der aktuellen Version des SilbercueChrome MCP unseren Testparcour (http://localhost:4242/) durchlauden haben. wir versuchen den MTC so anzupassen, dass er perfekt mit einem LLM zusammenarbeitet. Schau dir den gesamten Testverlauf an und finde Fictions Points, an denen wir die Zusammenarbeit zwischen   
 LLM und MCP verbessern können. Immer mit der Premissie, dass der MCP so eingestellt sein muss, dass das LLM sich sofort auskennt. Wir müssen nicht das LLM dazu bringen, den MCP richtig zu bedienen. Umgekehrt. Wir müssen schauen, wo das LLM Umwege gemacht hat, beziehungsweise nicht sofort weitergekommen ist und noch mal einen anderen Weg gesucht hat finde solche Fractions und Liste sicher auf.
 
+Security
 
+
+## Test an einer Seite
+### lass uns den MCP Server an eine richtigen Internet Seite erproben, vor allem
+    ▎  die Standard Werkzeuge wie Mausklick, Read Page und so weiter die den
+  MCP
+    ▎ wirklich beschleunigen. Ich habe gemerkt, dass die polar.sh Seite eine
+
+    ▎ kleine Herausforderung ist. Darum lass uns ein neues 100% rabattbong mit
+  dem
+    ▎  Namen DAVIDONDREJ100 anlegen für Promotion Zwecke und unseren
+    ▎ SilbercueChrome MCP. Gehe dabei ganz normal mit dem MCP um und beobachte
+
+    ▎ dabei, was schief läuft, sobald es Probleme gibt halte an und gebe deine
+    ▎ Erfahrung an Developer Team mit einer Meldung zurück schreibe in die
+  Meldung
+    ▎  was für ein Problem besteht und einen eventuellen Lösungsvorschlag
+
+
+
+
+
+wir haben connecte dich mit Session 45567c9b-29e0-494d-ab04-88cc1ffd43a9    
+  lies dir die erste Nachricht durch und den Verlauf der Session und lass P4 (minor)  
+  angehen. Analysiere das Problem und lass uns gemeinsam 
+  eine Lösung überlegen. Die Seite ist im Browser immer noch offen. Du kannst 
+  dir also tatsächlich vor Ort Informationen ansehen                          
+                                                                            
+  Falls du daraus einen sauberen Wiederaufsetzer für eine neue Session machen 
+  willst (selbsterklärend, ohne implizites Vorwissen):
+                                                                              
+  /bugfix Lies Session 45567c9b-29e0-494d-ab04-88cc1ffd43a9 (Skill
+  session-recall). Im Verlauf gibt es einen Friction-Report mit P1-P4. P1     
+  ist absichtlich (Pro-gating). Greif P2 an: read_page(filter:"all",          
+  max_tokens:4000) gibt auf                                                   
+  https://polar.sh/dashboard/silbercuechrome/products/discounts               
+  nur [e44] generic ohne children zurück, obwohl read_page(ref:"e44", depth:8)
+  112 Elemente liefert. Analysiere die Root-Cause, schlage eine Lösung vor,   
+  und teste an mehreren Seiten (Polar + 1-2 öffentliche).
