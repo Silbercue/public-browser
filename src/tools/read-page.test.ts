@@ -184,28 +184,28 @@ describe("readPageHandler", () => {
     expect(result._meta!.method).toBe("read_page");
   });
 
-  // Test 6: Handler with depth — FR-002: interactive filter uses cdpFetchDepth = max(depth, 10)
-  it("should pass cdpFetchDepth (not display depth) to CDP for interactive filter", async () => {
+  // BUG-019: the wire-level CDP call never includes a depth parameter so
+  // deeply nested main content (polar.sh tables, HackerNews rows, Wikipedia
+  // articles, etc.) can never be silently truncated by the fetch layer.
+  it("BUG-019: filter=interactive fetches full tree (no depth cap)", async () => {
     const cdp = mockCdpClient(sampleNodes);
     await readPageHandler({ depth: 5, filter: "interactive" }, cdp, "s1");
 
-    // FR-002: interactive filter → cdpFetchDepth = max(5, 10) = 10
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
-      { depth: 10 },
+      {},
       "s1",
     );
   });
 
-  // Test 6b: filter=all fetches depth + 2 (extra levels for leaf text content)
-  it("should pass display depth + 2 to CDP for filter=all", async () => {
+  it("BUG-019: filter=all fetches full tree (no depth cap)", async () => {
     a11yTree.reset();
     const cdp = mockCdpClient(sampleNodes, "https://example.com/all-depth");
     await readPageHandler({ depth: 5, filter: "all" }, cdp, "s1");
 
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
-      { depth: 7 },
+      {},
       "s1",
     );
   });
@@ -649,46 +649,48 @@ describe("readPageHandler", () => {
     const cdp = mockCdpClient(deepNodes, "https://example.com/fr002-deep");
     const result = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
 
-    // The textbox at depth 7 MUST be found — FR-002 fix
+    // The textbox at depth 7 MUST be found — FR-002 spirit still holds: deeply
+    // nested interactive elements are discovered because BUG-019 fetches the
+    // full tree instead of capping at 10 levels.
     expect(result.content[0].text).toContain("textbox");
     expect(result.content[0].text).toContain("Email");
 
-    // CDP must have been called with cdpFetchDepth=10, not display depth=3
+    // BUG-019: no depth parameter on the wire
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
-      { depth: 10 },
+      {},
       "s1",
     );
   });
 
-  // FR-001: filter=all with depth=3 fetches depth+2=5 (extra levels for leaf text)
-  it("FR-001: filter=all with depth=3 should fetch at depth 5", async () => {
+  // BUG-019: every filter variant now fetches the full tree — there is no
+  // per-filter depth mapping anymore. These three tests exercise the same
+  // wire-level contract for filter=all / landmark / visual.
+  it("BUG-019: filter=all fetches full tree (no depth cap)", async () => {
     a11yTree.reset();
     const cdp = mockCdpClient(sampleNodes, "https://example.com/fr002-all");
     await readPageHandler({ depth: 3, filter: "all" }, cdp, "s1");
 
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
-      { depth: 5 },
+      {},
       "s1",
     );
   });
 
-  // FR-002: filter=landmark uses cdpFetchDepth = max(depth, 6)
-  it("FR-002: filter=landmark with depth=3 should fetch at depth 6", async () => {
+  it("BUG-019: filter=landmark fetches full tree (no depth cap)", async () => {
     a11yTree.reset();
     const cdp = mockCdpClient(sampleNodes, "https://example.com/fr002-landmark");
     await readPageHandler({ depth: 3, filter: "landmark" }, cdp, "s1");
 
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
-      { depth: 6 },
+      {},
       "s1",
     );
   });
 
-  // FR-002: filter=visual uses cdpFetchDepth = max(depth, 10) (same as interactive)
-  it("FR-002: filter=visual with depth=3 should fetch at depth 10", async () => {
+  it("BUG-019: filter=visual fetches full tree (no depth cap)", async () => {
     a11yTree.reset();
     const snapshot = makeDomSnapshot([
       { backendNodeId: 100, nodeName: "HTML", bounds: [0, 0, 1280, 800] },
@@ -698,7 +700,7 @@ describe("readPageHandler", () => {
 
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
-      { depth: 10 },
+      {},
       "s1",
     );
   });
@@ -907,6 +909,81 @@ describe("readPageHandler", () => {
       const result = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
 
       expect(result.content[0].text).not.toMatch(/text\/content nodes.*hidden/);
+    });
+  });
+
+  // --- Session 45567c9b: Positive-framed truncation hint (research-backed) ---
+  //
+  // Research (web-research-gemini 2026-04-09): response-level truncation
+  // hints must be positive + actionable. "Avoid screenshot" pushes the LLM
+  // toward the next defensive fallback (evaluate). "Call read_page(ref:X)
+  // to expand" delivers the concrete next step.
+  describe("Truncation hint is positive-framed (Session 45567c9b)", () => {
+    it("mentions the [eXX role, N items] format + call read_page(ref:...) when downsampled", async () => {
+      // Build a page that triggers downsample under tight max_tokens.
+      const nodes: AXNode[] = [];
+      let bk = 90000;
+      const mk = (partial: Partial<AXNode>): AXNode => {
+        const n = { ignored: false, nodeId: `t${nodes.length}`, backendDOMNodeId: bk++, ...partial } as AXNode;
+        nodes.push(n);
+        return n;
+      };
+      const linkIds: string[] = [];
+      for (let i = 0; i < 80; i++) {
+        const l = mk({
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: `hint-link-${i}-${i.toString(36)}-filler-text-here` },
+        });
+        linkIds.push(l.nodeId);
+      }
+      const main = mk({
+        role: { type: "role", value: "main" },
+        name: { type: "computedString", value: "Main" },
+        childIds: linkIds,
+      });
+      const root = { ignored: false, nodeId: "root", backendDOMNodeId: 89999, role: { type: "role", value: "WebArea" }, name: { type: "computedString", value: "Hint Test" }, childIds: [main.nodeId] } as AXNode;
+      nodes.unshift(root);
+
+      a11yTree.reset();
+      const cdp = mockCdpClient(nodes, "https://example.com/hint-positive");
+      const result = await readPageHandler({ depth: 3, filter: "all", max_tokens: 500 }, cdp, "s1");
+
+      const text = result.content[0].text;
+      // Must include the new positive truncation hint with format and action.
+      expect(text).toMatch(/\[eXX role, N items\]/);
+      expect(text).toMatch(/read_page\(ref:'eXX', filter:'all'\)/);
+    });
+
+    it("does NOT mention 'screenshot' as a fallback in the truncation warning", async () => {
+      // Regression: the old warning said "use screenshot to check for
+      // modals" — research shows this pushes the LLM into the screenshot
+      // defensive fallback. The new positive hint must not recommend
+      // screenshot.
+      const nodes: AXNode[] = [];
+      let bk = 91000;
+      const mk = (partial: Partial<AXNode>): AXNode => {
+        const n = { ignored: false, nodeId: `s${nodes.length}`, backendDOMNodeId: bk++, ...partial } as AXNode;
+        nodes.push(n);
+        return n;
+      };
+      const linkIds: string[] = [];
+      for (let i = 0; i < 80; i++) {
+        const l = mk({ role: { type: "role", value: "link" }, name: { type: "computedString", value: `bigtext-${i}-${i.toString(36)}-some-filler-content-for-token-pressure` } });
+        linkIds.push(l.nodeId);
+      }
+      const nav = mk({ role: { type: "role", value: "navigation" }, name: { type: "computedString", value: "Nav" }, childIds: linkIds });
+      const root = { ignored: false, nodeId: "root", backendDOMNodeId: 90999, role: { type: "role", value: "WebArea" }, name: { type: "computedString", value: "No-Screenshot Test" }, childIds: [nav.nodeId] } as AXNode;
+      nodes.unshift(root);
+
+      a11yTree.reset();
+      const cdp = mockCdpClient(nodes, "https://example.com/hint-no-screenshot");
+      const result = await readPageHandler({ depth: 3, filter: "all", max_tokens: 500 }, cdp, "s1");
+
+      const text = result.content[0].text;
+      // The truncation warning line must not mention screenshot.
+      const warningLine = text.split("\n").find(l => l.startsWith("⚠ Truncated"));
+      expect(warningLine).toBeDefined();
+      expect(warningLine!).not.toMatch(/screenshot/i);
     });
   });
 });

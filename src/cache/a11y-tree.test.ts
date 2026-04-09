@@ -100,10 +100,12 @@ describe("A11yTreeProcessor", () => {
     const result = await processor.getTree(cdp, "s1", { depth: 1, filter: "all" });
 
     expect(result.depth).toBe(1);
-    // FR-002: filter=all → CDP depth = display depth + 2 (extra levels for leaf text)
+    // BUG-019: display depth stays user-controlled, but the wire-level CDP call
+    // always fetches the full tree (no depth param) so deeply nested main content
+    // doesn't silently disappear.
     expect(cdp.send).toHaveBeenCalledWith(
       "Accessibility.getFullAXTree",
-      { depth: 3 },
+      {},
       "s1",
     );
   });
@@ -1552,13 +1554,21 @@ describe("A11yTreeProcessor", () => {
     });
 
     it("should merge containers at higher levels", async () => {
+      // BUG-019: the original test tree had a pathologically flat structure
+      // (30 paragraphs as direct root children, no main wrapper). With the
+      // new landmark-aware truncateToFit that favoured a nav-summary vs the
+      // no-landmark paragraphs inconsistently depending on the budget.
+      // The test's ORIGINAL intent is the Level-3+ container-flattening
+      // behaviour of renderNodeDownsampled, NOT truncateFit's priority order,
+      // so we put the paragraphs into a realistic <main> container and keep
+      // the budget tight enough to still trigger a level-3+ downsample.
       const nodes: AXNode[] = [
         makeNode({
           nodeId: "root",
           role: { type: "role", value: "WebArea" },
           name: { type: "computedString", value: "Container Test" },
           backendDOMNodeId: 7000,
-          childIds: ["nav1", ...Array.from({ length: 30 }, (_, i) => `para${i}`)],
+          childIds: ["nav1", "main1"],
         }),
         makeNode({
           nodeId: "nav1",
@@ -1566,7 +1576,10 @@ describe("A11yTreeProcessor", () => {
           role: { type: "role", value: "navigation" },
           name: { type: "computedString", value: "Main" },
           backendDOMNodeId: 7001,
-          childIds: ["link1"],
+          // BUG-019: ≥2 children so the Level-2 single-child merge does NOT
+          // collapse the nav wrapper. Otherwise Level-2 replaces the nav with
+          // its only child before Level-3+ can emit a summary line.
+          childIds: ["link1", "link2"],
         }),
         makeNode({
           nodeId: "link1",
@@ -1575,10 +1588,25 @@ describe("A11yTreeProcessor", () => {
           name: { type: "computedString", value: "Home" },
           backendDOMNodeId: 7002,
         }),
+        makeNode({
+          nodeId: "link2",
+          parentId: "nav1",
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: "About" },
+          backendDOMNodeId: 7098,
+        }),
+        makeNode({
+          nodeId: "main1",
+          parentId: "root",
+          role: { type: "role", value: "main" },
+          name: { type: "computedString", value: "Article" },
+          backendDOMNodeId: 7099,
+          childIds: Array.from({ length: 30 }, (_, i) => `para${i}`),
+        }),
         ...Array.from({ length: 30 }, (_, i) =>
           makeNode({
             nodeId: `para${i}`,
-            parentId: "root",
+            parentId: "main1",
             role: { type: "role", value: "paragraph" },
             name: { type: "computedString", value: `Paragraph ${i} with enough text to force high-level downsampling in the pipeline` },
             backendDOMNodeId: 7003 + i,
@@ -1589,13 +1617,24 @@ describe("A11yTreeProcessor", () => {
       const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 500 });
 
       expect(result.downsampled).toBe(true);
-      // At level 3+, navigation should be rendered as one-line summary
+      // At level 3+, renderNodeDownsampled emits one-line container summaries
+      // in the format "[eN shortRole: name, K items]". BUG-019 added the ref
+      // prefix. Pre-truncation this emits a nav AND a main summary; the new
+      // landmark-aware truncateToFit may drop the nav summary in favour of
+      // main content under tight budgets (the priority is intentional), so we
+      // check for the main summary instead — it's the one that should always
+      // survive and it exercises the same renderer code path.
       if (result.downsampleLevel! >= 3) {
-        expect(result.text).toContain("[nav:");
+        expect(result.text).toMatch(/\[e\d+\s+main:/);
       }
-      // Interactive elements always preserved
-      expect(result.text).toContain("link");
-      expect(result.text).toContain("Home");
+      // BUG-019 P2 (Session 45567c9b): the new parent-chain-preserving
+      // truncateToFit keeps structure and content together. Under a tight
+      // budget where 30 paragraphs dominate the main bucket, the two nav
+      // links cannot fit with their nav ancestor chain — and orphaning them
+      // is worse than dropping them (they'd have no enclosing nav context
+      // for the LLM). Instead, the nav landmark survives as its one-line
+      // summary so the LLM can re-read the nav subtree if needed.
+      expect(result.text).toMatch(/\[e\d+\s+nav:/);
     });
 
     it("should convert content to compact Markdown at level 4", async () => {
@@ -1736,6 +1775,437 @@ describe("A11yTreeProcessor", () => {
     });
   });
 
+  // --- Landmark-aware Truncation tests (BUG-019) ---
+  //
+  // User-report: `read_page(filter:"all", max_tokens:4000)` on the Polar discounts
+  // page returned `[e54] generic` (the main region) with NO children, while the
+  // sidebar navigation with ~30 links was fully preserved. Root cause: legacy
+  // truncateToFit() classifies lines in 3 priority buckets (dialog / interactive
+  // / content) without any landmark awareness. Sidebar nav links fill the
+  // interactive bucket first, pushing main-content rows out of the budget.
+  //
+  // The fix priorities main > other > navigation-like landmarks so that in a
+  // budget-starved scenario the main content wins and the sidebar is trimmed.
+  describe("Landmark-aware Truncation (BUG-019)", () => {
+    /**
+     * Build a page with explicit landmarks:
+     *   - <banner> header with 8 buttons
+     *   - <nav> sidebar with 30 links
+     *   - <main> with a heading + table (N rows × 3 cells)
+     *   - <contentinfo> footer with 10 links
+     * Every interactive element has a unique name so the Ticket-1 aggregator
+     * does not collapse them and we exercise the full truncation path.
+     */
+    function buildLandmarkedPage(mainRows: number, opts: { genericMain?: boolean } = {}) {
+      const nodes: AXNode[] = [];
+      let nodeCounter = 0;
+      let backendCounter = 20000;
+      const nextNode = (partial: Partial<AXNode> & Pick<AXNode, "role">): AXNode => {
+        const id = `n${nodeCounter++}`;
+        const node: AXNode = {
+          ignored: false,
+          nodeId: id,
+          backendDOMNodeId: backendCounter++,
+          ...partial,
+        } as AXNode;
+        nodes.push(node);
+        return node;
+      };
+
+      // Header landmark — 8 uniquely named buttons
+      const headerBtnIds: string[] = [];
+      for (let i = 0; i < 8; i++) {
+        const btn = nextNode({
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: `HeaderBtn ${["alpha","bravo","charlie","delta","echo","foxtrot","golf","hotel"][i]}` },
+        });
+        headerBtnIds.push(btn.nodeId);
+      }
+      const banner = nextNode({
+        role: { type: "role", value: "banner" },
+        name: { type: "computedString", value: "Site Header" },
+        childIds: headerBtnIds,
+      });
+
+      // Sidebar navigation — 30 uniquely named links
+      const navLinkIds: string[] = [];
+      const navWords = ["dashboard","products","discounts","storefront","analytics","customers","checkouts","finance","settings","affiliates","orders","members","partners","benefits","pricing","docs","support","community","status","integrations","webhooks","api","keys","usage","billing","invoices","taxes","reports","exports","profile"];
+      for (let i = 0; i < 30; i++) {
+        const link = nextNode({
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: `Nav-${navWords[i]}-${i.toString(36)}` },
+        });
+        navLinkIds.push(link.nodeId);
+      }
+      const nav = nextNode({
+        role: { type: "role", value: "navigation" },
+        name: { type: "computedString", value: "Sidebar" },
+        childIds: navLinkIds,
+      });
+
+      // Main landmark — heading + table with N rows × 3 cells
+      const mainHeading = nextNode({
+        role: { type: "role", value: "heading" },
+        name: { type: "computedString", value: "Discounts Overview Page" },
+      });
+      const rowIds: string[] = [];
+      for (let r = 0; r < mainRows; r++) {
+        const cellIds: string[] = [];
+        // Cell 1: code (content)
+        const codeText = nextNode({
+          role: { type: "role", value: "StaticText" },
+          name: { type: "computedString", value: `CODE-${r}-${Math.random().toString(36).slice(2,7)}` },
+        });
+        const cellCode = nextNode({
+          role: { type: "role", value: "cell" },
+          childIds: [codeText.nodeId],
+        });
+        cellIds.push(cellCode.nodeId);
+        // Cell 2: percentage (content)
+        const pctText = nextNode({
+          role: { type: "role", value: "StaticText" },
+          name: { type: "computedString", value: `${(r + 1) * 5}% off for customers` },
+        });
+        const cellPct = nextNode({
+          role: { type: "role", value: "cell" },
+          childIds: [pctText.nodeId],
+        });
+        cellIds.push(cellPct.nodeId);
+        // Cell 3: edit button (interactive)
+        const editBtn = nextNode({
+          role: { type: "role", value: "button" },
+          name: { type: "computedString", value: `Edit discount ${r} bravo-${r.toString(36)}` },
+        });
+        const cellEdit = nextNode({
+          role: { type: "role", value: "cell" },
+          childIds: [editBtn.nodeId],
+        });
+        cellIds.push(cellEdit.nodeId);
+        const row = nextNode({
+          role: { type: "role", value: "row" },
+          childIds: cellIds,
+        });
+        rowIds.push(row.nodeId);
+      }
+      const tableNode = nextNode({
+        role: { type: "role", value: "table" },
+        name: { type: "computedString", value: "Discounts Table" },
+        childIds: rowIds,
+      });
+      // Main or generic-container depending on flag (Polar uses a plain <div>)
+      const main = nextNode({
+        role: { type: "role", value: opts.genericMain ? "generic" : "main" },
+        name: { type: "computedString", value: opts.genericMain ? "" : "Main content" },
+        childIds: [mainHeading.nodeId, tableNode.nodeId],
+      });
+
+      // Footer — 10 unique links
+      const footerLinkIds: string[] = [];
+      const footerWords = ["terms","privacy","security","status","community","docs","contact","cookies","imprint","legal"];
+      for (let i = 0; i < 10; i++) {
+        const link = nextNode({
+          role: { type: "role", value: "link" },
+          name: { type: "computedString", value: `Footer-${footerWords[i]}-${i.toString(36)}` },
+        });
+        footerLinkIds.push(link.nodeId);
+      }
+      const footer = nextNode({
+        role: { type: "role", value: "contentinfo" },
+        name: { type: "computedString", value: "Site Footer" },
+        childIds: footerLinkIds,
+      });
+
+      // Root
+      const root: AXNode = {
+        ignored: false,
+        nodeId: "root",
+        backendDOMNodeId: 19999,
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Test Page" },
+        childIds: [banner.nodeId, nav.nodeId, main.nodeId, footer.nodeId],
+      } as AXNode;
+      nodes.unshift(root);
+
+      // Backfill parentId for walker completeness
+      const parentMap = new Map<string, string>();
+      const linkParents = (n: AXNode) => {
+        if (!n.childIds) return;
+        for (const c of n.childIds) parentMap.set(c, n.nodeId);
+      };
+      linkParents(root);
+      linkParents(banner);
+      linkParents(nav);
+      linkParents(main);
+      linkParents(tableNode);
+      for (const r of rowIds) {
+        const row = nodes.find(n => n.nodeId === r);
+        if (row) linkParents(row);
+      }
+      linkParents(footer);
+      for (const n of nodes) {
+        const p = parentMap.get(n.nodeId);
+        if (p) (n as { parentId?: string }).parentId = p;
+      }
+
+      return mockCdpClient(nodes, "https://example.com/landmarked-test");
+    }
+
+    it("BUG-019: main content should survive when budget is tight", async () => {
+      // 40 rows × 3 cells + 3 interactive per row = lots of main content.
+      // Budget 1200 forces truncateToFit fallback.
+      const cdp = buildLandmarkedPage(40);
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 1200 });
+
+      expect(result.downsampled).toBe(true);
+
+      // The main heading must be in the output — it anchors the main region.
+      expect(result.text).toContain("Discounts Overview Page");
+
+      // At least some of the main-content (edit buttons) should be present —
+      // before the fix, navigation links filled the interactive bucket first
+      // and most main-area edit buttons were dropped.
+      const editButtonCount = (result.text.match(/Edit discount/g) ?? []).length;
+      expect(editButtonCount).toBeGreaterThanOrEqual(5);
+
+      // The footer/navigation should be deprioritized — at most a handful of
+      // sidebar nav-links should remain. Before the fix ALL 30 nav-links fit
+      // because they dominated the interactive bucket.
+      const navLinkCount = (result.text.match(/Nav-\w+/g) ?? []).length;
+      expect(navLinkCount).toBeLessThan(editButtonCount);
+    });
+
+    it("BUG-019: implicit main fallback when no <main> landmark exists", async () => {
+      // Polar's Discounts page uses plain <div> instead of <main>. We model
+      // this with genericMain: true — the largest non-landmark subtree should
+      // be treated as implicit main.
+      const cdp = buildLandmarkedPage(40, { genericMain: true });
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 1200 });
+
+      expect(result.downsampled).toBe(true);
+      // The "Discounts Overview Page" heading lives inside the generic main —
+      // it must still survive thanks to the implicit-main heuristic.
+      expect(result.text).toContain("Discounts Overview Page");
+      // Main-area edit buttons must also appear.
+      const editButtonCount = (result.text.match(/Edit discount/g) ?? []).length;
+      expect(editButtonCount).toBeGreaterThanOrEqual(5);
+    });
+
+    it("BUG-019: dialog priority is preserved over main", async () => {
+      // Add a dialog at root level on top of the standard landmarked page.
+      // Dialogs must STILL be the absolute top priority regardless of main
+      // prioritization. We rebuild manually.
+      const nodes: AXNode[] = [];
+      let bk = 30000;
+      const mk = (partial: Partial<AXNode>): AXNode => {
+        const n = { ignored: false, nodeId: `m${nodes.length}`, backendDOMNodeId: bk++, ...partial } as AXNode;
+        nodes.push(n);
+        return n;
+      };
+
+      const dialogTitle = mk({ role: { type: "role", value: "heading" }, name: { type: "computedString", value: "Confirm Delete Action" } });
+      const dialogOk = mk({ role: { type: "role", value: "button" }, name: { type: "computedString", value: "Confirm-OK-dialog-kappa" } });
+      const dialogCancel = mk({ role: { type: "role", value: "button" }, name: { type: "computedString", value: "Cancel-dialog-kappa" } });
+      const dialog = mk({ role: { type: "role", value: "dialog" }, name: { type: "computedString", value: "Delete discount?" }, childIds: [dialogTitle.nodeId, dialogOk.nodeId, dialogCancel.nodeId] });
+
+      const mainBtn = mk({ role: { type: "role", value: "button" }, name: { type: "computedString", value: "Main-only-action" } });
+      const mainLm = mk({ role: { type: "role", value: "main" }, name: { type: "computedString", value: "Main" }, childIds: [mainBtn.nodeId] });
+
+      // 40 noise links to fill the budget
+      const noiseIds: string[] = [];
+      for (let i = 0; i < 40; i++) {
+        const link = mk({ role: { type: "role", value: "link" }, name: { type: "computedString", value: `Noise-link-${i}-${i.toString(36)}-filler-text-block` } });
+        noiseIds.push(link.nodeId);
+      }
+      const navLm = mk({ role: { type: "role", value: "navigation" }, name: { type: "computedString", value: "Nav" }, childIds: noiseIds });
+
+      const root: AXNode = {
+        ignored: false,
+        nodeId: "root",
+        backendDOMNodeId: 29999,
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Dialog Test Page" },
+        childIds: [navLm.nodeId, mainLm.nodeId, dialog.nodeId],
+      } as AXNode;
+      nodes.unshift(root);
+
+      const cdp = mockCdpClient(nodes, "https://example.com/dialog-prio-test");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 400 });
+
+      expect(result.downsampled).toBe(true);
+      // Dialog must be present (highest priority always)
+      expect(result.text).toContain("Confirm-OK-dialog-kappa");
+      expect(result.text).toContain("Cancel-dialog-kappa");
+    });
+
+    it("BUG-019: escape-hint points to truncated main subtree", async () => {
+      // A very tight budget so main gets partially truncated. The output
+      // should include a hint telling the LLM to call read_page(ref:"eXX")
+      // on the main region for full detail.
+      const cdp = buildLandmarkedPage(60);
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 800 });
+
+      expect(result.downsampled).toBe(true);
+      // Hint mentions re-reading with a ref
+      expect(result.text.toLowerCase()).toMatch(/call read_page\(ref:\s*"e\d+"/);
+    });
+
+    it("BUG-019: navigation-heavy page without main — no crash, no infinite loop", async () => {
+      // Edge case: only navigation, no main, no implicit-main candidate.
+      // Must still truncate gracefully.
+      const nodes: AXNode[] = [];
+      let bk = 40000;
+      const mk = (partial: Partial<AXNode>): AXNode => {
+        const n = { ignored: false, nodeId: `e${nodes.length}`, backendDOMNodeId: bk++, ...partial } as AXNode;
+        nodes.push(n);
+        return n;
+      };
+      const linkIds: string[] = [];
+      for (let i = 0; i < 100; i++) {
+        const l = mk({ role: { type: "role", value: "link" }, name: { type: "computedString", value: `only-nav-${i}-${i.toString(36)}-padding-text` } });
+        linkIds.push(l.nodeId);
+      }
+      const nav = mk({ role: { type: "role", value: "navigation" }, name: { type: "computedString", value: "Only Nav" }, childIds: linkIds });
+      const root: AXNode = {
+        ignored: false,
+        nodeId: "root",
+        backendDOMNodeId: 39999,
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Nav-only" },
+        childIds: [nav.nodeId],
+      } as AXNode;
+      nodes.unshift(root);
+
+      const cdp = mockCdpClient(nodes, "https://example.com/nav-only-test");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 500 });
+
+      expect(result.downsampled).toBe(true);
+      // No crash — and at least some of the nav links made it in
+      expect(result.refCount).toBeGreaterThan(0);
+      expect(result.text).toContain("only-nav-");
+    });
+
+    // --- P2 follow-up (Session 45567c9b) ---
+    //
+    // Symptom: on a downsampled page the interactive bucket drains first,
+    // then the mainContent bucket only partially fits. Container summary
+    // lines such as `[e54 row, 3 items]` end up as mainContent, so once
+    // the budget is exhausted they get dropped while the leaf buttons
+    // inside them remain — creating orphans with indent jumps of 4 or
+    // more and no structural context for the LLM.
+    //
+    // Fix: truncateToFit now force-includes each kept line's indent-ancestor
+    // chain. Structure and content always travel together.
+    it("BUG-019 P2: every kept row of the main table is present together with its edit button", async () => {
+      // 40 rows under a <main>, budget tight enough to trigger L4 + truncateToFit.
+      // Before the fix: the row container summary lines ([eXX row, N items])
+      // lived in the mainContent bucket, so the mainInteractive bucket
+      // drained the budget and the row summaries for rows 8+ were dropped.
+      // Buttons from those rows remained, dangling with no enclosing row.
+      const cdp = buildLandmarkedPage(40);
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 1200 });
+
+      expect(result.downsampled).toBe(true);
+      const text = result.text;
+
+      const editButtonCount = (text.match(/Edit discount/g) ?? []).length;
+      const rowSummaryCount = (text.match(/\[e\d+ row/g) ?? []).length;
+
+      // Every kept Edit button has to live inside a kept row summary.
+      expect(editButtonCount).toBeGreaterThan(0);
+      expect(rowSummaryCount).toBeGreaterThanOrEqual(editButtonCount);
+    });
+
+    it("BUG-019 P2: Phase D2 lists top-3 collapsed container anchors when no main landmark exists", async () => {
+      // HN-style page: no <main>, no implicit-main candidate big enough,
+      // just a sequence of LayoutTableRow containers each with many items.
+      // Under tight budget, Phase D2 must list the three biggest collapsed
+      // containers with their refs + item counts so the LLM has concrete
+      // drill-down anchors.
+      const nodes: AXNode[] = [];
+      let bk = 60000;
+      const mk = (partial: Partial<AXNode>): AXNode => {
+        const n = { ignored: false, nodeId: `d${nodes.length}`, backendDOMNodeId: bk++, ...partial } as AXNode;
+        nodes.push(n);
+        return n;
+      };
+
+      // 5 containers with decreasing descendant counts: 50, 40, 30, 20, 10.
+      const containerIds: string[] = [];
+      for (let c = 0; c < 5; c++) {
+        const leafCount = 50 - c * 10;
+        const leafIds: string[] = [];
+        for (let i = 0; i < leafCount; i++) {
+          const link = mk({
+            role: { type: "role", value: "link" },
+            name: { type: "computedString", value: `c${c}-leaf-${i}-${i.toString(36)}-filler` },
+          });
+          leafIds.push(link.nodeId);
+        }
+        const container = mk({
+          role: { type: "role", value: "LayoutTableRow" },
+          childIds: leafIds,
+        });
+        containerIds.push(container.nodeId);
+      }
+
+      const root: AXNode = {
+        ignored: false,
+        nodeId: "root",
+        backendDOMNodeId: 59999,
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "No-Main Page" },
+        childIds: containerIds,
+      } as AXNode;
+      nodes.unshift(root);
+
+      const cdp = mockCdpClient(nodes, "https://example.com/no-main-d2-test");
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 600 });
+
+      expect(result.downsampled).toBe(true);
+
+      // D2 hint must name "Largest collapsed containers" + top refs with item counts.
+      expect(result.text).toMatch(/Largest collapsed containers:\s*e\d+\s*\(\d+ items\)/);
+      // And the positive action.
+      expect(result.text).toMatch(/Call read_page\(ref: "eXX", filter: "all"\)/);
+      // D2 is mutually exclusive with the main-hint — no main landmark here.
+      expect(result.text).not.toMatch(/main content partially truncated/);
+    });
+
+    it("BUG-019 P2: every kept Edit-button leaf has its enclosing row summary in the output", async () => {
+      const cdp = buildLandmarkedPage(40);
+      const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 1200 });
+
+      expect(result.downsampled).toBe(true);
+      const lines = result.text.split("\n");
+
+      // Collect all kept Edit-button leaves along with their indent level.
+      const editLines = lines
+        .map((l, i) => ({ l, i, indent: l.search(/\S/) }))
+        .filter(({ l }) => /Edit discount/.test(l));
+
+      // For every edit button, walk backwards until we find a line at a
+      // smaller indent — that is the immediate enclosing container. It must
+      // be a row/cell/table/main/generic container summary, not a jump to
+      // something at indent ≤ 0 (meaning no ancestor at all).
+      for (const eb of editLines) {
+        let foundAncestor = false;
+        for (let j = eb.i - 1; j >= 0; j--) {
+          const ind = lines[j].search(/\S/);
+          if (ind < 0) continue;
+          if (ind < eb.indent) {
+            // Any smaller-indent line qualifies as ancestor. The container
+            // summary format is `[eXX role, N items]` or plain `[eXX] role`.
+            if (/\[e\d+/.test(lines[j])) {
+              foundAncestor = true;
+            }
+            break;
+          }
+        }
+        expect(foundAncestor, `Edit leaf orphaned (no ancestor at smaller indent): "${eb.l.trim()}"`).toBe(true);
+      }
+    });
+  });
+
   // --- Precomputed Cache tests (Story 7.4) ---
 
   describe("Precomputed Cache", () => {
@@ -1787,10 +2257,11 @@ describe("A11yTreeProcessor", () => {
       await processor.refreshPrecomputed(cdp, "s1");
 
       expect(processor.hasPrecomputed("s1")).toBe(true);
-      // Should have called Accessibility.getFullAXTree
+      // BUG-019: Should have called Accessibility.getFullAXTree with NO depth
+      // so the primed cache always holds the full tree, not a truncated top-3.
       expect(cdp.send).toHaveBeenCalledWith(
         "Accessibility.getFullAXTree",
-        { depth: 3 },
+        {},
         "s1",
       );
     });
@@ -1986,14 +2457,13 @@ describe("A11yTreeProcessor", () => {
       ];
       const cdp = mockCdpClient(nodes, "https://example.com/pc-cache-miss");
 
-      // No cache primed — should fall back to CDP
-      // FR-002: default filter=interactive → cdpFetchDepth = max(3, 10) = 10
+      // No cache primed — should fall back to CDP.
+      // BUG-019: full-tree fetch (no depth param).
       const result = await processor.getTree(cdp, "s1");
 
-      // Should have called Accessibility.getFullAXTree with cdpFetchDepth=10
       expect(cdp.send).toHaveBeenCalledWith(
         "Accessibility.getFullAXTree",
-        { depth: 10 },
+        {},
         "s1",
       );
       expect(result.text).toContain('[e2] button "Fresh"');
@@ -2070,7 +2540,11 @@ describe("A11yTreeProcessor", () => {
       expect(result2.text).toContain('[e2] button "Primed"');
     });
 
-    it("M1: Depth-Mismatch fuehrt zu Cache-Miss", async () => {
+    it("BUG-019: any display depth is a Cache-Hit once primed (no more depth-mismatch)", async () => {
+      // Before BUG-019 the precomputed cache stored a finite depth (3) and any
+      // read_page call asking for a deeper fetch re-ran getFullAXTree. After the
+      // fix the cache always holds the FULL tree, so every subsequent call
+      // hits the cache regardless of the display depth.
       const nodes: AXNode[] = [
         makeNode({
           nodeId: "1",
@@ -2088,17 +2562,15 @@ describe("A11yTreeProcessor", () => {
       ];
       const cdp = mockCdpClient(nodes, "https://example.com/pc-depth-mismatch");
 
-      // Prime cache at default depth (3)
+      // Prime cache
       await processor.refreshPrecomputed(cdp, "s1");
       (cdp.send as ReturnType<typeof vi.fn>).mockClear();
 
-      // filter=all → cdpFetchDepth = depth + 2 = 7, exceeds cached depth 3 → cache miss
+      // Large display depth — must still be a cache hit, no new CDP call
       await processor.getTree(cdp, "s1", { depth: 5, filter: "all" });
       const calls = (cdp.send as ReturnType<typeof vi.fn>).mock.calls;
       const a11yCalls = calls.filter((c: unknown[]) => c[0] === "Accessibility.getFullAXTree");
-      expect(a11yCalls.length).toBeGreaterThan(0);
-      // Should have requested depth 5 + 2 = 7 (extra levels for leaf text)
-      expect(a11yCalls[0][1]).toEqual({ depth: 7 });
+      expect(a11yCalls).toHaveLength(0);
     });
 
     it("M1: Depth kleiner-gleich Cache-Depth ist Cache-Hit", async () => {

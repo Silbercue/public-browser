@@ -61,6 +61,15 @@ export interface A11yTreePublic {
   diffSnapshots(before: SnapshotMap, after: SnapshotMap): DOMChange[];
   /** Formatiert einen Diff als LLM-taugliche Kontextzeile. */
   formatDomDiff(changes: DOMChange[], url?: string): string | null;
+  /**
+   * FR-022 (P3 fix): Refs whose owning backendNodeId was still present in
+   * the AX tree at the most recent `refreshPrecomputed()` pass. The default
+   * `onToolResult` hook uses this to recognise REMOVED nodes — `reverseMap`
+   * itself never evicts old refs (so the LLM can keep stale refs around to
+   * react to them), so the diff logic needs an independent "still alive"
+   * signal. Returns an empty set if no refresh has run since the last reset.
+   */
+  getActiveRefs(): Set<number>;
 }
 
 /**

@@ -61,6 +61,7 @@ import { loadFreeTierConfig } from "./license/free-tier-config.js";
 import { z } from "zod";
 import { getProHooks, registerProHooks, proFeatureError } from "./hooks/pro-hooks.js";
 import type { ToolRegistryPublic } from "./hooks/pro-hooks.js";
+import { createDefaultOnToolResult } from "./hooks/default-on-tool-result.js";
 import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
 
 /**
@@ -519,6 +520,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       },
       diffSnapshots: A11yTreeProcessor.diffSnapshots,
       formatDomDiff: A11yTreeProcessor.formatDomDiff,
+      getActiveRefs: () => a11yTree.getActiveRefs(),
     };
 
     // M1 fix: Save the original `_meta` reference BEFORE invoking the hook.
@@ -619,6 +621,19 @@ export class ToolRegistry implements ToolRegistryPublic {
           }
           return { allowed: true };
         },
+      });
+    }
+    // FR-022 (P3 fix): Register the default Free-tier `onToolResult` hook
+    // when no Pro-Repo override is present. This is the source of the
+    // DOM-diff lines that the `click` tool description promises ("The
+    // response already includes the DOM diff (NEW/REMOVED/CHANGED lines)").
+    // The Pro-Repo can still register a richer hook before startServer();
+    // we only fill the gap.
+    const hooksAfterFeatureGate = getProHooks();
+    if (!hooksAfterFeatureGate.onToolResult) {
+      registerProHooks({
+        ...hooksAfterFeatureGate,
+        onToolResult: createDefaultOnToolResult(),
       });
     }
     // Re-read hooks after potential registration
@@ -811,7 +826,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 2. Reading ---
     this.server.tool(
       "read_page",
-      "PRIMARY tool for page understanding — call after navigate/switch_tab before any interaction. Returns accessibility tree with stable refs (e.g. 'e5') that you pass to click/type/fill_form. Use this to read visible text too — not evaluate/querySelector. Default filter:'interactive' hides static text; for cells/paragraphs/labels call read_page(ref: 'eN', filter: 'all'). ~10-30x cheaper than screenshot.",
+      "PRIMARY tool for page understanding — call after navigate/switch_tab before any interaction. Returns accessibility tree with stable refs (e.g. 'e5') that you pass to click/type/fill_form. Use this to read visible text too — not evaluate/querySelector. Default filter:'interactive' hides static text; for cells/paragraphs/labels call read_page(ref: 'eN', filter: 'all'). Under tight max_tokens, containers appear as `[eXX role, N items]` one-line summaries — call read_page(ref:'eXX', filter:'all') on that ref to expand the subtree. ~10-30x cheaper than screenshot.",
       {
         depth: readPageSchema.shape.depth,
         ref: readPageSchema.shape.ref,
