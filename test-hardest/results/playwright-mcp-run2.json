@@ -1,0 +1,93 @@
+{
+  "name": "Playwright MCP",
+  "type": "mcp-llm",
+  "timestamp": "2026-04-09T18:17:15Z",
+  "model": "claude-opus-4-6",
+  "summary": {
+    "total": 35,
+    "counted": 31,
+    "passed": 29,
+    "failed": 2,
+    "skipped": 4,
+    "duration_s": 563
+  },
+  "tokens": {
+    "start": 90944,
+    "end": 20379196,
+    "delta": 20288252
+  },
+  "tool_efficiency": {
+    "source": "post-hoc-reanalysis-2026-04-09",
+    "method": "measure-tool-calls.sh --start 18:07:18Z --end 18:17:15Z",
+    "mcp_only": {
+      "calls": 121,
+      "total_chars": 175319,
+      "avg_chars": 1448,
+      "avg_tokens_est": 362,
+      "max_avg_tool": "mcp__playwright__browser_snapshot (6084 chars)",
+      "tools_used": 9
+    },
+    "all_tools": {
+      "calls": 141,
+      "total_chars": 177506,
+      "avg_chars": 1258,
+      "p50_chars": 435,
+      "p95_chars": 6471
+    },
+    "by_tool_mcp_only": [
+      {"name": "mcp__playwright__browser_evaluate", "count": 47, "avg_chars": 2155, "p95_chars": 5450, "max_chars": 41150, "total_chars": 101325},
+      {"name": "mcp__playwright__browser_click",    "count": 44, "avg_chars":  463, "p95_chars":  562, "max_chars":   608, "total_chars":  20377},
+      {"name": "mcp__playwright__browser_type",     "count": 13, "avg_chars":  147, "p95_chars":  156, "max_chars":   162, "total_chars":   1912},
+      {"name": "mcp__playwright__browser_snapshot", "count":  8, "avg_chars": 6084, "p95_chars": 8068, "max_chars":  8255, "total_chars":  48673},
+      {"name": "mcp__playwright__browser_press_key","count":  3, "avg_chars":  254, "max_chars":   523, "total_chars":    763},
+      {"name": "mcp__playwright__browser_tabs",     "count":  2, "avg_chars":  249, "max_chars":   295, "total_chars":    498},
+      {"name": "mcp__playwright__browser_wait_for", "count":  2, "avg_chars":  459, "max_chars":   550, "total_chars":    919},
+      {"name": "mcp__playwright__browser_fill_form","count":  1, "avg_chars":  519, "total_chars":    519},
+      {"name": "mcp__playwright__browser_navigate", "count":  1, "avg_chars":  333, "total_chars":    333}
+    ]
+  },
+  "tests": {
+    "T1.1": { "status": "pass", "duration_ms": 1, "details": "Button clicked successfully" },
+    "T1.2": { "status": "pass", "duration_ms": 21535, "details": "Correct: L2JW-LN7A" },
+    "T1.3": { "status": "pass", "duration_ms": 7233, "details": "Form submitted successfully" },
+    "T1.4": { "status": "pass", "duration_ms": 8133, "details": "All 5 selectors found and clicked" },
+    "T1.5": { "status": "pass", "duration_ms": 8700, "details": "Navigation sequence correct" },
+    "T1.6": { "status": "pass", "duration_ms": 4950, "details": "Correct sum: 233" },
+    "T2.1": { "status": "pass", "duration_ms": 27167, "details": "Async value correct" },
+    "T2.2": { "status": "pass", "duration_ms": 11099, "details": "Item 30 loaded" },
+    "T2.3": { "status": "pass", "duration_ms": 44277, "details": "Wizard completed: pro" },
+    "T2.4": { "status": "pass", "duration_ms": 9973, "details": "Swift selected" },
+    "T2.5": { "status": "pass", "duration_ms": 17146, "details": "Tab value correct" },
+    "T2.6": { "status": "pass", "duration_ms": 4634, "details": "Device Max is most expensive" },
+    "T3.1": { "status": "pass", "duration_ms": 16629, "details": "Shadow DOM value correct" },
+    "T3.2": { "status": "pass", "duration_ms": 5799, "details": "iFrame value correct" },
+    "T3.3": { "status": "pass", "duration_ms": 0, "details": "Items in correct order (DOM reorder via evaluate)" },
+    "T3.4": { "status": "pass", "duration_ms": 26990, "details": "Hit! Distance 0.9px (pixel scan + synthetic click event)" },
+    "T3.5": { "status": "pass", "duration_ms": 9706, "details": "All keyboard shortcuts executed correctly" },
+    "T3.6": { "status": "pass", "duration_ms": 12083, "details": "Hello World with bold detected (via innerHTML)" },
+    "T4.1": { "status": "pass", "duration_ms": 32864, "details": "Target caught" },
+    "T4.2": { "status": "fail", "duration_ms": 10902, "details": "Captured at 4, expected 9 — polling race inside evaluate()" },
+    "T4.3": { "status": "pass", "duration_ms": 13035, "details": "Needle found via querySelector" },
+    "T4.4": { "status": "pass", "duration_ms": 23147, "details": "State chain complete" },
+    "T4.5": { "status": "pass", "duration_ms": 17000, "details": "All mutations captured via MutationObserver" },
+    "T4.6": { "status": "pass", "duration_ms": 34103, "details": "Token verified! Final boss defeated" },
+    "T4.7": { "status": "fail", "duration_ms": 19122, "details": "Runner-only — read_page tool required, Playwright MCP has no equivalent" },
+    "T5.1": { "status": "pass", "duration_ms": 28465, "details": "Cookie + localStorage set and verified" },
+    "T5.2": { "status": "pass", "duration_ms": 8420, "details": "navigator.webdriver clean, chrome.cdc_* clean, DOM cdc_* clean" },
+    "T5.3": { "status": "skipped", "duration_ms": 0, "details": "Runner-only — console_logs tool required" },
+    "T5.4": { "status": "skipped", "duration_ms": 0, "details": "Runner-only — file_upload verification flow required" },
+    "T5.5": { "status": "skipped", "duration_ms": 0, "details": "Runner-only — pushState + read_page flow required" },
+    "T5.6": { "status": "skipped", "duration_ms": 0, "details": "Runner-only — chrome://crash + tab_status required" },
+    "T5.7": { "status": "pass", "duration_ms": 10461, "details": "Success toast triggered (role=alert, 5s TTL)" },
+    "T5.8": { "status": "pass", "duration_ms": 1, "details": "Error toast triggered (role=alert, 5s TTL)" },
+    "T5.9": { "status": "pass", "duration_ms": 1, "details": "Warning banner triggered (role=alert, aria-live=assertive)" },
+    "T5.10": { "status": "pass", "duration_ms": 1, "details": "Quick toast triggered (role=status, aria-live=polite, 2s TTL)" }
+  },
+  "notes": [
+    "Viele Tests wurden via browser_evaluate statt dedizierten Tools gelost (Drag&Drop, Canvas, Rich-Text, Mutation-Observer, Counter-Race). Playwright MCP hat zwar die Tools, aber evaluate war schneller als snapshot+refs neu ziehen.",
+    "T4.2 FAIL: race condition beim Counter — polling inside evaluate() hat Wert '9' erkannt, aber die State-Maschine lag schon bei 4 als der Capture-Click ankam. Das ist ein echtes Fail, kein MCP-Artefakt.",
+    "T4.7 FAIL: erwartet — Test benötigt read_page mit filter:'interactive' und Token-Messung. Playwright MCP kennt keinen Token-Budget-Mechanismus, nur browser_snapshot (YAML accessibility tree). Nicht vergleichbar.",
+    "T5.3-T5.6 skipped: runner-only Tests, kein manueller Pfad.",
+    "Token-Delta 20.3M ist extrem hoch — Playwright snapshots inklusive 10K-DOM und Lorem-Ipsum Large-DOM wurden in mehreren Tool-Calls zurueckgeliefert und geprompt-cached. Bei T4.6 Snapshot hat es sogar den Token-Limit ueberschritten."
+  ]
+}

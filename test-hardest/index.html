@@ -932,17 +932,24 @@ const Benchmark = {
   results: {},
   startTime: null,
   timerInterval: null,
-  _lastCompletion: null,  // timestamp of last test completion (for delta timing)
+  _lastCompletion: null,      // timestamp of last test completion (for delta timing)
+  _lastCompletionEpoch: null, // wall-clock timestamp of last completion (for per-test segmentation)
+  pageLoadedAt: new Date().toISOString(), // absolute reference for time-based call attribution
 
   _complete(id, status, details) {
     const now = performance.now();
+    const nowEpoch = Date.now();
     const prevTime = this._lastCompletion || (this.startTime ? performance.now() - (Date.now() - this.startTime) : now);
-    if (!this.results[id]) this.results[id] = { status: 'running', startTime: prevTime, endTime: null, details: '' };
+    const prevEpoch = this._lastCompletionEpoch || (this.startTime || nowEpoch);
+    if (!this.results[id]) this.results[id] = { status: 'running', startTime: prevTime, startEpoch: prevEpoch, endTime: null, endEpoch: null, details: '' };
     this.results[id].status = status;
     this.results[id].endTime = now;
+    this.results[id].endEpoch = nowEpoch;
     this.results[id].startTime = prevTime;
+    this.results[id].startEpoch = prevEpoch;
     this.results[id].details = details;
     this._lastCompletion = now;
+    this._lastCompletionEpoch = nowEpoch;
     const el = document.getElementById('t' + id.replace('.', '-') + '-status');
     if (el) { el.textContent = status.toUpperCase(); el.className = 'test-status ' + status; }
     this.updateUI();
@@ -950,7 +957,7 @@ const Benchmark = {
   },
   touch(id) { /* kept for backward compat — no-op */ },
   start(id) {
-    if (!this.results[id]) this.results[id] = { status: 'running', startTime: performance.now(), endTime: null, details: '' };
+    if (!this.results[id]) this.results[id] = { status: 'running', startTime: performance.now(), startEpoch: Date.now(), endTime: null, endEpoch: null, details: '' };
     this.updateUI();
   },
   pass(id, details = '') {
@@ -992,6 +999,9 @@ const Benchmark = {
   reset() {
     this.results = {};
     this.startTime = null;
+    this._lastCompletion = null;
+    this._lastCompletionEpoch = null;
+    this.pageLoadedAt = new Date().toISOString();
     if (this.timerInterval) clearInterval(this.timerInterval);
     document.getElementById('m-time').textContent = '0s';
     document.querySelectorAll('.test-status').forEach(el => { el.textContent = 'PENDING'; el.className = 'test-status pending'; });
@@ -1011,16 +1021,24 @@ const Benchmark = {
   exportJSON() {
     const out = {
       timestamp: new Date().toISOString(),
+      page_loaded_at: this.pageLoadedAt,
       elapsed_s: this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0,
       summary: {
         total: Object.keys(this.results).length,
         passed: Object.values(this.results).filter(r => r.status === 'pass').length,
         failed: Object.values(this.results).filter(r => r.status === 'fail').length
       },
-      tests: {}
+      tests: {},
+      test_timings: {}
     };
     for (const [id, r] of Object.entries(this.results)) {
       out.tests['T' + id] = { status: r.status, duration_ms: r.endTime ? Math.round(r.endTime - r.startTime) : null, details: r.details };
+      // Per-test absolute timestamps for post-hoc call attribution via measure-tool-calls.sh --timings
+      out.test_timings['T' + id] = {
+        start: r.startEpoch ? new Date(r.startEpoch).toISOString() : null,
+        end: r.endEpoch ? new Date(r.endEpoch).toISOString() : null,
+        duration_ms: r.endTime && r.startTime ? Math.round(r.endTime - r.startTime) : null
+      };
     }
     const pre = document.getElementById('results-json');
     pre.textContent = JSON.stringify(out, null, 2);
