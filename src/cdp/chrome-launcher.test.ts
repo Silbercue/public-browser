@@ -239,6 +239,9 @@ describe("launchChrome", () => {
     const args = vi.mocked(spawn).mock.calls[0][1] as string[];
     expect(args.some((a) => a.startsWith("--user-data-dir="))).toBe(true);
 
+    // FR-025: Verify --disable-blink-features=AutomationControlled is set
+    expect(args).toContain("--disable-blink-features=AutomationControlled");
+
     // Cleanup
     await result.cdpClient.close();
   });

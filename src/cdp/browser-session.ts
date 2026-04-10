@@ -355,6 +355,18 @@ export class BrowserSession implements IBrowserSession {
     await cdpClient.send("Page.enable", {}, sessionId);
     await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, sessionId);
     await cdpClient.send("Accessibility.enable", {}, sessionId);
+    // FR-025: Mask navigator.webdriver for WebSocket-attached Chrome (auto-launch
+    // uses --disable-blink-features=AutomationControlled, but WS-attached Chrome
+    // doesn't have that flag). Defense-in-depth: both layers together.
+    await cdpClient.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
+    }, sessionId);
+    // FR-025: Also apply immediately to current document (addScriptToEvaluateOnNewDocument
+    // only covers future navigations and may not fire reliably in WebSocket mode).
+    await cdpClient.send("Runtime.evaluate", {
+      expression: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
+      awaitPromise: false,
+    }, sessionId);
     // BUG-015: keep renderer alive when occluded (macOS)
     if (!connection.headless) {
       await cdpClient.send("Emulation.setFocusEmulationEnabled", { enabled: true }, sessionId);

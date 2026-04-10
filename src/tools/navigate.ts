@@ -161,6 +161,18 @@ async function buildSuccessResponse(
   method: string,
   settleResult: SettleResult,
 ): Promise<ToolResponse> {
+  // FR-025: Mask navigator.webdriver after page load — Chrome re-applies the
+  // native getter on every new document, so we override it post-navigation.
+  // NOTE: This only works reliably for auto-launched Chrome (which uses
+  // --disable-blink-features=AutomationControlled). For WebSocket-attached
+  // Chrome, the user must start Chrome with this flag manually.
+  try {
+    await cdpClient.send("Runtime.evaluate", {
+      expression: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
+      awaitPromise: false,
+    }, sessionId);
+  } catch { /* non-critical */ }
+
   let finalUrl = "unknown";
   let title = "";
 

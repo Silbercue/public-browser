@@ -102,9 +102,11 @@ describe("navigateHandler", () => {
 
     // Override to return different values for URL and title
     let evalCount = 0;
-    (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string) => {
+    (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === "Page.navigate") return { frameId: "f1", loaderId: "l1" };
       if (method === "Runtime.evaluate") {
+        // FR-025: webdriver mask call has awaitPromise — skip counting it
+        if (params?.awaitPromise === false) return {};
         evalCount++;
         if (evalCount === 1) return { result: { value: "https://example.com" } };
         return { result: { value: "Example Domain" } };
@@ -156,7 +158,7 @@ describe("navigateHandler", () => {
     const { cdpClient, emitLifecycle } = createMockCdp({});
 
     let evalCount = 0;
-    (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string) => {
+    (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === "Page.getNavigationHistory") {
         return {
           currentIndex: 1,
@@ -171,6 +173,8 @@ describe("navigateHandler", () => {
       }
       if (method === "Page.navigateToHistoryEntry") return {};
       if (method === "Runtime.evaluate") {
+        // FR-025: webdriver mask call has awaitPromise — skip counting it
+        if (params?.awaitPromise === false) return {};
         evalCount++;
         if (evalCount === 1) return { result: { value: "https://first.com" } };
         return { result: { value: "First" } };
@@ -276,9 +280,11 @@ describe("navigateHandler", () => {
     });
 
     let evalCount = 0;
-    (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string) => {
+    (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === "Page.navigate") return { frameId: "f1", loaderId: "l1" };
       if (method === "Runtime.evaluate") {
+        // FR-025: webdriver mask call has awaitPromise — skip counting it
+        if (params?.awaitPromise === false) return {};
         evalCount++;
         if (evalCount === 1) return { result: { value: "https://slow.example" } };
         return { result: { value: "Slow Page" } };

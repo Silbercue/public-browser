@@ -351,6 +351,8 @@ Niedrige Priorität. Canvas ist inherent opak (Pixel, keine DOM-Nodes). Ein obse
 | 11 | FR-021 observe click_first/then_click Refs | Mittel | observe.ts (Ref-Resolution + silent-fail fix) | gefixt |
 | 12 | FR-022 run_plan press_key | Mittel | registry.ts (_handlers), run-plan.ts (Schema) | gefixt |
 | 13 | FR-023 run_plan iFrame | Mittel | a11y-tree.ts (same-origin iframe inlining) | gefixt |
+| 14 | FR-025 navigator.webdriver exposed | Niedrig | chrome-launcher.ts, browser-session.ts, navigate.ts, switch-tab.ts | gefixt |
+| 15 | FR-026 T4.7 Token-Budget borderline | Mittel | a11y-tree.ts (formatLine / interactive mode) | offen |
 
 ---
 
@@ -535,3 +537,55 @@ Die Tabelle 2 (Tool-Efficiency) sollte bei Pro-vs-Free-Vergleichen die unterschi
 - **T4.5 ist der teuerste Test** (147.8s, ~14 Calls) wegen observe-Limitations bei MutationObserver → FR-021
 - **run_plan hat blinde Flecken**: press_key (FR-022) und iFrame-Zugriff (FR-023) werden nicht unterstuetzt
 - **read_page bei Pro sehr token-hungrig**: 8.3k avg Chars — doppelt so viel wie Playwrights `browser_snapshot` (6.1k avg)
+
+---
+
+## FR-025: navigator.webdriver exposed via CDP (P1 — konsistenter Fail Run 2+3)
+
+### Problem
+T5.2 prueft ob `navigator.webdriver` den Wert `false` hat. CDP setzt `navigator.webdriver = true` — das ist Chrome-Standard bei DevTools-Verbindungen. In Run 1 hat das LLM den Wert zufaellig per `evaluate` maskiert (Teil der Testloesung), in Run 2 und Run 3 nicht → konsistenter Fail.
+
+### Betroffene Dateien
+Session-Initialisierung — dort wo wir uns mit Chrome verbinden und die erste Page-Interaktion aufbauen. Vermutlich `src/session/session-manager.ts` oder `src/chrome/chrome-launcher.ts` — je nachdem wo `Page.addScriptToEvaluateOnNewDocument` am besten platziert wird.
+
+### Fix (implementiert, 2-schichtig)
+
+**Schicht 1 — Chrome-Launch-Flag (primaere Verteidigung, Auto-Launch-Modus):**
+`--disable-blink-features=AutomationControlled` in `src/cdp/chrome-launcher.ts` CHROME_FLAGS. Deaktiviert `navigator.webdriver` auf Chromium-Ebene. Greift nur bei Auto-Launch (Standard-Modus, Zero-Config). Das ist der Benchmark-relevante Fix.
+
+**Schicht 2 — Defense-in-Depth (best-effort fuer WebSocket-Modus):**
+- `Page.addScriptToEvaluateOnNewDocument` in `browser-session.ts` und `switch-tab.ts` — registriert webdriver-Override fuer zukuenftige Dokumente
+- `Runtime.evaluate` in `browser-session.ts`, `navigate.ts` und `switch-tab.ts` — wendet Override sofort auf aktuelles Dokument an
+
+### Known Limitation: WebSocket-Modus
+Im WebSocket-Modus (User-Chrome auf Port 9222) greift weder der Launch-Flag noch die Script-Injection zuverlaessig. Chrome's nativer `navigator.webdriver`-Getter wird nach unseren Overrides zurueckgesetzt. Fuer WebSocket muss der User Chrome mit `--disable-blink-features=AutomationControlled` starten. Fuer den Benchmark (Auto-Launch aus /tmp) ist das irrelevant — der Launch-Flag loest T5.2.
+
+### Betroffene Dateien
+- `src/cdp/chrome-launcher.ts` — Launch-Flag
+- `src/cdp/browser-session.ts` — addScriptToEvaluateOnNewDocument + Runtime.evaluate
+- `src/tools/navigate.ts` — Runtime.evaluate nach Settlement
+- `src/tools/switch-tab.ts` — addScriptToEvaluateOnNewDocument + Runtime.evaluate
+- `src/cdp/chrome-launcher.test.ts` — Flag-Assertion
+- `src/tools/switch-tab.test.ts` — CDP-Call-Assertions
+
+---
+
+## FR-026: T4.7 read_page interactive Token-Budget borderline (P2 — Run 2 Fail, Run 1 knapp)
+
+### Problem
+T4.7 (Large DOM) hat ein Token-Budget von 2000 fuer `read_page` im interactive-only Modus. Run 1: 1899 Tok (PASS, 5% unter Budget). Run 2: 2571 Tok (FAIL, 28% ueber Budget). Die Schwankung kommt vom randomisierten DOM — manchmal mehr, manchmal weniger interaktive Elemente.
+
+### Betroffene Dateien
+**`src/cache/a11y-tree.ts` — formatLine() und getCompactSnapshot()**
+Die Interactive-Mode-Ausgabe koennte kompakter sein:
+- Jede Zeile hat Prefix `[eN] role "name"` — der Name koennte bei langen Labels gekuerzt werden
+- Redundante Annotationen (z.B. `(scrollable)`, `(opens new tab)`) koennten im interactive-only Modus wegfallen
+- Hierarchie-Einrueckung mit 2 Spaces pro Level summiert sich bei tiefen DOMs
+
+### Fix
+Mehrere Optionen, kombinierbar:
+1. **Label-Truncation:** Namen in `formatLine()` auf z.B. 60 Chars kuerzen wenn interactive-only
+2. **Flache Ausgabe:** Im interactive-only Modus keine Hierarchie-Einrueckung (spart 2-6 Chars pro Zeile bei tiefen DOMs)
+3. **Token-Budget-Parameter:** `read_page` koennte ein optionales `max_tokens` akzeptieren und den Output truncaten
+
+**Aufwand:** Mittel — erfordert Verstaendnis der Ausgabe-Pipeline und sorgfaeltige Auswahl der Komprimierungsstrategie.

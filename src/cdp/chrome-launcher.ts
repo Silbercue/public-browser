@@ -152,6 +152,7 @@ const CHROME_FLAGS = [
   "--enable-features=CDPScreenshotNewSurface",
   "--disable-sync",
   "--mute-audio",
+  "--disable-blink-features=AutomationControlled",
 ];
 
 export async function launchChrome(

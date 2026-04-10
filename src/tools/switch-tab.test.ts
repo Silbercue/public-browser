@@ -147,6 +147,51 @@ describe("switchTabHandler — action: open", () => {
     expect(sendFn).toHaveBeenCalledWith("DOM.enable", {}, "session-new");
   });
 
+  it("FR-025: activateSession registers webdriver mask via addScriptToEvaluateOnNewDocument", async () => {
+    const { cdpClient, sendFn } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T-OLD");
+    const onSessionChange = vi.fn();
+
+    await switchTabHandler(
+      { action: "open" },
+      cdpClient,
+      "session-old",
+      cache,
+      onSessionChange,
+    );
+
+    expect(sendFn).toHaveBeenCalledWith(
+      "Page.addScriptToEvaluateOnNewDocument",
+      { source: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});" },
+      "session-new",
+    );
+  });
+
+  it("FR-025: activateSession applies webdriver mask immediately via Runtime.evaluate", async () => {
+    const { cdpClient, sendFn } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T-OLD");
+    const onSessionChange = vi.fn();
+
+    await switchTabHandler(
+      { action: "open" },
+      cdpClient,
+      "session-old",
+      cache,
+      onSessionChange,
+    );
+
+    expect(sendFn).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      {
+        expression: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
+        awaitPromise: false,
+      },
+      "session-new",
+    );
+  });
+
   it("opens new tab without URL, defaults to about:blank", async () => {
     const { cdpClient } = createMockCdp({
       ...defaultCdpResponses,
