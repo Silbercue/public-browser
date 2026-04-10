@@ -350,7 +350,7 @@ Niedrige Priorität. Canvas ist inherent opak (Pixel, keine DOM-Nodes). Ein obse
 | 10 | FR-020 evaluate Fallback-Spirale | Hoch | registry.ts, tool-sequence.ts, element-utils.ts | gefixt |
 | 11 | FR-021 observe click_first/then_click Refs | Mittel | observe.ts (Ref-Resolution + silent-fail fix) | gefixt |
 | 12 | FR-022 run_plan press_key | Mittel | registry.ts (_handlers), run-plan.ts (Schema) | gefixt |
-| 13 | FR-023 run_plan iFrame | Niedrig-Hoch | run-plan.ts oder via FR-003 | offen |
+| 13 | FR-023 run_plan iFrame | Mittel | a11y-tree.ts (same-origin iframe inlining) | gefixt |
 
 ---
 
@@ -488,10 +488,19 @@ T3.2 (iFrame Read): `run_plan`-Step zum Lesen des iFrame-Werts schlug fehl. Work
 
 Zusammenhang mit FR-003 (srcdoc-iframes unsichtbar): `read_page` sieht den iFrame als opakes Element, und `run_plan` kann intern keinen `evaluate`-Zugriff auf Frame-Content ausfuehren.
 
-### Fix-Vorschlag
-Entweder (a) `run_plan` um `evaluate`-Steps erweitern, oder (b) das read_page iFrame-Inlining aus FR-003 umsetzen, womit der iFrame-Inhalt direkt im AX-Tree steht und kein Sonder-Step noetig waere.
+### Root Cause (verifiziert via Session-Evidenz)
+`run_plan` KANN evaluate-Steps ausfuehren — das war nicht das Problem. Das echte Problem: `read_page` zeigte iframe-Inhalt nicht, also musste das LLM blind per evaluate die DOM-Struktur erraten. Erster Versuch `#t3-2-inner-frame` schlug fehl (Selektor existiert nicht), danach 3 Extra-Evaluates zum Erkunden.
 
-**Aufwand:** Niedrig (wenn FR-003 umgesetzt wird) bis Hoch (run_plan evaluate-Support).
+### Fix (implementiert)
+Same-origin iframe AX-Trees inline in `read_page` anzeigen — analog zum bestehenden OOPIF-Handling:
+
+1. **`src/cache/a11y-tree.ts` — `getTree()`**: Nach OOPIF-Block ruft `Page.getFrameTree()` auf, sammelt rekursiv same-origin Child-Frames (`about:srcdoc`, `about:blank`, matching `securityOrigin`), fetcht deren AX-Trees via `Accessibility.getFullAXTree({ frameId })` auf der Main-Session, registriert Refs mit Main-SessionId als Composite-Key.
+2. **`src/cache/a11y-tree.ts` — `formatLine()`**: Iframe-Annotation von `"(use evaluate to access iframe content)"` auf `"(content shown below)"` geaendert.
+3. **8 neue Tests** in `a11y-tree.test.ts`.
+
+**Effekt:** Vorher ~5 Calls (1 run_plan + 3 evaluate + 1 run_plan) fuer T3.2. Nachher: 1 read_page + 1 fill_form + 1 click = 3 Calls.
+
+**Aufwand:** Mittel — ~120 Zeilen Code + 8 Tests.
 
 ---
 

@@ -1164,6 +1164,524 @@ describe("A11yTreeProcessor", () => {
     expect(result.text).toContain('[e3] button "Sign In"');
   });
 
+  // --- FR-023: Same-origin iframe inlining tests ---
+
+  it("FR-023: srcdoc iframe content is inlined in read_page output", async () => {
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Main Page" },
+        backendDOMNodeId: 100,
+        childIds: ["2", "3"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Main Button" },
+        backendDOMNodeId: 101,
+      }),
+      makeNode({
+        nodeId: "3",
+        parentId: "1",
+        role: { type: "role", value: "Iframe" },
+        name: { type: "computedString", value: "" },
+        backendDOMNodeId: 102,
+      }),
+    ];
+
+    const iframeNodes: AXNode[] = [
+      makeNode({
+        nodeId: "f1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "IFrame Doc" },
+        backendDOMNodeId: 200,
+        childIds: ["f2"],
+      }),
+      makeNode({
+        nodeId: "f2",
+        parentId: "f1",
+        role: { type: "role", value: "StaticText" },
+        name: { type: "computedString", value: "FRAME-1U7PMO" },
+        backendDOMNodeId: 201,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://example.com/fr023" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          if (params && params.frameId === "iframe-frame-1") {
+            return Promise.resolve({ nodes: iframeNodes });
+          }
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/fr023", securityOrigin: "https://example.com" },
+              childFrames: [{
+                frame: { id: "iframe-frame-1", url: "about:srcdoc", securityOrigin: "null" },
+              }],
+            },
+          });
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const result = await processor.getTree(cdp, "s1", { filter: "all" });
+
+    // Iframe content should appear as inline section
+    expect(result.text).toContain("--- iframe: about:srcdoc ---");
+    expect(result.text).toContain("FRAME-1U7PMO");
+  });
+
+  it("FR-023: nested same-origin srcdoc iframes are both inlined", async () => {
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Main" },
+        backendDOMNodeId: 100,
+        childIds: ["2"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "Iframe" },
+        backendDOMNodeId: 101,
+      }),
+    ];
+
+    const outerIframeNodes: AXNode[] = [
+      makeNode({
+        nodeId: "o1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Outer Frame" },
+        backendDOMNodeId: 300,
+        childIds: ["o2"],
+      }),
+      makeNode({
+        nodeId: "o2",
+        parentId: "o1",
+        role: { type: "role", value: "StaticText" },
+        name: { type: "computedString", value: "OUTER-CONTENT" },
+        backendDOMNodeId: 301,
+      }),
+    ];
+
+    const innerIframeNodes: AXNode[] = [
+      makeNode({
+        nodeId: "i1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Inner Frame" },
+        backendDOMNodeId: 400,
+        childIds: ["i2"],
+      }),
+      makeNode({
+        nodeId: "i2",
+        parentId: "i1",
+        role: { type: "role", value: "StaticText" },
+        name: { type: "computedString", value: "INNER-CONTENT" },
+        backendDOMNodeId: 401,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://example.com/nested" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          if (params && params.frameId === "outer-frame") {
+            return Promise.resolve({ nodes: outerIframeNodes });
+          }
+          if (params && params.frameId === "inner-frame") {
+            return Promise.resolve({ nodes: innerIframeNodes });
+          }
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/nested", securityOrigin: "https://example.com" },
+              childFrames: [{
+                frame: { id: "outer-frame", url: "about:srcdoc", securityOrigin: "null" },
+                childFrames: [{
+                  frame: { id: "inner-frame", url: "about:srcdoc", securityOrigin: "null" },
+                }],
+              }],
+            },
+          });
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const result = await processor.getTree(cdp, "s1", { filter: "all" });
+
+    // Both nested iframes should be inlined
+    expect(result.text).toContain("OUTER-CONTENT");
+    expect(result.text).toContain("INNER-CONTENT");
+    // Two separate iframe sections
+    const iframeSections = result.text.split("--- iframe: about:srcdoc ---");
+    expect(iframeSections.length).toBe(3); // original + 2 splits = 3 parts
+  });
+
+  it("FR-023: cross-origin iframe is NOT inlined via Page.getFrameTree", async () => {
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 100,
+        childIds: ["2"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "Iframe" },
+        backendDOMNodeId: 101,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://example.com/cross" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          // Should NOT be called with frameId for the cross-origin frame
+          if (params && params.frameId === "cross-frame") {
+            throw new Error("Should not fetch cross-origin frame AX tree via main session");
+          }
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/cross", securityOrigin: "https://example.com" },
+              childFrames: [{
+                frame: { id: "cross-frame", url: "https://evil.com/widget", securityOrigin: "https://evil.com" },
+              }],
+            },
+          });
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const result = await processor.getTree(cdp, "s1", { filter: "all" });
+
+    // No cross-origin iframe section should appear
+    expect(result.text).not.toContain("--- iframe: https://evil.com/widget ---");
+    expect(result.text).not.toContain("evil.com");
+  });
+
+  it("FR-023: Page.getFrameTree failure is handled gracefully", async () => {
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 100,
+        childIds: ["2"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "OK" },
+        backendDOMNodeId: 101,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://example.com/err" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.reject(new Error("Protocol error: Page.getFrameTree not supported"));
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    // Should not throw — graceful degradation
+    const result = await processor.getTree(cdp, "s1", { filter: "interactive" });
+
+    expect(result.text).toContain('[e2] button "OK"');
+    expect(result.refCount).toBeGreaterThan(0);
+  });
+
+  it("FR-023: same-origin iframe nodes get refs and can be resolved", async () => {
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 100,
+        childIds: ["2"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Main Btn" },
+        backendDOMNodeId: 101,
+      }),
+    ];
+
+    const iframeNodes: AXNode[] = [
+      makeNode({
+        nodeId: "f1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 500,
+        childIds: ["f2"],
+      }),
+      makeNode({
+        nodeId: "f2",
+        parentId: "f1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "IFrame Btn" },
+        backendDOMNodeId: 501,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://example.com/refs" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          if (params && params.frameId === "srcdoc-frame") {
+            return Promise.resolve({ nodes: iframeNodes });
+          }
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/refs", securityOrigin: "https://example.com" },
+              childFrames: [{
+                frame: { id: "srcdoc-frame", url: "about:srcdoc", securityOrigin: "null" },
+              }],
+            },
+          });
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const result = await processor.getTree(cdp, "s1", { filter: "interactive" });
+
+    // iframe button should have a ref
+    expect(result.text).toContain('[e4] button "IFrame Btn"');
+
+    // Refs should be resolvable — and they should use the main sessionId
+    const full = processor.resolveRefFull("e4");
+    expect(full).toBeDefined();
+    expect(full!.backendNodeId).toBe(501);
+    expect(full!.sessionId).toBe("s1"); // main session, not a separate OOPIF session
+  });
+
+  it("FR-023: about:blank iframe with same origin is inlined", async () => {
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 100,
+        childIds: ["2"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "Iframe" },
+        backendDOMNodeId: 101,
+      }),
+    ];
+
+    const blankIframeNodes: AXNode[] = [
+      makeNode({
+        nodeId: "b1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 600,
+        childIds: ["b2"],
+      }),
+      makeNode({
+        nodeId: "b2",
+        parentId: "b1",
+        role: { type: "role", value: "StaticText" },
+        name: { type: "computedString", value: "BLANK-CONTENT" },
+        backendDOMNodeId: 601,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://example.com/blank" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          if (params && params.frameId === "blank-frame") {
+            return Promise.resolve({ nodes: blankIframeNodes });
+          }
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/blank", securityOrigin: "https://example.com" },
+              childFrames: [{
+                frame: { id: "blank-frame", url: "about:blank", securityOrigin: "https://example.com" },
+              }],
+            },
+          });
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const result = await processor.getTree(cdp, "s1", { filter: "all" });
+
+    expect(result.text).toContain("--- iframe: about:blank ---");
+    expect(result.text).toContain("BLANK-CONTENT");
+  });
+
+  it("FR-023: same-origin iframe with explicit src URL is inlined", async () => {
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 100,
+        childIds: ["2"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "Iframe" },
+        backendDOMNodeId: 101,
+      }),
+    ];
+
+    const sameOriginIframeNodes: AXNode[] = [
+      makeNode({
+        nodeId: "s1n",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 700,
+        childIds: ["s2n"],
+      }),
+      makeNode({
+        nodeId: "s2n",
+        parentId: "s1n",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Same Origin Btn" },
+        backendDOMNodeId: 701,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://example.com/parent" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          if (params && params.frameId === "same-origin-frame") {
+            return Promise.resolve({ nodes: sameOriginIframeNodes });
+          }
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/parent", securityOrigin: "https://example.com" },
+              childFrames: [{
+                frame: { id: "same-origin-frame", url: "https://example.com/widget", securityOrigin: "https://example.com" },
+              }],
+            },
+          });
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const result = await processor.getTree(cdp, "s1", { filter: "interactive" });
+
+    expect(result.text).toContain("--- iframe: https://example.com/widget ---");
+    expect(result.text).toContain('[e4] button "Same Origin Btn"');
+  });
+
+  it("FR-023: iframe annotation says 'content shown below' instead of evaluate hint", async () => {
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 100,
+        childIds: ["2"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "Iframe" },
+        name: { type: "computedString", value: "My Frame" },
+        backendDOMNodeId: 101,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://example.com/hint" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/hint", securityOrigin: "https://example.com" },
+            },
+          });
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const result = await processor.getTree(cdp, "s1", { filter: "all" });
+
+    expect(result.text).toContain("(content shown below)");
+    expect(result.text).not.toContain("use evaluate to access iframe content");
+  });
+
   // --- Visual enrichment tests (Story 5b.3) ---
 
   function makeDomSnapshot(elements: Array<{

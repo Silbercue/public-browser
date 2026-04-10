@@ -1118,6 +1118,124 @@ export class A11yTreeProcessor {
       }
     }
 
+    // FR-023: Inline same-origin iframe A11y trees so LLM sees iframe content
+    // directly in read_page instead of a blind "(use evaluate to access iframe content)" hint.
+    // Same-origin frames (including srcdoc and about:blank) share the main renderer process,
+    // so we fetch their AX trees via getFullAXTree({frameId}) on the main session.
+    // Their backendDOMNodeIds are unique within the main session's namespace → use main sessionId as key.
+    try {
+      const frameTreeResult = await cdpClient.send<{
+        frameTree: {
+          frame: { id: string; url: string; securityOrigin: string; parentId?: string; name?: string };
+          childFrames?: Array<{
+            frame: { id: string; url: string; securityOrigin: string; parentId?: string; name?: string };
+            childFrames?: unknown[];
+          }>;
+        };
+      }>("Page.getFrameTree", {}, sessionId);
+
+      const mainOrigin = frameTreeResult.frameTree.frame.securityOrigin;
+      const mainFrameId = frameTreeResult.frameTree.frame.id;
+
+      // Collect all same-origin child frames recursively
+      interface FrameInfo {
+        id: string;
+        url: string;
+        securityOrigin: string;
+        name?: string;
+      }
+      const sameOriginFrames: FrameInfo[] = [];
+
+      const collectSameOriginFrames = (childFrames: unknown[] | undefined): void => {
+        if (!childFrames) return;
+        for (const child of childFrames as Array<{
+          frame: { id: string; url: string; securityOrigin: string; name?: string };
+          childFrames?: unknown[];
+        }>) {
+          const frame = child.frame;
+          if (frame.id === mainFrameId) continue; // skip main frame
+          // Same-origin classification: srcdoc, about:blank, or matching origin
+          const isSameOrigin =
+            frame.url === "about:srcdoc" ||
+            frame.url === "about:blank" ||
+            frame.securityOrigin === mainOrigin;
+          if (isSameOrigin) {
+            sameOriginFrames.push(frame);
+          }
+          // Recurse into nested frames regardless — a cross-origin frame's child
+          // could be same-origin again (but that's handled by OOPIF sessions already,
+          // so we only recurse same-origin subtrees to avoid duplicates with OOPIF handling)
+          if (isSameOrigin) {
+            collectSameOriginFrames(child.childFrames);
+          }
+        }
+      };
+      collectSameOriginFrames(frameTreeResult.frameTree.childFrames);
+
+      // Fetch AX trees for each same-origin child frame
+      if (sameOriginFrames.length > 0) {
+        // Deduplicate: skip frames already covered by OOPIF sessions
+        const oopifFrameIds = new Set(
+          sessionManager?.getAllSessions()
+            .filter((s: SessionInfo) => !s.isMain)
+            .map((s: SessionInfo) => s.frameId) ?? [],
+        );
+
+        const inlineResults = await Promise.all(
+          sameOriginFrames
+            .filter((f) => !oopifFrameIds.has(f.id))
+            .map(async (frame) => {
+              try {
+                const result = await cdpClient.send<{ nodes: AXNode[] }>(
+                  "Accessibility.getFullAXTree",
+                  { frameId: frame.id },
+                  sessionId,
+                );
+                return { url: frame.url, nodes: result.nodes ?? [], sessionId, frameId: frame.id };
+              } catch {
+                // Frame may have been removed between getFrameTree and getFullAXTree
+                return { url: frame.url, nodes: [] as AXNode[], sessionId, frameId: frame.id };
+              }
+            }),
+        );
+
+        for (const inlineResult of inlineResults) {
+          if (inlineResult.nodes.length > 0) {
+            oopifSections.push({
+              url: inlineResult.url,
+              nodes: inlineResult.nodes,
+              sessionId: inlineResult.sessionId, // main session — same renderer process
+            });
+
+            // Register refs for inline iframe nodes using main sessionId
+            for (const node of inlineResult.nodes) {
+              if (node.ignored || node.backendDOMNodeId === undefined) continue;
+              const key = this.refKey(node.backendDOMNodeId, sessionId);
+              if (!this.refMap.has(key)) {
+                const refNum = this.nextRef++;
+                this.refMap.set(key, refNum);
+                this.reverseMap.set(refNum, {
+                  backendNodeId: node.backendDOMNodeId,
+                  sessionId,
+                });
+              }
+              this.nodeInfoSet(node.backendDOMNodeId, sessionId, extractNodeInfo(node));
+              if (!this.sessionNodeMap.has(sessionId)) {
+                this.sessionNodeMap.set(sessionId, new Set());
+              }
+              this.sessionNodeMap.get(sessionId)!.add(node.backendDOMNodeId);
+              sessionManager?.registerNode(node.backendDOMNodeId, sessionId);
+            }
+          }
+        }
+      }
+    } catch {
+      // Page.getFrameTree may fail on special pages (devtools://, chrome://, etc.)
+      // or if the page navigated between calls. Gracefully degrade — main frame
+      // and OOPIF trees are already captured above.
+      debug("A11yTreeProcessor: Page.getFrameTree failed, skipping same-origin iframe inlining");
+    }
+
     // FR-H5: Enrich nodes with HTML attributes + event listener detection.
     // Runs in getTree() so read_page(filter: "interactive") sees clickable divs/listItems.
     await this._enrichNodeMetadata(cdpClient, sessionId);
@@ -2633,8 +2751,10 @@ export class A11yTreeProcessor {
     }
 
     // FR-003: iframe content hint
+    // FR-023: Same-origin iframe content is now inlined below as a "--- iframe: ... ---" section.
+    // Only show the "use evaluate" hint for cross-origin iframes whose content couldn't be inlined.
     if (role === "Iframe") {
-      line += " (use evaluate to access iframe content)";
+      line += " (content shown below)";
     }
 
     // FR-008: Canvas is opaque — direct LLM to use screenshot(som: true)
