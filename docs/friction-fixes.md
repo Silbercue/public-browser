@@ -5,6 +5,13 @@ Problem, betroffene Dateien mit Zeilennummern, konkreter Fix-Vorschlag.
 
 Reihenfolge nach Impact (höchster zuerst).
 
+> **Hinweis (2026-04-11):** Alle FR-Eintraege in diesem Dokument gehoeren
+> rueckwirkend zu **Epic 18 — Vorbereitung Operator Phase 1**. Neue
+> Friction-Fixes werden weiter in diese Datei eingetragen und bleiben Teil
+> von Epic 18, bis Epic 19 startet. Siehe
+> `_bmad-output/planning-artifacts/sprint-change-proposal-2026-04-11-operator.md`
+> fuer den strategischen Kontext.
+
 ---
 
 ## FR-002: click auf target=_blank warnt nicht (P1 — verursachte Test-Fail)
