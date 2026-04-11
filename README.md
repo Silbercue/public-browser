@@ -270,6 +270,7 @@ Connection priority:
 | `SILBERCUE_CHROME_AUTO_LAUNCH` | `true` / `false` | `true` | Auto-launch Chrome if no running instance found |
 | `SILBERCUE_CHROME_HEADLESS` | `true` / `false` | `false` | Opt-in headless mode for CI/server environments |
 | `SILBERCUE_CHROME_PROFILE` | path | — | Chrome user profile directory (auto-launch only) |
+| `SILBERCUE_CHROME_FULL_TOOLS` | `true` / `false` | `false` | Expose the full tool set (21 tools) instead of the leaner default set (10 tools) in tools/list |
 | `CHROME_PATH` | path | — | Path to Chrome binary (overrides auto-detection) |
 | `SILBERCUECHROME_LICENSE_KEY` | license key | — | Pro license key (e.g. `SC-PRO-...`) |
 

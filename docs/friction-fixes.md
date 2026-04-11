@@ -368,6 +368,7 @@ Niedrige Priorität. Canvas ist inherent opak (Pixel, keine DOM-Nodes). Ein obse
 | 21 | FR-032 Memory aufraemen | Minimal | Memory-Dateien | offen |
 | 22 | FR-033 Ambient Context pro Step in run_plan | Mittel | registry.ts, plan-executor.ts, run-plan.ts | gefixt |
 | 23 | FR-034 Step-Response-Aggregation in run_plan verbose | Mittel | plan-executor.ts | gefixt |
+| 24 | FR-035 Tool-Definition-Overhead zu gross (20 → 10) | Hoch | registry.ts | gefixt |
 
 ---
 
@@ -852,3 +853,127 @@ Aggregation" — der LLM bekam alle Outputs aller Steps.
 Tests + Mess-Skript.
 
 **Source:** Story 18.2 (`_bmad-output/implementation-artifacts/18-2-step-response-aggregation-verschmaelern.md`).
+
+---
+
+## FR-035: Tool-Definition-Overhead zu gross — gefixt (Story 18.3)
+
+### Problem
+SilbercueChrome registrierte bislang **alle 21 Free-Tools** ueber
+`server.tool()`, also tauchten sie im `tools/list`-Export auf. Die
+Tool-Definitionen sind nicht nur Namen, sondern enthalten Beschreibungen,
+JSON-Schemas und Annotations — Forensik-Messung des Default-Builds: ~21,7 KB
+Tool-Definition-Overhead pro `tools/list`-Antwort, das landet bei jedem
+neuen LLM-Turn im System-Prompt. Bei einer LLM-Session mit z.B. 50
+Tool-Calls macht die reine Tool-Liste mehrere Hundert Tausend Token
+zusaetzlich aus, ohne dass der LLM die Mehrzahl der Tools jemals direkt
+anwaehlt. Hauptproblem ist die Auswahl-Last: 21 Tools zur Auswahl bedeuten
+hoehere Wahrscheinlichkeit fuer Positional-Bias-Fehler (BiasBusters
+arXiv:2510.00307 — Position-Bias delta_pos 0.17–0.5).
+
+### Root Cause
+Story 15.2 hatte alle Free-Tools direkt in `registerAll()` registriert. Das
+war zur Pro-Tool-Extraktion korrekt — es gab schlicht noch keine Vorstellung
+von einem "schlanken Default" vs. "voller Set". Story 18.3 ist die explizite
+Trennung.
+
+### Fix (Story 18.3)
+- `src/registry.ts`:
+  - Neue benannte Konstante `DEFAULT_TOOL_NAMES: readonly string[]` mit
+    den zehn Transition-Tools (`virtual_desk`, `read_page`, `click`, `type`,
+    `fill_form`, `navigate`, `wait_for`, `screenshot`, `run_plan`, `evaluate`),
+    plus `DEFAULT_TOOL_SET: ReadonlySet<string>` fuer O(1)-Lookups.
+  - Neuer Helper `isFullToolsMode(): boolean` parst
+    `process.env.SILBERCUE_CHROME_FULL_TOOLS === "true"` — exakt im Stil
+    von `headlessEnv` in `src/server.ts`.
+  - In `registerAll()` wird einmalig `const fullToolsMode = isFullToolsMode()`
+    gelesen und ein lokaler Helper `maybeRegisterFreeMCPTool(name, ...)`
+    gatet jeden Free-Tool-Registrierungs-Aufruf:
+    `if (!fullToolsMode && !DEFAULT_TOOL_SET.has(name)) return;`
+  - Alle 21 `this.server.tool(...)`-Aufrufe in der Free-Tool-Sektion sind
+    auf `maybeRegisterFreeMCPTool(...)` umgestellt. Der Pro-Tool-Delegate
+    (`_registerProToolDelegate`) bleibt **unveraendert** — Pro-Tools wie
+    `inspect_element` werden weiterhin registriert wenn das Pro-Repo
+    `registerProTools()` aufruft.
+  - **Review-Fix H1 (2026-04-11):** `handle_dialog`, `console_logs` und
+    `network_monitor` werden seit dem Review-Fix **unbedingt** registriert.
+    Die Collector-Existenz-Pruefung wandert in den Runtime-Handler, der
+    bei fehlendem Collector eine klare Diagnose-Meldung liefert. Grund:
+    `BrowserSession` initialisiert die Collectors lazy in `ensureReady()`
+    (via `_wireHelpers()`), also NACH `registerAll()`. Die vorherige
+    Registration-Time-Gate-Logik hat die drei Tools deshalb in Produktion
+    nie registriert, und `tools/list` exportierte real nur 18 statt 21.
+  - Der `_handlers`-Block (interner Dispatcher fuer `executeTool` /
+    `run_plan`) bleibt **vollstaendig**. `run_plan` kann weiter Extended-
+    Tools (`press_key`, `scroll`, `observe`, ...) aufrufen, auch wenn sie
+    in `tools/list` versteckt sind.
+  - **Review-Fix H2 (2026-04-11):** Der `_handlers`-Dispatcher registriert
+    ebenfalls `handle_dialog`, `console_logs`, `network_monitor`
+    unconditional — mit Runtime-Guard statt Conditional-Set. Damit fallen
+    `executeTool(...)` und `run_plan`-Steps fuer diese drei Tools nicht
+    mehr auf "Unknown tool", wenn der Collector noch nicht initialisiert
+    ist.
+- `src/registry.test.ts`:
+  - Parent `beforeEach` setzt `SILBERCUE_CHROME_FULL_TOOLS=true` fuer
+    bestehende Tests, die Extended-Tool-Callbacks aus den
+    `server.tool()`-Mock-Calls ziehen — so bleibt die alte Coverage gruen
+    ohne Test-Umbau.
+  - Neuer `describe`-Block `ToolRegistry — Tool-Verschlankung (Story 18.3)`
+    mit urspruenglich elf + **sechs Review-Fix-Tests** (H1/H2/H3):
+    Default-Set Reihenfolge, Extended-Tools sind raus, `"false"` und
+    andere truthy-aehnliche Werte aktivieren NICHT Full, `FULL_TOOLS=true`
+    registriert alle **21** Free-Tools (Review-Fix H3), `executeTool(...)`
+    fuer `handle_dialog`/`console_logs`/`network_monitor` findet Handler
+    und liefert Runtime-Guard-Meldung (Review-Fix H2), `executeTool` fuer
+    `press_key`/`observe`/`scroll`/`dom_snapshot` findet Handler in
+    `_handlers`, `unknown_tool` liefert weiterhin "Unknown tool"-Error,
+    `virtual_desk` zuerst und `evaluate` zuletzt, plus ein Integration-
+    Test der echte Mock-Collectors injiziert und den funktionalen
+    Handler-Pfad fuer `console_logs` verifiziert.
+- `src/pro-feature-gates.regression.test.ts`:
+  - **Review-Fix M2 (2026-04-11):** Zwei getrennte Assertions statt eines
+    Lower-Bound-Checks — Default-Modus exakt `10`, Full-Modus exakt `21`
+    (plus explizite Assertions dass `handle_dialog`/`console_logs`/
+    `network_monitor` im Full-Modus vorhanden sind). Faengt Regressions
+    in BEIDEN Modi ab.
+- `scripts/tool-list-tokens.mjs` (neu): Mess-Skript spawnt zwei
+  MCP-Server-Subprocesses, ruft `tools/list` ab, vergleicht die Bytes
+  und prueft das Reduktions-Gate `STORY_18_3_REDUCTION_GATE = 0.30`.
+  Konstante mit JSDoc, Output als JSON-Block. **Nicht** in `npm test`
+  eingehaengt — Delivery-Gate analog `scripts/run-plan-delta.mjs`.
+- `CLAUDE.md` + `README.md`: Env-Var-Tabelle um neue Zeile fuer
+  `SILBERCUE_CHROME_FULL_TOOLS` ergaenzt.
+
+### Mess-Werte (Stand HEAD nach Story 18.3 + Review-Fixes H1/H2/H3)
+- Default-Set: 10 Tools, **12,234 Bytes** (~3,059 Tokens, 4 Bytes/Token)
+- Full-Set: **21 Tools** (10 Default + 11 Extended, inkl. handle_dialog/
+  console_logs/network_monitor nach Review-Fix H1), **21,771 Bytes**
+  (~5,443 Tokens)
+- Reduktion: **9,537 Bytes / 43.8%** — Gate `>= 30%` erfuellt
+- Ausfuehrung: `node scripts/tool-list-tokens.mjs` (siehe
+  `docs/pattern-updates.md` Story-18.3-Abschnitt fuer den Live-Run)
+
+### Erhaltene Invarianten
+- **AC-3:** `_handlers`-Map bleibt vollstaendig — `run_plan` dispatcht
+  weiter Extended-Tools, auch im Default-Modus. Bestaetigt durch die neuen
+  Registry-Tests fuer `executeTool("press_key"/"observe"/"scroll")`.
+- **Pro-Tools:** Der `_registerProToolDelegate`-Pfad ist nicht vom Gate
+  betroffen. `inspect_element` und andere Pro-Tools verhalten sich
+  unveraendert — registriert wenn das Pro-Repo `registerProTools()`
+  aufruft, sonst nicht.
+- **Reihenfolge:** Default-Set behaelt die Positional-Bias-optimierte
+  Reihenfolge (`virtual_desk` zuerst, `evaluate` zuletzt) — exakt wie der
+  Kommentar bei `registerAll()` Zeile 850–856 vorschreibt.
+- **Invariante 5:** `DEFAULT_TOOL_NAMES`, `DEFAULT_TOOL_SET` und
+  `STORY_18_3_REDUCTION_GATE` sind benannte Konstanten mit JSDoc-Kommentar.
+- **Rueckwaerts-Kompatibilitaet:** `SILBERCUE_CHROME_FULL_TOOLS=true`
+  liefert die exakt selbe Tool-Liste wie der Stand vor Story 18.3.
+- **Kein Migrations-Scope-Creep:** Tool-Registrierung bleibt beim
+  klassischen `server.tool()`-Pattern — keine Umstellung auf
+  `server.registerTool()` (das waere ein orthogonaler Refactor und kein
+  Teil von Story 18.3).
+
+**Aufwand:** Mittel — Helper-Extraktion + 21 Call-Site-Umstellungen +
+Test-Anpassungen + Mess-Skript + Doku.
+
+**Source:** Story 18.3 (`_bmad-output/implementation-artifacts/18-3-tool-verschlankung-auf-ein-transition-set.md`).

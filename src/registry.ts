@@ -65,6 +65,60 @@ import { createDefaultOnToolResult } from "./hooks/default-on-tool-result.js";
 import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
 
 /**
+ * Story 18.3 — Transition-Set fuer die schlanke Default-Tool-Liste.
+ *
+ * Dieses Array enthaelt genau die zehn Tools, die im Default-Modus ueber
+ * `tools/list` exponiert werden. Die Reihenfolge entspricht der
+ * Positional-Bias-optimierten Reihenfolge in `ToolRegistry.registerAll()`
+ * (orientation → reading → interaction → navigation → timing → visual →
+ * meta → evaluate). `evaluate` steht absichtlich als Letztes (Story 16.5,
+ * BiasBusters arXiv:2510.00307).
+ *
+ * Extended-Tools (`press_key`, `scroll`, `switch_tab`, `tab_status`,
+ * `observe`, `dom_snapshot`, `handle_dialog`, `file_upload`, `console_logs`,
+ * `network_monitor`, `configure_session`) bleiben im internen
+ * `_handlers`-Dispatcher erreichbar, damit `run_plan` sie weiter aufrufen
+ * kann — sie werden nur in `tools/list` ausgeblendet.
+ *
+ * Opt-in: Wer das volle Set braucht, setzt `SILBERCUE_CHROME_FULL_TOOLS=true`.
+ *
+ * @see docs/friction-fixes.md#FR-035
+ */
+export const DEFAULT_TOOL_NAMES: readonly string[] = [
+  "virtual_desk",
+  "read_page",
+  "click",
+  "type",
+  "fill_form",
+  "navigate",
+  "wait_for",
+  "screenshot",
+  "run_plan",
+  "evaluate",
+] as const;
+
+/**
+ * Story 18.3 — Set-Form des Default-Tool-Sets fuer O(1)-Lookups im
+ * `maybeRegisterFreeMCPTool`-Gate in `registerAll()`.
+ */
+export const DEFAULT_TOOL_SET: ReadonlySet<string> = new Set(DEFAULT_TOOL_NAMES);
+
+/**
+ * Story 18.3 — Env-Var-Gate fuer den vollen Tool-Satz.
+ *
+ * Parst `SILBERCUE_CHROME_FULL_TOOLS` nach demselben Muster wie
+ * `SILBERCUE_CHROME_HEADLESS` in `src/server.ts:27`: nur der exakte String
+ * `"true"` aktiviert den Full-Set. `"false"`, unset oder andere Werte
+ * bleiben im Default-Set.
+ *
+ * @returns `true` wenn der LLM den vollen 20-Tool-Satz sehen soll, sonst
+ *          `false` (Default-Set mit zehn Tools).
+ */
+export function isFullToolsMode(): boolean {
+  return process.env.SILBERCUE_CHROME_FULL_TOOLS === "true";
+}
+
+/**
  * Story 16.4: Konvertiert ein JSON-Schema-Literal in eine Zod Raw Shape,
  * damit der MCP-SDK `server.tool()` Aufruf den Schema-Check besteht.
  *
@@ -652,6 +706,26 @@ export class ToolRegistry implements ToolRegistryPublic {
     };
   }
 
+  /**
+   * Registriert alle Free-Tools auf dem MCP-Server und befuellt den internen
+   * `_handlers`-Dispatcher.
+   *
+   * Story 18.3 — Default-/Full-Tools-Modus: Ueber die Env-Var
+   * `SILBERCUE_CHROME_FULL_TOOLS` laesst sich zwischen zwei
+   * `tools/list`-Exporten waehlen:
+   *
+   * - **Default (unset oder `false`):** Nur die zehn Tools aus
+   *   `DEFAULT_TOOL_NAMES` werden ueber `server.tool()` registriert
+   *   (Transition-Set, Positional-Bias-optimiert). Das reduziert den
+   *   Tool-Definition-Overhead im Prompt erheblich — siehe
+   *   `docs/friction-fixes.md#FR-035`.
+   * - **Full (`true`):** Alle 20 Free-Tools werden wie vor Story 18.3
+   *   exponiert. Reihenfolge ist rueckwaerts-kompatibel.
+   *
+   * In beiden Modi bleibt der interne `_handlers`-Dispatcher vollstaendig,
+   * damit `run_plan` weiterhin alle Extended-Tools aufrufen kann.
+   * Pro-Tools (`registerProToolDelegate`) sind nicht vom Gate betroffen.
+   */
   registerAll(): void {
     // Story 9.5: Read Pro hooks once at startup
     const hooks = getProHooks();
@@ -816,6 +890,34 @@ export class ToolRegistry implements ToolRegistryPublic {
       };
     };
 
+    // Story 18.3: Einmaliges Lesen der Env-Var entscheidet, ob der volle
+    // Tool-Satz oder nur das schlanke Default-Set in `tools/list` landet.
+    // Der Wert wird hier EINMALIG geflogen und bleibt fuer die gesamte
+    // `registerAll()`-Phase stabil — keine Laufzeit-Umstellung mittendrin.
+    //
+    // Wichtig: Das gilt NUR fuer die MCP-seitige Registrierung
+    // (`this.server.tool(...)`). Der interne `_handlers`-Dispatcher unten
+    // wird unabhaengig vom Modus vollstaendig befuellt, damit `run_plan`
+    // weiterhin Extended-Tools (`press_key`, `scroll`, `observe`, ...)
+    // dispatchen kann — siehe AC-3 in der Story-Spec.
+    //
+    // Pro-Tools (z.B. `inspect_element`) laufen ueber den eigenen
+    // `_registerProToolDelegate`-Pfad und sind von diesem Gate NICHT
+    // betroffen. Das Pro-Repo hat keine eigene Vorstellung vom Default-Set
+    // und wuerde sonst seine eigenen Tools verlieren.
+    const fullToolsMode = isFullToolsMode();
+    const maybeRegisterFreeMCPTool = (
+      name: string,
+      description: string,
+      shape: Record<string, z.ZodTypeAny>,
+      handler: (params: Record<string, unknown>) => Promise<ToolResponse>,
+    ): void => {
+      if (!fullToolsMode && !DEFAULT_TOOL_SET.has(name)) {
+        return;
+      }
+      this.server.tool(name, description, shape, handler);
+    };
+
     // Story 15.2: Install the registerTool delegate so the Pro-Repo can
     // register extra MCP tools from within its `registerProTools` hook.
     // Must be set BEFORE `finalHooks.registerProTools?.(this)` is called.
@@ -855,7 +957,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     //        visual → special → debug → meta → evaluate (last resort).
 
     // --- 1. Orientation ---
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "virtual_desk",
       "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs with switch_tab(tab: '<id>') instead of opening duplicates via navigate. Cheap, call liberally.",
       {},
@@ -872,7 +974,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // --- 2. Reading ---
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "read_page",
       "PRIMARY tool for page understanding — call after navigate/switch_tab before any interaction. Returns accessibility tree with stable refs (e.g. 'e5') that you pass to click/type/fill_form. Use this to read visible text too — not evaluate/querySelector. Default filter:'interactive' hides static text; for cells/paragraphs/labels call read_page(ref: 'eN', filter: 'all'). Under tight max_tokens, containers appear as `[eXX role, N items]` one-line summaries — call read_page(ref:'eXX', filter:'all') on that ref to expand the subtree. ~10-30x cheaper than screenshot.",
       {
@@ -887,7 +989,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // --- 3. Interaction (click/type/fill_form/press_key/scroll) ---
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "click",
       "Click an element by ref, CSS selector, or viewport coordinates. Dispatches real CDP mouse events (mouseMoved/mousePressed/mouseReleased). For canvas or pixel-precise targets, use x+y coordinates instead of ref. If the click opens a new tab, the response reports it automatically. The response already includes the DOM diff (NEW/REMOVED/CHANGED lines) — inspect those changes for success/failure signals instead of following up with evaluate to re-check state. If click fails with a stale-ref error, call read_page for fresh refs and retry. Avoid evaluate(querySelector + .click()) as default recovery — it bypasses the CDP pointer chain and hides real bugs. (Legitimate exception: explicitly testing synthetic JS event plumbing.)",
       {
@@ -902,7 +1004,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       }, "click"),
     );
 
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "type",
       "Type text into an input field identified by ref or CSS selector. For multiple fields in the same form, prefer fill_form — it handles text inputs, <select>, checkbox, and radio in one round-trip and is more reliable than N separate type calls. For special keys (Enter, Escape, Tab, arrows) or shortcuts (Ctrl+K), use press_key instead. On stale-ref errors, call read_page for fresh refs and retry. Avoid evaluate(element.value = ...) as default data-entry recovery — it bypasses framework listeners (React, Vue) and masks real failures. (Legitimate exception: tests explicitly targeting synthetic event plumbing.)",
       {
@@ -917,7 +1019,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // Story 6.3: fill_form — fill complete forms with one call
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "fill_form",
       "Fill a complete form with one call — the preferred way to submit any form with 2+ fields. Each field needs ref or CSS selector plus value. Supports text inputs, <select> (by value or visible label), checkboxes (boolean), and radio buttons. Use this INSTEAD of multiple type calls or evaluate-setting select.value: one round-trip, partial errors do not abort, each field reports its own status. On per-field errors, call read_page and retry the failing fields — DO NOT escape to evaluate(querySelector) to patch individual fields; it bypasses framework state management (React, Vue) and hides real bugs.",
       {
@@ -934,7 +1036,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // FR-C: press_key — real CDP keyboard events (not JS dispatchEvent)
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "press_key",
       "Press a keyboard key or shortcut. Optionally focus an element first via ref/selector. Use for Enter, Escape, Tab, arrows, shortcuts (Ctrl+K).",
       {
@@ -949,7 +1051,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // FR-F: scroll — scroll page or element into view
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "scroll",
       "Scroll the page, a container, or an element into view. Use ref/selector to scroll an element into the viewport. Use container_ref/container_selector + direction to scroll inside a specific container (e.g. sidebar, modal body).",
       {
@@ -966,7 +1068,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // --- 4. Tab management (navigate/switch_tab/tab_status) ---
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "navigate",
       "Navigate the ACTIVE tab to a URL (or action:'back'). Waits for settle. WARNING: overwrites the user's active tab — always call virtual_desk FIRST to check what's open; if the right tab exists, use switch_tab instead. First call per session is auto-redirected to virtual_desk.",
       {
@@ -996,7 +1098,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       }, "navigate"),
     );
 
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "switch_tab",
       "Open a new tab, switch to an existing tab by ID (from virtual_desk), or close a tab. Prefer 'open' over navigate when you don't want to touch the user's active tab. After switching, refs from the previous tab are invalid — call read_page FIRST to get fresh refs before click/type/fill_form. DO NOT try to reuse old refs via evaluate(querySelector) as a shortcut.",
       {
@@ -1018,7 +1120,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       }, finalHooks), "switch_tab"),
     );
 
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "tab_status",
       "Active tab's cached URL/title/ready/errors for quick sanity checks mid-workflow ('did my click navigate?'). For tab discovery: use virtual_desk. For page content: use read_page.",
       {},
@@ -1035,7 +1137,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // --- 5. Timing (wait_for/observe) ---
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "wait_for",
       "Wait for a condition: element visible, network idle, or JS expression true",
       {
@@ -1050,7 +1152,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // FR-009: observe — passively watch DOM changes
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "observe",
       "Watch an element for changes over time — use this INSTEAD of writing MutationObserver/setInterval/setTimeout code in evaluate. Two modes: (1) collect — watch for 'duration' ms, return all text/attribute changes (e.g. collect 3 values that appear one after another). (2) until — wait for a condition, then optionally click immediately (e.g. click Capture when counter hits 8). Use click_first to trigger the action that causes changes (observer is set up BEFORE the click, so nothing is missed).",
       {
@@ -1069,7 +1171,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     );
 
     // --- 6. Visual (screenshot/dom_snapshot — last resort for visual tasks) ---
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "screenshot",
       "Capture a WebP image of the page (max 800px, <100KB). You CANNOT use screenshots as input for click/type — use read_page for element refs. Only use for visual verification, canvas pages, or explicit user requests. ~10-30x more tokens than read_page.",
       {
@@ -1108,7 +1210,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       }, "screenshot"),
     );
 
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "dom_snapshot",
       "Structured layout data: bounding boxes, computed styles, paint order, colors. Refs match read_page. Use ONLY for spatial questions read_page cannot answer (is A above B? what color?). For element discovery or text: use read_page. For pure visual verification: use screenshot.",
       {
@@ -1122,22 +1224,38 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 7. Special interactions (handle_dialog/file_upload) ---
     // Story 6.1: handle_dialog — configure dialog handling before triggering actions
     // H3 fix: Route through wrap for default-resolution and suggestion-injection
-    if (this._browserSession.dialogHandler) {
-      this.server.tool(
-        "handle_dialog",
-        "Configure how the browser handles JavaScript dialogs (alerts, confirms, prompts). Pre-configure before triggering actions, or check dialog status.",
-        {
-          action: handleDialogSchema.shape.action,
-          text: handleDialogSchema.shape.text,
-        },
-        wrap(async (params) => {
-          return handleDialogHandler(params as unknown as HandleDialogParams, this._browserSession.dialogHandler!);
-        }, "handle_dialog"),
-      );
-    }
+    //
+    // Story 18.3 Review-Fix H1: Unbedingte Registrierung, unabhaengig davon, ob
+    // der `dialogHandler` zum `registerAll()`-Zeitpunkt bereits existiert. Der
+    // Collector wird lazy in `BrowserSession.ensureReady()` initialisiert (via
+    // `_wireHelpers()`), also nach dem Start des Servers aber vor jedem echten
+    // Tool-Call (der `wrap()`-Closure ruft `ensureReady()` vorher auf). Falls
+    // der Handler trotzdem mit einem fehlenden Collector aufgerufen wird (z.B.
+    // im Legacy-Test-Pfad ohne `dialogHandler`), liefern wir eine klare
+    // Fehlermeldung statt ein Tool aus `tools/list` zu verbergen. Siehe
+    // `docs/friction-fixes.md#FR-035` H1/H2.
+    maybeRegisterFreeMCPTool(
+      "handle_dialog",
+      "Configure how the browser handles JavaScript dialogs (alerts, confirms, prompts). Pre-configure before triggering actions, or check dialog status.",
+      {
+        action: handleDialogSchema.shape.action,
+        text: handleDialogSchema.shape.text,
+      },
+      wrap(async (params) => {
+        const dialogHandler = this._browserSession.dialogHandler;
+        if (!dialogHandler) {
+          return {
+            content: [{ type: "text", text: "handle_dialog unavailable: dialog handler not initialized. This usually means the browser session has not been started yet — retry after any other tool call (e.g. virtual_desk) triggers the Chrome connection." }],
+            isError: true,
+            _meta: { elapsedMs: 0, method: "handle_dialog" },
+          };
+        }
+        return handleDialogHandler(params as unknown as HandleDialogParams, dialogHandler);
+      }, "handle_dialog"),
+    );
 
     // Story 6.2: file_upload — upload files to file input elements
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "file_upload",
       "Upload file(s) to a file input element. Provide ref or CSS selector to identify the <input type='file'>, and absolute path(s) to the file(s).",
       {
@@ -1157,41 +1275,61 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     // --- 8. Debugging (console_logs/network_monitor) ---
     // Story 7.1: console_logs — retrieve and filter console output
-    if (this._browserSession.consoleCollector) {
-      this.server.tool(
-        "console_logs",
-        "Retrieve collected browser console logs. Filter by level (info/warning/error/debug) and/or regex pattern. Optionally clear the buffer after reading.",
-        {
-          level: consoleLogsSchema.shape.level,
-          pattern: consoleLogsSchema.shape.pattern,
-          clear: consoleLogsSchema.shape.clear,
-        },
-        wrap(async (params) => {
-          return consoleLogsHandler(params as unknown as ConsoleLogsParams, this._browserSession.consoleCollector!);
-        }, "console_logs"),
-      );
-    }
+    //
+    // Story 18.3 Review-Fix H1: Unbedingte Registrierung analog `handle_dialog`
+    // oben. Der `consoleCollector` wird lazy in `BrowserSession.ensureReady()`
+    // gesetzt; Runtime-Guard faengt den Legacy-Test-Pfad ab, in dem der
+    // Collector nie initialisiert wird.
+    maybeRegisterFreeMCPTool(
+      "console_logs",
+      "Retrieve collected browser console logs. Filter by level (info/warning/error/debug) and/or regex pattern. Optionally clear the buffer after reading.",
+      {
+        level: consoleLogsSchema.shape.level,
+        pattern: consoleLogsSchema.shape.pattern,
+        clear: consoleLogsSchema.shape.clear,
+      },
+      wrap(async (params) => {
+        const collector = this._browserSession.consoleCollector;
+        if (!collector) {
+          return {
+            content: [{ type: "text", text: "console_logs unavailable: console collector not initialized. This usually means the browser session has not been started yet — retry after any other tool call (e.g. virtual_desk) triggers the Chrome connection." }],
+            isError: true,
+            _meta: { elapsedMs: 0, method: "console_logs" },
+          };
+        }
+        return consoleLogsHandler(params as unknown as ConsoleLogsParams, collector);
+      }, "console_logs"),
+    );
 
     // Story 7.2: network_monitor — start/stop/get network request monitoring
-    if (this._browserSession.networkCollector) {
-      this.server.tool(
-        "network_monitor",
-        "Monitor network requests: start recording, retrieve recorded requests (with optional filter/pattern), or stop and return all collected data.",
-        {
-          action: networkMonitorSchema.shape.action,
-          filter: networkMonitorSchema.shape.filter,
-          pattern: networkMonitorSchema.shape.pattern,
-        },
-        wrap(async (params) => {
-          return networkMonitorHandler(params as unknown as NetworkMonitorParams, this._browserSession.networkCollector!);
-        }, "network_monitor"),
-      );
-    }
+    //
+    // Story 18.3 Review-Fix H1: Unbedingte Registrierung, Runtime-Guard
+    // analog `console_logs`.
+    maybeRegisterFreeMCPTool(
+      "network_monitor",
+      "Monitor network requests: start recording, retrieve recorded requests (with optional filter/pattern), or stop and return all collected data.",
+      {
+        action: networkMonitorSchema.shape.action,
+        filter: networkMonitorSchema.shape.filter,
+        pattern: networkMonitorSchema.shape.pattern,
+      },
+      wrap(async (params) => {
+        const collector = this._browserSession.networkCollector;
+        if (!collector) {
+          return {
+            content: [{ type: "text", text: "network_monitor unavailable: network collector not initialized. This usually means the browser session has not been started yet — retry after any other tool call (e.g. virtual_desk) triggers the Chrome connection." }],
+            isError: true,
+            _meta: { elapsedMs: 0, method: "network_monitor" },
+          };
+        }
+        return networkMonitorHandler(params as unknown as NetworkMonitorParams, collector);
+      }, "network_monitor"),
+    );
 
     // --- 9. Meta (configure_session/run_plan) ---
     // Story 7.3: configure_session — set session defaults and auto-promote
     if (this._browserSession.sessionDefaults) {
-      this.server.tool(
+      maybeRegisterFreeMCPTool(
         "configure_session",
         "View/set session defaults for recurring parameters (tab, timeout, etc.). Without params: show current defaults and auto-promote suggestions. With autoPromote: true: apply all suggestions.",
         {
@@ -1204,7 +1342,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       );
     }
 
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "run_plan",
       "Execute a sequential plan of tool steps server-side. Supports variables ($varName), conditions (if), saveAs, error strategies (abort/continue/screenshot), suspend/resume. Parallel tab execution via parallel: [{ tab, steps }] is a Pro-Feature - requires Pro license.",
       {
@@ -1245,7 +1383,7 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     // --- 10. Last resort: evaluate (intentionally registered last so LLMs
     // don't default to it for text/element tasks — Positional Bias fix) ---
-    this.server.tool(
+    maybeRegisterFreeMCPTool(
       "evaluate",
       "Execute JavaScript in the browser page context. Good uses: computation, style mutations (.style.X = ..., classList.add), shadow-root traversal, app-specific side effects no dedicated tool covers. Bad uses: (1) automatic recovery after a click/type/fill_form failure — call read_page for fresh refs and retry instead; (2) CSS inspection via getComputedStyle/getBoundingClientRect — use inspect_element (returns computed styles, CSS rules with source:line, cascade, AND a visual clip screenshot in one call). For element discovery (querySelector/getElementById/innerText), prefer read_page or fill_form. Scope is shared between calls — top-level const/let/class are auto-wrapped in IIFE. If/else blocks may return undefined — use ternary (a ? b : c) or explicit return.",
       {
@@ -1262,6 +1400,15 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Story 7.6: All session-aware handlers accept sessionIdOverride for parallel tab execution.
     // When sessionIdOverride is provided, it is used INSTEAD of this.sessionId.
     // This avoids Race-Conditions when multiple tab groups run in parallel.
+    //
+    // Story 18.3: `_handlers` bleibt IMMER vollstaendig, unabhaengig vom
+    // Default-/Full-Tools-Modus. `run_plan` dispatcht ueber diesen Weg und
+    // muss alle Tools erreichen, auch wenn `tools/list` sie verbirgt.
+    // Konkret: Extended-Tools (`press_key`, `scroll`, `switch_tab`,
+    // `tab_status`, `observe`, `dom_snapshot`, `handle_dialog`,
+    // `file_upload`, `console_logs`, `network_monitor`, `configure_session`)
+    // bleiben hier registriert, auch wenn `SILBERCUE_CHROME_FULL_TOOLS`
+    // nicht gesetzt ist. Siehe `docs/friction-fixes.md#FR-035`.
     this._handlers.set("evaluate", async (params, sessionIdOverride?) => {
       return evaluateHandler(params as unknown as EvaluateParams, this.cdpClient, sessionIdOverride ?? this.sessionId);
     });
@@ -1351,12 +1498,24 @@ export class ToolRegistry implements ToolRegistryPublic {
       }
       return domSnapshotHandler(params as unknown as DomSnapshotParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
     });
-    if (this._browserSession.dialogHandler) {
-      this._handlers.set("handle_dialog", async (params, _sessionIdOverride?) => {
-        // C2 fix: accept sessionIdOverride for parallel-context compatibility
-        return handleDialogHandler(params as unknown as HandleDialogParams, this._browserSession.dialogHandler!);
-      });
-    }
+    // Story 18.3 Review-Fix H2: Unbedingte Registrierung im _handlers-Map.
+    // `executeTool()` / `run_plan` ruft `ensureReady()` vorher auf, das laesst
+    // den Collector in `BrowserSession._wireHelpers()` lazy anlegen. Runtime-
+    // Guard faengt den Legacy-Test-Pfad ab, in dem keine Collectors wiringt
+    // werden — dort liefert der Handler einen sauberen `isError` statt
+    // `Unknown tool`. Siehe `docs/friction-fixes.md#FR-035`.
+    this._handlers.set("handle_dialog", async (params, _sessionIdOverride?) => {
+      // C2 fix: accept sessionIdOverride for parallel-context compatibility
+      const dialogHandler = this._browserSession.dialogHandler;
+      if (!dialogHandler) {
+        return {
+          content: [{ type: "text", text: "handle_dialog unavailable: dialog handler not initialized." }],
+          isError: true,
+          _meta: { elapsedMs: 0, method: "handle_dialog" },
+        };
+      }
+      return handleDialogHandler(params as unknown as HandleDialogParams, dialogHandler);
+    });
     this._handlers.set("file_upload", async (params, sessionIdOverride?) => {
       return fileUploadHandler(
         params as unknown as FileUploadParams,
@@ -1379,16 +1538,31 @@ export class ToolRegistry implements ToolRegistryPublic {
     this._handlers.set("scroll", async (params, sessionIdOverride?) => {
       return scrollHandler(params as unknown as ScrollParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
     });
-    if (this._browserSession.consoleCollector) {
-      this._handlers.set("console_logs", async (params) => {
-        return consoleLogsHandler(params as unknown as ConsoleLogsParams, this._browserSession.consoleCollector!);
-      });
-    }
-    if (this._browserSession.networkCollector) {
-      this._handlers.set("network_monitor", async (params) => {
-        return networkMonitorHandler(params as unknown as NetworkMonitorParams, this._browserSession.networkCollector!);
-      });
-    }
+    // Story 18.3 Review-Fix H2: Unbedingte Registrierung analog `handle_dialog`
+    // oben. Runtime-Guard im Handler faengt den Fall "Collector noch nicht
+    // initialisiert" ab (Legacy-Test-Pfad ohne ensureReady()-Wiring).
+    this._handlers.set("console_logs", async (params) => {
+      const collector = this._browserSession.consoleCollector;
+      if (!collector) {
+        return {
+          content: [{ type: "text", text: "console_logs unavailable: console collector not initialized." }],
+          isError: true,
+          _meta: { elapsedMs: 0, method: "console_logs" },
+        };
+      }
+      return consoleLogsHandler(params as unknown as ConsoleLogsParams, collector);
+    });
+    this._handlers.set("network_monitor", async (params) => {
+      const collector = this._browserSession.networkCollector;
+      if (!collector) {
+        return {
+          content: [{ type: "text", text: "network_monitor unavailable: network collector not initialized." }],
+          isError: true,
+          _meta: { elapsedMs: 0, method: "network_monitor" },
+        };
+      }
+      return networkMonitorHandler(params as unknown as NetworkMonitorParams, collector);
+    });
     if (this._browserSession.sessionDefaults) {
       this._handlers.set("configure_session", async (params) => {
         return configureSessionHandler(params as unknown as ConfigureSessionParams, this._browserSession.sessionDefaults!);

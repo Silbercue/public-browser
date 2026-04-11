@@ -73,7 +73,13 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
       expect(inspectCall).toBeUndefined();
     });
 
-    it("Free-Tier tool registration excludes Pro-Tools but keeps free tools", () => {
+    it("Free-Tier tool registration excludes Pro-Tools but keeps free tools (Default-Modus)", () => {
+      // Story 18.3 Review-Fix M2: Zwei getrennte Assertions — eine fuer das
+      // Default-Set, eine fuer das Full-Set. Damit schlaegt der Guard sowohl
+      // an, wenn ein Default-Tool versehentlich verschwindet (Default-Set
+      // erwartet GENAU 10), als auch wenn ein Extended-Tool in der
+      // FULL_TOOLS-Registrierung verloren geht (Full-Set erwartet >= 21).
+      delete process.env.SILBERCUE_CHROME_FULL_TOOLS;
       const toolFn = vi.fn();
       const mockServer = { tool: toolFn } as never;
       const mockCdpClient = {} as never;
@@ -94,10 +100,44 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
       );
       expect(registeredNames).not.toContain("inspect_element");
       expect(registeredNames).toContain("evaluate");
-      // Lower-bound sanity check — die Free-Registry hat deutlich mehr als
-      // ein Handvoll Tools, und ein versehentlich leerer registerAll() darf
-      // nicht durchrutschen.
-      expect(registeredNames.length).toBeGreaterThan(10);
+      // Story 18.3 Review-Fix M2: Default-Set exakt 10 Tools — schlaegt an,
+      // wenn genau ein Default-Tool verschwindet oder (noch schlimmer) ein
+      // Extended-Tool versehentlich in den Default-Modus rutscht.
+      expect(registeredNames.length).toBe(10);
+    });
+
+    it("Free-Tier FULL_TOOLS-Modus registriert alle 21 Tools inkl. dialog/console/network", () => {
+      // Story 18.3 Review-Fix M2: Zweite Assertion — fuer den FULL_TOOLS-
+      // Modus muss der Guard auch H1-Regressions abfangen (handle_dialog /
+      // console_logs / network_monitor unconditional registriert).
+      process.env.SILBERCUE_CHROME_FULL_TOOLS = "true";
+      try {
+        const toolFn = vi.fn();
+        const mockServer = { tool: toolFn } as never;
+        const mockCdpClient = {} as never;
+
+        const registry = new ToolRegistry(
+          mockServer,
+          mockCdpClient,
+          "session-1",
+          {} as never,
+        );
+        registry.registerAll();
+
+        const registeredNames = toolFn.mock.calls.map(
+          (call: unknown[]) => call[0] as string,
+        );
+        expect(registeredNames).not.toContain("inspect_element");
+        // Full-Set exakt 21 Tools (10 Default + 11 Extended).
+        expect(registeredNames.length).toBe(21);
+        // Explizit die drei Collector-gated Tools — die Regression-Gefahr
+        // lebt hier, siehe Story 18.3 Review H1/H2.
+        expect(registeredNames).toContain("handle_dialog");
+        expect(registeredNames).toContain("console_logs");
+        expect(registeredNames).toContain("network_monitor");
+      } finally {
+        delete process.env.SILBERCUE_CHROME_FULL_TOOLS;
+      }
     });
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ToolRegistry, jsonSchemaToZodShape } from "./registry.js";
 import { z } from "zod";
 import type { LicenseStatus } from "./license/license-status.js";
@@ -11,8 +11,21 @@ import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
 
 describe("ToolRegistry", () => {
   // Story 9.5: Reset Pro hooks between tests
+  // Story 18.3: Alle bestehenden Tests in diesem describe-Block wurden in
+  // einer Welt geschrieben, in der `registerAll()` alle Free-Tools via
+  // `server.tool()` exponiert. Story 18.3 verschiebt Extended-Tools in den
+  // Opt-in-Modus `SILBERCUE_CHROME_FULL_TOOLS=true`. Damit die bestehende
+  // Coverage (die z.B. `dom_snapshot`/`network_monitor`/`handle_dialog`-
+  // Callbacks direkt aus den `server.tool()`-Mock-Calls zieht) ohne Umbau
+  // gruen bleibt, aktivieren wir hier den FULL-Modus. Der neue describe-
+  // Block `ToolRegistry — Tool-Verschlankung (Story 18.3)` am Ende toggelt
+  // explizit beide Modi.
   beforeEach(() => {
     registerProHooks({});
+    process.env.SILBERCUE_CHROME_FULL_TOOLS = "true";
+  });
+  afterEach(() => {
+    delete process.env.SILBERCUE_CHROME_FULL_TOOLS;
   });
 
   it("should be instantiable with McpServer, CdpClient, sessionId, and TabStateCache", () => {
@@ -26,7 +39,8 @@ describe("ToolRegistry", () => {
     expect(typeof registry.registerAll).toBe("function");
   });
 
-  it("should register evaluate, navigate, read_page, screenshot, wait_for, click, type, tab_status, switch_tab, virtual_desk, and run_plan tools via server.tool()", () => {
+  it("should register evaluate, navigate, read_page, screenshot, wait_for, click, type, fill_form, virtual_desk, and run_plan tools via server.tool() in FULL_TOOLS mode", () => {
+    // Story 18.3: FULL_TOOLS mode is set by the parent beforeEach.
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
     const mockCdpClient = {} as never;
@@ -34,15 +48,24 @@ describe("ToolRegistry", () => {
     const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
     registry.registerAll();
 
-    // Story 15.2: 17 Free-Tools + configure_session = 18. `inspect_element`
-    // is Pro-only and is only registered when the Pro-Repo calls
-    // `registerProTools` — no stub fallback in the Free tier.
+    // Story 18.3: Mit `SILBERCUE_CHROME_FULL_TOOLS=true` werden alle
+    // Free-Tools registriert. `inspect_element` ist Pro-only und wird nur
+    // registriert wenn das Pro-Repo `registerProTools` aufruft — kein
+    // Stub-Fallback im Free-Tier.
     //
-    // Lazy-launch refactor: configure_session is now ALWAYS registered
-    // because BrowserSession always provides a SessionDefaults instance
-    // (previously the registration was gated on an optional constructor
-    // parameter that most tests didn't pass).
-    expect(toolFn).toHaveBeenCalledTimes(18);
+    // Story 18.3 Review-Fix H1: `handle_dialog`, `console_logs` und
+    // `network_monitor` werden seit dem H1-Fix **unbedingt** registriert
+    // (Runtime-Guard im Handler statt Registration-Gate), damit der
+    // FULL_TOOLS-Export tatsaechlich alle 21 Tools enthaelt — auch im
+    // Legacy-Test-Konstruktor, in dem die zugehoerigen Collectors undefined
+    // sind. Zuvor waren es nur 18.
+    //
+    // Zaehlung (FULL_TOOLS=true): virtual_desk, read_page, click, type,
+    // fill_form, press_key, scroll, navigate, switch_tab, tab_status,
+    // wait_for, observe, screenshot, dom_snapshot, handle_dialog,
+    // file_upload, console_logs, network_monitor, configure_session,
+    // run_plan, evaluate = 21 Tools.
+    expect(toolFn).toHaveBeenCalledTimes(21);
     expect(toolFn).toHaveBeenCalledWith(
       "evaluate",
       expect.stringMatching(/^Execute JavaScript in the browser page context.*Bad uses:.*automatic recovery after a click\/type\/fill_form failure/s),
@@ -776,17 +799,30 @@ describe("ToolRegistry", () => {
     );
   });
 
-  it("network_monitor is NOT registered when no NetworkCollector is provided", () => {
+  it("network_monitor is registered unconditionally; handler returns a clear isError when no NetworkCollector is wired (Story 18.3 H1-Fix)", async () => {
+    // Story 18.3 Review-Fix H1: `network_monitor` wird seit dem H1-Fix
+    // UNBEDINGT in `tools/list` registriert — die Collector-Existenz-Pruefung
+    // wandert in den Runtime-Handler, der bei fehlendem Collector eine
+    // praezise Fehlermeldung (statt "Unknown tool") zurueckgibt.
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
     const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
     registry.registerAll();
 
+    // Tool ist in tools/list registriert (FULL_TOOLS=true via parent beforeEach).
     const networkMonitorCall = toolFn.mock.calls.find(
       (call: unknown[]) => call[0] === "network_monitor",
     );
-    expect(networkMonitorCall).toBeUndefined();
+    expect(networkMonitorCall).toBeDefined();
+
+    // Runtime-Guard im Handler liefert isError mit klarer Meldung — nicht
+    // "Unknown tool".
+    const result = await registry.executeTool("network_monitor", { action: "get" });
+    const text = (result.content[0] as { text: string }).text;
+    expect(result.isError).toBe(true);
+    expect(text).not.toContain("Unknown tool");
+    expect(text).toContain("network_monitor unavailable");
   });
 
   it("featureGate is NOT registered when a featureGate hook already exists (Pro-Repo override)", async () => {
@@ -3142,6 +3178,425 @@ describe("ToolRegistry", () => {
 
       expect(result).toBeDefined();
       expect(result.isError).toBeFalsy();
+    });
+  });
+
+  // ===========================================================================
+  // Story 18.3: Tool-Verschlankung auf ein Transition-Set
+  // ===========================================================================
+  //
+  // Per Default exponiert `tools/list` nur die zehn Default-Tools (Transition-
+  // Set, Positional-Bias-optimiert). Mit `SILBERCUE_CHROME_FULL_TOOLS=true`
+  // werden alle Free-Tools registriert. Der interne `_handlers`-Dispatcher
+  // bleibt in beiden Modi vollstaendig, damit `run_plan` Extended-Tools weiter
+  // erreicht. Siehe `docs/friction-fixes.md#FR-035`.
+  describe("ToolRegistry — Tool-Verschlankung (Story 18.3)", () => {
+    // Diese Tests toggeln `SILBERCUE_CHROME_FULL_TOOLS` selbst und
+    // ueberschreiben das parent `beforeEach`, das den FULL-Modus erzwingt.
+    beforeEach(() => {
+      delete process.env.SILBERCUE_CHROME_FULL_TOOLS;
+    });
+    afterEach(() => {
+      delete process.env.SILBERCUE_CHROME_FULL_TOOLS;
+    });
+
+    const DEFAULT_TOOL_NAMES_EXPECTED = [
+      "virtual_desk",
+      "read_page",
+      "click",
+      "type",
+      "fill_form",
+      "navigate",
+      "wait_for",
+      "screenshot",
+      "run_plan",
+      "evaluate",
+    ];
+    const EXTENDED_TOOL_NAMES = [
+      "press_key",
+      "scroll",
+      "switch_tab",
+      "tab_status",
+      "observe",
+      "dom_snapshot",
+      "handle_dialog",
+      "file_upload",
+      "console_logs",
+      "network_monitor",
+      "configure_session",
+    ];
+
+    it("default-Modus: server.tool() wird genau mit den 10 Default-Tools aufgerufen — in stabiler Reihenfolge", () => {
+      // Env-Var unset → Default-Modus.
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+      const mockCdpClient = {} as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const registeredNames = toolFn.mock.calls.map((call: unknown[]) => call[0] as string);
+      expect(registeredNames).toEqual(DEFAULT_TOOL_NAMES_EXPECTED);
+      expect(toolFn).toHaveBeenCalledTimes(DEFAULT_TOOL_NAMES_EXPECTED.length);
+    });
+
+    it("default-Modus: Extended-Tools sind NICHT in server.tool()-Calls", () => {
+      // Negative Assertion fuer alle elf Extended-Namen.
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+      const mockCdpClient = {} as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const registeredNames = toolFn.mock.calls.map((call: unknown[]) => call[0] as string);
+      for (const extName of EXTENDED_TOOL_NAMES) {
+        expect(registeredNames).not.toContain(extName);
+      }
+    });
+
+    it("default-Modus: SILBERCUE_CHROME_FULL_TOOLS='false' aktiviert NICHT den Full-Set", () => {
+      process.env.SILBERCUE_CHROME_FULL_TOOLS = "false";
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+      const mockCdpClient = {} as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      expect(toolFn).toHaveBeenCalledTimes(DEFAULT_TOOL_NAMES_EXPECTED.length);
+    });
+
+    it("default-Modus: andere Wahrheits-aehnliche Werte ('1', 'TRUE') aktivieren NICHT den Full-Set", () => {
+      // Strenger String-Vergleich `=== "true"` — defensive gegen Drift.
+      for (const value of ["1", "TRUE", "yes", "on"]) {
+        process.env.SILBERCUE_CHROME_FULL_TOOLS = value;
+        const toolFn = vi.fn();
+        const mockServer = { tool: toolFn } as never;
+        const mockCdpClient = {} as never;
+
+        const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+        registry.registerAll();
+
+        expect(toolFn).toHaveBeenCalledTimes(DEFAULT_TOOL_NAMES_EXPECTED.length);
+      }
+    });
+
+    it("FULL_TOOLS=true: server.tool() wird mit allen 21 Free-Tools aufgerufen — inkl. handle_dialog/console_logs/network_monitor", () => {
+      // Story 18.3 Review-Fix H3: Dieser Test bildet die **Produktions-
+      // Realitaet** ab. `handle_dialog`, `console_logs`, `network_monitor`
+      // werden seit dem H1-Fix unbedingt registriert — Runtime-Guards im
+      // Handler uebernehmen die Collector-Existenz-Pruefung. Der Test muss
+      // deshalb alle elf Extended-Tools und die zehn Default-Tools
+      // verifizieren, ohne irgendwelche "optional skip"-Logik.
+      process.env.SILBERCUE_CHROME_FULL_TOOLS = "true";
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+      const mockCdpClient = {} as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const registeredNames = toolFn.mock.calls.map((call: unknown[]) => call[0] as string);
+
+      // Alle zehn Default-Tools muessen drin sein.
+      for (const name of DEFAULT_TOOL_NAMES_EXPECTED) {
+        expect(registeredNames).toContain(name);
+      }
+
+      // Alle elf Extended-Tools — ohne Ausnahme, inklusive der drei, die
+      // vorher an Collector-Gates hingen.
+      const allExtended = [
+        "press_key",
+        "scroll",
+        "switch_tab",
+        "tab_status",
+        "observe",
+        "dom_snapshot",
+        "handle_dialog",
+        "file_upload",
+        "console_logs",
+        "network_monitor",
+        "configure_session",
+      ];
+      for (const name of allExtended) {
+        expect(registeredNames).toContain(name);
+      }
+
+      // Insgesamt 10 Default + 11 Extended = 21 Tools.
+      expect(toolFn).toHaveBeenCalledTimes(21);
+    });
+
+    it("FULL_TOOLS=true: _handlers-Map enthaelt alle 21 Entries — inkl. handle_dialog/console_logs/network_monitor", () => {
+      // Story 18.3 Review-Fix H2: `_handlers` wird seit dem H2-Fix ebenfalls
+      // unbedingt befuellt, damit `run_plan`-Dispatch alle Tools erreichen
+      // kann, auch wenn die Collectors (noch) nicht initialisiert sind.
+      process.env.SILBERCUE_CHROME_FULL_TOOLS = "true";
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+      const mockCdpClient = {} as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      // Zugriff auf private _handlers via unknown-Cast — in Tests zulaessig.
+      const handlers = (registry as unknown as { _handlers: Map<string, unknown> })._handlers;
+
+      // `run_plan` ist bewusst NICHT im _handlers-Dispatcher (Recursion-
+      // Schutz, siehe Kommentar in registerAll()). Alle anderen 20 Tools
+      // muessen registriert sein.
+      const expectedHandlerNames = [
+        "evaluate",
+        "navigate",
+        "read_page",
+        "screenshot",
+        "wait_for",
+        "observe",
+        "click",
+        "type",
+        "tab_status",
+        "switch_tab",
+        "virtual_desk",
+        "dom_snapshot",
+        "handle_dialog",
+        "file_upload",
+        "fill_form",
+        "press_key",
+        "scroll",
+        "console_logs",
+        "network_monitor",
+        "configure_session",
+      ];
+      for (const name of expectedHandlerNames) {
+        expect(handlers.has(name)).toBe(true);
+      }
+    });
+
+    it("default-Modus: executeTool('handle_dialog') findet einen Handler in _handlers (Runtime-Guard liefert klare Meldung)", async () => {
+      // Story 18.3 Review-Fix H2: Im Legacy-Test-Konstruktor ist der
+      // `dialogHandler` undefined — frueher dispatchte `executeTool` auf
+      // `Unknown tool`, jetzt findet er den Handler und gibt eine
+      // praezise Diagnose-Meldung zurueck.
+      const mockCdpClient = { send: vi.fn().mockResolvedValue({}) } as never;
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("handle_dialog", { action: "accept" });
+      expect(result).toBeDefined();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).not.toContain("Unknown tool");
+      expect(text).toContain("handle_dialog unavailable");
+      expect(result.isError).toBe(true);
+      expect(result._meta?.method).toBe("handle_dialog");
+    });
+
+    it("default-Modus: executeTool('console_logs') findet einen Handler in _handlers", async () => {
+      const mockCdpClient = { send: vi.fn().mockResolvedValue({}) } as never;
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("console_logs", {});
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).not.toContain("Unknown tool");
+      expect(text).toContain("console_logs unavailable");
+      expect(result.isError).toBe(true);
+      expect(result._meta?.method).toBe("console_logs");
+    });
+
+    it("default-Modus: executeTool('network_monitor') findet einen Handler in _handlers", async () => {
+      const mockCdpClient = { send: vi.fn().mockResolvedValue({}) } as never;
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("network_monitor", { action: "get" });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).not.toContain("Unknown tool");
+      expect(text).toContain("network_monitor unavailable");
+      expect(result.isError).toBe(true);
+      expect(result._meta?.method).toBe("network_monitor");
+    });
+
+    it("FULL_TOOLS=true mit echten Collector-Instanzen: tools/list enthaelt exakt 21 Tools und handle_dialog/console_logs/network_monitor sind **funktional**", async () => {
+      // Story 18.3 Review-Fix H3: Der Test injiziert Mock-Collectors via
+      // Legacy-Konstruktor (Parameter 7, 10, 11), damit sowohl die
+      // `tools/list`-Registrierung als auch der Runtime-Dispatch der
+      // drei Collector-Tools die echte Produktions-Realitaet abbilden.
+      process.env.SILBERCUE_CHROME_FULL_TOOLS = "true";
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+      const mockCdpClient = { send: vi.fn().mockResolvedValue({}) } as never;
+
+      // Minimale Mock-Collectors — nur die Methoden, die von den Handlern
+      // aufgerufen werden, um die isError-Pfade zu umgehen.
+      const mockDialogHandler = {
+        setAction: vi.fn(),
+        getCurrentConfig: vi.fn().mockReturnValue({ action: "accept", text: undefined }),
+        consumeNotifications: vi.fn().mockReturnValue([]),
+      } as never;
+      const mockConsoleCollector = {
+        getAll: vi.fn().mockReturnValue([]),
+        getFiltered: vi.fn().mockReturnValue([]),
+        clear: vi.fn(),
+      } as never;
+      const mockNetworkCollector = {
+        getAll: vi.fn().mockReturnValue([]),
+        getRequests: vi.fn().mockReturnValue([]),
+        start: vi.fn(),
+        stop: vi.fn(),
+        isRecording: vi.fn().mockReturnValue(false),
+      } as never;
+
+      const registry = new ToolRegistry(
+        mockServer,
+        mockCdpClient,
+        "session-1",
+        {} as never,
+        undefined, // getConnectionStatus
+        undefined, // sessionManager
+        mockDialogHandler, // dialogHandler (pos 7)
+        undefined, // licenseStatus
+        undefined, // freeTierConfig
+        mockConsoleCollector, // consoleCollector (pos 10)
+        mockNetworkCollector, // networkCollector (pos 11)
+      );
+      registry.registerAll();
+
+      const registeredNames = toolFn.mock.calls.map((call: unknown[]) => call[0] as string);
+      // Exakt 21 Tools: 10 Default + 11 Extended.
+      expect(toolFn).toHaveBeenCalledTimes(21);
+      expect(registeredNames).toContain("handle_dialog");
+      expect(registeredNames).toContain("console_logs");
+      expect(registeredNames).toContain("network_monitor");
+
+      // Der Handler MUSS jetzt den Mock-Collector erreichen und NICHT mehr
+      // den Runtime-Guard-Pfad triggern.
+      const result = await registry.executeTool("console_logs", {});
+      expect(result.isError).toBeFalsy();
+      expect(mockConsoleCollector.getAll).toHaveBeenCalled();
+    });
+
+    it("default-Modus: executeTool('press_key') findet einen Handler in _handlers — nicht 'Unknown tool'", async () => {
+      const mockCdpClient = {
+        send: vi.fn().mockResolvedValue({}),
+      } as never;
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("press_key", { key: "Enter" });
+
+      expect(result).toBeDefined();
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]).toHaveProperty("text", expect.stringContaining("Pressed"));
+      expect(result._meta?.method).toBe("press_key");
+    });
+
+    it("default-Modus: executeTool('observe') findet einen Handler in _handlers", async () => {
+      // observe ruft Runtime.evaluate fuer Setup; mock liefert null Result.
+      const mockCdpClient = {
+        send: vi.fn().mockResolvedValue({ result: { value: null } }),
+      } as never;
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("observe", {
+        selector: "#x",
+        duration: 10,
+        interval: 5,
+      });
+
+      // Wir pruefen NICHT auf isError === false (observe kann je nach
+      // Mock-Antwort scheitern), sondern darauf, dass der Dispatcher den
+      // Handler GEFUNDEN hat — also keine "Unknown tool"-Meldung.
+      expect(result).toBeDefined();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).not.toContain("Unknown tool");
+      expect(result._meta?.method).toBe("observe");
+    });
+
+    it("default-Modus: executeTool('scroll') findet einen Handler in _handlers", async () => {
+      const mockCdpClient = {
+        send: vi.fn().mockResolvedValue({
+          result: { value: { scrollY: 300, scrollHeight: 2000, clientHeight: 800 } },
+        }),
+      } as never;
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("scroll", { direction: "down", amount: 300 });
+
+      expect(result).toBeDefined();
+      expect(result.isError).toBeFalsy();
+      expect(result._meta?.method).toBe("scroll");
+    });
+
+    it("default-Modus: executeTool('dom_snapshot') findet einen Handler in _handlers — Pro-Gate liefert isError, aber NICHT 'Unknown tool'", async () => {
+      // dom_snapshot ist im Free-Tier per Pro-Gate gesperrt — der Test
+      // prueft NUR, dass der Dispatcher den Handler ueberhaupt findet.
+      const mockCdpClient = {
+        send: vi.fn().mockResolvedValue({}),
+      } as never;
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+
+      const license: LicenseStatus = { isPro: () => false };
+      const registry = new ToolRegistry(
+        mockServer, mockCdpClient, "session-1", {} as never,
+        undefined, undefined, undefined, license,
+      );
+      registry.registerAll();
+
+      const result = await registry.executeTool("dom_snapshot", { ref: "e1" });
+
+      expect(result).toBeDefined();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).not.toContain("Unknown tool");
+      // Der Handler wurde aufgerufen → Pro-Gate-Fehler erwartet.
+      expect(result.isError).toBe(true);
+      expect(text).toContain("Pro");
+    });
+
+    it("default-Modus: executeTool('unknown_tool') liefert weiterhin den Standard-Unknown-tool-Error", async () => {
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+
+      const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("definitely_not_a_real_tool", {});
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]).toHaveProperty("text", "Unknown tool: definitely_not_a_real_tool");
+    });
+
+    it("default-Modus: Reihenfolge im Default-Set bleibt Positional-Bias-konform — virtual_desk zuerst, evaluate zuletzt", () => {
+      const toolFn = vi.fn();
+      const mockServer = { tool: toolFn } as never;
+      const mockCdpClient = {} as never;
+
+      const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
+      registry.registerAll();
+
+      const registeredNames = toolFn.mock.calls.map((call: unknown[]) => call[0] as string);
+      expect(registeredNames[0]).toBe("virtual_desk");
+      expect(registeredNames[registeredNames.length - 1]).toBe("evaluate");
     });
   });
 });
