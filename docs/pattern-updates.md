@@ -575,3 +575,45 @@ Fuer den Aggregator/Matcher (Story 19.4):
 ### Story 19.4 ist unblockiert
 
 Die Entscheidung ist klar: `src/scan/fathom-integration.ts` wird **nicht** gebaut. Stattdessen werden die Heuristiken als eigener Code in `src/scan/signal-extractor.ts` (Story 19.3) und `src/scan/aggregator-matcher.ts` (Story 19.4) implementiert. Keine offenen Fragen mehr.
+
+---
+
+## Tag-20-Checkpoint — BESTANDEN (2026-04-12)
+
+**Ist-Werte:** MQS 70, Pass-Rate 35/35
+**Soll-Werte:** MQS >= 66, Pass-Rate = 35/35
+
+Epic 19 kann planmaessig weiterlaufen.
+
+---
+
+## README Smoke-Tests — MANUELL DURCHZUFUEHREN (2026-04-12)
+
+Story 19.12 definiert drei manuelle Smoke-Tests, die vor dem finalen Gate (Story 19.13) ausgefuehrt werden muessen. Die Tests erfordern einen laufenden Chrome-Browser und koennen nicht im CI automatisiert werden.
+
+**Smoke-Test 1 (Bestandsnutzer — AC-3, FR37):**
+
+Drei typische v0.5.0-Workflows im neuen Operator-Modus ausfuehren:
+- Login-Workflow: Login-Form-Seite oeffnen, operator() aufrufen, login-form-Karte matchen und ausfuehren → bestanden/nicht bestanden
+- Formular-Workflow: Mehrstufiges Formular oeffnen, operator() aufrufen, Karte matchen oder Fallback-Primitives nutzen → bestanden/nicht bestanden
+- Screenshot-Workflow: Seite oeffnen, operator() aufrufen (Fallback), screenshot() im Fallback-Modus aufrufen → bestanden/nicht bestanden
+
+Ergebnis: TBD (manuell nach Merge)
+
+**Smoke-Test 2 (Neuling — AC-4, FR38):**
+
+Zeitmessung vom `claude mcp add`-Befehl bis zur ersten erfolgreichen Browser-Interaktion:
+- Schritt 1: `claude mcp add --scope user silbercuechrome -- npx -y @silbercue/chrome@latest`
+- Schritt 2: Claude Code neu starten
+- Schritt 3: Ersten operator()-Call ausfuehren
+- Zeit vom Install bis erster Interaktion: TBD
+- Ergebnis: unter/ueber 10 Minuten → TBD
+
+**Smoke-Test 3 (Free-Build-Scope — AC-5, FR31):**
+
+Free-Build starten und Operator-Pipeline verifizieren:
+- Operator-Scan: operator() liefert Seitenlesart → bestanden/nicht bestanden
+- Karten-Annotation: Seed-Karte wird gematcht und annotiert → bestanden/nicht bestanden
+- Fallback: Seite ohne Karten-Match schaltet auf Fallback-Primitives → bestanden/nicht bestanden
+
+Ergebnis: TBD (manuell nach Merge)

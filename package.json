@@ -38,6 +38,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "benchmark": "node test-hardest/benchmark-full.mjs",
     "check-gate": "tsx scripts/check-gate.ts",
+    "checkpoint": "npm run benchmark -- --operator-mode && tsx scripts/check-gate.ts --checkpoint tag-20",
     "validate-card": "tsx scripts/validate-card.ts",
     "publish:release": "tsx scripts/publish.ts"
   },
