@@ -9,6 +9,7 @@ import { SessionDefaults } from "./cache/session-defaults.js";
 import { TabStateCache as TabStateCacheCtor } from "./cache/tab-state-cache.js";
 import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
 import { prefetchSlot } from "./cache/prefetch-slot.js";
+import { deferredDiffSlot } from "./cache/deferred-diff-slot.js";
 
 describe("ToolRegistry", () => {
   // Story 9.5: Reset Pro hooks between tests
@@ -126,6 +127,7 @@ describe("ToolRegistry", () => {
         selector: expect.anything(),
         x: expect.anything(),
         y: expect.anything(),
+        wait_for_diff: expect.anything(),
       }),
       expect.any(Function),
     );
@@ -4372,10 +4374,12 @@ describe("ToolRegistry — Speculative Prefetch (Story 18.5)", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // AC-1 / AC-6 Test 2: prefetch triggers after click return for non-error
-  // results, but NOT for isError: true
+  // AC-1 / AC-6 Test 2 (Story 20.1 update): click no longer triggers
+  // speculative prefetch — DeferredDiffSlot handles cache refresh.
   // ---------------------------------------------------------------------------
-  it("prefetch triggers after click return for non-error results", async () => {
+  // Story 20.1: click no longer triggers speculative prefetch — the
+  // DeferredDiffSlot background build handles cache refresh as a side-effect.
+  it("Story 20.1: prefetch does NOT trigger after click (deferred diff handles cache)", async () => {
     const mock = makeMockCdp();
     const { capturedPromises, restore } = spySchedule();
     a11yTree.reset();
@@ -4390,17 +4394,13 @@ describe("ToolRegistry — Speculative Prefetch (Story 18.5)", () => {
 
     // First read_page so click can resolve "e2" via the precomputed cache.
     await registry.executeTool("read_page", {});
-    // Drain any prefetch the registry triggered as part of read_page (it
-    // should NOT trigger one — read_page is not in the trigger list — but
-    // belt-and-suspenders).
     await Promise.all(capturedPromises.splice(0));
 
     const clickResult = await registry.executeTool("click", { ref: "e2" });
     expect(clickResult.isError).toBeFalsy();
 
-    // The click triggered a prefetch.
-    expect(capturedPromises).toHaveLength(1);
-    await capturedPromises[0];
+    // Story 20.1: No prefetch scheduled — click uses DeferredDiffSlot instead.
+    expect(capturedPromises).toHaveLength(0);
 
     restore();
   });
@@ -4817,5 +4817,72 @@ describe("ToolRegistry — Speculative Prefetch (Story 18.5)", () => {
     expect(prefetchSlot.isActive).toBe(false);
 
     restore();
+  });
+});
+
+// =============================================================================
+// Story 20.1 M1: Piggyback-Drain integration test
+// =============================================================================
+
+describe("ToolRegistry — Piggyback-Drain (Story 20.1 M1)", () => {
+  beforeEach(() => {
+    registerProHooks({});
+    process.env.SILBERCUE_CHROME_FULL_TOOLS = "true";
+    deferredDiffSlot.cancel();
+  });
+
+  afterEach(() => {
+    delete process.env.SILBERCUE_CHROME_FULL_TOOLS;
+    deferredDiffSlot.cancel();
+  });
+
+  it("executeTool prepends a piggybacked diff from a previous click to the next tool response", async () => {
+    // Manually seed a completed diff in the DeferredDiffSlot
+    const done = deferredDiffSlot.schedule(async () => "--- DOM diff: +1 row added ---");
+    await done;
+
+    // Verify the diff is available
+    expect(deferredDiffSlot.pendingDiffText).toBe("--- DOM diff: +1 row added ---");
+
+    // Create a minimal registry with a mocked handler
+    const mockToolFn = vi.fn();
+    const cdpClient = {
+      send: vi.fn(async (method: string) => {
+        if (method === "Page.getFrameTree") {
+          return { frameTree: { frame: { id: "main", url: "about:blank" } } };
+        }
+        if (method === "Runtime.evaluate") {
+          return { result: { value: "42" } };
+        }
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as import("./cdp/cdp-client.js").CdpClient;
+
+    const registry = new ToolRegistry(
+      { tool: mockToolFn } as never,
+      cdpClient as never,
+      "session-1",
+      {} as never,
+    );
+    registry.registerAll();
+
+    // executeTool calls drainPendingDiff() before the handler.
+    // We call "evaluate" because it's simple and returns quickly.
+    const result = await registry.executeTool("evaluate", {
+      expression: "'hello'",
+    });
+
+    // The diff should be prepended as the first content block
+    expect(result.content.length).toBeGreaterThanOrEqual(2);
+    expect(result.content[0]).toMatchObject({
+      type: "text",
+      text: "--- DOM diff: +1 row added ---",
+    });
+
+    // The slot should be empty after drain
+    expect(deferredDiffSlot.pendingDiffText).toBeNull();
   });
 });

@@ -328,6 +328,13 @@ export async function executePlan(
       // push/unshift/splice und bewahrt die vom Hook gewaehlte Einfuege-
       // Reihenfolge im Overlay.
       const existingBlocks = new Set<ToolContentBlock>(lastStep.result.content);
+      // Story 20.1: Force synchronous diff in the aggregation hook.
+      // Without this flag the default onToolResult hook would schedule a
+      // deferred (background) diff — but at plan-end we need the diff
+      // inline in the response, so we explicitly request sync mode.
+      if (lastStep.result._meta) {
+        lastStep.result._meta.syncDiff = true;
+      }
       try {
         await registry.runAggregationHook(lastStep.result, lastStep.tool);
       } catch {

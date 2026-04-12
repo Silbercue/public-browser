@@ -907,6 +907,42 @@ describe("clickHandler", () => {
       expect(mouseMovedCalls.length).toBe(1);
     });
 
+    // --- Story 20.1 M3: wait_for_diff sets _meta.syncDiff ---
+
+    it("ref-based click with wait_for_diff: true sets _meta.syncDiff", async () => {
+      mockResolveElement.mockResolvedValue({
+        backendNodeId: 42,
+        objectId: "obj-42",
+        role: "button",
+        name: "Submit",
+        resolvedVia: "ref",
+        resolvedSessionId: "s1",
+      });
+      const { cdpClient } = createMockCdp();
+
+      const result = await clickHandler({ ref: "e5", wait_for_diff: true }, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(result._meta?.syncDiff).toBe(true);
+    });
+
+    it("ref-based click without wait_for_diff does NOT set _meta.syncDiff", async () => {
+      mockResolveElement.mockResolvedValue({
+        backendNodeId: 42,
+        objectId: "obj-42",
+        role: "button",
+        name: "Submit",
+        resolvedVia: "ref",
+        resolvedSessionId: "s1",
+      });
+      const { cdpClient } = createMockCdp();
+
+      const result = await clickHandler({ ref: "e5" }, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(result._meta?.syncDiff).toBeUndefined();
+    });
+
     it("coordinate-based click delegates to humanMouseMove when provided", async () => {
       const { cdpClient, sendFn } = createMockCdp({
         "Runtime.evaluate": {

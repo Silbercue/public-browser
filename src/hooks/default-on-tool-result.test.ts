@@ -1,16 +1,27 @@
 /**
  * FR-022 (P3 fix): Tests for the Free-tier default `onToolResult` hook.
  *
+ * Story 20.1: The hook now has two paths:
+ *  - **Synchronous** (syncDiff=true): diff runs inline, appended to response
+ *  - **Deferred** (default): diff scheduled in background via DeferredDiffSlot
+ *
+ * Tests cover both paths. Existing pre-20.1 tests are preserved with
+ * `syncDiff: true` to test the synchronous path. New tests verify the
+ * deferred path and `drainPendingDiff()`.
+ *
  * Covers:
  *  (a) Scope: only `click` + `clickable`/`widget-state` triggers the hook
- *  (b) Happy path: refresh + diff + format -> diff text appended
- *  (c) Settle-Loop: empty first refresh -> retry once with extra wait
- *  (d) Removed-Detection: refs missing from getActiveRefs() get a REMOVED entry
+ *  (b) Happy path (sync): refresh + diff + format -> diff text appended
+ *  (c) Settle-Loop (sync): empty first refresh -> retry once with extra wait
+ *  (d) Removed-Detection (sync): refs missing from getActiveRefs() get REMOVED
  *  (e) Errors inside the hook never destroy the original tool response
  *  (f) `formatDomDiff` returning null leaves the response untouched
+ *  (g) Deferred path: click without syncDiff schedules background job
+ *  (h) drainPendingDiff returns the diff after background completion
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createDefaultOnToolResult } from "./default-on-tool-result.js";
+import { createDefaultOnToolResult, drainPendingDiff } from "./default-on-tool-result.js";
+import { deferredDiffSlot } from "../cache/deferred-diff-slot.js";
 import type { A11yTreePublic, A11yTreeDiffs } from "./pro-hooks.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
@@ -89,34 +100,46 @@ function makeContext(opts: MockOptions = {}) {
   return { a11yTree, context, waitForAXChange };
 }
 
-function makeClickResult(elementClass?: string): ToolResponse {
+function makeClickResult(elementClass?: string, syncDiff?: boolean): ToolResponse {
   return {
     content: [{ type: "text", text: "Clicked e2 (ref)" }],
     _meta: {
       elapsedMs: 1,
       method: "click",
       ...(elementClass !== undefined ? { elementClass } : {}),
+      ...(syncDiff ? { syncDiff: true } : {}),
     },
   };
 }
 
+/**
+ * Wartet auf genau einen `setImmediate`-Tick — noetig damit der
+ * DeferredDiffSlot-Build gestartet wird (Story 20.1).
+ */
+function tick(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
   beforeEach(() => {
-    // Settle-Loop tests pick their own timing — make sure prior runs don't
-    // leak the env var.
     delete process.env.SILBERCUE_CHROME_DIFF_RETRY_MS;
     delete process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS;
+    deferredDiffSlot.cancel();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    deferredDiffSlot.cancel();
   });
 
   it("returns a function", () => {
     expect(typeof createDefaultOnToolResult()).toBe("function");
   });
 
+  // =========================================================================
   // (a) Scope: non-click tools are passed through untouched
+  // =========================================================================
+
   it("ignores non-click tools", async () => {
     const hook = createDefaultOnToolResult();
     const { context, a11yTree } = makeContext();
@@ -129,7 +152,6 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     expect(a11yTree.refreshPrecomputed).not.toHaveBeenCalled();
   });
 
-  // (a) Scope: click on static elements is passed through
   it("ignores click on static element", async () => {
     const hook = createDefaultOnToolResult();
     const { context, a11yTree } = makeContext();
@@ -142,7 +164,6 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     expect(a11yTree.refreshPrecomputed).not.toHaveBeenCalled();
   });
 
-  // (a) Scope: click on disabled elements is passed through
   it("ignores click on disabled element", async () => {
     const hook = createDefaultOnToolResult();
     const { context, a11yTree } = makeContext();
@@ -154,8 +175,11 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     expect(a11yTree.refreshPrecomputed).not.toHaveBeenCalled();
   });
 
-  // (b) Happy path: clickable element with non-empty diff
-  it("appends diff text on click + clickable when refresh produces changes", async () => {
+  // =========================================================================
+  // (b) Synchronous path (syncDiff=true) — pre-20.1 behaviour
+  // =========================================================================
+
+  it("appends diff text on click + clickable when syncDiff=true", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
@@ -173,7 +197,7 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
       formatResults: ["--- Action Result (1 changes) ---\n NEW row \"New row\""],
       activeRefs: new Set([1, 2]),
     });
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     const out = await hook("click", result, context);
 
@@ -193,8 +217,7 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     );
   });
 
-  // (b) Happy path: widget-state element triggers the hook too
-  it("triggers on widget-state element", async () => {
+  it("triggers on widget-state element with syncDiff=true", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
@@ -206,7 +229,7 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
       formatResults: ["--- Action Result (1 changes) ---\n CHANGED checkbox..."],
       activeRefs: new Set([1]),
     });
-    const result = makeClickResult("widget-state");
+    const result = makeClickResult("widget-state", true);
 
     const out = await hook("click", result, context);
 
@@ -214,34 +237,34 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     expect(a11yTree.refreshPrecomputed).toHaveBeenCalledTimes(1);
   });
 
-  // (c) Settle-Loop: first refresh empty -> retry refresh has changes
-  it("retries once with extra wait when first refresh produces empty diff", async () => {
+  // =========================================================================
+  // (c) Settle-Loop (syncDiff=true)
+  // =========================================================================
+
+  it("retries once with extra wait when first refresh produces empty diff (syncDiff=true)", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "10";
     const hook = createDefaultOnToolResult();
     const { context, a11yTree } = makeContext({
       snapshots: [
-        // BEFORE
         new Map([[1, "button\0Open"]]),
-        // AFTER (refresh #1 — slow React, empty)
         new Map([[1, "button\0Open"]]),
-        // AFTER (refresh #2 — settle-loop catches the late re-render)
         new Map([
           [1, "button\0Open"],
           [2, "row\0Late row"],
         ]),
       ],
       diffResults: [
-        [], // first refresh: nothing
+        [],
         [{ type: "added", ref: "e2", role: "row", after: "Late row" }],
       ],
       formatResults: [
-        null, // formatDomDiff returns null on empty changes (real behavior)
+        null,
         "--- Action Result (1 changes) ---\n NEW row \"Late row\"",
       ],
       activeRefs: new Set([1, 2]),
     });
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     const out = await hook("click", result, context);
 
@@ -254,7 +277,7 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     expect(a11yTree.diffSnapshots).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry when SILBERCUE_CHROME_DIFF_RETRY_MS=0", async () => {
+  it("does not retry when SILBERCUE_CHROME_DIFF_RETRY_MS=0 (syncDiff=true)", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
@@ -264,7 +287,7 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
       formatResults: [null],
       activeRefs: new Set(),
     });
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     await hook("click", result, context);
 
@@ -272,8 +295,11 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     expect(a11yTree.diffSnapshots).toHaveBeenCalledTimes(1);
   });
 
-  // (d) Removed-Detection: ref dropped from getActiveRefs becomes REMOVED entry
-  it("synthesizes REMOVED entries for refs missing from getActiveRefs()", async () => {
+  // =========================================================================
+  // (d) Removed-Detection (syncDiff=true)
+  // =========================================================================
+
+  it("synthesizes REMOVED entries for refs missing from getActiveRefs() (syncDiff=true)", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
@@ -286,32 +312,23 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
           [1, "button\0Save"],
           [5, "dialog\0Confirm dialog"],
         ]),
-        // After refresh: dialog is gone from reverseMap NEVER, but its ref is
-        // not in activeRefs anymore — that's the live signal.
         new Map([
           [1, "button\0Save"],
-          [5, "dialog\0Confirm dialog"], // stale entry still here
+          [5, "dialog\0Confirm dialog"],
           [9, "row\0New row"],
         ]),
       ],
-      // diffSnapshots only catches the added row — reverseMap still has the
-      // stale dialog, so it never reports removal on its own.
       diffResults: [
         [{ type: "added", ref: "e9", role: "row", after: "New row" }],
       ],
-      // The hook will call formatDomDiff with both the added row AND a
-      // synthesized REMOVED entry for ref 5.
       formatResults: ["mock"],
-      activeRefs: new Set([1, 9]), // ref 5 is GONE
+      activeRefs: new Set([1, 9]),
     });
     a11yTree.formatDomDiff = formatDomDiffSpy as unknown as typeof a11yTree.formatDomDiff;
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     await hook("click", result, context);
 
-    // formatDomDiff should have been called with 2 changes:
-    //   1. the added row (from diffSnapshots)
-    //   2. the synthesized removed dialog (ref 5 is no longer active)
     expect(formatDomDiffSpy).toHaveBeenCalledTimes(1);
     const passedChanges = formatDomDiffSpy.mock.calls[0][0] as DOMChange[];
     expect(passedChanges).toHaveLength(2);
@@ -328,7 +345,7 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     );
   });
 
-  it("does not double-report REMOVED for refs already in diffSnapshots output", async () => {
+  it("does not double-report REMOVED for refs already in diffSnapshots output (syncDiff=true)", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
@@ -338,25 +355,23 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
         new Map([[5, "dialog\0X"]]),
         new Map([[5, "dialog\0X"]]),
       ],
-      // diffSnapshots already reported ref 5 as removed
       diffResults: [
         [{ type: "removed", ref: "e5", role: "dialog", before: "X", after: "" }],
       ],
       formatResults: ["mock"],
-      activeRefs: new Set(), // ref 5 not active either
+      activeRefs: new Set(),
     });
     a11yTree.formatDomDiff = formatDomDiffSpy as unknown as typeof a11yTree.formatDomDiff;
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     await hook("click", result, context);
 
     const passedChanges = formatDomDiffSpy.mock.calls[0][0] as DOMChange[];
-    // Exactly one removed entry — no duplicate
     const removed = passedChanges.filter((c) => c.type === "removed");
     expect(removed).toHaveLength(1);
   });
 
-  it("skips REMOVED synthesis when getActiveRefs() returns empty (no refresh yet)", async () => {
+  it("skips REMOVED synthesis when getActiveRefs() returns empty (syncDiff=true)", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
@@ -368,23 +383,24 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
       ],
       diffResults: [[]],
       formatResults: [null],
-      activeRefs: new Set(), // empty -> "no refresh has run yet" semantics
+      activeRefs: new Set(),
     });
     a11yTree.formatDomDiff = formatDomDiffSpy as unknown as typeof a11yTree.formatDomDiff;
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     await hook("click", result, context);
 
-    // No changes -> formatDomDiff never gets called (well, it might be —
-    // but the test checks that no REMOVED entries get fabricated)
     if (formatDomDiffSpy.mock.calls.length > 0) {
       const passedChanges = formatDomDiffSpy.mock.calls[0][0] as DOMChange[];
       expect(passedChanges).toHaveLength(0);
     }
   });
 
+  // =========================================================================
   // (e) Belt-and-braces: hook errors must not destroy the response
-  it("returns the original result unchanged when refreshPrecomputed throws", async () => {
+  // =========================================================================
+
+  it("returns the original result unchanged when refreshPrecomputed throws (syncDiff=true)", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
@@ -392,17 +408,17 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     a11yTree.refreshPrecomputed = vi
       .fn()
       .mockRejectedValue(new Error("CDP boom")) as unknown as typeof a11yTree.refreshPrecomputed;
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     const out = await hook("click", result, context);
 
     expect(out).toBe(result);
-    expect(out.content).toHaveLength(1); // unchanged
+    expect(out.content).toHaveLength(1);
     expect(out.content[0]).toMatchObject({ text: "Clicked e2 (ref)" });
   });
 
   // (f) formatDomDiff returns null -> response untouched
-  it("does not append text when formatDomDiff returns null", async () => {
+  it("does not append text when formatDomDiff returns null (syncDiff=true)", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
@@ -412,7 +428,7 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
       formatResults: [null],
       activeRefs: new Set(),
     });
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     const out = await hook("click", result, context);
 
@@ -421,8 +437,8 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
   });
 
   // waitForAXChange undefined: hook still works (defensive optional chaining)
-  it("runs without crash when waitForAXChange is missing from the context", async () => {
-    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "1"; // non-zero so the call is attempted
+  it("runs without crash when waitForAXChange is missing from the context (syncDiff=true)", async () => {
+    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "1";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
     const { context, a11yTree } = makeContext({
@@ -432,11 +448,181 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
       formatResults: ["mock diff"],
       activeRefs: new Set([1]),
     });
-    const result = makeClickResult("clickable");
+    const result = makeClickResult("clickable", true);
 
     const out = await hook("click", result, context);
 
     expect(out.content).toHaveLength(2);
     expect(a11yTree.refreshPrecomputed).toHaveBeenCalledTimes(1);
+  });
+
+  // =========================================================================
+  // (g) Story 20.1: Deferred path (default — no syncDiff)
+  // =========================================================================
+
+  it("does NOT append diff text on click without syncDiff (deferred)", async () => {
+    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
+    process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
+    const hook = createDefaultOnToolResult();
+    const { context, a11yTree } = makeContext({
+      snapshots: [
+        new Map([[1, "button\0Old"]]),
+        new Map([
+          [1, "button\0Old"],
+          [2, "row\0New row"],
+        ]),
+      ],
+      diffResults: [
+        [{ type: "added", ref: "e2", role: "row", after: "New row" }],
+      ],
+      formatResults: ["--- Action Result (1 changes) ---\n NEW row \"New row\""],
+      activeRefs: new Set([1, 2]),
+    });
+    const result = makeClickResult("clickable"); // no syncDiff
+
+    const out = await hook("click", result, context);
+
+    // Response must NOT have the diff appended — it's deferred
+    expect(out).toBe(result);
+    expect(out.content).toHaveLength(1);
+    expect(out.content[0]).toMatchObject({ text: "Clicked e2 (ref)" });
+
+    // But a deferred diff job was scheduled
+    expect(deferredDiffSlot.isActive).toBe(true);
+
+    // Wait for the background build to complete
+    await tick();
+    // The build itself needs microtask resolution for its async body
+    await new Promise<void>((r) => setTimeout(r, 10));
+    await tick();
+
+    // The diff should now be drainable
+    const drained = drainPendingDiff();
+    expect(drained).toContain("NEW row");
+    expect(a11yTree.refreshPrecomputed).toHaveBeenCalledTimes(1);
+  });
+
+  it("deferred path: drainPendingDiff returns null when no click happened", () => {
+    expect(drainPendingDiff()).toBeNull();
+  });
+
+  it("deferred path: drainPendingDiff returns null when diff build is still in flight", async () => {
+    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "5000";
+    process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
+    const hook = createDefaultOnToolResult();
+    const { context } = makeContext({
+      snapshots: [new Map(), new Map()],
+      diffResults: [[]],
+      formatResults: [null],
+      activeRefs: new Set(),
+    });
+    const result = makeClickResult("clickable"); // deferred
+
+    await hook("click", result, context);
+
+    // The build is still waiting on waitForAXChange(5000ms)
+    // drain should return null immediately
+    const drained = drainPendingDiff();
+    expect(drained).toBeNull();
+
+    // Clean up
+    deferredDiffSlot.cancel();
+  });
+
+  it("deferred path: second click cancels first deferred diff", async () => {
+    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "5000";
+    process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
+    const hook = createDefaultOnToolResult();
+    const { context } = makeContext({
+      snapshots: [new Map(), new Map()],
+      diffResults: [[]],
+      formatResults: [null],
+      activeRefs: new Set(),
+    });
+
+    // First click
+    const result1 = makeClickResult("clickable");
+    await hook("click", result1, context);
+    expect(deferredDiffSlot.isActive).toBe(true);
+
+    // Second click cancels the first
+    const result2 = makeClickResult("clickable");
+    await hook("click", result2, context);
+
+    // Still active with the new build
+    expect(deferredDiffSlot.isActive).toBe(true);
+
+    deferredDiffSlot.cancel();
+  });
+
+  // =========================================================================
+  // (i) Story 20.1 M2: In-flight discard via drain
+  // =========================================================================
+
+  it("deferred path: drain while build is in-flight discards the result (H1-Fix)", async () => {
+    // Use a long settle time so the build hangs during waitForAXChange
+    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "5000";
+    process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
+    const hook = createDefaultOnToolResult();
+    const { context } = makeContext({
+      snapshots: [
+        new Map([[1, "button\0Old"]]),
+        new Map([
+          [1, "button\0Old"],
+          [2, "row\0New row"],
+        ]),
+      ],
+      diffResults: [
+        [{ type: "added", ref: "e2", role: "row", after: "New row" }],
+      ],
+      formatResults: ["--- Action Result (1 changes) ---\n NEW row \"New row\""],
+      activeRefs: new Set([1, 2]),
+    });
+    const result = makeClickResult("clickable"); // deferred
+
+    await hook("click", result, context);
+    expect(deferredDiffSlot.isActive).toBe(true);
+
+    // Drain immediately while build is still in-flight
+    const drained1 = drainPendingDiff();
+    expect(drained1).toBeNull();
+
+    // The in-flight build should now be cancelled
+    expect(deferredDiffSlot.isActive).toBe(false);
+
+    // Even after waiting for any pending microtasks, drain returns null
+    // because the build was aborted and its result discarded.
+    await tick();
+    await new Promise<void>((r) => setTimeout(r, 50));
+    await tick();
+
+    const drained2 = drainPendingDiff();
+    expect(drained2).toBeNull();
+  });
+
+  it("deferred path: errors in background build are absorbed", async () => {
+    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
+    process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
+    const hook = createDefaultOnToolResult();
+    const { context, a11yTree } = makeContext();
+    a11yTree.refreshPrecomputed = vi
+      .fn()
+      .mockRejectedValue(new Error("CDP boom")) as unknown as typeof a11yTree.refreshPrecomputed;
+    const result = makeClickResult("clickable"); // deferred
+
+    const out = await hook("click", result, context);
+
+    // Response is unchanged
+    expect(out).toBe(result);
+    expect(out.content).toHaveLength(1);
+
+    // Wait for background build to fail
+    await tick();
+    await new Promise<void>((r) => setTimeout(r, 10));
+    await tick();
+
+    // No crash, drain returns null
+    const drained = drainPendingDiff();
+    expect(drained).toBeNull();
   });
 });

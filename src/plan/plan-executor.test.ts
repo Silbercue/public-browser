@@ -1451,6 +1451,36 @@ describe("executePlan — Ambient-Context suppression (Story 18.1)", () => {
     expect(aggregationCalls[0].toolName).toBe("type");
   });
 
+  // Story 20.1 M3: Aggregation hook sets syncDiff on the last step's _meta
+  it("sets syncDiff=true on the last step result before calling runAggregationHook", async () => {
+    const responses = new Map<string, ToolResponse>();
+    responses.set("click", transitionResponse("click", "clicked"));
+
+    let capturedSyncDiff: boolean | undefined;
+    const registry = {
+      executeTool: vi.fn(async (name: string) => {
+        const resp = responses.get(name);
+        if (!resp) throw new Error(`no mock for ${name}`);
+        // Return a deep clone so the original isn't mutated
+        return {
+          ...resp,
+          content: [...resp.content],
+          _meta: resp._meta ? { ...resp._meta } : undefined,
+        };
+      }),
+      runAggregationHook: vi.fn(async (result: ToolResponse, _toolName: string) => {
+        // Capture the syncDiff flag that plan-executor should have set
+        capturedSyncDiff = (result._meta as Record<string, unknown>)?.syncDiff as boolean | undefined;
+      }),
+    } as unknown as ToolRegistry;
+
+    const steps: PlanStep[] = [{ tool: "click", params: { ref: "e1" } }];
+    await executePlan(steps, registry);
+
+    expect(registry.runAggregationHook).toHaveBeenCalledTimes(1);
+    expect(capturedSyncDiff).toBe(true);
+  });
+
   it("aggregation-hook exceptions do not break the plan response", async () => {
     const responses = new Map<string, ToolResponse>();
     responses.set("click", okResponse("click", "clicked"));

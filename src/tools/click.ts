@@ -31,6 +31,10 @@ export const clickSchema = z.object({
     .number()
     .optional()
     .describe("Y coordinate (viewport pixels) — for canvas or pixel-precise clicks. Use with x instead of ref/selector."),
+  wait_for_diff: z
+    .boolean()
+    .optional()
+    .describe("When true, wait for the DOM diff synchronously before returning (slower but diff is in this response). Default: false — diff piggybacks on the next tool response."),
 });
 
 export type ClickParams = z.infer<typeof clickSchema>;
@@ -370,6 +374,9 @@ export async function clickHandler(
         clickX: clickResult.x,
         clickY: clickResult.y,
         elementClass,
+        // Story 20.1: When wait_for_diff is true, signal the onToolResult
+        // hook to run the diff synchronously (pre-20.1 behaviour).
+        ...(params.wait_for_diff ? { syncDiff: true } : {}),
       },
     };
   } catch (err) {

@@ -63,9 +63,10 @@ import { loadFreeTierConfig } from "./license/free-tier-config.js";
 import { z } from "zod";
 import { getProHooks, registerProHooks, proFeatureError } from "./hooks/pro-hooks.js";
 import type { ToolRegistryPublic } from "./hooks/pro-hooks.js";
-import { createDefaultOnToolResult } from "./hooks/default-on-tool-result.js";
+import { createDefaultOnToolResult, drainPendingDiff } from "./hooks/default-on-tool-result.js";
 import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
 import { prefetchSlot } from "./cache/prefetch-slot.js";
+import { deferredDiffSlot } from "./cache/deferred-diff-slot.js";
 import { debug } from "./cdp/debug.js";
 
 /**
@@ -552,9 +553,23 @@ export class ToolRegistry implements ToolRegistryPublic {
         resolvedParams = enhanced;
       }
     }
+    // Story 20.1: Drain pending deferred diff BEFORE the handler runs.
+    // If a previous click scheduled a background diff that has since
+    // completed, we pick it up here and prepend it to this tool's response
+    // after the handler finishes. Non-blocking — if the diff is not ready
+    // yet, `drainPendingDiff()` returns null and we move on.
+    const piggybackDiff = drainPendingDiff();
+
     const result = await handler(resolvedParams, sessionIdOverride);
     this._injectDialogNotifications(result);
     this._injectRelaunchNotice(result);
+
+    // Story 20.1: Prepend the piggybacked diff as a leading content block
+    // so the LLM sees it before the current tool's output.
+    if (piggybackDiff) {
+      result.content.unshift({ type: "text", text: piggybackDiff });
+    }
+
     // Story 15.3: Ambient Page Context — delegated to Pro-Repo via onToolResult hook.
     // Story 18.1: `skipOnToolResultHook` erlaubt `run_plan`, den Ambient-Context
     // fuer Zwischen-Steps zu unterdruecken. Dialog-Notifications und
@@ -574,17 +589,13 @@ export class ToolRegistry implements ToolRegistryPublic {
         result._meta.estimated_tokens = Math.ceil(responseBytes / 4);
       }
     }
-    // Story 18.5: Speculative Prefetch — kick off a background A11y-Tree
-    // refresh after a successful navigate/click so the next read_page hits
-    // a warm cache (or, more precisely, the next ambient-context hook
-    // skips its own refreshPrecomputed roundtrip). Fire-and-forget; errors
-    // are absorbed inside PrefetchSlot, never surfaced to the LLM.
+    // Story 18.5 / Story 20.1: Speculative Prefetch — fire-and-forget.
     //
-    // Restricted to navigate/click — see Dev Notes in
-    // _bmad-output/implementation-artifacts/18-5-speculative-prefetch-waehrend-llm-denkzeit.md
-    // (Alternative D rejection): type/fill_form/press_key carry an AJAX
-    // settle tail that would let the prefetch capture an in-between DOM.
-    if (!result.isError && (name === "navigate" || name === "click")) {
+    // Story 20.1: Click no longer triggers the prefetch — the
+    // DeferredDiffSlot's background build already calls
+    // refreshPrecomputed, which has the same cache-warming effect.
+    // Only navigate triggers the speculative prefetch now.
+    if (!result.isError && name === "navigate") {
       this._triggerSpeculativePrefetch();
     }
     return result;
@@ -718,6 +729,9 @@ export class ToolRegistry implements ToolRegistryPublic {
     if (name === "navigate") {
       a11yTree.reset();
       this._resetFr029Streak();
+      // Story 20.1: Cancel any pending deferred diff — the page changed,
+      // the old diff is stale.
+      deferredDiffSlot.cancel();
     }
 
     if (result.isError) return;
@@ -1109,9 +1123,22 @@ export class ToolRegistry implements ToolRegistryPublic {
           if (enhanced) {
             resolvedParams = enhanced as unknown as T;
           }
+          // Story 20.1 H3-Fix: Drain pending deferred diff BEFORE the
+          // handler runs — mirrors the same logic in executeTool().
+          // Without this, the direct MCP path (server.tool) would never
+          // pick up deferred diffs from a previous click.
+          const piggybackDiff = drainPendingDiff();
+
           const result = await dialogWrapped(resolvedParams);
           // Story 15.3: Ambient Page Context — delegated to Pro-Repo via onToolResult hook
           await this._runOnToolResultHook(result, name);
+
+          // Story 20.1 H3-Fix: Prepend the piggybacked diff as a leading
+          // content block so the LLM sees it before the current tool's output.
+          if (piggybackDiff) {
+            result.content.unshift({ type: "text", text: piggybackDiff });
+          }
+
           // Inject auto-promote suggestion into _meta
           if (suggestionText && result._meta) {
             result._meta.suggestion = suggestionText;
@@ -1244,6 +1271,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         text: clickSchema.shape.text,
         x: clickSchema.shape.x,
         y: clickSchema.shape.y,
+        wait_for_diff: clickSchema.shape.wait_for_diff,
       },
       wrap(async (params) => {
         return clickHandler(params as unknown as ClickParams, this.cdpClient, this.sessionId, this._browserSession.sessionManager);
