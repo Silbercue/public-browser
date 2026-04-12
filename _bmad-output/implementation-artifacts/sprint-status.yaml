@@ -54,6 +54,8 @@
 
 generated: 2026-04-11
 last_updated: 2026-04-12
+# 2026-04-12: Story 19.10 created (ready-for-dev) — Seed-Library Validation und Benchmark-Integration
+# 2026-04-12: Story 19.9 created (ready-for-dev) — Fallback-Logbuch mit Muster-Signaturen
 # 2026-04-12: Story 19.8 created (ready-for-dev) — Fallback-Registry und Mode-Transition
 # 2026-04-12: Story 19.7 created (ready-for-dev) — Top-Level-Tools operator und virtual_desk
 # 2026-04-12: Story 19.5 → done (review follow-ups C1/H1-H4/M1-M4/L1-L3 fixed, 5 new tests, 1706/1706 green, build clean)
@@ -98,9 +100,9 @@ development_status:
   19-5-operator-return-schema-und-seitenlesart: done
   19-6-operator-state-machine: done
   19-7-top-level-tools-operator-und-virtual-desk: done
-  19-8-fallback-registry-und-mode-transition: ready-for-dev
-  19-9-fallback-logbuch-mit-muster-signaturen: backlog
-  19-10-seed-library-validation-und-benchmark-integration: backlog
+  19-8-fallback-registry-und-mode-transition: done
+  19-9-fallback-logbuch-mit-muster-signaturen: done
+  19-10-seed-library-validation-und-benchmark-integration: ready-for-dev
   19-11-tag-20-zwischencheckpoint: backlog
   19-12-readme-migration-und-onboarding-walkthroughs: backlog
   19-13-epic-19-abschluss-gate: backlog

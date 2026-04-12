@@ -120,6 +120,7 @@ function makeDeps(
     settle: vi.fn().mockResolvedValue(overrides.settleResult ?? true),
     switchToFallbackMode: vi.fn(),
     switchToStandardMode: vi.fn(),
+    recordFallbackLog: vi.fn(),
   };
 }
 
@@ -470,5 +471,42 @@ describe("operator-tool", () => {
     // These nodes don't match any seed card pattern (no form with login structure)
     expect(result._meta?.fallback).toBe(true);
     expect(deps.switchToFallbackMode).toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------
+  // Story 19.9, Task 8: Fallback-Log Integration Tests
+  // -----------------------------------------------------------------
+
+  // Subtask 8.1: Scan without card match calls recordFallbackLog
+  it("fallback-log: scan without card match calls recordFallbackLog()", async () => {
+    const deps = makeDeps({ nodes: makeEmptyNodes() });
+    await operatorHandler({}, deps);
+
+    expect(deps.recordFallbackLog).toHaveBeenCalledTimes(1);
+  });
+
+  // Subtask 8.2: recordFallbackLog is called with ExtractionResult and MatchResult[]
+  it("fallback-log: recordFallbackLog receives ExtractionResult and MatchResult[]", async () => {
+    const deps = makeDeps({ nodes: makeEmptyNodes() });
+    await operatorHandler({}, deps);
+
+    expect(deps.recordFallbackLog).toHaveBeenCalledTimes(1);
+    const [extraction, matchResults] = (deps.recordFallbackLog as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    // ExtractionResult has signals and metadata
+    expect(extraction).toHaveProperty("signals");
+    expect(extraction).toHaveProperty("metadata");
+    expect(extraction.metadata).toHaveProperty("nodeCount");
+    expect(extraction.metadata).toHaveProperty("signalCount");
+    expect(extraction.metadata).toHaveProperty("extractionTimeMs");
+    // MatchResult[] is an array
+    expect(Array.isArray(matchResults)).toBe(true);
+  });
+
+  // Subtask 8.3: Scan WITH card match does NOT call recordFallbackLog
+  it("fallback-log: scan with card match does NOT call recordFallbackLog()", async () => {
+    const deps = makeDeps(); // Login form nodes → card match
+    await operatorHandler({}, deps);
+
+    expect(deps.recordFallbackLog).not.toHaveBeenCalled();
   });
 });

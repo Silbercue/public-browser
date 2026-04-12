@@ -71,6 +71,8 @@ import { operatorHandler, operatorZodShape } from "./operator/operator-tool.js";
 import type { OperatorDeps } from "./operator/operator-tool.js";
 import { virtualDeskOperatorZodShape } from "./operator/virtual-desk-tool.js";
 import { settle } from "./cdp/settle.js";
+import { fallbackLog, buildFallbackLogEntry } from "./audit/fallback-log.js";
+import type { FallbackPattern } from "./audit/fallback-log-types.js";
 import { FALLBACK_TOOL_SET, getFallbackTools } from "./fallback-registry.js";
 
 /**
@@ -321,6 +323,14 @@ export class ToolRegistry implements ToolRegistryPublic {
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  /**
+   * Story 19.9: Internal API for accessing aggregated Fallback patterns.
+   * NOT exposed as an MCP tool — for tests and the future Phase-2-Harvester.
+   */
+  getFallbackPatterns(): FallbackPattern[] {
+    return fallbackLog.harvest();
   }
 
   /**
@@ -1386,6 +1396,15 @@ export class ToolRegistry implements ToolRegistryPublic {
         // Story 19.8 (Task 4): Mode-switch closures delegating to ToolRegistry.
         switchToFallbackMode: () => this.switchToFallbackMode(),
         switchToStandardMode: () => this.switchToStandardMode(),
+        // Story 19.9: Record Fallback-Log entry with pattern signatures
+        recordFallbackLog: (extraction, matchResults) => {
+          try {
+            const entry = buildFallbackLogEntry(extraction, matchResults);
+            fallbackLog.record(entry);
+          } catch (err) {
+            debug("recordFallbackLog: failed: %s", err instanceof Error ? err.message : String(err));
+          }
+        },
       });
 
       maybeRegisterFreeMCPTool(

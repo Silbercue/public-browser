@@ -24,6 +24,7 @@ import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import type { AXNode } from "../cache/a11y-tree.js";
 import type { ToolResponse, ToolContentBlock } from "../types.js";
 import type { MatchResult, AggregatedCluster } from "../scan/match-types.js";
+import type { ExtractionResult } from "../scan/signal-types.js";
 import type { Card } from "../cards/card-schema.js";
 import { extractSignals } from "../scan/signal-extractor.js";
 import { aggregateSignals } from "../scan/aggregator.js";
@@ -111,6 +112,12 @@ export interface OperatorDeps {
    * Called when a re-scan finds card matches after Fallback.
    */
   switchToStandardMode: () => void;
+  /**
+   * Story 19.9 (AC-1): Record a Fallback-Log entry with structural
+   * pattern signatures for the Phase-2-Harvester (Epic 20).
+   * Called when scan finds no card match, before switchToFallbackMode().
+   */
+  recordFallbackLog: (extraction: ExtractionResult, matchResults: MatchResult[]) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +255,8 @@ interface ScanResult {
   matchedAnnotations: AnnotatedMatch[];
   matchResults: MatchResult[];
   hasMatch: boolean;
+  /** Story 19.9: Full extraction result for Fallback-Log */
+  extraction: ExtractionResult;
 }
 
 function runScanPipeline(nodes: AXNode[], cards: Map<string, Card>): ScanResult {
@@ -292,6 +301,7 @@ function runScanPipeline(nodes: AXNode[], cards: Map<string, Card>): ScanResult 
     matchedAnnotations,
     matchResults,
     hasMatch: matchedAnnotations.length > 0,
+    extraction,
   };
 }
 
@@ -403,6 +413,10 @@ async function scanFlow(
   if (!scan.hasMatch) {
     // SCANNING → FALLBACK (ScanCompleted with hasMatch=false routes directly to FALLBACK)
     sm.transition({ type: "ScanCompleted", matchResults: scan.matchResults, hasMatch: false });
+
+    // Story 19.9 (AC-1): Record Fallback-Log entry with structural pattern signatures.
+    // Must happen before switchToFallbackMode() so the log captures the scan context.
+    deps.recordFallbackLog(scan.extraction, scan.matchResults);
 
     // Story 19.8 (AC-1, Subtask 3.2): Switch MCP tool list to Fallback primitives.
     // This sends notifications/tools/list_changed to the client so the LLM
