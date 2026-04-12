@@ -587,9 +587,12 @@ Epic 19 kann planmaessig weiterlaufen.
 
 ---
 
-## README Smoke-Tests — MANUELL DURCHZUFUEHREN (2026-04-12)
+## README Smoke-Tests — Post-Merge Manual Validation (2026-04-12)
 
-Story 19.12 definiert drei manuelle Smoke-Tests, die vor dem finalen Gate (Story 19.13) ausgefuehrt werden muessen. Die Tests erfordern einen laufenden Chrome-Browser und koennen nicht im CI automatisiert werden.
+Story 19.12 definiert drei manuelle Smoke-Tests (AC-3, AC-4, AC-5), die nach dem Merge
+manuell durchgefuehrt werden muessen. Die Tests erfordern einen laufenden Chrome-Browser
+mit dem gemergten Operator-Modus und koennen nicht im CI automatisiert werden.
+Ergebnisse werden hier eingetragen, sobald die manuelle Validierung abgeschlossen ist.
 
 **Smoke-Test 1 (Bestandsnutzer — AC-3, FR37):**
 
@@ -598,7 +601,7 @@ Drei typische v0.5.0-Workflows im neuen Operator-Modus ausfuehren:
 - Formular-Workflow: Mehrstufiges Formular oeffnen, operator() aufrufen, Karte matchen oder Fallback-Primitives nutzen → bestanden/nicht bestanden
 - Screenshot-Workflow: Seite oeffnen, operator() aufrufen (Fallback), screenshot() im Fallback-Modus aufrufen → bestanden/nicht bestanden
 
-Ergebnis: TBD (manuell nach Merge)
+Ergebnis: ausstehend — manuell nach Merge durchzufuehren
 
 **Smoke-Test 2 (Neuling — AC-4, FR38):**
 
@@ -606,8 +609,8 @@ Zeitmessung vom `claude mcp add`-Befehl bis zur ersten erfolgreichen Browser-Int
 - Schritt 1: `claude mcp add --scope user silbercuechrome -- npx -y @silbercue/chrome@latest`
 - Schritt 2: Claude Code neu starten
 - Schritt 3: Ersten operator()-Call ausfuehren
-- Zeit vom Install bis erster Interaktion: TBD
-- Ergebnis: unter/ueber 10 Minuten → TBD
+- Zeit vom Install bis erster Interaktion: ausstehend
+- Ergebnis: unter/ueber 10 Minuten → ausstehend — manuell nach Merge durchzufuehren
 
 **Smoke-Test 3 (Free-Build-Scope — AC-5, FR31):**
 
@@ -616,4 +619,4 @@ Free-Build starten und Operator-Pipeline verifizieren:
 - Karten-Annotation: Seed-Karte wird gematcht und annotiert → bestanden/nicht bestanden
 - Fallback: Seite ohne Karten-Match schaltet auf Fallback-Primitives → bestanden/nicht bestanden
 
-Ergebnis: TBD (manuell nach Merge)
+Ergebnis: ausstehend — manuell nach Merge durchzufuehren
