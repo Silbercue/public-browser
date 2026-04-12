@@ -8,7 +8,7 @@ export interface FreeTierConfig {
 }
 
 export const DEFAULT_FREE_TIER_CONFIG: FreeTierConfig = {
-  runPlanLimit: 3,
+  runPlanLimit: Infinity,
 };
 
 /**

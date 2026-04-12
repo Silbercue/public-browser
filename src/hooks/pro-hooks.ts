@@ -186,6 +186,21 @@ const PRO_FEATURE_MESSAGES: Record<string, string> = {
     "Free: use read_page (accessibility tree, ~10-30x cheaper) — it covers most use cases.",
     "Upgrade: silbercuechrome license activate <key>",
   ].join("\n\n"),
+  observe: [
+    "observe (Pro) — watch DOM elements for changes in real time using MutationObserver + polling. Essential for testing and monitoring dynamic content.",
+    "Free: use wait_for to wait for a specific condition instead.",
+    "Upgrade: silbercuechrome license activate <key>",
+  ].join("\n\n"),
+  console_logs: [
+    "console_logs (Pro) — retrieve and filter browser console output (errors, warnings, logs). Essential for debugging web applications.",
+    "Free: use evaluate('console.log(...)') to log values, but retrieval of existing console output requires Pro.",
+    "Upgrade: silbercuechrome license activate <key>",
+  ].join("\n\n"),
+  network_monitor: [
+    "network_monitor (Pro) — monitor, capture and filter network requests and responses. Essential for API debugging and performance analysis.",
+    "Free: use wait_for('network_idle') to wait for network activity to settle.",
+    "Upgrade: silbercuechrome license activate <key>",
+  ].join("\n\n"),
 };
 
 /** Unified Pro-feature error response. */

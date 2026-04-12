@@ -970,7 +970,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       registerProHooks({
         ...hooks,
         featureGate: (toolName: string) => {
-          const gatedTools = ["dom_snapshot", "switch_tab", "virtual_desk"];
+          const gatedTools = ["dom_snapshot", "switch_tab", "virtual_desk", "observe", "console_logs", "network_monitor"];
           if (gatedTools.includes(toolName) && !licenseStatus.isPro()) {
             return { allowed: false };
           }

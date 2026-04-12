@@ -520,9 +520,9 @@ describe("runPlanHandler — Free-Tier Step-Limit (Story 9.1)", () => {
     // Explicit Free license — cache file on dev machines would default to Pro
     const result = await runPlanHandler(params, registry, undefined, undefined, new FreeTierLicenseStatus(false));
 
-    expect(callLog).toHaveLength(3);
-    expect(result._meta!.truncated).toBe(true);
-    expect(result._meta!.limit).toBe(3);
+    // Free tier no longer has a step limit — all 5 steps execute
+    expect(callLog).toHaveLength(5);
+    expect(result._meta!.truncated).toBeUndefined();
   });
 
 });
