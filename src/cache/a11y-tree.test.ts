@@ -728,8 +728,10 @@ describe("A11yTreeProcessor", () => {
     expect(suggestion!.role).toBe("link");
   });
 
-  // Additional: disabled elements are included but marked
-  it("should mark disabled elements", async () => {
+  // Story 18.8 Fix B: disabled elements get a LEADING `[DISABLED]` prefix
+  // (before the ref/role) so a scanning LLM can't miss it. Two benchmark
+  // runs failed T4.4 because the old trailing `(disabled)` was overlooked.
+  it("should mark disabled elements with a leading [DISABLED] prefix", async () => {
     const nodes: AXNode[] = [
       makeNode({
         nodeId: "1",
@@ -749,7 +751,44 @@ describe("A11yTreeProcessor", () => {
     const cdp = mockCdpClient(nodes);
     const result = await processor.getTree(cdp, "s1");
 
-    expect(result.text).toContain('(disabled)');
+    // The prefix must sit BEFORE the ref/role, not trail at the end of the line.
+    expect(result.text).toMatch(/\[DISABLED\] \[e\d+\] button "Disabled Btn"/);
+    // And the old trailing `(disabled)` suffix must be gone.
+    expect(result.text).not.toContain("(disabled)");
+  });
+
+  // Story 18.8 Fix B regression — T4.4 scenario from the benchmark.
+  // Two independent LLM runs typed into a disabled textbox because the
+  // old `(disabled)` suffix was at the tail of the line and easy to miss.
+  // The [DISABLED] prefix must also render for textbox+input elements,
+  // not just buttons — and it must sit BEFORE `[e…] textbox …`.
+  it("Story 18.8 — disabled textbox gets [DISABLED] prefix (T4.4 regression)", async () => {
+    const nodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        backendDOMNodeId: 100,
+        childIds: ["2"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "textbox" },
+        name: { type: "computedString", value: "Your input" },
+        backendDOMNodeId: 101,
+        properties: [{ name: "disabled", value: { type: "boolean", value: true } }],
+      }),
+    ];
+    const cdp = mockCdpClient(nodes);
+    const result = await processor.getTree(cdp, "s1");
+
+    // The disabled marker must be the VERY FIRST token on the element line
+    // (after indentation). If it trails at the end we regress T4.4.
+    const lines = result.text.split("\n");
+    const textboxLine = lines.find((l) => l.includes("textbox"));
+    expect(textboxLine).toBeDefined();
+    expect(textboxLine!.trimStart().startsWith("[DISABLED]")).toBe(true);
+    expect(textboxLine!).toMatch(/\[DISABLED\] \[e\d+\] textbox "Your input"/);
   });
 
   // --- OOPIF tests ---
@@ -4154,7 +4193,7 @@ describe("A11yTreeProcessor", () => {
       } as unknown as CdpClient;
     }
 
-    it("appends '…[+N chars]' marker when generic name was truncated", async () => {
+    it("emits a prominent [!] TRUNCATED marker on a separate line when generic name was truncated (Story 18.8)", async () => {
       const proc = new A11yTreeProcessor();
       const longText =
         "T1.2 Read Text Content — Lies den versteckten Wert aus dem Element und gib ihn in das Eingabefeld ein. Der geheime Code lautet: QMQ1-BPAD";
@@ -4176,8 +4215,14 @@ describe("A11yTreeProcessor", () => {
       const cdp = cdpForTruncatedGeneric({ innerText: longText, nodes });
       const result = await proc.getTree(cdp, "s1", { filter: "interactive" });
 
-      // Marker should include the extra-char count and direct the LLM to filter:'all'
-      expect(result.text).toMatch(/…\[\+\d+ chars; use filter:"all"/);
+      // Story 18.8 Fix A: the marker must live on its OWN line (preceded
+      // by a newline) and start with the [!] TRUNCATED prefix so a
+      // scanning LLM can't overlook it. The hint must name the ref and
+      // the concrete follow-up action.
+      expect(result.text).toContain("\n");
+      expect(result.text).toMatch(/\n\s+\[!\] TRUNCATED: \+\d+ more chars hidden\. Call read_page\(ref:"e\d+", filter:"all"\)/);
+      // The old inline `…[+N chars; use filter:"all"` format must be gone.
+      expect(result.text).not.toMatch(/…\[\+\d+ chars; use filter:"all"/);
     });
 
     it("does NOT append marker when innerText fits in 80 chars", async () => {
@@ -4199,7 +4244,58 @@ describe("A11yTreeProcessor", () => {
       const cdp = cdpForTruncatedGeneric({ innerText: shortText, nodes });
       const result = await proc.getTree(cdp, "s1", { filter: "interactive" });
 
-      expect(result.text).not.toMatch(/…\[\+\d+ chars/);
+      expect(result.text).not.toContain("[!] TRUNCATED");
+    });
+
+    // Story 18.8 Fix A regression — T3.6 scenario from the benchmark.
+    // Two independent LLM runs typed plaintext "Hello World" and skipped
+    // the requested bold formatting because the task instructions were
+    // truncated at 80 chars and the old `…[+54 chars]` marker was tucked
+    // onto the end of the already-cut text. The new marker must live on
+    // its own line AND make the hidden-char count and next-action
+    // unmissable.
+    it("Story 18.8 — truncation marker is on its own line with [!] prefix (T3.6 regression)", async () => {
+      const proc = new A11yTreeProcessor();
+      // Realistic T3.6 task description: the cut happens mid-sentence so
+      // the LLM would never infer "and bold it" from the truncated text.
+      const longText =
+        "Schreibe 'Hello World' in den Editor un... und formatiere es fett mit Bold (Strg+B oder den Formatierungsknopf).";
+      expect(longText.length).toBeGreaterThan(80);
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          backendDOMNodeId: 700,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2", parentId: "1",
+          role: { type: "role", value: "generic" },
+          backendDOMNodeId: 701,
+        }),
+      ];
+      const cdp = cdpForTruncatedGeneric({ innerText: longText, nodes });
+      const result = await proc.getTree(cdp, "s1", { filter: "interactive" });
+
+      // Assertion 1 — the marker lives on its own physical line.
+      const lines = result.text.split("\n");
+      const markerLine = lines.find((l) => l.includes("[!] TRUNCATED"));
+      expect(markerLine).toBeDefined();
+
+      // Assertion 2 — it's indented (not flush-left) so it visually groups
+      // with the element line above it but still stands out as a hint.
+      expect(markerLine!.startsWith(" ")).toBe(true);
+
+      // Assertion 3 — it carries the exact hidden-char count AND the
+      // concrete next action with the ref.
+      expect(markerLine!).toMatch(/\[!\] TRUNCATED: \+\d+ more chars hidden\. Call read_page\(ref:"e\d+", filter:"all"\)/);
+
+      // Assertion 4 — the element line ABOVE the marker is preserved
+      // (still contains the truncated preview in quotes).
+      const markerIdx = lines.indexOf(markerLine!);
+      const elementLine = lines[markerIdx - 1];
+      expect(elementLine).toMatch(/\[e\d+\]/);
+      expect(elementLine).toContain('"');
     });
   });
 

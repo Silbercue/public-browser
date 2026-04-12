@@ -132,6 +132,34 @@ const DEFAULT_MAX_TOKENS = 50_000;
  *  Cap at 2000 tokens and let the LLM drill into collapsed sections. */
 const DEFAULT_INTERACTIVE_MAX_TOKENS = 2_000;
 
+/** Story 18.8 — Tool-Steering fixes for two-benchmark-run regressions.
+ *
+ *  These marker constants solve a recurring LLM-friction pattern: signals
+ *  that a human dev would notice at a glance (a trailing `(disabled)` or
+ *  `…[+N chars]`) slip past an LLM scanning token-by-token. The LLM either
+ *  parses them as normal text or stops reading at the ellipsis. Both runs
+ *  T3.6 (truncated task description) and T4.4 (initially-disabled input)
+ *  failed for this exact reason — in two independent benchmark sessions.
+ *
+ *  Fix strategy: promote the hint out of the element line into a separate
+ *  high-contrast marker. For truncation that means a new indented line
+ *  starting with a `[!]` prefix and a concrete next-action. For disabled
+ *  state that means a leading `[DISABLED]` prefix BEFORE the role so the
+ *  LLM sees it as the very first token of the element, not an easy-to-miss
+ *  suffix.
+ */
+
+/** Prefix marker for disabled elements. Sits BEFORE `[e42] textbox …` so
+ *  the LLM sees "cannot interact" as the first token of the line rather
+ *  than an afterthought appended to the tail. */
+const DISABLED_PREFIX = "[DISABLED] ";
+
+/** Prominent marker used when a text-node name was truncated by FR-H5
+ *  enrichment (see {@link NodeInfo.nameFullLength}). Rendered as a second
+ *  physical line beneath the element, indented and starting with `[!]` so
+ *  a scanning LLM cannot mistake it for normal element content. */
+const TRUNCATION_MARKER_PREFIX = "[!] TRUNCATED";
+
 // Story 18.4: named indices into the `styles[]` tuple emitted by
 // DOMSnapshot.captureSnapshot. Order is locked by visual-constants.ts
 // COMPUTED_STYLES. Invariant 5 (no magic numbers) — do NOT inline these
@@ -3121,7 +3149,28 @@ export class A11yTreeProcessor {
     const backendNodeId = node.backendDOMNodeId;
     const htmlId = backendNodeId !== undefined ? this.nodeInfoLookup(backendNodeId)?.htmlId : undefined;
     const idSuffix = htmlId ? `#${htmlId}` : "";
-    let line = `${indent}[e${refNum}] ${role}${idSuffix}`;
+
+    // Story 18.8 Fix B: disabled state is promoted to a LEADING prefix
+    // (before the ref/role) so a scanning LLM sees "cannot interact" as the
+    // very first token of the element line. The old `(disabled)` suffix at
+    // the end of the line was routinely overlooked — two benchmark runs
+    // failed T4.4 because both LLMs typed into disabled inputs.
+    let isDisabled = false;
+    if (node.properties) {
+      for (const prop of node.properties) {
+        if (prop.name === "disabled" && prop.value.value === true) {
+          isDisabled = true;
+          break;
+        }
+      }
+    }
+    const disabledPrefix = isDisabled ? DISABLED_PREFIX : "";
+    let line = `${indent}${disabledPrefix}[e${refNum}] ${role}${idSuffix}`;
+
+    // Story 18.8 Fix A: when the name was truncated, we track it here and
+    // append the prominent marker on a SEPARATE line below — done once the
+    // rest of the element annotations are in place.
+    let truncationExtra: number | undefined;
 
     // FR-H5: Prefer AXNode name, fall back to nodeInfoMap (enriched by Phase 3 for clickable generics)
     const name = (node.name?.value as string | undefined)
@@ -3132,8 +3181,7 @@ export class A11yTreeProcessor {
       if (backendNodeId !== undefined) {
         const fullLen = this.nodeInfoLookup(backendNodeId)?.nameFullLength;
         if (fullLen && fullLen > name.length) {
-          const extra = fullLen - name.length;
-          line += ` …[+${extra} chars; use filter:"all" with ref to read subtree]`;
+          truncationExtra = fullLen - name.length;
         }
       }
     }
@@ -3180,15 +3228,8 @@ export class A11yTreeProcessor {
       }
     }
 
-    // Disabled marker
-    if (node.properties) {
-      for (const prop of node.properties) {
-        if (prop.name === "disabled" && prop.value.value === true) {
-          line += " (disabled)";
-          break;
-        }
-      }
-    }
+    // Story 18.8 Fix B: disabled state is emitted as a LEADING prefix above
+    // (see `disabledPrefix` near the top of formatLine). No tail suffix.
 
     // FR-H6: Tab selected state — helps LLM understand which tab panel is visible
     if (role === "tab" && node.properties) {
@@ -3217,6 +3258,17 @@ export class A11yTreeProcessor {
       if (scrollInfo?.isScrollable) {
         line += " (scrollable)";
       }
+    }
+
+    // Story 18.8 Fix A: emit the truncation hint as a SECOND physical line
+    // under the element. The line starts with `[!] TRUNCATED` which is
+    // high-contrast enough that a scanning LLM cannot mistake it for a
+    // normal tree entry — and it restates the ref so the next-action is
+    // self-contained even without re-scanning the parent line. Rendered
+    // inline via `\n` because `lines.push(line)` later joins with `\n`
+    // (see `lines.join("\n")` in renderNodes / truncateToFit).
+    if (truncationExtra !== undefined) {
+      line += `\n${indent}  ${TRUNCATION_MARKER_PREFIX}: +${truncationExtra} more chars hidden. Call read_page(ref:"e${refNum}", filter:"all") to read the full text.`;
     }
 
     return line;
