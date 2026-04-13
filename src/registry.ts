@@ -1255,7 +1255,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 2. Reading ---
     maybeRegisterFreeMCPTool(
       "view_page",
-      "PRIMARY tool for seeing what's on the page — call after navigate/switch_tab before any interaction. Returns accessibility tree with stable refs (e.g. 'e5') that you pass to click/type/fill_form. Use this to read visible text too — not evaluate/querySelector. Default filter:'interactive' hides static text; for cells/paragraphs/labels call view_page(ref: 'eN', filter: 'all'). Under tight max_tokens, containers appear as `[eXX role, N items]` one-line summaries — call view_page(ref:'eXX', filter:'all') on that ref to expand the subtree. ~10-30x cheaper than capture_image.",
+      "The way to see what is on the page. Call this after navigate/click/switch_tab — not capture_image. Returns text content + stable element refs (e.g. 'e5') for click/type/fill_form. Also use this to read visible text, check errors, find buttons. Default filter:'interactive' shows actionable elements; for paragraphs/table cells call view_page(ref: 'eN', filter: 'all'). Collapsed containers show as `[eXX role, N items]` — expand with view_page(ref:'eXX', filter:'all'). 10-30x cheaper than capture_image.",
       {
         depth: readPageSchema.shape.depth,
         ref: readPageSchema.shape.ref,
@@ -1483,7 +1483,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 6. Visual (capture_image/dom_snapshot — last resort for visual tasks) ---
     maybeRegisterFreeMCPTool(
       "capture_image",
-      "Capture a WebP image of the page (max 800px, <100KB). For reading page content (text, errors, forms, headings), use view_page — 10-30x cheaper. capture_image CANNOT drive click/type — only view_page returns usable element refs. Only use for pixel-level visual inspection, canvas pages, or explicit user requests.",
+      "Pixel-level visual screenshot (WebP, max 800px, <100KB). Do NOT call this to see what is on the page — call view_page instead (10-30x cheaper, returns text + refs you can click). capture_image cannot drive click/type and cannot read text. The ONLY valid uses: (1) checking CSS layout or visual rendering, (2) canvas/chart content that has no DOM, (3) the user explicitly asks for a screenshot. If you are unsure, use view_page.",
       {
         full_page: screenshotSchema.shape.full_page,
         som: screenshotSchema.shape.som,
@@ -1514,7 +1514,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           const somHint = (params as unknown as ScreenshotParams).som
             ? " SoM labels match view_page refs — pass them to click/type directly."
             : " Add som: true to overlay numbered ref labels matching view_page.";
-          result.content.push({ type: "text", text: `Reminder: for page content use view_page — capture_image is for pixel-level inspection only.${somHint}` });
+          result.content.push({ type: "text", text: `STOP: You just used capture_image. Next time you want to see what's on the page, call view_page instead — it returns text and clickable refs, capture_image cannot.${somHint}` });
         }
         return result;
       }, "capture_image"),
