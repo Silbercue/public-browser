@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab ready. **30/31 on the hardest 35-test benchmark (97% pass rate) with Ambient Context — `read_page` is 5.4× more compact than Playwright MCP's `browser_snapshot`, and our P95 tool response is 3.5× smaller.**
+The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab ready. **30/31 on the hardest 35-test benchmark (97% pass rate) with Ambient Context — `view_page` is 5.4× more compact than Playwright MCP's `browser_snapshot`, and our P95 tool response is 3.5× smaller.**
 
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
 
@@ -24,11 +24,11 @@ SilbercueChrome fixes this. It talks directly to Chrome via CDP (same protocol P
 | Hardest benchmark (35 tests, LLM-driven) | 29/31 (563s) | **cannot finish** | (pending re-bench) | (pending re-bench) | **30/31 Free: 598s** |
 | ∅ Tool-Response (Tokens est.) | 362 | — | — | — | **201 (1.8× smaller)** |
 | P95 Tool-Response (Chars) | 8.068 | — | — | — | **2.328 (3.5× smaller)** |
-| `read_page` avg (Chars) | 6.084 (`browser_snapshot`) | — | — | — | **1.124 (5.4× smaller)** |
+| `view_page` avg (Chars) | 6.084 (`browser_snapshot`) | — | — | — | **1.124 (5.4× smaller)** |
 | Multi-tab support | Yes | **No (single tab)** | Yes | Partial | **Yes** |
 | Connection | New browser | Extension bridge | Extension | Subprocess | **Direct CDP (pipe or WebSocket)** |
 | Ref system | Playwright refs | Playwright refs | CSS selectors | Screenshots | **A11y-tree refs (stable across DOM changes)** |
-| Read page | Screenshot + DOM | Snapshot | DOM dump | Screenshot-heavy | **`read_page` — 10-30x fewer tokens** |
+| Read page | Screenshot + DOM | Snapshot | DOM dump | Screenshot-heavy | **`view_page` — 10-30x fewer tokens** |
 | Drag & drop | Yes | No | Partial | No | **Yes (native CDP mouse events)** |
 | Shadow DOM + iframe | Yes | Yes | Partial | No | **Yes (with OOPIF session support)** |
 | Keyboard shortcuts | Yes | Yes | Partial | No | **Yes (`press_key` with real CDP keyboard events)** |
@@ -38,13 +38,13 @@ SilbercueChrome fixes this. It talks directly to Chrome via CDP (same protocol P
 
 ### Where SilbercueChrome really shines
 
-> ![killer feat](https://img.shields.io/badge/killer%20feat-%23FFD700?style=flat-square) **Ambient Context — Claude sees DOM changes for free, no extra `read_page` needed**
+> ![killer feat](https://img.shields.io/badge/killer%20feat-%23FFD700?style=flat-square) **Ambient Context — Claude sees DOM changes for free, no extra `view_page` needed**
 
 After every `click`, SilbercueChrome's response includes **NEW / REMOVED / CHANGED** lines showing exactly what changed on the page. Playwright MCP's `browser_click` only returns "clicked element X" — Claude then has to call `browser_snapshot` or `browser_evaluate` to figure out what happened. Over a full benchmark run, this means Playwright needs **47 extra `browser_evaluate` calls** averaging 2.155 chars each just to reconstruct page state. SC delivers the diff inline, so the same workflow needs only **33 evaluate calls averaging 510 chars**. Result: **~30% less total response content** across the three main tools (click + read_page + evaluate: 120k vs 170k chars).
 
-> ![killer feat](https://img.shields.io/badge/killer%20feat-%23FFD700?style=flat-square) **`read_page` is 5.4× more compact than Playwright MCP's `browser_snapshot`**
+> ![killer feat](https://img.shields.io/badge/killer%20feat-%23FFD700?style=flat-square) **`view_page` is 5.4× more compact than Playwright MCP's `browser_snapshot`**
 
-Measured on the 35-test hardest benchmark (2026-04-09): SC's `read_page` averages **1.124 chars per call** vs Playwright MCP's `browser_snapshot` at **6.084 chars**. Same page, same test suite, same LLM driver. The difference is the Ambient Context pipeline + a11y-tree compression — we only send what the agent actually needs, filtered to interactive elements by default. Smaller responses mean less context pressure, more room for reasoning, and cheaper runs.
+Measured on the 35-test hardest benchmark (2026-04-09): SC's `view_page` averages **1.124 chars per call** vs Playwright MCP's `browser_snapshot` at **6.084 chars**. Same page, same test suite, same LLM driver. The difference is the Ambient Context pipeline + a11y-tree compression — we only send what the agent actually needs, filtered to interactive elements by default. Smaller responses mean less context pressure, more room for reasoning, and cheaper runs.
 
 > ![killer feat](https://img.shields.io/badge/killer%20feat-%23FFD700?style=flat-square) **P95 Tool-Response is 3.5× smaller than Playwright MCP**
 
@@ -64,7 +64,7 @@ Two modes: `collect` (watch for N ms, return every text/attribute change) and `u
 
 > ![strong](https://img.shields.io/badge/strong-%23C0C0C0?style=flat-square) **`run_plan` — server-side multi-step automation**
 
-Execute a sequence of tool steps server-side with variables (`$varName`), conditions (`if`), `saveAs`, error strategies (`abort`/`continue`/`screenshot`), and suspend/resume for long-running workflows. Parallel tab execution is a Pro feature.
+Execute a sequence of tool steps server-side with variables (`$varName`), conditions (`if`), `saveAs`, error strategies (`abort`/`continue`/`capture_image`), and suspend/resume for long-running workflows. Parallel tab execution is a Pro feature.
 
 ## Quick Start
 
@@ -140,10 +140,10 @@ The Free tier gives you 18 tools that cover the entire benchmark suite. Pro adds
 | | Free | Pro |
 |---|---|---|
 | Tools | 18 | **23** |
-| Page understanding | `read_page` | `read_page` + `dom_snapshot` (spatial queries) |
+| Page understanding | `view_page` | `view_page` + `dom_snapshot` (spatial queries) |
 | Tab management | `navigate`, `tab_status` | + `virtual_desk`, `switch_tab`, parallel tabs in `run_plan` |
 | Interaction | `click`, `type`, `fill_form`, `press_key`, `scroll`, `file_upload`, `handle_dialog` | Same |
-| Observation | `screenshot`, `wait_for`, `observe`, `console_logs`, `network_monitor` | Same + ambient page-context hooks |
+| Observation | `capture_image`, `wait_for`, `observe`, `console_logs`, `network_monitor` | Same + ambient page-context hooks |
 | Scripting | `run_plan` (sequential) | `run_plan` (sequential + parallel + operator hooks) |
 | Last resort | `evaluate` | `evaluate` + anti-pattern scanner hints |
 
@@ -157,8 +157,8 @@ Pro costs €12/month. [Get a license on Polar.sh](https://polar.sh/silbercueswi
 
 | Tool | Description |
 |---|---|
-| `read_page` | Accessibility tree with stable `e`-refs — primary way to understand the page. 10-30x cheaper than screenshots. Filter by `interactive` (default) or `all` (include static text). |
-| `screenshot` | WebP capture, max 800px, <100KB. Use for visual verification only — you cannot use screenshots to drive click/type, refs come from `read_page`. |
+| `view_page` | Accessibility tree with stable `e`-refs — primary way to understand the page. 10-30x cheaper than screenshots. Filter by `interactive` (default) or `all` (include static text). |
+| `capture_image` | WebP capture, max 800px, <100KB. Use for visual verification only — you cannot use screenshots to drive click/type, refs come from `view_page`. |
 | `console_logs` | Retrieve browser console output with level/pattern filters |
 | `network_monitor` | Start/stop/query network requests with filtering |
 | `observe` | Watch DOM changes: `collect` (buffer changes over time) or `until` (wait for condition, then auto-click) |
@@ -187,9 +187,9 @@ Pro costs €12/month. [Get a license on Polar.sh](https://polar.sh/silbercueswi
 
 | Tool | Description |
 |---|---|
-| `run_plan` | Execute a multi-step plan server-side. Variables (`$varName`), conditions (`if`), `saveAs`, error strategies (`abort`/`continue`/`screenshot`), suspend/resume. Parallel tabs require Pro. |
+| `run_plan` | Execute a multi-step plan server-side. Variables (`$varName`), conditions (`if`), `saveAs`, error strategies (`abort`/`continue`/`capture_image`), suspend/resume. Parallel tabs require Pro. |
 | `configure_session` | View/set session defaults (tab, timeout) and accept auto-promote suggestions |
-| `evaluate` | Execute JS in the page context. Use for COMPUTE or side effects no tool covers — not for element discovery (use `read_page` instead). Anti-pattern scanner warns when you reach for `querySelector` or `.click()`. |
+| `evaluate` | Execute JS in the page context. Use for COMPUTE or side effects no tool covers — not for element discovery (use `view_page` instead). Anti-pattern scanner warns when you reach for `querySelector` or `.click()`. |
 
 ### Pro tier (additional)
 
@@ -197,7 +197,7 @@ Pro costs €12/month. [Get a license on Polar.sh](https://polar.sh/silbercueswi
 |---|---|
 | `virtual_desk` <img src="https://img.shields.io/badge/Pro-blueviolet?style=flat-square" align="center"> | Lists all tabs with stable IDs. Call first in every session. |
 | `switch_tab` <img src="https://img.shields.io/badge/Pro-blueviolet?style=flat-square" align="center"> | Open, switch to, or close tabs by ID from `virtual_desk` |
-| `dom_snapshot` <img src="https://img.shields.io/badge/Pro-blueviolet?style=flat-square" align="center"> | Bounding boxes, computed styles, paint order, colors. For spatial questions `read_page` cannot answer. |
+| `dom_snapshot` <img src="https://img.shields.io/badge/Pro-blueviolet?style=flat-square" align="center"> | Bounding boxes, computed styles, paint order, colors. For spatial questions `view_page` cannot answer. |
 
 ## Benchmarks
 
@@ -229,7 +229,7 @@ We measure each tool call's response char length directly, group by tool name, e
 
 | Tool | SC Free ∅ | Playwright MCP ∅ | Verdict |
 |---|---:|---:|---|
-| `read_page` / `browser_snapshot` | **1.124 Chars** (21 calls) | 6.084 Chars (8 calls) | **SC 5.4× more compact per call** |
+| `view_page` / `browser_snapshot` | **1.124 Chars** (21 calls) | 6.084 Chars (8 calls) | **SC 5.4× more compact per call** |
 | `evaluate` / `browser_evaluate` | **510 Chars** (33 calls) | 2.155 Chars (47 calls) | **SC 4.2× more compact per call** |
 | `type` / `browser_type` | **88 Chars** (13 calls) | 147 Chars (13 calls) | SC 1.7× more compact |
 | `click` / `browser_click` | 1.278 Chars (63 calls) | **463 Chars** (44 calls) | Playwright 2.8× leaner — but see trade-off below |
