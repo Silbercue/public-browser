@@ -7,6 +7,7 @@ import { runLicenseCommand } from "./cli/license-commands.js";
 import { dispatchTopLevelCli } from "./cli/top-level-commands.js";
 
 export { startServer } from "./server.js";
+export type { StartServerOptions } from "./server.js";
 export { runLicenseCommand } from "./cli/license-commands.js";
 export { dispatchTopLevelCli } from "./cli/top-level-commands.js";
 
@@ -80,10 +81,21 @@ if (isMainModule) {
     // Phase 2: Top-Level Subcommands (version/status/activate/deactivate/help).
     // Wenn dispatchTopLevelCli einen Subcommand erkennt, beendet es den
     // Prozess via process.exit(). Sonst → false zurueck → Server starten.
-    dispatchTopLevelCli(process.argv, import.meta.url)
+    //
+    // Story 22.3: --attach Flag parsen. Wird BEVOR startServer() an diese
+    // Option weitergereicht. Pro-Repo importiert startServer() und kann
+    // `--attach` auf demselben Weg durchreichen.
+    const attach = process.argv.includes("--attach");
+
+    // M2-Fix: Filter --attach from argv before dispatch so that e.g.
+    // `silbercuechrome --attach version` correctly dispatches "version"
+    // instead of treating "--attach" as argv[2] (unknown command → server start).
+    const filteredArgv = process.argv.filter((arg) => arg !== "--attach");
+
+    dispatchTopLevelCli(filteredArgv, import.meta.url)
       .then((handled) => {
         if (handled) return;
-        return startServer();
+        return startServer({ attach });
       })
       .catch((err) => {
         console.error("Fatal:", err);

@@ -84,6 +84,13 @@ export interface BrowserSessionOptions {
   profilePath?: string;
   headless?: boolean;
   autoLaunch?: boolean;
+  /**
+   * Attach-only mode (Story 22.3): connect to existing Chrome without
+   * auto-launch. In this mode, BrowserSession creates its own tab on
+   * connect and closes it on shutdown/process-exit so it does not
+   * interfere with the primary MCP session's tabs.
+   */
+  attachMode?: boolean;
   /** Retry timings in milliseconds — exposed for tests; see class-level doc. */
   retryTimings?: {
     establishedDelays?: number[]; // delays before attempts 2..N for established sessions
@@ -100,12 +107,18 @@ export class BrowserSession implements IBrowserSession {
   private readonly _options: BrowserSessionOptions;
   private readonly _establishedDelays: number[];
   private readonly _freshDelays: number[];
+  private readonly _attachMode: boolean;
 
   // Connection state — null until the first ensureReady() succeeds.
   private _connection: ChromeConnection | null = null;
   private _cdpClient: CdpClient | null = null;
   private _sessionId: string | null = null;
   private _pageTargetId: string | null = null;
+
+  /** Tab created by this session in attach mode — closed on shutdown. */
+  private _ownedTabTargetId: string | null = null;
+  /** Process exit handler for attach-mode tab cleanup. */
+  private _attachExitHandler: (() => void) | null = null;
 
   // Persistent helpers — created once, re-wired on every (re)launch.
   public readonly tabStateCache: TabStateCache;
@@ -125,6 +138,7 @@ export class BrowserSession implements IBrowserSession {
 
   constructor(options: BrowserSessionOptions = {}) {
     this._options = options;
+    this._attachMode = options.attachMode ?? false;
     this._launcher = new ChromeLauncher({
       profilePath: options.profilePath,
       headless: options.headless ?? false,
@@ -339,16 +353,41 @@ export class BrowserSession implements IBrowserSession {
     setHeadless(connection.headless);
 
     // 1. Attach to a page target.
-    const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>(
-      "Target.getTargets",
-    );
-    let pageTarget = targetInfos.find((t) => t.type === "page");
-    if (!pageTarget) {
+    //    In attach mode we ALWAYS create our own tab — the existing tabs
+    //    belong to the primary MCP session (e.g. Claude Code).
+    let pageTarget: TargetInfo;
+    if (this._attachMode) {
+      // M1-Fix: Close the previous owned tab before creating a new one
+      // to prevent tab leaks on reconnect. Fire-and-forget is acceptable.
+      if (this._ownedTabTargetId) {
+        const staleTabId = this._ownedTabTargetId;
+        this._ownedTabTargetId = null;
+        try {
+          await cdpClient.send("Target.closeTarget", { targetId: staleTabId });
+        } catch {
+          /* tab may already be closed — graceful */
+        }
+      }
       const { targetId } = await cdpClient.send<{ targetId: string }>(
         "Target.createTarget",
         { url: "about:blank" },
       );
       pageTarget = { targetId, type: "page", url: "about:blank" };
+      this._ownedTabTargetId = targetId;
+    } else {
+      const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>(
+        "Target.getTargets",
+      );
+      const existing = targetInfos.find((t) => t.type === "page");
+      if (existing) {
+        pageTarget = existing;
+      } else {
+        const { targetId } = await cdpClient.send<{ targetId: string }>(
+          "Target.createTarget",
+          { url: "about:blank" },
+        );
+        pageTarget = { targetId, type: "page", url: "about:blank" };
+      }
     }
     const { sessionId } = await cdpClient.send<{ sessionId: string }>(
       "Target.attachToTarget",
@@ -404,6 +443,15 @@ export class BrowserSession implements IBrowserSession {
     // 5. Reset caches — a new connection means old refs are stale.
     a11yTree.invalidatePrecomputed();
     selectorCache.invalidate();
+
+    // 6. Attach-mode: register process exit handler to close our owned tab.
+    //    Uses the synchronous 'exit' event pattern (same as ChromeConnection).
+    if (this._attachMode && this._ownedTabTargetId && !this._attachExitHandler) {
+      this._attachExitHandler = () => {
+        this._closeOwnedTabSync();
+      };
+      globalThis.process.on("exit", this._attachExitHandler);
+    }
   }
 
   /**
@@ -577,11 +625,56 @@ export class BrowserSession implements IBrowserSession {
     this._sessionManager = null;
   }
 
+  // ── Attach-mode tab cleanup ─────────────────────────────────────────
+
+  /**
+   * Best-effort synchronous close of the tab we created in attach mode.
+   * Called from the process 'exit' handler where we cannot await.
+   * The CDP send is fire-and-forget (the process is exiting anyway).
+   */
+  private _closeOwnedTabSync(): void {
+    if (!this._ownedTabTargetId || !this._cdpClient) return;
+    try {
+      // Fire-and-forget: process is exiting, we cannot await.
+      void this._cdpClient.send("Target.closeTarget", {
+        targetId: this._ownedTabTargetId,
+      });
+    } catch {
+      /* tab may already be closed by user — graceful */
+    }
+    this._ownedTabTargetId = null;
+  }
+
+  /**
+   * Async close of the owned attach-mode tab. Used during graceful
+   * shutdown (SIGTERM/SIGINT) where we still have event-loop time.
+   */
+  private async _closeOwnedTabAsync(): Promise<void> {
+    if (!this._ownedTabTargetId || !this._cdpClient) return;
+    const targetId = this._ownedTabTargetId;
+    this._ownedTabTargetId = null;
+    try {
+      await this._cdpClient.send("Target.closeTarget", { targetId });
+    } catch {
+      /* tab may already be closed by user — graceful */
+    }
+  }
+
   // ── Public shutdown (graceful SIGINT/SIGTERM) ───────────────────────
 
   async shutdown(): Promise<void> {
     if (this._shutdownRequested) return;
     this._shutdownRequested = true;
+
+    // Attach-mode: close our owned tab before tearing down.
+    if (this._attachMode) {
+      await this._closeOwnedTabAsync();
+      // Remove the process exit handler — shutdown is handling cleanup.
+      if (this._attachExitHandler) {
+        globalThis.process.removeListener("exit", this._attachExitHandler);
+        this._attachExitHandler = null;
+      }
+    }
 
     if (this._cdpClient && this._sessionId) {
       try {

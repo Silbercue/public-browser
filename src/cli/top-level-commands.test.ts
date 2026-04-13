@@ -250,5 +250,35 @@ describe("dispatchTopLevelCli", () => {
       ).rejects.toThrow("__exit__");
       expect(exitSpy).toHaveBeenCalledWith(0);
     });
+
+    it("help text includes --attach flag documentation", async () => {
+      await expect(
+        dispatchTopLevelCli(["node", "index.js", "help"], import.meta.url),
+      ).rejects.toThrow("__exit__");
+      const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(out).toContain("--attach");
+      expect(out).toContain("attach-only mode");
+    });
+  });
+
+  // ---- --attach flag (Story 22.3) ----
+  describe("--attach flag pass-through", () => {
+    it("--attach is NOT treated as a subcommand (server should start)", async () => {
+      const handled = await dispatchTopLevelCli(
+        ["node", "index.js", "--attach"],
+        import.meta.url,
+      );
+      expect(handled).toBe(false);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it("--attach with other args is NOT treated as a subcommand", async () => {
+      const handled = await dispatchTopLevelCli(
+        ["node", "index.js", "--attach", "--some-other-flag"],
+        import.meta.url,
+      );
+      expect(handled).toBe(false);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
   });
 });

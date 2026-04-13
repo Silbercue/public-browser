@@ -238,6 +238,7 @@ function printHelp(): void {
   console.log("");
   console.log("Usage:");
   console.log("  silbercuechrome [command]");
+  console.log("  silbercuechrome --attach        Start MCP server in attach-only mode");
   console.log("");
   console.log("Commands:");
   console.log("  version                Show version information");
@@ -246,6 +247,11 @@ function printHelp(): void {
   console.log("  deactivate             Deactivate Pro license (requires Pro tier)");
   console.log("  license <subcommand>   License management (status/activate/deactivate)");
   console.log("  help                   Show this help text");
+  console.log("");
+  console.log("Flags:");
+  console.log("  --attach               Connect to existing Chrome on port 9222 (no auto-launch).");
+  console.log("                         Creates its own tab and cleans it up on exit.");
+  console.log("                         Use from trigger scripts when another MCP session is active.");
   console.log("");
   console.log("Without a command, starts the MCP server on stdio.");
   console.log("");

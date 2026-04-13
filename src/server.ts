@@ -22,25 +22,57 @@ import { VERSION } from "./version.js";
  *
  * See `src/cdp/browser-session.ts` for the full lifecycle + retry policy.
  */
-export async function startServer(): Promise<void> {
+export interface StartServerOptions {
+  /** Attach-only mode: connect to existing Chrome, no auto-launch, no reconnect. */
+  attach?: boolean;
+}
+
+export async function startServer(options?: StartServerOptions): Promise<void> {
+  const attachMode = options?.attach ?? false;
+
   // 1. Read environment — no Chrome is touched here.
   const profilePath = process.env.SILBERCUE_CHROME_PROFILE || undefined;
   const headlessEnv = process.env.SILBERCUE_CHROME_HEADLESS === "true";
-  const autoLaunch = resolveAutoLaunch(
-    process.env as Record<string, string | undefined>,
-    headlessEnv,
-  );
+  const autoLaunch = attachMode
+    ? false
+    : resolveAutoLaunch(
+        process.env as Record<string, string | undefined>,
+        headlessEnv,
+      );
 
   if (profilePath) {
     console.error(`SilbercueChrome using Chrome profile: ${profilePath}`);
   }
 
   // 2. Create the lazy BrowserSession. No launch yet.
+  //    In attach mode: autoLaunch = false (set above), attachMode flag
+  //    for tab-lifecycle cleanup. autoReconnect is already false by default
+  //    in BrowserSession constructor — no need to set it explicitly.
   const browserSession = new BrowserSession({
     profilePath,
     headless: headlessEnv,
     autoLaunch,
+    attachMode,
   });
+
+  // 2b. Attach mode: eagerly validate that Chrome is reachable. Fail fast
+  //     with a clear stderr message + exit 1 instead of silently waiting
+  //     for the first tool call to surface an opaque launch error.
+  if (attachMode) {
+    try {
+      await browserSession.ensureReady();
+      console.error("SilbercueChrome --attach: connected to Chrome on port 9222");
+    } catch {
+      console.error(
+        [
+          "Error: --attach failed — Chrome not reachable on port 9222.",
+          "Make sure Chrome is running with remote debugging enabled,",
+          "or that another SilbercueChrome instance (e.g. via Claude Code) is active.",
+        ].join("\n"),
+      );
+      process.exit(1);
+    }
+  }
 
   // 3. Resolve licence status (pure metadata — no CDP calls).
   const hooks = getProHooks();

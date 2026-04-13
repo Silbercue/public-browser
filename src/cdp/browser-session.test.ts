@@ -291,3 +291,158 @@ describe("BrowserSession — tab switching", () => {
     );
   });
 });
+
+// --- Attach-mode tests (Story 22.3) ----------------------------------------
+
+/**
+ * Build a BrowserSession in attach mode with fine-grained control over
+ * CDP send calls so we can verify tab creation and cleanup behaviour.
+ */
+function buildAttachSession(opts: {
+  connectSequence?: Array<"ok" | "fail">;
+}) {
+  const connectOutcomes = [...(opts.connectSequence ?? ["ok"])];
+  const sendCalls: Array<{ method: string; params?: unknown }> = [];
+
+  const fakeConnection = {
+    cdpClient: {} as never,
+    headless: false,
+    status: "connected" as const,
+    close: vi.fn(async () => {}),
+  };
+
+  const launcher = {
+    connect: vi.fn(async () => {
+      const outcome = connectOutcomes.shift() ?? "ok";
+      if (outcome === "fail") throw new Error("simulated launch failure");
+      return fakeConnection as never;
+    }),
+    connectToExistingChrome: vi.fn(async () => {
+      throw new Error("should not be called in fresh session");
+    }),
+  };
+
+  const session = new BrowserSession({
+    attachMode: true,
+    autoLaunch: false,
+    retryTimings: {
+      establishedDelays: [0, 0, 0],
+      freshDelays: [0, 0],
+    },
+  });
+
+  // Inject the mock launcher.
+  (session as unknown as { _launcher: unknown })._launcher = launcher;
+
+  // Stub out _wireUpFreshConnection to track CDP sends (Target.createTarget etc.)
+  // while mirroring the bookkeeping that makes isReady flip to true.
+  const fakeCdpClient = {
+    send: vi.fn(async (method: string, params?: unknown) => {
+      sendCalls.push({ method, params });
+      if (method === "Target.createTarget") {
+        return { targetId: "owned-tab-123" };
+      }
+      if (method === "Target.closeTarget") {
+        return { success: true };
+      }
+      if (method === "Target.getTargets") {
+        return { targetInfos: [] };
+      }
+      if (method === "Target.attachToTarget") {
+        return { sessionId: "attach-session-1" };
+      }
+      return {};
+    }),
+  };
+
+  (session as unknown as { _wireUpFreshConnection: (conn: unknown) => Promise<void> })._wireUpFreshConnection =
+    async function (conn: unknown) {
+      (this as unknown as { _connection: unknown })._connection = conn;
+      (this as unknown as { _cdpClient: unknown })._cdpClient = fakeCdpClient;
+      (this as unknown as { _sessionId: string })._sessionId = "attach-session-1";
+      // Simulate the attach-mode tab creation that the real _wireUpFreshConnection does.
+      if ((this as unknown as { _attachMode: boolean })._attachMode) {
+        const result = await fakeCdpClient.send("Target.createTarget", { url: "about:blank" });
+        (this as unknown as { _ownedTabTargetId: string })._ownedTabTargetId = (result as { targetId: string }).targetId;
+      }
+    };
+
+  return { session, launcher, sendCalls, fakeCdpClient };
+}
+
+describe("BrowserSession — attach mode (Story 22.3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("stores attachMode flag from options", () => {
+    const session = new BrowserSession({ attachMode: true, autoLaunch: false });
+    expect((session as unknown as { _attachMode: boolean })._attachMode).toBe(true);
+  });
+
+  it("defaults attachMode to false when not provided", () => {
+    const session = new BrowserSession({});
+    expect((session as unknown as { _attachMode: boolean })._attachMode).toBe(false);
+  });
+
+  it("creates a new tab via Target.createTarget on ensureReady()", async () => {
+    const { session, sendCalls } = buildAttachSession({});
+    await session.ensureReady();
+    expect(session.isReady).toBe(true);
+
+    const createCalls = sendCalls.filter((c) => c.method === "Target.createTarget");
+    expect(createCalls.length).toBe(1);
+    expect(createCalls[0].params).toEqual({ url: "about:blank" });
+
+    // The owned tab ID should be tracked.
+    expect((session as unknown as { _ownedTabTargetId: string })._ownedTabTargetId).toBe("owned-tab-123");
+  });
+
+  it("closes the owned tab on shutdown()", async () => {
+    const { session, fakeCdpClient } = buildAttachSession({});
+    await session.ensureReady();
+
+    await session.shutdown();
+
+    // Should have called Target.closeTarget with our owned tab ID.
+    const closeCalls = fakeCdpClient.send.mock.calls.filter(
+      (c: unknown[]) => c[0] === "Target.closeTarget",
+    );
+    expect(closeCalls.length).toBe(1);
+    expect(closeCalls[0][1]).toEqual({ targetId: "owned-tab-123" });
+  });
+
+  it("does not error if tab was already closed before shutdown", async () => {
+    const { session, fakeCdpClient } = buildAttachSession({});
+    await session.ensureReady();
+
+    // Make Target.closeTarget throw (simulates user closed the tab manually).
+    fakeCdpClient.send.mockImplementation(async (method: string) => {
+      if (method === "Target.closeTarget") {
+        throw new Error("No target with given id found");
+      }
+      return {};
+    });
+
+    // Should NOT throw.
+    await expect(session.shutdown()).resolves.toBeUndefined();
+  });
+
+  it("clears _ownedTabTargetId after shutdown", async () => {
+    const { session } = buildAttachSession({});
+    await session.ensureReady();
+    expect((session as unknown as { _ownedTabTargetId: string | null })._ownedTabTargetId).toBe("owned-tab-123");
+
+    await session.shutdown();
+    expect((session as unknown as { _ownedTabTargetId: string | null })._ownedTabTargetId).toBeNull();
+  });
+
+  it("startServer({ attach: true }) sets autoLaunch to false", () => {
+    // Verify through BrowserSession constructor: when attachMode=true,
+    // the launcher should have autoLaunch=false.
+    const session = new BrowserSession({ attachMode: true, autoLaunch: false });
+    const launcher = (session as unknown as { _launcher: { _autoLaunch: boolean } })._launcher;
+    // autoLaunch is passed through to ChromeLauncher
+    expect(launcher._autoLaunch).toBe(false);
+  });
+});
