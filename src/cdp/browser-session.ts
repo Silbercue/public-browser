@@ -31,6 +31,7 @@ import { SessionManager } from "./session-manager.js";
 import { DialogHandler } from "./dialog-handler.js";
 import { ConsoleCollector } from "./console-collector.js";
 import { NetworkCollector } from "./network-collector.js";
+import { DownloadCollector } from "./download-collector.js";
 import { DomWatcher } from "./dom-watcher.js";
 import type { CdpClient } from "./cdp-client.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
@@ -69,6 +70,7 @@ export interface IBrowserSession {
   readonly dialogHandler: DialogHandler | undefined;
   readonly consoleCollector: ConsoleCollector | undefined;
   readonly networkCollector: NetworkCollector | undefined;
+  readonly downloadCollector: DownloadCollector | undefined;
   readonly domWatcher: DomWatcher | undefined;
   ensureReady(): Promise<void>;
   consumeRelaunchNotice(): string | null;
@@ -112,6 +114,7 @@ export class BrowserSession implements IBrowserSession {
   private _dialogHandler: DialogHandler | null = null;
   private _consoleCollector: ConsoleCollector | null = null;
   private _networkCollector: NetworkCollector | null = null;
+  private _downloadCollector: DownloadCollector | null = null;
   private _domWatcher: DomWatcher | null = null;
 
   // State flags for the retry policy and notice-on-loss behaviour.
@@ -192,6 +195,10 @@ export class BrowserSession implements IBrowserSession {
 
   get networkCollector(): NetworkCollector | undefined {
     return this._networkCollector ?? undefined;
+  }
+
+  get downloadCollector(): DownloadCollector | undefined {
+    return this._downloadCollector ?? undefined;
   }
 
   get domWatcher(): DomWatcher | undefined {
@@ -392,7 +399,7 @@ export class BrowserSession implements IBrowserSession {
     await injectOverlay(cdpClient, sessionId);
 
     // 4. (Re-)wire the helpers.
-    this._wireHelpers(cdpClient, sessionId, pageTarget.targetId);
+    await this._wireHelpers(cdpClient, sessionId, pageTarget.targetId);
 
     // 5. Reset caches — a new connection means old refs are stale.
     a11yTree.invalidatePrecomputed();
@@ -403,7 +410,7 @@ export class BrowserSession implements IBrowserSession {
    * Create-or-reinit all CDP-backed helpers. First call creates them,
    * subsequent calls use `reinit()` to swap in the new client/session.
    */
-  private _wireHelpers(cdpClient: CdpClient, sessionId: string, pageTargetId: string): void {
+  private async _wireHelpers(cdpClient: CdpClient, sessionId: string, pageTargetId: string): Promise<void> {
     // TabStateCache: detach (if attached) and re-attach on the new client.
     this.tabStateCache.detachFromClient();
     this.tabStateCache.setActiveTarget(pageTargetId);
@@ -442,6 +449,19 @@ export class BrowserSession implements IBrowserSession {
       this._networkCollector = new NetworkCollector(cdpClient, sessionId);
     } else {
       this._networkCollector.reinit(cdpClient, sessionId);
+    }
+
+    // DownloadCollector — passively listens for Browser.download* events.
+    // Uses browser-level CDP commands (no sessionId), similar to
+    // Browser.getWindowForTarget / Browser.setWindowBounds above.
+    // H1-Fix: await init()/reinit() so Browser.setDownloadBehavior is
+    // active before ensureReady() returns — otherwise the first download
+    // after connect could be missed.
+    if (!this._downloadCollector) {
+      this._downloadCollector = new DownloadCollector(cdpClient);
+      await this._downloadCollector.init();
+    } else {
+      await this._downloadCollector.reinit(cdpClient);
     }
 
     // DomWatcher — callbacks reference `this`, so `this._cdpClient` /
@@ -537,6 +557,10 @@ export class BrowserSession implements IBrowserSession {
       this._networkCollector?.detach();
     } catch { /* best effort */ }
     try {
+      this._downloadCollector?.detach();
+      this._downloadCollector?.cleanup();
+    } catch { /* best effort */ }
+    try {
       this._consoleCollector?.detach();
     } catch { /* best effort */ }
     try {
@@ -547,6 +571,7 @@ export class BrowserSession implements IBrowserSession {
     } catch { /* best effort */ }
     this._domWatcher = null;
     this._networkCollector = null;
+    this._downloadCollector = null;
     this._consoleCollector = null;
     this._dialogHandler = null;
     this._sessionManager = null;

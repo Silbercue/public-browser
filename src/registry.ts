@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CdpClient } from "./cdp/cdp-client.js";
 import type { SessionManager } from "./cdp/session-manager.js";
 import type { DialogHandler } from "./cdp/dialog-handler.js";
+import type { DownloadCollector } from "./cdp/download-collector.js";
 import type { ConsoleCollector } from "./cdp/console-collector.js";
 import type { NetworkCollector } from "./cdp/network-collector.js";
 import type { IBrowserSession } from "./cdp/browser-session.js";
@@ -406,6 +407,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         dialogHandler,
         consoleCollector,
         networkCollector,
+        downloadCollector: undefined,
         domWatcher: undefined,
         ensureReady: async () => { /* legacy: no-op */ },
         consumeRelaunchNotice: () => null,
@@ -568,6 +570,7 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     const result = await handler(resolvedParams, sessionIdOverride);
     this._injectDialogNotifications(result);
+    this._injectDownloadNotifications(result);
     this._injectRelaunchNotice(result);
 
     // Story 20.1: Prepend the piggybacked diff as a leading content block
@@ -918,6 +921,30 @@ export class ToolRegistry implements ToolRegistryPublic {
   }
 
   /**
+   * Story 22.1: Inject pending download notifications into any tool response.
+   * Called alongside _injectDialogNotifications after every tool call.
+   */
+  private _injectDownloadNotifications(result: ToolResponse): void {
+    const downloads = this._browserSession.downloadCollector?.consumeCompleted();
+    if (downloads && downloads.length > 0) {
+      const lines = downloads.map((d) => {
+        const sizeKb = Math.ceil(d.size / 1024);
+        return [
+          "--- Download completed ---",
+          `File: ${d.suggestedFilename}`,
+          `Path: ${d.path}`,
+          `Size: ${sizeKb} KB`,
+        ].join("\n");
+      });
+      result.content.push({ type: "text", text: lines.join("\n\n") });
+      // Also inject structured data into _meta
+      if (result._meta) {
+        result._meta.downloads = downloads;
+      }
+    }
+  }
+
+  /**
    * Wrap a tool handler so dialog notifications are injected into its response.
    * This ensures notifications reach the LLM regardless of whether the tool
    * is called via the direct MCP path (server.tool) or via executeTool (run_plan).
@@ -928,6 +955,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     return async (params: T) => {
       const result = await handler(params);
       this._injectDialogNotifications(result);
+      this._injectDownloadNotifications(result);
       return result;
     };
   }

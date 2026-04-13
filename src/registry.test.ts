@@ -458,6 +458,134 @@ describe("ToolRegistry", () => {
     expect((result.content[1] as { text: string }).text).toContain('[dialog] alert: "Hello!"');
   });
 
+  // --- Story 22.1: Download notification injection tests (H4) ---
+
+  it("executeTool injects download notifications into tool response", async () => {
+    const mockCdpClient = {
+      send: vi.fn().mockResolvedValue({
+        result: { type: "number", value: 42 },
+      }),
+    } as never;
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+
+    // Mock DownloadCollector that returns a completed download
+    const mockDownloadCollector = {
+      consumeCompleted: vi.fn().mockReturnValue([
+        {
+          path: "/tmp/sc-dl-test/abc-123",
+          suggestedFilename: "invoice.pdf",
+          size: 42000,
+          url: "https://example.com/invoice.pdf",
+        },
+      ]),
+      completedCount: 1,
+      init: vi.fn(),
+      detach: vi.fn(),
+      reinit: vi.fn(),
+      cleanup: vi.fn(),
+      downloadPath: "/tmp/sc-dl-test",
+    } as never;
+
+    // Use the IBrowserSession constructor path with a mock session
+    const mockSession = {
+      isReady: true,
+      wasEverReady: true,
+      cdpClient: mockCdpClient,
+      sessionId: "session-1",
+      headless: false,
+      tabStateCache: new TabStateCacheCtor({ ttlMs: 30_000 }),
+      sessionDefaults: new SessionDefaults(),
+      sessionManager: undefined,
+      dialogHandler: undefined,
+      consoleCollector: undefined,
+      networkCollector: undefined,
+      downloadCollector: mockDownloadCollector,
+      domWatcher: undefined,
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      consumeRelaunchNotice: vi.fn().mockReturnValue(null),
+      waitForAXChange: vi.fn().mockResolvedValue(false),
+      applyTabSwitch: vi.fn(),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    } as never;
+
+    const registry = new ToolRegistry(mockServer, mockSession);
+    registry.registerAll();
+
+    const result = await registry.executeTool("evaluate", {
+      expression: "21*2",
+      await_promise: true,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.isError).toBeFalsy();
+    // First content block is the tool result
+    expect(result.content[0]).toHaveProperty("text", "42");
+    // Download notification should be injected
+    expect(result.content.length).toBeGreaterThanOrEqual(2);
+    const downloadText = (result.content[1] as { text: string }).text;
+    expect(downloadText).toContain("Download completed");
+    expect(downloadText).toContain("invoice.pdf");
+    expect(downloadText).toContain("/tmp/sc-dl-test/abc-123");
+    expect(downloadText).toContain("42 KB");
+  });
+
+  it("executeTool does not inject download notification when no downloads occurred", async () => {
+    const mockCdpClient = {
+      send: vi.fn().mockResolvedValue({
+        result: { type: "number", value: 42 },
+      }),
+    } as never;
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+
+    // Mock DownloadCollector with empty buffer
+    const mockDownloadCollector = {
+      consumeCompleted: vi.fn().mockReturnValue([]),
+      completedCount: 0,
+      init: vi.fn(),
+      detach: vi.fn(),
+      reinit: vi.fn(),
+      cleanup: vi.fn(),
+      downloadPath: "/tmp/sc-dl-test",
+    } as never;
+
+    const mockSession = {
+      isReady: true,
+      wasEverReady: true,
+      cdpClient: mockCdpClient,
+      sessionId: "session-1",
+      headless: false,
+      tabStateCache: new TabStateCacheCtor({ ttlMs: 30_000 }),
+      sessionDefaults: new SessionDefaults(),
+      sessionManager: undefined,
+      dialogHandler: undefined,
+      consoleCollector: undefined,
+      networkCollector: undefined,
+      downloadCollector: mockDownloadCollector,
+      domWatcher: undefined,
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      consumeRelaunchNotice: vi.fn().mockReturnValue(null),
+      waitForAXChange: vi.fn().mockResolvedValue(false),
+      applyTabSwitch: vi.fn(),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    } as never;
+
+    const registry = new ToolRegistry(mockServer, mockSession);
+    registry.registerAll();
+
+    const result = await registry.executeTool("evaluate", {
+      expression: "21*2",
+      await_promise: true,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.isError).toBeFalsy();
+    // Only the tool result — no download injection
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]).toHaveProperty("text", "42");
+  });
+
   // --- Story 9.1: Registry wiring for licenseStatus and freeTierConfig (C4) ---
 
   it("constructor accepts licenseStatus and freeTierConfig, wiring them to run_plan handler", async () => {
