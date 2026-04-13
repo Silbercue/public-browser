@@ -207,17 +207,31 @@ export function createDefaultOnToolResult(): OnToolResult {
         if (cls !== "clickable" && cls !== "widget-state") return result;
       }
 
-      // Story 20.1: Check for synchronous diff request.
-      // `_meta.syncDiff === true` means either:
-      //  (a) the LLM passed `wait_for_diff: true` on the click call, or
-      //  (b) the call comes from `runAggregationHook` (plan-executor end-of-plan).
+      // --- Synchronous vs. deferred diff ---
+      //
+      // type/fill_form: ALWAYS synchronous (+350ms inline wait).
+      //   The LLM types into a search field and ALWAYS needs to see the
+      //   result (autocomplete suggestions, filtered table rows, validation
+      //   messages). Deferred saves 350ms on the type response but forces
+      //   the LLM to make a follow-up view_page call (~2-3s round-trip)
+      //   just to see what happened. Net effect: deferred is slower, not
+      //   faster. One richer type response beats two lean calls.
+      //
+      // click: Deferred by default (LLM sees "Clicked eX" immediately,
+      //   diff piggybacks on the next tool call). Clicks are often chained
+      //   (click tab → click row → click button) so the 350ms saving per
+      //   click compounds. The LLM doesn't always need the diff before its
+      //   next action. Exception: `wait_for_diff: true` or `runAggregationHook`
+      //   (plan-executor end-of-plan) force the synchronous path via
+      //   `_meta.syncDiff`.
       const syncDiff = (result as ToolResponse & { _meta?: { syncDiff?: boolean } })._meta?.syncDiff === true;
+      const useSyncPath = syncDiff || toolName === "type" || toolName === "fill_form";
 
       // Stage 1: Snapshot BEFORE (synchronous, 0ms — from current cache).
       const before = context.a11yTree.getSnapshotMap();
 
-      if (syncDiff) {
-        // --- Synchronous path (pre-20.1 behaviour) ---
+      if (useSyncPath) {
+        // --- Synchronous path ---
         const diffText = await computeDiff(before, context, initialWaitMs, retryWaitMs);
         if (diffText) {
           result.content.push({ type: "text", text: diffText });
@@ -225,7 +239,7 @@ export function createDefaultOnToolResult(): OnToolResult {
         return result;
       }
 
-      // --- Deferred path (Story 20.1 default) ---
+      // --- Deferred path (click default) ---
       // Schedule a background diff job. The click response returns immediately.
       void deferredDiffSlot
         .schedule(async (signal: AbortSignal) => {
