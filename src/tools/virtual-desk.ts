@@ -121,6 +121,7 @@ export async function virtualDeskHandler(
 
     // Build output grouped by window
     const activeId = tabStateCache.activeTargetId;
+    const activeExists = activeId != null && pageTabs.some((t) => t.targetId === activeId);
     const lines: string[] = [];
     let tabCounter = 0;
 
@@ -146,6 +147,14 @@ export async function virtualDeskHandler(
 
         lines.push(`${marker} Tab ${tabCounter}: ${tab.targetId} | ${status} | ${title} | ${url}`);
       }
+    }
+
+    // If no active session exists, append recovery hint so the LLM knows how to reconnect
+    if (!activeExists && pageTabs.length > 0) {
+      lines.push(
+        "",
+        'Note: No active session. Call switch_tab(tab: "1") to reconnect before using navigate or view_page.',
+      );
     }
 
     return {

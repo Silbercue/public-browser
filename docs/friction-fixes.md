@@ -374,6 +374,7 @@ Niedrige Priorität. Canvas ist inherent opak (Pixel, keine DOM-Nodes). Ein obse
 | 27 | FR-038 Tool-Rename view_page/capture_image | Niedrig | registry.ts, Tools | gefixt |
 | 28 | FR-039 Click-Diff priorisiert StaticText | Minimal | a11y-tree.ts | wontfix |
 | 29 | FR-040 Pro-Hook ignoriert type/fill_form Diff | Mittel | ambient-context.ts (Pro), default-on-tool-result.ts | gefixt |
+| 30 | FR-041 CDP Session stirbt → kein Auto-Reconnect, LLM-Loop | Mittel | virtual-desk.ts, tab-state-cache.ts, chrome-launcher.ts | gefixt |
 
 ---
 
@@ -1404,3 +1405,64 @@ Pro-Hook aktiv ist und NUR click behandelt.
 **Hinweis:** finden des Umsatzes
 
 **Source:** Story 20.2.
+
+---
+
+## FR-041: CDP Session stirbt → virtual_desk zeigt Tab als "ready" aber kein Auto-Reconnect (P2)
+
+### Problem
+
+In Session `336cd4e1` starb die CDP Session mitten in der Arbeit auf `bahn.de`. Das LLM rief `virtual_desk` 6× auf — jedes Mal `OK` ohne `>`-Marker — und versuchte danach `navigate`/`view_page`/`capture_image` die alle mit `-32001: Session with given id not found` scheiterten.
+
+Tool-Sequenz (22:36:42–22:37:55):
+```
+22:36:42  navigate(bahn.de/reiseuebersicht) → ERROR -32001
+22:36:43  virtual_desk → OK (Tab als "ready", kein > Marker)
+22:36:46  navigate(bahn.de/reiseuebersicht) → ERROR -32001
+22:36:47  virtual_desk → OK
+22:36:56  view_page → ERROR -32001
+22:36:57  virtual_desk → OK
+22:37:07  navigate(bahn.de/reiseuebersicht, settle_ms:2000) → ERROR -32001
+22:37:47  virtual_desk → OK
+22:37:49  view_page → ERROR -32001
+22:37:51  virtual_desk → OK
+22:37:55  capture_image → ERROR -32001
+```
+
+6 nutzlose virtual_desk Calls, kein Recovery.
+
+### Root Cause
+
+`tabStateCache.activeTargetId` zeigte auf die geschlossene Steuer-Automat-Tab (`2F263361...`), nicht auf die bahn.de-Tab (`F8C625...`). Deshalb kein `>`-Marker — SilbercueChrome hat keinen aktiven Tab.
+
+`virtual_desk` listet Tabs aus `Target.getTargets` und prüft `tab.targetId === activeId`. Wenn `activeId` veraltet ist (Target nicht mehr in der Liste), erscheint kein `>`. virtual_desk führt dabei **keine** Auto-Reconnect-Logik aus.
+
+Mutmaßliche Ursache des Session-Tods: CDP WebSocket Reconnect zwischen 22:34:16 und 22:36:42 (146s Lücke) invalidierte alle bestehenden Session-IDs — verwandt mit BUG-003 (Node 22 + Chrome WebSocket). Nach Reconnect kennt Chrome die alten Session-IDs nicht mehr.
+
+Das LLM sieht `ready`-Tab ohne `>`, versteht nicht dass es `switch_tab` braucht, versucht `navigate` direkt → Endlosloop.
+
+### Betroffene Dateien
+
+1. `src/tools/virtual-desk.ts` — kein Auto-Attach wenn activeId veraltet
+2. `src/cache/tab-state-cache.ts` — `activeTargetId` wird nicht auf verfügbare Tabs bereinigt
+3. `src/cdp/chrome-launcher.ts` — Reconnect-Logik reaktiviert Session nicht nach WebSocket-Wiederverbindung
+
+### Fix-Vorschlag
+
+**Option A (Minimal — Steering-Fix, kein Code-Change in Reconnect-Logik):**
+
+Wenn `virtual_desk` aufgerufen wird und `activeId` auf keinen existierenden Tab zeigt: den ersten verfügbaren Tab als neuen `activeTargetId` setzen und in der Response signalisieren:
+```
+> Tab 1: F8C625... | ready | Reisedetails | bahn.de/...  (auto-selected: previous session lost)
+Note: No active session found — auto-selected Tab 1. Call navigate to load the desired URL.
+```
+
+**Option B (Robust — Session Recovery):**
+
+In `navigate`/`view_page` nach `-32001` automatisch `Target.attachToTarget({ targetId })` aufrufen um eine neue CDP Session zu erhalten, dann den Original-Call wiederholen. Max 1 Retry pro Call.
+
+**Empfehlung:** Option A zuerst (einfach, kein Risiko), dann Option B separat wenn noch nötig.
+
+**Aufwand:** Niedrig (Option A) / Mittel (Option B)
+**Session:** 336cd4e1-013c-423d-8f5c-9542b73ddc5f
+**Hinweis:** Oje was denn da los?

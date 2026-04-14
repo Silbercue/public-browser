@@ -402,6 +402,56 @@ describe("virtualDeskHandler", () => {
     expect(text).toContain("T0001");
   });
 
+  it("appends recovery hint when activeTargetId is null (no active session)", async () => {
+    const targets = makeTargets(2);
+    const cdp = createMockCdp({
+      "Target.getTargets": { targetInfos: targets },
+    });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    // No setActiveTarget — activeTargetId is null
+
+    const result = await virtualDeskHandler({}, cdp, undefined, cache);
+    const text = result.content[0].text;
+
+    expect(text).toContain("Note: No active session.");
+    expect(text).toContain('switch_tab(tab: "1")');
+  });
+
+  it("appends recovery hint when activeTargetId points to non-existent tab", async () => {
+    const targets = makeTargets(2);
+    const cdp = createMockCdp({
+      "Target.getTargets": { targetInfos: targets },
+    });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("STALE_TARGET_GONE");
+
+    const result = await virtualDeskHandler({}, cdp, undefined, cache);
+    const text = result.content[0].text;
+
+    expect(text).toContain("Note: No active session.");
+    expect(text).toContain('switch_tab(tab: "1")');
+    // Should NOT show > marker for any tab
+    const tabLines = text.split("\n").filter((l: string) => l.includes("Tab "));
+    for (const line of tabLines) {
+      expect(line).toMatch(/^ /);
+    }
+  });
+
+  it("does NOT append recovery hint when active session exists", async () => {
+    const targets = makeTargets(2);
+    const cdp = createMockCdp({
+      "Target.getTargets": { targetInfos: targets },
+    });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T0001");
+
+    const result = await virtualDeskHandler({}, cdp, undefined, cache);
+    const text = result.content[0].text;
+
+    expect(text).not.toContain("Note: No active session.");
+    expect(text).toContain("> Tab 1:");
+  });
+
   it("_meta includes tabCount", async () => {
     const targets = makeTargets(5);
     const cdp = createMockCdp({
