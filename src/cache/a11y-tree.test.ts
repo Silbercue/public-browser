@@ -3020,14 +3020,14 @@ describe("A11yTreeProcessor", () => {
 
     it("BUG-019: escape-hint points to truncated main subtree", async () => {
       // A very tight budget so main gets partially truncated. The output
-      // should include a hint telling the LLM to call read_page(ref:"eXX")
+      // should include a hint telling the LLM to call view_page(ref:"eXX")
       // on the main region for full detail.
       const cdp = buildLandmarkedPage(60);
       const result = await processor.getTree(cdp, "s1", { filter: "all", max_tokens: 800 });
 
       expect(result.downsampled).toBe(true);
       // Hint mentions re-reading with a ref
-      expect(result.text.toLowerCase()).toMatch(/call read_page\(ref:\s*"e\d+"/);
+      expect(result.text.toLowerCase()).toMatch(/call view_page\(ref:\s*"e\d+"/);
     });
 
     it("BUG-019: navigation-heavy page without main — no crash, no infinite loop", async () => {
@@ -3147,7 +3147,7 @@ describe("A11yTreeProcessor", () => {
       // D2 hint must name "Largest collapsed containers" + top refs with item counts.
       expect(result.text).toMatch(/Largest collapsed containers:\s*e\d+\s*\(\d+ items\)/);
       // And the positive action.
-      expect(result.text).toMatch(/Call read_page\(ref: "eXX", filter: "all"\)/);
+      expect(result.text).toMatch(/Call view_page\(ref: "eXX", filter: "all"\)/);
       // D2 is mutually exclusive with the main-hint — no main landmark here.
       expect(result.text).not.toMatch(/main content partially truncated/);
     });
@@ -4220,7 +4220,7 @@ describe("A11yTreeProcessor", () => {
       // scanning LLM can't overlook it. The hint must name the ref and
       // the concrete follow-up action.
       expect(result.text).toContain("\n");
-      expect(result.text).toMatch(/\n\s+\[!\] TRUNCATED: \+\d+ more chars hidden\. Call read_page\(ref:"e\d+", filter:"all"\)/);
+      expect(result.text).toMatch(/\n\s+\[!\] TRUNCATED: \+\d+ more chars hidden\. Call view_page\(ref:"e\d+", filter:"all"\)/);
       // The old inline `…[+N chars; use filter:"all"` format must be gone.
       expect(result.text).not.toMatch(/…\[\+\d+ chars; use filter:"all"/);
     });
@@ -4288,7 +4288,7 @@ describe("A11yTreeProcessor", () => {
 
       // Assertion 3 — it carries the exact hidden-char count AND the
       // concrete next action with the ref.
-      expect(markerLine!).toMatch(/\[!\] TRUNCATED: \+\d+ more chars hidden\. Call read_page\(ref:"e\d+", filter:"all"\)/);
+      expect(markerLine!).toMatch(/\[!\] TRUNCATED: \+\d+ more chars hidden\. Call view_page\(ref:"e\d+", filter:"all"\)/);
 
       // Assertion 4 — the element line ABOVE the marker is preserved
       // (still contains the truncated preview in quotes).
@@ -5304,6 +5304,30 @@ describe("A11yTreeProcessor", () => {
       // Cache must NOT have been written — the pre-read URL guard bailed
       // before getFullAXTree was even called.
       expect(processor.hasPrecomputed("s1")).toBe(false);
+    });
+
+    it("canvas hint references capture_image (not legacy screenshot)", async () => {
+      const nodes: AXNode[] = [
+        makeNode({
+          nodeId: "1",
+          role: { type: "role", value: "WebArea" },
+          name: { type: "computedString", value: "Canvas Page" },
+          backendDOMNodeId: 100,
+          childIds: ["2"],
+        }),
+        makeNode({
+          nodeId: "2",
+          role: { type: "role", value: "canvas" },
+          name: { type: "computedString", value: "My Canvas" },
+          backendDOMNodeId: 101,
+        }),
+      ];
+
+      const cdp = mockCdpClient(nodes);
+      const result = await processor.getTree(cdp, "s1", { filter: "all" });
+
+      expect(result.text).toContain("capture_image(som: true)");
+      expect(result.text).not.toContain("screenshot(som: true)");
     });
 
     it("L1 fix — refreshPrecomputed accepts matching expectedUrl and writes cache", async () => {

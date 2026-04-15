@@ -1268,7 +1268,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 1. Orientation ---
     maybeRegisterFreeMCPTool(
       "virtual_desk",
-      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs with switch_tab(tab: '<id>') instead of opening duplicates via navigate. Cheap, call liberally.",
+      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs to navigate to an existing tab instead of opening duplicates. Cheap, call liberally.",
       {},
       wrap(this.wrapWithGate("virtual_desk", async (params) => {
         this._contextChecked = true;
@@ -1410,7 +1410,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 4. Tab management (navigate/switch_tab/tab_status) ---
     maybeRegisterFreeMCPTool(
       "navigate",
-      "Navigate the ACTIVE tab to a URL (or action:'back' to go back, action:'reload' to refresh current page — all element refs become stale after reload). Waits for settle. WARNING: overwrites the user's active tab — always call virtual_desk FIRST to check what's open; if the right tab exists, use switch_tab instead. First call per session is auto-redirected to virtual_desk.",
+      "Navigate the ACTIVE tab to a URL (or action:'back' to go back, action:'reload' to refresh current page — all element refs become stale after reload). Waits for settle. WARNING: overwrites the user's active tab — always call virtual_desk FIRST to check what's open. First call per session is auto-redirected to virtual_desk.",
       {
         url: navigateSchema.shape.url,
         action: navigateSchema.shape.action,
@@ -1430,7 +1430,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           );
           const tabList = vdResult.content?.[0]?.type === "text" ? vdResult.content[0].text : "";
           return {
-            content: [{ type: "text" as const, text: `Navigation blocked — virtual_desk was not called yet. Here are your open tabs:\n\n${tabList}\n\nUse switch_tab(tab: "<id>") to go to an existing tab, or call navigate again to open a new page.` }],
+            content: [{ type: "text" as const, text: `Navigation blocked — virtual_desk was not called yet. Here are your open tabs:\n\n${tabList}\n\nReview the tabs above, then call navigate again to open the page you need.` }],
             _meta: { elapsedMs: vdResult._meta?.elapsedMs ?? 0, method: "navigate", intercepted: true },
           };
         }
@@ -1513,7 +1513,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 6. Visual (capture_image/dom_snapshot — last resort for visual tasks) ---
     maybeRegisterFreeMCPTool(
       "capture_image",
-      "Pixel-level visual screenshot (WebP, max 800px, <100KB). Do NOT call this to see what is on the page — call view_page instead (10-30x cheaper, returns text + refs you can click). capture_image cannot drive click/type and cannot read text. The ONLY valid uses: (1) canvas/chart content that has no DOM text, (2) pixel-level animation or rendering comparison, (3) the user explicitly asks for a screenshot. For CSS layout or element positioning: use inspect_element (returns computed styles, source locations, and a visual clip). If you are unsure, use view_page.",
+      "Pixel-level visual screenshot (WebP, max 800px, <100KB). Do NOT call this to see what is on the page — call view_page instead (10-30x cheaper, returns text + refs you can click). capture_image cannot drive click/type and cannot read text. The ONLY valid uses: (1) canvas/chart content that has no DOM text, (2) pixel-level animation or rendering comparison, (3) the user explicitly asks for a screenshot. If you are unsure, use view_page.",
       {
         full_page: screenshotSchema.shape.full_page,
         som: screenshotSchema.shape.som,
@@ -1529,7 +1529,7 @@ export class ToolRegistry implements ToolRegistryPublic {
             );
             if (bounds.windowState === "minimized") {
               return {
-                content: [{ type: "text", text: "Warning: Window is minimized — capture_image may be empty or stale. Use switch_tab to bring the window to foreground first, or call Browser.setWindowBounds to restore it." }],
+                content: [{ type: "text", text: "Warning: Window is minimized — capture_image may be empty or stale. Bring the window to the foreground first, or call Browser.setWindowBounds via evaluate to restore it." }],
                 isError: true,
                 _meta: { elapsedMs: 0, method: "capture_image", windowMinimized: true },
               };
@@ -1544,7 +1544,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           const somHint = (params as unknown as ScreenshotParams).som
             ? " SoM labels match view_page refs — pass them to click/type directly."
             : " Add som: true to overlay numbered ref labels matching view_page.";
-          result.content.push({ type: "text", text: `STOP: You just used capture_image. For CSS layout or element positioning, use inspect_element instead — it returns computed styles, source locations, and a visual clip. Next time you want to see page content, call view_page.${somHint}` });
+          result.content.push({ type: "text", text: `STOP: You just used capture_image. Next time you want to see page content, call view_page — it returns text + element refs and is 10-30x cheaper.${somHint}` });
         }
         return result;
       }, "capture_image"),
@@ -1746,7 +1746,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // don't default to it for text/element tasks — Positional Bias fix) ---
     maybeRegisterFreeMCPTool(
       "evaluate",
-      "Execute JavaScript in the browser page context. Good uses: computation, style mutations (.style.X = ..., classList.add), shadow-root traversal, in-page fetch(), app-specific side effects no dedicated tool covers. Bad uses: (1) automatic recovery after a click/type/fill_form failure — call view_page for fresh refs and retry instead; (2) CSS inspection via getComputedStyle/getBoundingClientRect — use inspect_element; (3) scrolling — use scroll (returns position + content growth); (4) dialog handling — use handle_dialog (CDP event hooks, works when JS is blocked); (5) network monitoring — use network_monitor (captures all traffic, not just fetch). For element discovery (querySelector/getElementById/innerText), prefer view_page or fill_form. Scope is shared between calls — top-level const/let/class are auto-wrapped in IIFE. If/else blocks may return undefined — use ternary (a ? b : c) or explicit return.",
+      "Execute JavaScript in the browser page context. Good uses: computation, style mutations (.style.X = ..., classList.add), shadow-root traversal, in-page fetch(), app-specific side effects no dedicated tool covers. Bad uses: (1) automatic recovery after a click/type/fill_form failure — call view_page for fresh refs and retry instead; (2) scrolling — use scroll via run_plan (returns position + content growth); (3) element discovery (querySelector/getElementById/innerText) — prefer view_page or fill_form. Scope is shared between calls — top-level const/let/class are auto-wrapped in IIFE. If/else blocks may return undefined — use ternary (a ? b : c) or explicit return.",
       {
         expression: evaluateSchema.shape.expression,
         await_promise: evaluateSchema.shape.await_promise,

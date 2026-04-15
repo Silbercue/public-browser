@@ -279,7 +279,7 @@ So that v1.0 stabil, vollstaendig und oeffentlich vertretbar ist.
 **When** der Release ausgefuehrt wird
 **Then** wird Version auf 1.0.0 gebumpt, npm publish + GitHub Release erstellt, CHANGELOG aktualisiert
 
-### Story 8.3: MCP Server Instructions Audit
+### Story 8.3: MCP Server Instructions Audit ✅ DONE
 
 As a LLM-Agent der SilbercueChrome nutzt,
 I want praezise Server Instructions die mich zum optimalen Tool-Einsatz fuehren,

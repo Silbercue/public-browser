@@ -98,7 +98,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
       instructions: [
         "SilbercueChrome controls a real Chrome browser via CDP.",
         "",
-        "Workflow: virtual_desk → switch_tab (or navigate) → read with view_page → act with click/type/fill_form using refs.",
+        "Workflow: virtual_desk → navigate (to open a page) → view_page (read) → click/type/fill_form (act) → view_page (verify the result).",
         "",
         "CRITICAL — view_page vs capture_image:",
         "- To see what is on the page: ALWAYS call view_page. It returns text + element refs for click/type.",
@@ -107,9 +107,11 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
         "- capture_image cannot return element refs, so you cannot click anything you see in it.",
         "",
         "Other rules:",
+        "- After every interaction, use view_page again to verify the result before proceeding.",
         "- fill_form beats multiple type calls for any form with 2+ fields.",
-        "- CSS debugging: use inspect_element(selector) — returns computed styles, CSS rules with source:line, cascade, AND a visual clip screenshot. Do NOT use evaluate(getComputedStyle) for CSS inspection.",
+        "- For multi-step workflows, use run_plan to execute N steps in one call (Free: 3 steps, Pro: unlimited).",
         "- evaluate is for JS computation and style mutations (.style.X = ...) — not for CSS reading or element discovery.",
+        "- Avoid evaluate as default recovery after click/type errors — call view_page for fresh refs and retry with the dedicated tool.",
       ].join("\n"),
     },
   );

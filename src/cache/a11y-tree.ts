@@ -2279,7 +2279,7 @@ export class A11yTreeProcessor {
     if (mainLandmarkTruncated && mainAnchorRef !== undefined && totalInsideMain > keptInsideMain) {
       sortedResult.push(
         `\nNote: main content partially truncated (${keptInsideMain}/${totalInsideMain} elements kept). ` +
-        `Call read_page(ref: "e${mainAnchorRef}", filter: "all") for the full main subtree.`,
+        `Call view_page(ref: "e${mainAnchorRef}", filter: "all") for the full main subtree.`,
       );
     } else if (omitted > 0) {
       // No main-landmark anchor — gather the biggest collapsed container
@@ -2301,7 +2301,7 @@ export class A11yTreeProcessor {
         sortedResult.push(
           `\nNote: ${omitted} elements collapsed into summary lines. ` +
           `Largest collapsed containers: ${top}. ` +
-          `Call read_page(ref: "eXX", filter: "all") on one of these refs to expand that subtree.`,
+          `Call view_page(ref: "eXX", filter: "all") on one of these refs to expand that subtree.`,
         );
       }
     }
@@ -3206,9 +3206,9 @@ export class A11yTreeProcessor {
       line += " (content shown below)";
     }
 
-    // FR-008: Canvas is opaque — direct LLM to use screenshot(som: true)
+    // FR-008: Canvas is opaque — direct LLM to use capture_image(som: true)
     if (role === "canvas" || role === "Canvas") {
-      line += " ⚠ Canvas content is pixels, not DOM. Use screenshot(som: true) to see what's inside.";
+      line += " ⚠ Canvas content is pixels, not DOM. Use capture_image(som: true) to see what's inside.";
     }
 
     // URL for links — shorten to path to save tokens
@@ -3268,7 +3268,7 @@ export class A11yTreeProcessor {
     // inline via `\n` because `lines.push(line)` later joins with `\n`
     // (see `lines.join("\n")` in renderNodes / truncateToFit).
     if (truncationExtra !== undefined) {
-      line += `\n${indent}  ${TRUNCATION_MARKER_PREFIX}: +${truncationExtra} more chars hidden. Call read_page(ref:"e${refNum}", filter:"all") to read the full text.`;
+      line += `\n${indent}  ${TRUNCATION_MARKER_PREFIX}: +${truncationExtra} more chars hidden. Call view_page(ref:"e${refNum}", filter:"all") to read the full text.`;
     }
 
     return line;

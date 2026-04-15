@@ -83,7 +83,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "navigate",
-      "Navigate the ACTIVE tab to a URL (or action:'back' to go back, action:'reload' to refresh current page — all element refs become stale after reload). Waits for settle. WARNING: overwrites the user's active tab — always call virtual_desk FIRST to check what's open; if the right tab exists, use switch_tab instead. First call per session is auto-redirected to virtual_desk.",
+      "Navigate the ACTIVE tab to a URL (or action:'back' to go back, action:'reload' to refresh current page — all element refs become stale after reload). Waits for settle. WARNING: overwrites the user's active tab — always call virtual_desk FIRST to check what's open. First call per session is auto-redirected to virtual_desk.",
       expect.objectContaining({
         url: expect.anything(),
         action: expect.anything(),
@@ -103,7 +103,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "capture_image",
-      "Pixel-level visual screenshot (WebP, max 800px, <100KB). Do NOT call this to see what is on the page — call view_page instead (10-30x cheaper, returns text + refs you can click). capture_image cannot drive click/type and cannot read text. The ONLY valid uses: (1) canvas/chart content that has no DOM text, (2) pixel-level animation or rendering comparison, (3) the user explicitly asks for a screenshot. For CSS layout or element positioning: use inspect_element (returns computed styles, source locations, and a visual clip). If you are unsure, use view_page.",
+      "Pixel-level visual screenshot (WebP, max 800px, <100KB). Do NOT call this to see what is on the page — call view_page instead (10-30x cheaper, returns text + refs you can click). capture_image cannot drive click/type and cannot read text. The ONLY valid uses: (1) canvas/chart content that has no DOM text, (2) pixel-level animation or rendering comparison, (3) the user explicitly asks for a screenshot. If you are unsure, use view_page.",
       expect.objectContaining({
         full_page: expect.anything(),
       }),
@@ -161,7 +161,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "virtual_desk",
-      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs with switch_tab(tab: '<id>') instead of opening duplicates via navigate. Cheap, call liberally.",
+      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs to navigate to an existing tab instead of opening duplicates. Cheap, call liberally.",
       {},
       expect.any(Function),
     );
@@ -1564,7 +1564,7 @@ describe("ToolRegistry", () => {
     );
     expect(virtualDeskCall).toBeDefined();
     expect(virtualDeskCall![1]).toBe(
-      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs with switch_tab(tab: '<id>') instead of opening duplicates via navigate. Cheap, call liberally.",
+      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs to navigate to an existing tab instead of opening duplicates. Cheap, call liberally.",
     );
   });
 
