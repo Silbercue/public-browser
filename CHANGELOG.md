@@ -24,6 +24,7 @@
 - `observe` tool — MutationObserver + polling hybrid for DOM change detection
 - Container-aware scrolling (`scroll` with container_ref/container_selector)
 - `inspect_element` for CSS debugging with computed styles, CSS rules, cascade, and visual clip
+- Script API (Python): `pip install silbercuechrome` — deterministic browser automation via CDP, parallel to MCP server (`--script` flag), tab isolation, context-manager pattern
 
 ### Epic Overview
 
@@ -37,6 +38,7 @@
 | 6 — Intelligent Tool Steering | Anti-pattern detection, stale-ref recovery, negative delimitation, tool profiles, DOM-diff |
 | 7 — Distribution & Licensing | npx zero-install, Polar.sh license keys, 7-day grace period, free-tier completeness |
 | 8 — Documentation & v1.0 Release | README, CHANGELOG, MCP server instructions audit, release checklist |
+| 9 — Script API (Python) | Python CDP client, --script CLI mode, tab isolation, pip distribution |
 
 ### Benchmark Results (mcp-test.second-truth.com, 24 LLM-driven tests)
 

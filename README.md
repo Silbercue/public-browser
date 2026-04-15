@@ -78,6 +78,9 @@ claude mcp add --scope user silbercuechrome npx -y @silbercue/chrome@latest
 
 **Important:** after `claude mcp add` you must **fully quit and reopen Claude Code**. `/mcp reconnect` is not enough — Claude Code reads the `mcpServers` config only at session start and caches it. After the restart, the first tool call auto-launches Chrome **visible** (no headless, no port setup). Done.
 
+> To enable parallel Python [Script API](#script-api-python) access, add `--script` to the args:
+> `claude mcp add --scope user silbercuechrome npx -y @silbercue/chrome@latest -- --script`
+
 ### Install in Cursor
 
 Add to `~/.cursor/mcp.json`:
@@ -92,6 +95,8 @@ Add to `~/.cursor/mcp.json`:
   }
 }
 ```
+
+> For parallel Python [Script API](#script-api-python) access, use `"args": ["-y", "@silbercue/chrome@latest", "--", "--script"]`
 
 ### Install in Cline
 
@@ -305,6 +310,8 @@ SilbercueChrome (Node.js MCP server, @silbercue/chrome)
 ├── A11y-tree cache + Selector cache
 ├── Session Manager (OOPIF support for iframes and Shadow DOM)
 ├── Tab State Cache (URL/title/ready across tabs)
+├── Script API (Python, pip install silbercuechrome)
+│   └── Direct CDP via WebSocket (:9222)
 └── 18 Free-tier tools + 3+ Pro-tier tools
     Reading · Interaction · Navigation · Scripting · Observation
 ```
@@ -312,6 +319,81 @@ SilbercueChrome (Node.js MCP server, @silbercue/chrome)
 Connection priority:
 1. **Auto-Launch (default, zero-config)** — starts Chrome as a child process via `--remote-debugging-pipe`, visible as a window, with all flags set for reliable screenshots and keyboard focus.
 2. **WebSocket (optional)** — if you already run Chrome with `--remote-debugging-port=9222`, SilbercueChrome connects to that instead. Use this to control your own browser with its extensions and login sessions.
+
+## Script API (Python)
+
+A third way to use SilbercueChrome — deterministic browser automation from Python, without an LLM in the loop. The MCP server handles AI-driven workflows; the Script API is for repeatable scripts you write yourself.
+
+### Installation
+
+```bash
+pip install silbercuechrome
+```
+
+Or copy the single file [`python/silbercuechrome.py`](python/silbercuechrome.py) into your project — only `websockets` is required as a dependency.
+
+### Example: Login + Data Extraction
+
+```python
+from silbercuechrome import Chrome
+
+chrome = Chrome.connect(port=9222)
+
+with chrome.new_page() as page:
+    page.navigate("https://competitor.example.com/login")
+    page.fill({"#email": "tomek@shop.de", "#password": "***"})
+    page.click("button[type=submit]")
+    page.wait_for("text=Dashboard")
+
+    for cat in ["electronics", "furniture", "toys"]:
+        page.navigate(f"https://competitor.example.com/prices/{cat}")
+        prices = page.evaluate(
+            "[...document.querySelectorAll('tr')].map(r => r.textContent)"
+        )
+        save_csv(cat, prices)
+
+chrome.close()
+```
+
+### Methods
+
+| Method | Description |
+|---|---|
+| `Chrome.connect(host, port)` | Connect to a running Chrome instance |
+| `chrome.new_page(url)` | Context manager — opens a new tab, auto-closes on exit |
+| `page.navigate(url)` | Navigate and wait for load |
+| `page.click(selector)` | Click element by CSS selector |
+| `page.type(selector, text)` | Type text into an input |
+| `page.fill({"sel": "val"})` | Fill multiple form fields at once |
+| `page.wait_for(condition)` | Wait for JS condition or `"text=..."` shorthand |
+| `page.evaluate(expression)` | Run JavaScript, return result |
+| `page.download(path)` | Enable downloads, return download dir |
+| `page.close()` | Close the tab (auto-called by context manager) |
+
+### MCP Coexistence
+
+Chrome must be started with the `--script` flag (or manually with `--remote-debugging-port=9222`). Each script works in its own tab — MCP tabs are never touched. See [`python/README.md`](python/README.md) for the full API reference and advanced examples.
+
+### Enabling `--script` in MCP Config
+
+To use the Script API while the MCP server is running, add `"--script"` to the MCP config args. The `--` separator is required so npx passes the flag through:
+
+**Claude Code:**
+```bash
+claude mcp add --scope user silbercuechrome npx -y @silbercue/chrome@latest -- --script
+```
+
+**Cursor / Cline (`mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "silbercuechrome": {
+      "command": "npx",
+      "args": ["-y", "@silbercue/chrome@latest", "--", "--script"]
+    }
+  }
+}
+```
 
 ## Requirements
 
