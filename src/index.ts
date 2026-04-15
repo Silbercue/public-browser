@@ -87,15 +87,20 @@ if (isMainModule) {
     // `--attach` auf demselben Weg durchreichen.
     const attach = process.argv.includes("--attach");
 
-    // M2-Fix: Filter --attach from argv before dispatch so that e.g.
+    // Story 9.1: --script Flag parsen. Signalisiert dem MCP-Server, dass
+    // externe CDP-Clients (z.B. Python Script API) erwartet werden und
+    // extern erstellte Tabs ignoriert werden sollen.
+    const script = process.argv.includes("--script");
+
+    // M2-Fix: Filter --attach and --script from argv before dispatch so that e.g.
     // `silbercuechrome --attach version` correctly dispatches "version"
     // instead of treating "--attach" as argv[2] (unknown command → server start).
-    const filteredArgv = process.argv.filter((arg) => arg !== "--attach");
+    const filteredArgv = process.argv.filter((arg) => arg !== "--attach" && arg !== "--script");
 
     dispatchTopLevelCli(filteredArgv, import.meta.url)
       .then((handled) => {
         if (handled) return;
-        return startServer({ attach });
+        return startServer({ attach, script });
       })
       .catch((err) => {
         console.error("Fatal:", err);

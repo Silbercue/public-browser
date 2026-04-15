@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EVALUATE_STREAK_HINT_THRESHOLD,
+  EVALUATE_ANY_STREAK_THRESHOLD,
   FLAG_QUERY_SELECTOR,
   ToolSequenceTracker,
   hasQuerySelectorPattern,
@@ -262,5 +263,83 @@ describe("ToolSequenceTracker session scoping (BUG-018)", () => {
     tracker.record("evaluate", qs);
     // The same default session must be readable without a sessionId arg.
     expect(tracker.consecutiveEvaluateWithQuerySelector()).toBe(3);
+  });
+});
+
+// --- Story 23.1: Two-tier streak detection ---
+describe("ToolSequenceTracker ANY-evaluate streak (Story 23.1)", () => {
+  let tracker: ToolSequenceTracker;
+
+  beforeEach(() => {
+    tracker = new ToolSequenceTracker();
+  });
+
+  it("consecutiveEvaluateCalls counts ALL evaluate calls regardless of flags", () => {
+    tracker.record("evaluate"); // no qs flag
+    tracker.record("evaluate"); // no qs flag
+    tracker.record("evaluate"); // no qs flag
+    expect(tracker.consecutiveEvaluateCalls()).toBe(3);
+    expect(tracker.consecutiveEvaluateWithQuerySelector()).toBe(0); // no qs flag
+  });
+
+  it("any non-evaluate call resets the ANY streak", () => {
+    tracker.record("evaluate");
+    tracker.record("evaluate");
+    tracker.record("evaluate");
+    tracker.record("scroll"); // not in RESET_TOOLS, but still breaks evaluate streak
+    tracker.record("evaluate");
+    expect(tracker.consecutiveEvaluateCalls()).toBe(1);
+  });
+
+  it("maybeEvaluateStreakHint returns generic hint at ANY threshold", () => {
+    for (let i = 0; i < EVALUATE_ANY_STREAK_THRESHOLD; i++) {
+      tracker.record("evaluate"); // no qs flag
+    }
+    const hint = tracker.maybeEvaluateStreakHint();
+    expect(hint).toContain("Warning:");
+    expect(hint).toContain(`${EVALUATE_ANY_STREAK_THRESHOLD} consecutive evaluate`);
+    expect(hint).toContain("scroll");
+    expect(hint).toContain("handle_dialog");
+    expect(hint).toContain("network_monitor");
+  });
+
+  it("does NOT fire generic hint below threshold", () => {
+    for (let i = 0; i < EVALUATE_ANY_STREAK_THRESHOLD - 1; i++) {
+      tracker.record("evaluate");
+    }
+    expect(tracker.maybeEvaluateStreakHint()).toBe("");
+  });
+
+  it("querySelector hint takes priority when both thresholds met", () => {
+    const qs = new Set([FLAG_QUERY_SELECTOR]);
+    // 5+ evaluate calls, all with qs flag — both thresholds met
+    for (let i = 0; i < EVALUATE_ANY_STREAK_THRESHOLD; i++) {
+      tracker.record("evaluate", qs);
+    }
+    const hint = tracker.maybeEvaluateStreakHint();
+    // Should show the querySelector-specific hint (tier 1), not the generic one
+    expect(hint).toContain("querySelector-based evaluate");
+    expect(hint).not.toContain("handle_dialog"); // generic hint marker
+  });
+
+  it("generic hint fires when qs streak < 3 but total streak >= 5", () => {
+    const qs = new Set([FLAG_QUERY_SELECTOR]);
+    // 2 qs calls (below qs threshold) + 3 plain calls = 5 total
+    tracker.record("evaluate", qs);
+    tracker.record("evaluate", qs);
+    tracker.record("evaluate");
+    tracker.record("evaluate");
+    tracker.record("evaluate");
+    const hint = tracker.maybeEvaluateStreakHint();
+    expect(hint).toContain("handle_dialog"); // generic hint marker
+    expect(hint).not.toContain("querySelector-based"); // not the qs hint
+  });
+
+  it("session scoping works for ANY streak", () => {
+    for (let i = 0; i < EVALUATE_ANY_STREAK_THRESHOLD; i++) {
+      tracker.record("evaluate", undefined, "session-a");
+    }
+    expect(tracker.consecutiveEvaluateCalls("session-a")).toBe(EVALUATE_ANY_STREAK_THRESHOLD);
+    expect(tracker.consecutiveEvaluateCalls("session-b")).toBe(0);
   });
 });

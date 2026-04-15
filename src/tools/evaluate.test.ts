@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { evaluateHandler, evaluateSchema, wrapInIIFE, detectEvaluateAntiPattern } from "./evaluate.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { registerProHooks } from "../hooks/pro-hooks.js";
+import { toolSequence } from "../telemetry/tool-sequence.js";
 import type { ToolResponse } from "../types.js";
 
 function mockCdpClient(
@@ -30,8 +31,10 @@ describe("evaluateSchema", () => {
 
 describe("evaluateHandler", () => {
   // Story 15.2: Reset Pro hooks between tests so stale hooks don't leak
+  // Story 23.1: Reset toolSequence to prevent cross-test streak contamination
   beforeEach(() => {
     registerProHooks({});
+    toolSequence.reset();
   });
 
   it("should return string result from document.title", async () => {
@@ -254,6 +257,7 @@ describe("evaluateHandler", () => {
 describe("evaluateHandler visual feedback (Pro-Hook)", () => {
   beforeEach(() => {
     registerProHooks({});
+    toolSequence.reset();
   });
 
   it("without enhanceEvaluateResult hook returns plain text result for style-change expression", async () => {
@@ -767,11 +771,117 @@ describe("detectEvaluateAntiPattern", () => {
     );
     expect(hint ?? "").not.toMatch(/inspect_element/);
   });
+
+  // --- Story 23.1: Pattern 7 — Dialog/alert handling ---
+
+  it("hints on window.alert override", () => {
+    const hint = detectEvaluateAntiPattern("window.alert = () => {}");
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/handle_dialog/);
+  });
+
+  it("hints on window.confirm override", () => {
+    const hint = detectEvaluateAntiPattern("window.confirm = function() { return true; }");
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/handle_dialog/);
+  });
+
+  it("hints on window.prompt override", () => {
+    const hint = detectEvaluateAntiPattern("window.prompt = () => 'test'");
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/handle_dialog/);
+  });
+
+  it("does NOT hint on calling alert (not overriding)", () => {
+    // Calling alert() IS an anti-pattern (it blocks JS), but it's a
+    // string literal usage, not a reassignment — we hint on that too
+    const hint = detectEvaluateAntiPattern("alert('hello world')");
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/handle_dialog/);
+  });
+
+  it("does NOT hint on unrelated window property access", () => {
+    const hint = detectEvaluateAntiPattern("window.location.href");
+    expect(hint ?? "").not.toMatch(/handle_dialog/);
+  });
+
+  // --- Story 23.1: Pattern 8 — Page-level scrolling ---
+
+  it("hints on window.scrollTo()", () => {
+    const hint = detectEvaluateAntiPattern("window.scrollTo(0, document.body.scrollHeight)");
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/scroll\(/);
+    expect(hint).toMatch(/scrollHeight/i);
+  });
+
+  it("hints on window.scrollBy()", () => {
+    const hint = detectEvaluateAntiPattern("window.scrollBy(0, 500)");
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/scroll\(/);
+  });
+
+  it("does NOT double-hint when scrollIntoView is also present", () => {
+    // Pattern 4 should fire, but Pattern 8 should NOT add a second scroll hint
+    const hint = detectEvaluateAntiPattern("el.scrollIntoView({ block: 'center' })");
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/scroll/);
+    // Should only have ONE scroll-related tip, not two
+    const scrollTips = hint!.match(/scroll\(/g) ?? [];
+    expect(scrollTips.length).toBeLessThanOrEqual(2); // Pattern 4 ref + container
+  });
+
+  it("does NOT hint on scrollHeight read without scroll assignment", () => {
+    // Just reading scrollHeight is fine (e.g. measuring page size)
+    const hint = detectEvaluateAntiPattern("const h = document.documentElement.scrollHeight");
+    expect(hint ?? "").not.toMatch(/scroll\(direction/);
+  });
+
+  // --- Story 23.1: Pattern 9 — Authenticated fetch ---
+
+  it("hints on fetch with credentials/auth headers", () => {
+    const hint = detectEvaluateAntiPattern(
+      "fetch('/api/data', { credentials: 'include', headers: { 'Authorization': 'Bearer xyz' } })",
+    );
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/network_monitor/);
+    expect(hint).toMatch(/sessionStorage/);
+  });
+
+  it("hints on fetch with XSRF token", () => {
+    const hint = detectEvaluateAntiPattern(
+      "fetch(url, { headers: { 'x-apple-xsrf-token': token } })",
+    );
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/network_monitor/);
+  });
+
+  it("hints on XMLHttpRequest with CSRF", () => {
+    const hint = detectEvaluateAntiPattern(
+      "const xhr = new XMLHttpRequest(); xhr.setRequestHeader('X-CSRF-Token', csrfToken)",
+    );
+    expect(hint).not.toBeNull();
+    expect(hint).toMatch(/network_monitor/);
+  });
+
+  it("does NOT hint on plain fetch without auth signals", () => {
+    const hint = detectEvaluateAntiPattern(
+      "const resp = await fetch('/api/data'); const json = await resp.json(); json",
+    );
+    expect(hint ?? "").not.toMatch(/network_monitor/);
+  });
+
+  it("does NOT hint on fetch as a string in a comment or variable name", () => {
+    const hint = detectEvaluateAntiPattern(
+      "// we should fetch the data later\nconst fetchResult = 42; fetchResult",
+    );
+    expect(hint ?? "").not.toMatch(/network_monitor/);
+  });
 });
 
 describe("evaluateHandler anti-pattern hint integration", () => {
   beforeEach(() => {
     registerProHooks({});
+    toolSequence.reset();
   });
 
   it("appends anti-pattern hint to result when DOM-querying interactive elements", async () => {

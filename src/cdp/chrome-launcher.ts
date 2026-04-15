@@ -141,6 +141,7 @@ export function findChromePath(): string | null {
 
 const CHROME_FLAGS = [
   "--remote-debugging-pipe",
+  "--remote-debugging-port=9222",
   "--no-first-run",
   "--no-default-browser-check",
   "--disable-default-apps",

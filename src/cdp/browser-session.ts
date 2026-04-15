@@ -64,6 +64,7 @@ export interface IBrowserSession {
   readonly cdpClient: CdpClient;
   readonly sessionId: string;
   readonly headless: boolean;
+  readonly scriptMode: boolean;
   readonly tabStateCache: TabStateCache;
   readonly sessionDefaults: SessionDefaults;
   readonly sessionManager: SessionManager | undefined;
@@ -77,6 +78,22 @@ export interface IBrowserSession {
   waitForAXChange(timeoutMs: number): Promise<boolean>;
   /** Called by switch_tab when a new CDP session is attached on tab change. */
   applyTabSwitch(newSessionId: string): void;
+  /**
+   * Story 9.1: Check whether a target (tab) is owned by the MCP session.
+   * In script mode, only MCP-owned tabs are visible to MCP tools.
+   * In non-script mode, always returns true (all tabs are "owned").
+   */
+  isOwnedTarget(targetId: string): boolean;
+  /**
+   * Story 9.1: Register a newly created tab as MCP-owned.
+   * Called by switch_tab(action: "open") to track tabs created via MCP.
+   */
+  trackOwnedTarget(targetId: string): void;
+  /**
+   * Story 9.1: Unregister a tab from MCP ownership tracking.
+   * Called by switch_tab(action: "close") when an MCP tab is closed.
+   */
+  untrackOwnedTarget(targetId: string): void;
   shutdown(): Promise<void>;
 }
 
@@ -91,6 +108,13 @@ export interface BrowserSessionOptions {
    * interfere with the primary MCP session's tabs.
    */
   attachMode?: boolean;
+  /**
+   * Story 9.1: Script mode. When enabled, the MCP server uses set-based
+   * ownership tracking to distinguish MCP-created tabs from externally
+   * created tabs (e.g. Python Script API). MCP tools only operate on
+   * owned tabs; external tabs are invisible to switch_tab, virtual_desk, etc.
+   */
+  scriptMode?: boolean;
   /** Retry timings in milliseconds — exposed for tests; see class-level doc. */
   retryTimings?: {
     establishedDelays?: number[]; // delays before attempts 2..N for established sessions
@@ -108,6 +132,14 @@ export class BrowserSession implements IBrowserSession {
   private readonly _establishedDelays: number[];
   private readonly _freshDelays: number[];
   private readonly _attachMode: boolean;
+  private readonly _scriptMode: boolean;
+
+  /**
+   * Story 9.1: Set of target IDs that were created by the MCP session.
+   * In script mode, only these tabs are visible to MCP tools. External
+   * tabs (created by Python scripts or other CDP clients) are ignored.
+   */
+  private readonly _ownedTargetIds = new Set<string>();
 
   // Connection state — null until the first ensureReady() succeeds.
   private _connection: ChromeConnection | null = null;
@@ -139,6 +171,7 @@ export class BrowserSession implements IBrowserSession {
   constructor(options: BrowserSessionOptions = {}) {
     this._options = options;
     this._attachMode = options.attachMode ?? false;
+    this._scriptMode = options.scriptMode ?? false;
     this._launcher = new ChromeLauncher({
       profilePath: options.profilePath,
       headless: options.headless ?? false,
@@ -222,6 +255,30 @@ export class BrowserSession implements IBrowserSession {
   /** Current connection headedness — only meaningful after ensureReady(). */
   get headless(): boolean {
     return this._connection?.headless ?? this._options.headless ?? false;
+  }
+
+  /** Story 9.1: Whether script mode is active (external CDP clients expected). */
+  get scriptMode(): boolean {
+    return this._scriptMode;
+  }
+
+  /**
+   * Story 9.1: Check whether a target is owned by the MCP session.
+   * In non-script mode this always returns true (all tabs are "owned").
+   */
+  isOwnedTarget(targetId: string): boolean {
+    if (!this._scriptMode) return true;
+    return this._ownedTargetIds.has(targetId);
+  }
+
+  /** Story 9.1: Register a tab as MCP-owned. */
+  trackOwnedTarget(targetId: string): void {
+    this._ownedTargetIds.add(targetId);
+  }
+
+  /** Story 9.1: Unregister a tab from MCP ownership. */
+  untrackOwnedTarget(targetId: string): void {
+    this._ownedTargetIds.delete(targetId);
   }
 
   // ── Relaunch notice ─────────────────────────────────────────────────
@@ -395,6 +452,13 @@ export class BrowserSession implements IBrowserSession {
     );
     this._sessionId = sessionId;
     this._pageTargetId = pageTarget.targetId;
+
+    // Story 9.1: Track the initial tab as MCP-owned. In script mode this
+    // ensures the first tab is visible to MCP tools while externally
+    // created tabs are ignored.
+    if (this._scriptMode) {
+      this._ownedTargetIds.add(pageTarget.targetId);
+    }
 
     // 2. Activate CDP domains on the page session.
     await cdpClient.send("Runtime.enable", {}, sessionId);

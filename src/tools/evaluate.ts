@@ -180,6 +180,43 @@ export function detectEvaluateAntiPattern(expression: string): string | null {
     }
   }
 
+  // Pattern 7: Dialog/alert handling via JS override.
+  // handle_dialog uses CDP Page.javascriptDialogOpening and works even when the
+  // dialog blocks JS execution. evaluate-based overrides only prevent future
+  // dialogs, they can't dismiss one that's already open.
+  if (/\bwindow\.(alert|confirm|prompt)\s*=/.test(expression) ||
+      /\balert\s*\(\s*['"`]/.test(expression)) {
+    hints.push(
+      "Handling browser dialogs? Use handle_dialog(action: 'dismiss') or handle_dialog(action: 'accept') — it hooks into CDP Page.javascriptDialogOpening and works even when the dialog blocks JS execution. evaluate-based overrides (window.alert = ...) only prevent future dialogs.",
+    );
+  }
+
+  // Pattern 8: Page-level scrolling via window.scrollTo/scrollBy.
+  // Distinct from Pattern 4 (scrollIntoView on elements). The scroll tool
+  // tracks scrollHeight growth, which is critical for detecting lazy-loaded
+  // content on infinite-scroll pages.
+  if (/\bwindow\.scroll(To|By)\s*\(/.test(expression) ||
+      /\bdocument\.(documentElement|body)\.scroll(Top|Height)\s*[=+]/.test(expression)) {
+    // Don't fire if we already hinted Pattern 4 (scrollIntoView)
+    if (!/\.scrollIntoView\s*\(/.test(expression)) {
+      hints.push(
+        "Scrolling the page? Use scroll(direction: 'down', amount: 500) — it returns current position and whether new content loaded (scrollHeight grew by Npx). For infinite-scroll pages: repeat scroll calls until scrollHeight stabilizes.",
+      );
+    }
+  }
+
+  // Pattern 9: Authenticated fetch — detect auth-fumbling patterns.
+  // Plain fetch() is a valid evaluate use case. But when the expression
+  // includes auth-related signals (headers, tokens, credentials, CSRF),
+  // the LLM is likely struggling with authentication — guide it.
+  const hasFetch = /\bfetch\s*\(/.test(expression) || /new\s+XMLHttpRequest\s*\(/.test(expression);
+  const hasAuthSignals = /\b(credentials|Authorization|x-.*token|xsrf|csrf|X-Requested-With)\b/i.test(expression);
+  if (hasFetch && hasAuthSignals) {
+    hints.push(
+      "Struggling with authenticated requests? For same-origin fetch: cookies are sent automatically with { credentials: 'include' }. CSRF/XSRF tokens are typically in sessionStorage (check sessionStorage.getItem('...')). For discovering API endpoints: use network_monitor(action: 'start') before clicking the button, then network_monitor(action: 'get', pattern: 'api') to see captured URLs.",
+    );
+  }
+
   if (hints.length === 0) return null;
   return "\n\nTip: " + hints.join("\n\nTip: ");
 }

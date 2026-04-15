@@ -92,6 +92,20 @@ export function _getOriginTabId(): string | undefined {
 const STALE_REFS_HINT = "\n\nNote: Element refs from the previous tab are no longer valid. Call view_page for fresh refs.";
 
 /**
+ * Story 9.1: Optional tab ownership callbacks for script mode.
+ * When provided, MCP tools only operate on owned tabs — externally
+ * created tabs (e.g. by Python Script API) are filtered out.
+ */
+export interface TabOwnership {
+  /** Return true if the target is owned by the MCP session. */
+  filter(targetId: string): boolean;
+  /** Register a newly created tab as MCP-owned. */
+  track(targetId: string): void;
+  /** Unregister a closed tab from MCP ownership. */
+  untrack(targetId: string): void;
+}
+
+/**
  * Attach to a target, enable CDP domains, re-attach TabStateCache listeners,
  * and propagate the new sessionId. Shared by all three actions.
  */
@@ -160,6 +174,7 @@ export async function switchTabHandler(
   tabStateCache: TabStateCache,
   onSessionChange: (newSessionId: string) => void,
   sessionManager?: SessionManager,
+  tabOwnership?: TabOwnership,
 ): Promise<ToolResponse> {
   const start = performance.now();
   const method = "switch_tab";
@@ -169,7 +184,7 @@ export async function switchTabHandler(
     try {
       switch (params.action) {
         case "open":
-          return await handleOpen(params, cdpClient, tabStateCache, onSessionChange, start, method, sessionManager);
+          return await handleOpen(params, cdpClient, tabStateCache, onSessionChange, start, method, sessionManager, tabOwnership);
         case "switch":
           return await handleSwitch(
             params,
@@ -179,6 +194,7 @@ export async function switchTabHandler(
             start,
             method,
             sessionManager,
+            tabOwnership,
           );
         case "close":
           return await handleClose(
@@ -189,6 +205,7 @@ export async function switchTabHandler(
             onSessionChange,
             start,
             method,
+            tabOwnership,
           );
       }
     } catch (err) {
@@ -210,6 +227,7 @@ async function handleOpen(
   start: number,
   method: string,
   sessionManager?: SessionManager,
+  tabOwnership?: TabOwnership,
 ): Promise<ToolResponse> {
   const url = params.url ?? "about:blank";
 
@@ -220,6 +238,9 @@ async function handleOpen(
   const { targetId } = await cdpClient.send<{ targetId: string }>("Target.createTarget", {
     url,
   });
+
+  // Story 9.1: Track the new tab as MCP-owned
+  tabOwnership?.track(targetId);
 
   // Activate session on the new tab
   const newSessionId = await activateSession(cdpClient, targetId, tabStateCache, onSessionChange);
@@ -267,11 +288,13 @@ async function handleSwitch(
   start: number,
   method: string,
   sessionManager?: SessionManager,
+  tabOwnership?: TabOwnership,
 ): Promise<ToolResponse> {
   if (!params.tab) {
     // No tab: list available tabs so the LLM can pick one
     const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
-    const pageTabs = targetInfos.filter((t) => t.type === "page");
+    // Story 9.1: Filter to owned tabs only when tab ownership tracking is active
+    const pageTabs = targetInfos.filter((t) => t.type === "page" && (!tabOwnership || tabOwnership.filter(t.targetId)));
     const activeId = tabStateCache.activeTargetId;
     const lines = pageTabs.map((t, i) => {
       const marker = t.targetId === activeId ? "★" : " ";
@@ -285,7 +308,8 @@ async function handleSwitch(
 
   // Verify tab exists before switching (supports numeric index or targetId)
   const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
-  const pageTabs = targetInfos.filter((t) => t.type === "page");
+  // Story 9.1: Filter to owned tabs only when tab ownership tracking is active
+  const pageTabs = targetInfos.filter((t) => t.type === "page" && (!tabOwnership || tabOwnership.filter(t.targetId)));
   const resolvedId = resolveTabId(params.tab!, pageTabs);
   if (!resolvedId) {
     return {
@@ -365,10 +389,12 @@ async function handleClose(
   onSessionChange: (newSessionId: string) => void,
   start: number,
   method: string,
+  tabOwnership?: TabOwnership,
 ): Promise<ToolResponse> {
   // Get all page tabs to check if this is the last one
   const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
-  const pageTabs = targetInfos.filter((t) => t.type === "page");
+  // Story 9.1: Filter to owned tabs only when tab ownership tracking is active
+  const pageTabs = targetInfos.filter((t) => t.type === "page" && (!tabOwnership || tabOwnership.filter(t.targetId)));
 
   // Resolve tab (supports numeric index or targetId)
   let targetTab: string | undefined;
@@ -403,6 +429,7 @@ async function handleClose(
       "Target.createTarget",
       { url: "about:blank" },
     );
+    tabOwnership?.track(blankTabId); // Story 9.1: Track the replacement tab
     newActiveTab = blankTabId;
   } else if (isActiveTab) {
     // Prefer origin tab (the tab we came from) if it still exists
@@ -451,6 +478,7 @@ async function handleClose(
           // Still close the intended target
           await cdpClient.send("Target.closeTarget", { targetId: targetTab });
           tabStateCache.invalidate(targetTab);
+          tabOwnership?.untrack(targetTab); // Story 9.1
           _originTabId = undefined; // Reset after close
           const { state } = await tabStateCache.getOrFetch(
             cdpClient,
@@ -477,6 +505,7 @@ async function handleClose(
     // Now safely close the old tab and clean up
     await cdpClient.send("Target.closeTarget", { targetId: targetTab });
     tabStateCache.invalidate(targetTab);
+    tabOwnership?.untrack(targetTab); // Story 9.1
 
     const usedOrigin = newActiveTab === _originTabId;
     _originTabId = undefined; // Reset after close
@@ -502,6 +531,7 @@ async function handleClose(
   // Non-active tab was closed, no switch needed
   await cdpClient.send("Target.closeTarget", { targetId: targetTab });
   tabStateCache.invalidate(targetTab);
+  tabOwnership?.untrack(targetTab); // Story 9.1
 
   const elapsedMs = Math.round(performance.now() - start);
   return {

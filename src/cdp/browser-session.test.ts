@@ -446,3 +446,68 @@ describe("BrowserSession — attach mode (Story 22.3)", () => {
     expect(launcher._autoLaunch).toBe(false);
   });
 });
+
+// ── Story 9.1: Script mode — tab ownership tracking ──────────────────
+
+describe("BrowserSession — scriptMode ownership tracking", () => {
+  it("scriptMode defaults to false", () => {
+    const session = new BrowserSession();
+    expect(session.scriptMode).toBe(false);
+  });
+
+  it("scriptMode=true is reflected by the getter", () => {
+    const session = new BrowserSession({ scriptMode: true });
+    expect(session.scriptMode).toBe(true);
+  });
+
+  it("isOwnedTarget always returns true when scriptMode is false", () => {
+    const session = new BrowserSession({ scriptMode: false });
+    expect(session.isOwnedTarget("any-target-id")).toBe(true);
+    expect(session.isOwnedTarget("another-id")).toBe(true);
+  });
+
+  it("isOwnedTarget returns false for untracked targets in script mode", () => {
+    const session = new BrowserSession({ scriptMode: true });
+    expect(session.isOwnedTarget("unknown-tab")).toBe(false);
+  });
+
+  it("trackOwnedTarget makes the target visible to isOwnedTarget", () => {
+    const session = new BrowserSession({ scriptMode: true });
+    session.trackOwnedTarget("tab-1");
+    expect(session.isOwnedTarget("tab-1")).toBe(true);
+    expect(session.isOwnedTarget("tab-2")).toBe(false);
+  });
+
+  it("untrackOwnedTarget removes the target from ownership", () => {
+    const session = new BrowserSession({ scriptMode: true });
+    session.trackOwnedTarget("tab-1");
+    expect(session.isOwnedTarget("tab-1")).toBe(true);
+
+    session.untrackOwnedTarget("tab-1");
+    expect(session.isOwnedTarget("tab-1")).toBe(false);
+  });
+
+  it("untrackOwnedTarget is a no-op for unknown targets", () => {
+    const session = new BrowserSession({ scriptMode: true });
+    // Should not throw
+    session.untrackOwnedTarget("nonexistent");
+    expect(session.isOwnedTarget("nonexistent")).toBe(false);
+  });
+
+  it("multiple targets can be tracked simultaneously", () => {
+    const session = new BrowserSession({ scriptMode: true });
+    session.trackOwnedTarget("tab-a");
+    session.trackOwnedTarget("tab-b");
+    session.trackOwnedTarget("tab-c");
+
+    expect(session.isOwnedTarget("tab-a")).toBe(true);
+    expect(session.isOwnedTarget("tab-b")).toBe(true);
+    expect(session.isOwnedTarget("tab-c")).toBe(true);
+    expect(session.isOwnedTarget("tab-d")).toBe(false);
+
+    session.untrackOwnedTarget("tab-b");
+    expect(session.isOwnedTarget("tab-a")).toBe(true);
+    expect(session.isOwnedTarget("tab-b")).toBe(false);
+    expect(session.isOwnedTarget("tab-c")).toBe(true);
+  });
+});

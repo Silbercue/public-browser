@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { switchTabHandler, _resetSwitchLock, _resetOriginTab, _getOriginTabId } from "./switch-tab.js";
+import type { TabOwnership } from "./switch-tab.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { DEVICE_METRICS_OVERRIDE } from "../cdp/emulation.js";
@@ -1111,5 +1112,212 @@ describe("switchTabHandler — origin tab tracking (FR-001)", () => {
 
     _resetOriginTab();
     expect(_getOriginTabId()).toBeUndefined();
+  });
+});
+
+// ── Story 9.1: TabOwnership filtering ────────────────────────────────
+
+describe("switchTabHandler — Story 9.1 TabOwnership", () => {
+  /** Simple ownership tracker for tests. */
+  function createOwnership(initialOwned: string[]): TabOwnership & { owned: Set<string> } {
+    const owned = new Set(initialOwned);
+    return {
+      owned,
+      filter: (id: string) => owned.has(id),
+      track: (id: string) => owned.add(id),
+      untrack: (id: string) => owned.delete(id),
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    _resetSwitchLock();
+    _resetOriginTab();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("switch (list) — only shows owned tabs", async () => {
+    const responses = {
+      ...defaultCdpResponses,
+      "Target.getTargets": {
+        targetInfos: [
+          { targetId: "T1", type: "page", url: "https://a.com", title: "A" },
+          { targetId: "T2", type: "page", url: "https://b.com", title: "B" },
+          { targetId: "SCRIPT-TAB", type: "page", url: "https://script.com", title: "Script" },
+        ],
+      },
+    };
+    const { cdpClient } = createMockCdp(responses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const ownership = createOwnership(["T1", "T2"]);
+
+    const result = await switchTabHandler(
+      { action: "switch" }, // no tab → list tabs
+      cdpClient,
+      "session-1",
+      cache,
+      vi.fn(),
+      undefined,
+      ownership,
+    );
+
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    expect(text).toContain("T1");
+    expect(text).toContain("T2");
+    expect(text).not.toContain("SCRIPT-TAB");
+    expect(text).toContain("2 open");
+  });
+
+  it("switch — blocks switching to non-owned tab", async () => {
+    const responses = {
+      ...defaultCdpResponses,
+      "Target.getTargets": {
+        targetInfos: [
+          { targetId: "T1", type: "page", url: "https://a.com", title: "A" },
+          { targetId: "SCRIPT-TAB", type: "page", url: "https://script.com", title: "Script" },
+        ],
+      },
+    };
+    const { cdpClient } = createMockCdp(responses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const ownership = createOwnership(["T1"]);
+
+    const result = await switchTabHandler(
+      { action: "switch", tab: "SCRIPT-TAB" },
+      cdpClient,
+      "session-1",
+      cache,
+      vi.fn(),
+      undefined,
+      ownership,
+    );
+
+    expect(result.isError).toBe(true);
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    expect(text).toContain("not found");
+  });
+
+  it("open — tracks the new tab as owned", async () => {
+    const { cdpClient, emitLifecycle } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T-OLD");
+    const ownership = createOwnership(["T-OLD"]);
+
+    const promise = switchTabHandler(
+      { action: "open", url: "https://new.com" },
+      cdpClient,
+      "session-1",
+      cache,
+      vi.fn(),
+      undefined,
+      ownership,
+    );
+
+    // settle needs lifecycle events
+    await vi.advanceTimersByTimeAsync(100);
+    emitLifecycle({ name: "DOMContentLoaded", frameId: "frame-1" });
+    await vi.advanceTimersByTimeAsync(100);
+    emitLifecycle({ name: "networkIdle", frameId: "frame-1" });
+    await vi.advanceTimersByTimeAsync(600);
+
+    const result = await promise;
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    expect(text).toContain("Tab opened: T-NEW");
+    expect(ownership.owned.has("T-NEW")).toBe(true);
+  });
+
+  it("close — blocks closing a non-owned tab", async () => {
+    const responses = {
+      ...defaultCdpResponses,
+      "Target.getTargets": {
+        targetInfos: [
+          { targetId: "T1", type: "page", url: "https://a.com", title: "A" },
+          { targetId: "SCRIPT-TAB", type: "page", url: "https://script.com", title: "Script" },
+        ],
+      },
+    };
+    const { cdpClient } = createMockCdp(responses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const ownership = createOwnership(["T1"]);
+
+    const result = await switchTabHandler(
+      { action: "close", tab: "SCRIPT-TAB" },
+      cdpClient,
+      "session-1",
+      cache,
+      vi.fn(),
+      undefined,
+      ownership,
+    );
+
+    expect(result.isError).toBe(true);
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    expect(text).toContain("not found");
+  });
+
+  it("close — untracks the closed tab", async () => {
+    const responses = {
+      ...defaultCdpResponses,
+      "Target.getTargets": {
+        targetInfos: [
+          { targetId: "T1", type: "page", url: "https://a.com", title: "A" },
+          { targetId: "T2", type: "page", url: "https://b.com", title: "B" },
+        ],
+      },
+    };
+    const { cdpClient } = createMockCdp(responses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    const ownership = createOwnership(["T1", "T2"]);
+
+    await switchTabHandler(
+      { action: "close", tab: "T2" },
+      cdpClient,
+      "session-1",
+      cache,
+      vi.fn(),
+      undefined,
+      ownership,
+    );
+
+    expect(ownership.owned.has("T2")).toBe(false);
+    expect(ownership.owned.has("T1")).toBe(true);
+  });
+
+  it("without TabOwnership — all tabs are visible (backward compat)", async () => {
+    const responses = {
+      ...defaultCdpResponses,
+      "Target.getTargets": {
+        targetInfos: [
+          { targetId: "T1", type: "page", url: "https://a.com", title: "A" },
+          { targetId: "T2", type: "page", url: "https://b.com", title: "B" },
+          { targetId: "T3", type: "page", url: "https://c.com", title: "C" },
+        ],
+      },
+    };
+    const { cdpClient } = createMockCdp(responses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+
+    // No tabOwnership argument → backward-compatible
+    const result = await switchTabHandler(
+      { action: "switch" },
+      cdpClient,
+      "session-1",
+      cache,
+      vi.fn(),
+    );
+
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    expect(text).toContain("3 open");
+    expect(text).toContain("T1");
+    expect(text).toContain("T2");
+    expect(text).toContain("T3");
   });
 });

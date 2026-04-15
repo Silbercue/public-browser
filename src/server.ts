@@ -25,10 +25,18 @@ import { VERSION } from "./version.js";
 export interface StartServerOptions {
   /** Attach-only mode: connect to existing Chrome, no auto-launch, no reconnect. */
   attach?: boolean;
+  /**
+   * Story 9.1: Script-mode flag. Signals the MCP server that external CDP
+   * clients (e.g. Python Script API) are expected on port 9222. The server
+   * uses set-based ownership tracking so externally created tabs are
+   * ignored by MCP tools (switch_tab, virtual_desk, navigate).
+   */
+  script?: boolean;
 }
 
 export async function startServer(options?: StartServerOptions): Promise<void> {
   const attachMode = options?.attach ?? false;
+  const scriptMode = options?.script ?? false;
 
   // 1. Read environment — no Chrome is touched here.
   const profilePath = process.env.SILBERCUE_CHROME_PROFILE || undefined;
@@ -53,6 +61,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     headless: headlessEnv,
     autoLaunch,
     attachMode,
+    scriptMode,
   });
 
   // 2b. Attach mode: eagerly validate that Chrome is reachable. Fail fast
@@ -72,6 +81,11 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
       );
       process.exit(1);
     }
+  }
+
+  // 2c. Script mode: log to stderr for operator visibility.
+  if (scriptMode) {
+    console.error("SilbercueChrome --script: external CDP clients expected, tab ownership tracking enabled");
   }
 
   // 3. Resolve licence status (pure metadata — no CDP calls).

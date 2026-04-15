@@ -49,12 +49,19 @@ function inferLoadingState(target: TargetInfo): "loading" | "ready" {
   return "ready";
 }
 
+/**
+ * Story 9.1: Optional filter predicate for script mode.
+ * When provided, only tabs passing this filter are shown in the desk view.
+ */
+export type TabFilter = (targetId: string) => boolean;
+
 export async function virtualDeskHandler(
   _params: VirtualDeskParams,
   cdpClient: CdpClient,
   sessionId: string | undefined,
   tabStateCache: TabStateCache,
   connectionStatus?: ConnectionStatus,
+  tabFilter?: TabFilter,
 ): Promise<ToolResponse> {
   const start = performance.now();
   const method = "virtual_desk";
@@ -88,7 +95,8 @@ export async function virtualDeskHandler(
     const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>(
       "Target.getTargets",
     );
-    const pageTabs = targetInfos.filter((t) => t.type === "page");
+    // Story 9.1: In script mode, only show MCP-owned tabs
+    const pageTabs = targetInfos.filter((t) => t.type === "page" && (!tabFilter || tabFilter(t.targetId)));
 
     if (pageTabs.length === 0) {
       return {

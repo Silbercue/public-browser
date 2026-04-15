@@ -464,3 +464,65 @@ describe("virtualDeskHandler", () => {
     expect(result._meta?.tabCount).toBe(5);
   });
 });
+
+// ── Story 9.1: TabFilter ─────────────────────────────────────────────
+
+describe("virtualDeskHandler — Story 9.1 tabFilter", () => {
+  it("filters out non-owned tabs when tabFilter is provided", async () => {
+    const targets = [
+      { targetId: "T1", type: "page" as const, url: "https://mcp.com", title: "MCP Tab" },
+      { targetId: "T2", type: "page" as const, url: "https://script.com", title: "Script Tab" },
+      { targetId: "T3", type: "page" as const, url: "https://mcp2.com", title: "MCP Tab 2" },
+    ];
+    const cdp = createMockCdp({
+      "Target.getTargets": { targetInfos: targets },
+    });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+
+    const ownedSet = new Set(["T1", "T3"]);
+    const tabFilter = (id: string) => ownedSet.has(id);
+
+    const result = await virtualDeskHandler({}, cdp, undefined, cache, undefined, tabFilter);
+
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    expect(text).toContain("T1");
+    expect(text).toContain("T3");
+    expect(text).not.toContain("T2");
+    expect(text).not.toContain("Script Tab");
+  });
+
+  it("shows all tabs when no tabFilter is provided (backward compat)", async () => {
+    const targets = [
+      { targetId: "T1", type: "page" as const, url: "https://a.com", title: "A" },
+      { targetId: "T2", type: "page" as const, url: "https://b.com", title: "B" },
+    ];
+    const cdp = createMockCdp({
+      "Target.getTargets": { targetInfos: targets },
+    });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+
+    // No tabFilter → all tabs shown
+    const result = await virtualDeskHandler({}, cdp, undefined, cache);
+
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    expect(text).toContain("T1");
+    expect(text).toContain("T2");
+  });
+
+  it("returns 'No open tabs' when all tabs are filtered out", async () => {
+    const targets = [
+      { targetId: "SCRIPT-ONLY", type: "page" as const, url: "https://script.com", title: "Script" },
+    ];
+    const cdp = createMockCdp({
+      "Target.getTargets": { targetInfos: targets },
+    });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+
+    const tabFilter = () => false; // Filter out everything
+    const result = await virtualDeskHandler({}, cdp, undefined, cache, undefined, tabFilter);
+
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    expect(text).toBe("No open tabs");
+  });
+});

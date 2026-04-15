@@ -28,9 +28,9 @@ import type { TypeParams } from "./tools/type.js";
 import { tabStatusHandler } from "./tools/tab-status.js";
 import type { TabStatusParams } from "./tools/tab-status.js";
 import { switchTabSchema, switchTabHandler } from "./tools/switch-tab.js";
-import type { SwitchTabParams } from "./tools/switch-tab.js";
+import type { SwitchTabParams, TabOwnership } from "./tools/switch-tab.js";
 import { virtualDeskHandler } from "./tools/virtual-desk.js";
-import type { VirtualDeskParams } from "./tools/virtual-desk.js";
+import type { VirtualDeskParams, TabFilter } from "./tools/virtual-desk.js";
 import { runPlanSchema, runPlanHandler } from "./tools/run-plan.js";
 import type { RunPlanParams } from "./tools/run-plan.js";
 import { domSnapshotSchema, domSnapshotHandler } from "./tools/dom-snapshot.js";
@@ -403,6 +403,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         get cdpClient() { return legacyState.cdpClient; },
         get sessionId() { return legacyState.sessionId; },
         headless: false,
+        scriptMode: false,
         tabStateCache: legacyTabCache,
         sessionDefaults: legacySessionDefaults,
         sessionManager,
@@ -421,6 +422,10 @@ export class ToolRegistry implements ToolRegistryPublic {
             dialogHandler.reinit(legacyState.cdpClient, newSessionId);
           }
         },
+        // Story 9.1: Legacy path — no script mode, all tabs are "owned"
+        isOwnedTarget: () => true,
+        trackOwnedTarget: () => { /* legacy: no-op */ },
+        untrackOwnedTarget: () => { /* legacy: no-op */ },
         shutdown: async () => { /* legacy: no-op */ },
       };
       this._browserSession = session;
@@ -1053,6 +1058,21 @@ export class ToolRegistry implements ToolRegistryPublic {
     // launch on the very first tool call and handles silent re-launch after
     // connection loss, all transparent to the individual tool handler.
     const browserSession = this._browserSession;
+
+    // Story 9.1: Build tab ownership callbacks for script mode.
+    // In script mode, MCP tools only operate on MCP-owned tabs.
+    const tabOwnership: TabOwnership | undefined = browserSession.scriptMode
+      ? {
+          filter: (id: string) => browserSession.isOwnedTarget(id),
+          track: (id: string) => browserSession.trackOwnedTarget(id),
+          untrack: (id: string) => browserSession.untrackOwnedTarget(id),
+        }
+      : undefined;
+    // TabFilter for virtual_desk (same predicate, simpler type)
+    const tabFilter: TabFilter | undefined = tabOwnership
+      ? (id: string) => tabOwnership.filter(id)
+      : undefined;
+
     const injectRelaunchNotice = (result: ToolResponse): void => {
       const notice = browserSession.consumeRelaunchNotice();
       if (notice) {
@@ -1278,6 +1298,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           this.sessionId,
           this._browserSession.tabStateCache,
           undefined /* connectionStatus removed in lazy-launch refactor */,
+          tabFilter,
         );
       }, finalHooks), "virtual_desk"),
     );
@@ -1427,6 +1448,7 @@ export class ToolRegistry implements ToolRegistryPublic {
             this.sessionId,
             this._browserSession.tabStateCache,
             undefined /* connectionStatus removed in lazy-launch refactor */,
+            tabFilter,
           );
           const tabList = vdResult.content?.[0]?.type === "text" ? vdResult.content[0].text : "";
           return {
@@ -1456,6 +1478,7 @@ export class ToolRegistry implements ToolRegistryPublic {
             this._browserSession.applyTabSwitch(newSessionId);
           },
           this._browserSession.sessionManager,
+          tabOwnership,
         );
       }, finalHooks), "switch_tab"),
     );
@@ -1829,6 +1852,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           this._browserSession.applyTabSwitch(newSessionId);
         },
         this._browserSession.sessionManager,
+        tabOwnership,
       );
     });
     this._handlers.set("virtual_desk", async (params, sessionIdOverride?) => {
@@ -1846,6 +1870,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         sessionIdOverride ?? this.sessionId,
         this._browserSession.tabStateCache,
         undefined /* connectionStatus removed in lazy-launch refactor */,
+        tabFilter,
       );
     });
     this._handlers.set("dom_snapshot", async (params, sessionIdOverride?) => {

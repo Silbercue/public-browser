@@ -28,8 +28,11 @@
  * is tracked separately by the evaluate anti-pattern hints.
  */
 
-/** Threshold at which the streak-detector emits a hint. */
+/** Threshold at which the querySelector streak-detector emits a hint. */
 export const EVALUATE_STREAK_HINT_THRESHOLD = 3;
+
+/** Threshold for ANY consecutive evaluate calls (regardless of flags). */
+export const EVALUATE_ANY_STREAK_THRESHOLD = 5;
 
 /** Maximum number of events kept in memory per session (ring-buffer trim). */
 const MAX_EVENTS = 64;
@@ -110,20 +113,59 @@ export class ToolSequenceTracker {
   }
 
   /**
-   * Build an anti-spiral hint string when the querySelector evaluate
-   * streak has reached the threshold for the given session. Returns the
-   * empty string when no hint should be emitted, so it can be safely
-   * concatenated to any response text.
+   * Count consecutive evaluate calls of ANY kind (regardless of flags).
+   * Any non-evaluate call terminates the streak. Used for the broader
+   * "you've been using evaluate a lot" hint that fires at a higher
+   * threshold than the querySelector-specific one.
+   */
+  consecutiveEvaluateCalls(sessionId?: string): number {
+    const sid = sessionId ?? DEFAULT_SESSION;
+    const events = this.bySession.get(sid);
+    if (!events) return 0;
+    const cutoff = Date.now() - STREAK_WINDOW_MS;
+    let count = 0;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i];
+      if (ev.timestamp < cutoff) break;
+      if (ev.tool !== "evaluate") break;
+      count++;
+    }
+    return count;
+  }
+
+  /**
+   * Build an anti-spiral hint string. Two tiers:
+   *  1. querySelector streak ≥ 3 → specific stale-ref hint (takes priority)
+   *  2. ANY evaluate streak ≥ 5 → generic "consider dedicated tools" hint
+   * Returns empty string when no hint should be emitted.
    */
   maybeEvaluateStreakHint(sessionId?: string): string {
-    const streak = this.consecutiveEvaluateWithQuerySelector(sessionId);
-    if (streak < EVALUATE_STREAK_HINT_THRESHOLD) return "";
-    return (
-      `\n\nWarning: ${streak} consecutive querySelector-based evaluate calls detected. ` +
-      `This usually means a ref went stale or a tool failed silently and you fell back to evaluate. ` +
-      `Call view_page once for fresh refs, then continue with click/type/fill_form. ` +
-      `evaluate is a last resort — routing around tool errors wastes tokens and hides real bugs.`
-    );
+    // Tier 1: querySelector-specific (more actionable, takes priority)
+    const qsStreak = this.consecutiveEvaluateWithQuerySelector(sessionId);
+    if (qsStreak >= EVALUATE_STREAK_HINT_THRESHOLD) {
+      return (
+        `\n\nWarning: ${qsStreak} consecutive querySelector-based evaluate calls detected. ` +
+        `This usually means a ref went stale or a tool failed silently and you fell back to evaluate. ` +
+        `Call view_page once for fresh refs, then continue with click/type/fill_form. ` +
+        `evaluate is a last resort — routing around tool errors wastes tokens and hides real bugs.`
+      );
+    }
+
+    // Tier 2: ANY evaluate streak (broader, catches non-querySelector spirals)
+    const anyStreak = this.consecutiveEvaluateCalls(sessionId);
+    if (anyStreak >= EVALUATE_ANY_STREAK_THRESHOLD) {
+      return (
+        `\n\nWarning: ${anyStreak} consecutive evaluate calls. Dedicated tools that may help:\n` +
+        `• scroll — for page/container scrolling (tracks content growth)\n` +
+        `• handle_dialog — for browser alerts/confirms/prompts\n` +
+        `• network_monitor — for API endpoint discovery (start → action → get)\n` +
+        `• click/type — for interaction (evaluate .click() skips React event handlers)\n` +
+        `• wait_for — for waiting on conditions (instead of setTimeout/polling)\n` +
+        `If your task genuinely requires evaluate (in-page computation, fetch), this warning is safe to ignore.`
+      );
+    }
+
+    return "";
   }
 
   /** Total events tracked across all sessions (mostly useful for tests). */
