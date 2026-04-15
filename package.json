@@ -1,11 +1,12 @@
 {
   "name": "@silbercue/chrome",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "SilbercueChrome MCP Server \u2014 Chrome browser automation via CDP",
   "type": "module",
   "files": [
     "build/",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "package.json"
   ],
