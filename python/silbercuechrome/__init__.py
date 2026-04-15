@@ -4,4 +4,5 @@ from silbercuechrome.cdp import CdpClient, CdpError
 from silbercuechrome.chrome import Chrome
 from silbercuechrome.page import Page
 
+__version__ = "1.0.0"
 __all__ = ["Chrome", "Page", "CdpClient", "CdpError"]

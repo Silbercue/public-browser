@@ -5,21 +5,56 @@ build-backend = "hatchling.build"
 [project]
 name = "silbercuechrome"
 version = "1.0.0"
-description = "Minimal CDP client for Chrome browser automation"
+description = "Minimal CDP client for Chrome browser automation — control Chrome from Python via the DevTools Protocol."
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Julian Friedrich" },
 ]
+readme = "README.md"
+keywords = ["chrome", "cdp", "browser", "automation", "devtools", "websocket", "scraping"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
 dependencies = [
     "websockets>=14.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/silbercue/silbercuechrome"
+Documentation = "https://github.com/silbercue/silbercuechrome#script-api-python"
+Repository = "https://github.com/silbercue/silbercuechrome"
+Issues = "https://github.com/silbercue/silbercuechrome/issues"
+Changelog = "https://github.com/silbercue/silbercuechrome/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.4",
+    "build>=1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["silbercuechrome"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "silbercuechrome/",
+    "README.md",
+    "LICENSE",
 ]
 
 [tool.pytest.ini_options]
