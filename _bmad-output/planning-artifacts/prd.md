@@ -39,8 +39,10 @@ workflowType: 'prd'
 project: SilbercueChrome
 author: Julian
 date: 2026-04-14
-lastEdited: '2026-04-15'
+lastEdited: '2026-04-16'
 editHistory:
+  - date: '2026-04-16'
+    changes: 'Script API v2: FR37+FR39+Executive Summary auf Shared Core umgestellt (Scripts nutzen MCP-Tool-Implementierungen statt eigener CDP-Logik). Sprint Change Proposal 2026-04-16.'
   - date: '2026-04-15'
     changes: 'Script API (FR34-FR39, NFR19, Journey 5 Tomek) restauriert und von Growth nach v1.0 MVP verschoben'
 ---
@@ -60,7 +62,7 @@ Gleichwertiger zweiter Hebel ist Tool-Steering: Das LLM muss nicht nur schnell a
 
 Das Geschaeftsmodell ist Open-Core: Ein Free-Tier mit allen Kern-Tools und gedeckeltem `run_plan` (bereits besser als die gesamte Konkurrenz), ein Pro-Tier mit unbegrenztem `run_plan`, Multi-Tab-Management und erweitertem Debugging. Distribution laeuft ueber `npx @silbercue/chrome@latest`, Lizenzierung ueber Polar.sh.
 
-Dritter Zugangsweg neben MCP und direktem CLI: Eine Python Script API (Epic 9) macht SilbercueChrome auch ohne LLM im Loop nutzbar. Der MCP-Server bekommt ein `--script` Flag, das ihn anweist externe CDP-Clients auf dem bereits offenen Port 9222 zu tolerieren — parallel zum laufenden MCP-Betrieb via Pipe. `pip install silbercuechrome` oder eine einzelne Datei mit `websockets` als einziger Abhaengigkeit genuegen. Jedes Script arbeitet in einem eigenen Tab, MCP-Tabs bleiben unangetastet. Damit bedient SilbercueChrome drei Zielgruppen: KI-Agenten (MCP), Power-User (CLI), und Automation-Scripter (Python API).
+Dritter Zugangsweg neben MCP und direktem CLI: Eine Python Script API (Epic 9) macht SilbercueChrome auch ohne LLM im Loop nutzbar. Scripts nutzen intern dieselben Tool-Implementierungen wie der MCP-Server (click, navigate, fill etc.) — jede Verbesserung an den MCP-Tools kommt Scripts automatisch zugute. `Chrome.connect()` startet den SilbercueChrome-Server bei Bedarf automatisch im Hintergrund. `pip install silbercuechrome` genuegt. Jedes Script arbeitet in einem eigenen Tab, MCP-Tabs bleiben unangetastet. Damit bedient SilbercueChrome drei Zielgruppen: KI-Agenten (MCP), Power-User (CLI), und Automation-Scripter (Python API).
 
 Das Produkt steht bei v0.9.0 nach 22 abgeschlossenen Epics mit 1500+ Tests. Zielgruppe sind KI-Entwickler, Claude-Code/Cursor/Cline-Nutzer und Automation-Scripter, die Browser-Automation in ihre Workflows integrieren.
 
@@ -144,16 +146,17 @@ Tomek betreibt einen E-Commerce-Shop und braucht ein naechtliches Script das Pre
 ```python
 from silbercuechrome import Chrome
 
-with Chrome.connect(port=9222) as chrome:
-    with chrome.new_page() as page:
-        page.navigate("https://competitor.example.com/login")
-        page.fill({"#email": "tomek@shop.de", "#password": "***"})
-        page.click("button[type=submit]")
-        page.wait_for("text=Dashboard")
-        for cat in ["electronics", "furniture", "toys"]:
-            page.navigate(f"https://competitor.example.com/prices/{cat}")
-            prices = page.evaluate("() => [...document.querySelectorAll('tr')].map(r => r.textContent)")
-            save_csv(cat, prices)
+chrome = Chrome.connect(port=9222)
+with chrome.new_page() as page:
+    page.navigate("https://competitor.example.com/login")
+    page.fill({"#email": "tomek@shop.de", "#password": "***"})
+    page.click("button[type=submit]")
+    page.wait_for("text=Dashboard")
+    for cat in ["electronics", "furniture", "toys"]:
+        page.navigate(f"https://competitor.example.com/prices/{cat}")
+        prices = page.evaluate("[...document.querySelectorAll('tr')].map(r => r.textContent)")
+        save_csv(cat, prices)
+chrome.close()
 ```
 
 Waehrend das Script laeuft, arbeitet Claude Code im selben Chrome weiter — Tomeks Script hat seinen eigenen Tab, Claude Codes Tab bleibt unangetastet. Das Script laeuft deterministisch in unter 5 Sekunden, ohne LLM-Token-Kosten, ohne Varianz.
@@ -245,7 +248,7 @@ SilbercueChrome ist ein MCP-Server — kein Framework, keine Library, kein CLI-T
 
 | Methode | Beschreibung |
 |---------|-------------|
-| Chrome.connect(port) | Verbindung zu laufendem Chrome via CDP |
+| Chrome.connect() | Verbindung zu Chrome — startet Server automatisch falls noetig |
 | chrome.new_page() | Context Manager — oeffnet neuen Tab, schliesst bei Exit |
 | page.navigate(url) | URL Navigation |
 | page.click(selector) | Element anklicken |
@@ -255,11 +258,11 @@ SilbercueChrome ist ein MCP-Server — kein Framework, keine Library, kein CLI-T
 | page.evaluate(js) | JavaScript ausfuehren |
 | page.download() | Download-Status abfragen |
 
-Distribution: `pip install silbercuechrome` oder einzelne Datei. Einzige externe Abhaengigkeit: `websockets`.
+Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Tool-Implementierungen wie der MCP-Server (Shared Core). Der SilbercueChrome-Server wird bei Bedarf automatisch gestartet — ueber PATH (Homebrew), npx, oder expliziten Pfad.
 
 **CLI Interface:**
 - `--attach` Mode: Verbindung zu laufendem Chrome (kein Auto-Launch)
-- `--script` Mode: Signalisiert dem MCP-Server externe CDP-Clients auf Port 9222 zu tolerieren, lockert MCP-Guards die Script-Zugriff blockieren wuerden
+- `--script` Mode: Startet zusaetzlich einen lokalen HTTP-Endpunkt (Port 9223) fuer Script-API-Clients und aktiviert Tab-Isolation fuer externe Clients
 - Chrome Auto-Launch mit `--remote-debugging-port=9222`
 - Umgebungsvariablen: `SILBERCUECHROME_LICENSE`, `SILBERCUE_CHROME_FULL_TOOLS`
 
@@ -403,9 +406,9 @@ Distribution: `pip install silbercuechrome` oder einzelne Datei. Einzige externe
 - FR34: Der MCP-Server kann im `--script` Modus gestartet werden, der dem MCP-Server signalisiert externe CDP-Clients auf dem bereits offenen Port 9222 zu tolerieren und parallel zum MCP-Betrieb koexistieren zu lassen
 - FR35: Das `--script` Flag deaktiviert spezifische Guards (Tab-Schutz, Single-Client-Annahmen) die Script-API-Zugriff blockieren wuerden
 - FR36: Jedes Script arbeitet in einem eigenen Tab — MCP-Tabs werden nicht gestoert, Script-Tabs werden beim Context-Manager-Exit geschlossen
-- FR37: Die Script API bietet die Methoden navigate, click, fill, type, wait_for, evaluate und download — deckungsgleich mit den MCP-Kern-Tools
+- FR37: Die Script API bietet die Methoden navigate, click, fill, type, wait_for, evaluate und download — diese nutzen intern die gleichen Tool-Implementierungen wie der MCP-Server (Shared Core), sodass Verbesserungen an den MCP-Tools automatisch auch Script-Nutzern zugutekommen
 - FR38: Die Script API nutzt ein Context-Manager-Pattern (`with chrome.new_page() as page`), das Tab-Lifecycle automatisch verwaltet
-- FR39: Die Script API wird als Python-Package (`pip install silbercuechrome`) oder als einzelne Datei distribuiert, mit `websockets` als einziger externer Abhaengigkeit
+- FR39: Die Script API wird als Python-Package (`pip install silbercuechrome`) distribuiert. `Chrome.connect()` startet den SilbercueChrome-Server bei Bedarf automatisch im Hintergrund — der Nutzer braucht nur das Python-Package, kein separates Server-Setup
 
 ## Non-Functional Requirements
 
@@ -441,4 +444,4 @@ Distribution: `pip install silbercuechrome` oder einzelne Datei. Einzige externe
 
 ### CDP-Koexistenz
 
-- NFR19: MCP-Server (via Pipe/stdio) und Script-API (via Port 9222) koennen gleichzeitig auf denselben Chrome zugreifen, ohne sich gegenseitig zu stoeren. Jeder Client arbeitet in eigenen Tabs. Validierung: Gleichzeitiger MCP-Betrieb und Script-Ausfuehrung, MCP-Tab-URL bleibt unveraendert
+- NFR19: MCP-Server (via Pipe/stdio) und Script-API (via Server HTTP-Endpunkt) koennen gleichzeitig auf denselben Chrome zugreifen, ohne sich gegenseitig zu stoeren. Jeder Client arbeitet in eigenen Tabs. Validierung: Gleichzeitiger MCP-Betrieb und Script-Ausfuehrung, MCP-Tab-URL bleibt unveraendert

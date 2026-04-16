@@ -56,12 +56,12 @@ FR30: Der Developer kann SilbercueChrome via `npx @silbercue/chrome@latest` ohne
 FR31: Der Developer kann einen Pro-License-Key per Umgebungsvariable oder Config-Datei aktivieren
 FR32: Pro-Features funktionieren 7 Tage offline nach letzter Lizenz-Validierung (Grace Period)
 FR33: Free-Tier-Tools funktionieren ohne Lizenz-Key vollstaendig und ohne kuenstliche Einschraenkungen (ausser run_plan Step-Limit)
-FR34: Der MCP-Server kann im --script Modus gestartet werden, der dem MCP-Server signalisiert externe CDP-Clients auf dem bereits offenen Port 9222 zu tolerieren und parallel zum MCP-Betrieb koexistieren zu lassen
-FR35: Das --script Flag deaktiviert spezifische Guards (Tab-Schutz, Single-Client-Annahmen) die Script-API-Zugriff blockieren wuerden
+FR34: Der MCP-Server kann im --script Modus gestartet werden, der zusaetzlich einen lokalen HTTP-Endpunkt (Port 9223) fuer Script-API-Clients startet und Tab-Isolation fuer externe Clients aktiviert
+FR35: Das --script Flag aktiviert Tab-Isolation (ownedTargetIds) und den Script-API-HTTP-Endpunkt. MCP-interne Guards (switch_tab-Mutex, registry Parallel-Block) bleiben unberuehrt
 FR36: Jedes Script arbeitet in einem eigenen Tab — MCP-Tabs werden nicht gestoert, Script-Tabs werden beim Context-Manager-Exit geschlossen
-FR37: Die Script API bietet die Methoden navigate, click, fill, type, wait_for, evaluate und download — deckungsgleich mit den MCP-Kern-Tools
+FR37: Die Script API bietet die Methoden navigate, click, fill, type, wait_for, evaluate und download — diese nutzen intern die gleichen Tool-Implementierungen wie der MCP-Server (Shared Core), sodass Verbesserungen automatisch auch Script-Nutzern zugutekommen
 FR38: Die Script API nutzt ein Context-Manager-Pattern (with chrome.new_page()), das Tab-Lifecycle automatisch verwaltet
-FR39: Die Script API wird als Python-Package (pip install silbercuechrome) oder als einzelne Datei distribuiert, mit websockets als einziger externer Abhaengigkeit
+FR39: Die Script API wird als Python-Package (pip install silbercuechrome) distribuiert. Chrome.connect() startet den SilbercueChrome-Server bei Bedarf automatisch im Hintergrund (PATH/npx/expliziter Pfad)
 
 ### NonFunctional Requirements
 
@@ -83,7 +83,7 @@ NFR15: Cross-Origin-iFrames (OOPIF) werden transparent per CDP-Session-Manager b
 NFR16: License-Keys werden lokal gespeichert und nur zur Validierung an Polar.sh gesendet (kein Tracking)
 NFR17: `navigator.webdriver` wird maskiert um Bot-Detection auf besuchten Seiten zu vermeiden
 NFR18: Kein Telemetrie-Versand, keine Nutzungsdaten, keine Analytics — der Server ist vollstaendig offline-faehig (ausser Lizenz-Check)
-NFR19: MCP-Server (via Pipe/stdio) und Script-API (via Port 9222) koennen gleichzeitig auf denselben Chrome zugreifen, ohne sich gegenseitig zu stoeren. Jeder Client arbeitet in eigenen Tabs
+NFR19: MCP-Server (via Pipe/stdio) und Script-API (via Server HTTP-Endpunkt) koennen gleichzeitig auf denselben Chrome zugreifen, ohne sich gegenseitig zu stoeren. Jeder Client arbeitet in eigenen Tabs
 
 ### Additional Requirements
 
@@ -176,10 +176,11 @@ Nahtlose Installation und Free-to-Pro-Upgrade — npx Zero-Install, License-Key 
 Alles was v1.0 versandfertig macht — README mit Getting-Started, BUG-003-Dokumentation, Benchmark-Dokumentation, verbleibende Friction-Fixes, Release-Vorbereitung.
 **FRs covered:** Keine direkten FRs — adressiert Additional Requirements und NFR11, NFR12
 
-### Epic 9: Script API (Python)
-Dritter Zugangsweg neben MCP und CLI — eine Python-Client-Library fuer deterministische Browser-Automation ohne LLM im Loop. CDP-Koexistenz mit dem MCP-Server, Tab-Isolation, Context-Manager-Pattern, pip-Distribution.
+### Epic 9: Script API (Python) — Shared Core
+Dritter Zugangsweg neben MCP und CLI — eine Python-Client-Library fuer deterministische Browser-Automation ohne LLM im Loop. Scripts nutzen intern dieselben Tool-Implementierungen wie der MCP-Server (Shared Core). Auto-Start des Servers, Tab-Isolation, Context-Manager-Pattern, pip-Distribution.
 **FRs covered:** FR34, FR35, FR36, FR37, FR38, FR39
 **NFRs covered:** NFR19
+**Phasen:** v1 (Stories 9.1-9.6, DONE — separate CDP-Implementierung) → v2 (Stories 9.7-9.11, Shared Core)
 
 ## Epic 1: Page Reading & Navigation
 
@@ -203,7 +204,7 @@ Alle 4 FRs (FR21-FR24) sind vollstaendig implementiert und getestet. FR-025 (nav
 
 ## Epic 6: Intelligent Tool Steering
 
-Der Server fuehrt das LLM aktiv zum richtigen Tool. FR26-FR29 sind implementiert. FR25 (Anti-Pattern-Detection) ist mitigiert (BUG-018) — Story 23.1 bringt v2 mit drei neuen Patterns. FR-040 (Pro DOM-Diff Scope-Gate fuer type/fill_form) ist deferred. Hauptsaechliche neue Arbeit fuer v1.0.
+Der Server fuehrt das LLM aktiv zum richtigen Tool. FR26-FR29 sind implementiert. FR25 (Anti-Pattern-Detection) ist mitigiert (BUG-018) — Story 6.1 (Anti-Spiral v2) und Story 6.2 (Pro DOM-Diff) sind deferred post-v1.0.
 
 ### Story 6.1: Evaluate Anti-Spiral v2 — Situational Tool Steering ⏳ DEFERRED post-v1.0
 
@@ -313,11 +314,18 @@ So that ich ohne Trial-and-Error die richtigen Tools in der richtigen Reihenfolg
 **When** die Instructions geladen werden
 **Then** verwenden sie konsistent die neuen Namen ohne Referenz auf alte Namen
 
-## Epic 9: Script API (Python)
+## Epic 9: Script API (Python) — Shared Core
 
-Python-Client-Library fuer deterministische Browser-Automation. Kommuniziert direkt per CDP (WebSocket) mit Chrome — parallel zum laufenden MCP-Server. Kein LLM im Loop, kein MCP-Protokoll, keine Protokoll-Uebersetzung.
+Python-Client-Library fuer deterministische Browser-Automation. Scripts nutzen intern dieselben Tool-Implementierungen wie der MCP-Server (Shared Core) — jede Verbesserung an click, navigate, fill etc. kommt Scripts automatisch zugute. Kein Konkurrent bietet diesen Ansatz (Marktanalyse: `docs/research/script-api-shared-core.md`).
 
-### Story 9.1: --script CLI-Mode (Server-Seite)
+**v1 (Stories 9.1-9.6): DONE** — Separate CDP-Implementierung, v1.0.0 released. Basis (--script Mode, Tab-Isolation) wird weiterverwendet.
+**v2 (Stories 9.7-9.11): Shared Core** — Python routet Tool-Calls durch den SilbercueChrome-Server.
+
+---
+
+### v1 Stories (DONE — v1.0.0 released)
+
+### Story 9.1: --script CLI-Mode (Server-Seite) ✅ DONE
 
 As a Developer der SilbercueChrome mit --script starten will,
 I want dass der MCP-Server MCP-seitige Guards lockert damit externe CDP-Clients Tabs erstellen koennen ohne den MCP-Betrieb zu stoeren,
@@ -348,7 +356,7 @@ So that Python-Skripte sich parallel zum MCP-Server auf den bereits offenen Port
 - **NICHT anfassen:** switch_tab-Mutex (`switch-tab.ts:55-68`) und registry.ts Parallel-Block (`1815-1822`) — diese schuetzen MCP-interne Races und sind von externen CDP-Calls nicht betroffen.
 - **Kein neues File `src/cli/script-mode.ts` noetig** — das Flag wird in index.ts geparst und als Option an startServer() durchgereicht, analog zu attachMode.
 
-### Story 9.2: Python CDP Client (cdp.py)
+### Story 9.2: Python CDP Client (cdp.py) ✅ DONE
 
 As a Python-Developer,
 I want einen minimalen CDP-Client der ueber WebSocket mit Chrome kommuniziert,
@@ -382,7 +390,7 @@ So that ich die Grundlage fuer die Script API habe.
   - Minimale Python-Version: 3.10+ (fuer match/case und moderne type hints)
   - CI: pytest in bestehende GitHub Actions integrieren (neuer Job, nicht neues Workflow-File)
 
-### Story 9.3: Chrome + Page API
+### Story 9.3: Chrome + Page API ✅ DONE
 
 As a Python-Developer,
 I want `Chrome.connect(port=9222)` und `chrome.new_page()` als einfache, synchrone API nutzen,
@@ -420,7 +428,7 @@ So that ich Browser-Automation-Skripte ohne Boilerplate schreiben kann.
   - download() → `Browser.setDownloadBehavior` + Event-Tracking
 - Synchrone API: Intern async (asyncio), extern synchron via `asyncio.run()` oder `loop.run_until_complete()`
 
-### Story 9.4: CDP-Koexistenz-Test
+### Story 9.4: CDP-Koexistenz-Test ✅ DONE
 
 As a Maintainer,
 I want einen Integrationstest der beweist dass MCP und Script API parallel funktionieren,
@@ -446,7 +454,7 @@ So that NFR19 (CDP-Koexistenz) verifiziert und vor Regressionen geschuetzt ist.
 - Edge Case: Script-Crash (unhandled Exception) — Tab muss trotzdem geschlossen werden (Context-Manager __exit__)
 - Kann als Vitest-Test (Node.js-Seite) und als pytest (Python-Seite) implementiert werden
 
-### Story 9.5: pip Distribution
+### Story 9.5: pip Distribution ✅ DONE
 
 As a Python-Developer,
 I want `pip install silbercuechrome` ausfuehren und sofort loslegen koennen,
@@ -473,7 +481,7 @@ So that die Installation genauso einfach ist wie `npx @silbercue/chrome@latest` 
 - PyPI-Publish: `python -m build && twine upload dist/*` (oder GitHub Actions)
 - Versioning: Python-Package-Version synchron mit npm-Package-Version halten
 
-### Story 9.6: Script API Dokumentation
+### Story 9.6: Script API Dokumentation ✅ DONE
 
 As a Developer der die Script API entdeckt,
 I want eine klare Dokumentation mit Installationsanleitung und Beispielen,
@@ -498,3 +506,161 @@ So that ich in unter 5 Minuten mein erstes Script schreiben kann.
 - Beispiel-Script: Das Tomek-Beispiel aus der PRD (Journey 5) adaptieren
 - CHANGELOG.md: Script API unter "Added" eintragen
 - Hinweis auf --script Flag im MCP-Config-Abschnitt
+
+---
+
+### v2 Stories (Shared Core — Scripts nutzen MCP-Tool-Implementierungen)
+
+### Story 9.7: Script API Gateway (Server-Seite)
+
+As a Python-Script,
+I want Tool-Calls an den laufenden SilbercueChrome-Server senden,
+So that ich dieselben Implementierungen wie der MCP-Pfad nutze (Shared Core).
+
+**Acceptance Criteria:**
+
+**Given** der SilbercueChrome-Server laeuft mit `--script`
+**When** ein Python-Script einen HTTP-Request `POST /tool/click {"selector": "#login"}` an `localhost:9223` sendet
+**Then** fuehrt der Server die click-Tool-Implementierung aus und gibt das Ergebnis als JSON zurueck
+
+**Given** der Server laeuft mit `--script`
+**When** ein Python-Script `POST /tool/view_page` sendet
+**Then** erhaelt es denselben A11y-Tree wie ein MCP-Client — gleicher Code-Pfad, gleiche Refs
+
+**Given** der Server laeuft OHNE `--script`
+**When** ein HTTP-Request auf Port 9223 eingeht
+**Then** antwortet der Server nicht (Port nicht geoeffnet)
+
+**Technical Notes:**
+- **Kommunikationskanal:** Lokaler HTTP-Server auf Port 9223 (konfigurierbar). Wird nur gestartet wenn `--script` Flag gesetzt ist. Kein WebSocket noetig — Request-Response reicht fuer synchrone Tool-Calls.
+- **Warum HTTP statt Subprocess-stdio:** Mehrere Python-Scripts koennen gleichzeitig verbinden. MCP ueber stdio und Script API ueber HTTP laufen parallel. Kein Konflikt.
+- **Warum Port 9223:** 9222 ist CDP (Chrome), 9223 ist Script API (Server). Einfach zu merken, kein Konflikt.
+- **Routing:** HTTP-Handler mappt Tool-Namen auf die bestehenden Tool-Handler in `src/tools/`. Gleicher Code-Pfad wie `registry.ts` → Tool-Handler. Kein Wrapper, kein Adapter — direkter Aufruf.
+- **Kanonisches Session-/Tab-Lifecycle-Modell:**
+  1. `POST /session/create` → Server ruft intern `Target.createTarget` auf (direkt ueber CDP, NICHT ueber switch_tab-Tool), gibt `session_token` zurueck
+  2. Alle Tool-Calls enthalten `X-Session: {session_token}` Header → Server routet auf den richtigen Tab
+  3. `POST /session/close` → Server ruft `Target.closeTarget` auf, raeumt Session auf
+  4. Bei Verbindungsabbruch (Python-Prozess stirbt): Server erkennt verwaiste Sessions nach Timeout (30s) und schliesst deren Tabs
+  5. Pro-Gating: Tab-Management im Gateway nutzt CDP direkt (`Target.createTarget/closeTarget`), NICHT das Pro-gated switch_tab-Tool. Die Script API ist damit Free-Tier-kompatibel.
+- **Bestehende Dateien:** `src/server.ts` erweitern (HTTP-Server starten wenn scriptMode), neues File `src/transport/script-api-server.ts` fuer HTTP-Handling.
+- **NICHT anfassen:** Tool-Implementierungen in `src/tools/` bleiben unveraendert. Das Gateway ruft sie auf, aendert sie nicht. switch_tab-Mutex und registry Parallel-Block bleiben unberuehrt.
+- **OFFENE SPEC-FRAGEN (bei Story-Erstellung klaeren):**
+  - Orphan-Timeout: 30s reicht? Heartbeat/Lease-Refresh noetig fuer lange idle Sessions?
+  - Response-Vertrag: HTTP-Response-Format definieren — was gibt `/tool/click` zurueck? Raw MCP-Envelope oder bereinigte Werte?
+  - `/session/create` Response: Neben `session_token` auch `cdp_ws_url` und `cdp_session_id` mitliefern (fuer Escape Hatch in Story 9.9)
+
+### Story 9.8: Python Library v2 — Shared Core Client
+
+As a Python-Developer,
+I want `Chrome.connect()` aufrufen und die gleiche API wie v1 nutzen, aber mit der Gewissheit dass meine Klicks und Navigationen dieselbe Qualitaet haben wie die des MCP-Servers,
+So that jede Server-Verbesserung automatisch auch meinen Scripts zugutekommt.
+
+**Acceptance Criteria:**
+
+**Given** der SilbercueChrome-Server ist NICHT gestartet
+**When** `Chrome.connect()` aufgerufen wird
+**Then** startet Chrome.connect() den Server automatisch als Subprocess (mit `--script` Flag), wartet bis Port 9223 antwortet, und gibt ein Chrome-Objekt zurueck
+
+**Given** der SilbercueChrome-Server laeuft bereits (z.B. weil MCP aktiv ist)
+**When** `Chrome.connect()` aufgerufen wird
+**Then** verbindet es sich zum bestehenden Server auf Port 9223 (kein zweiter Server-Prozess)
+
+**Given** ein Page-Objekt
+**When** `page.click("#login")` aufgerufen wird
+**Then** sendet die Library `POST /tool/click {"selector": "#login"}` an den Server, der die MCP-Click-Implementierung ausfuehrt (Shadow DOM, Scroll-into-View, Paint-Order etc.)
+
+**Given** die v1 API-Oberflaeche
+**When** v2 installiert wird
+**Then** bleiben alle Methodensignaturen identisch: `navigate(url)`, `click(selector)`, `fill(fields)`, `type(selector, text)`, `wait_for(condition)`, `evaluate(js)`, `download()`
+
+**Technical Notes:**
+- **Auto-Start:** `Chrome.connect()` prueft ob Port 9223 erreichbar ist. Falls nein: `subprocess.Popen(["silbercuechrome", "--script"])` oder `subprocess.Popen(["npx", "-y", "@silbercue/chrome@latest", "--", "--script"])`. Wartet max. 10s auf Port-Readiness.
+- **Server-Discovery:** Reihenfolge: (1) `silbercuechrome` im PATH (Homebrew), (2) `npx @silbercue/chrome@latest`, (3) expliziter Pfad via `Chrome.connect(server_path="...")`.
+- **Interner Umbau:** `page.py` Methoden ersetzen CDP-Calls durch HTTP-Calls an `/tool/{tool_name}`. `cdp.py` wird fuer den Hauptpfad nicht mehr gebraucht — bleibt als Escape-Hatch (`page.cdp.send()`).
+- **Selector-zu-Ref-Mapping:** Der Server's click-Tool akzeptiert bereits CSS-Selektoren und sichtbaren Text neben Refs (`src/tools/click.ts` resolved Selektoren intern). Kein Adapter noetig auf Python-Seite.
+- **Context Manager nutzt Session-API:** `with chrome.new_page() as page:` ruft `POST /session/create` auf (Tab-Erstellung via CDP direkt, NICHT via Pro-gated switch_tab-Tool), schliesst via `POST /session/close` bei Exit. Script API ist damit Free-Tier-kompatibel.
+- **OFFENE SPEC-FRAGEN (bei Story-Erstellung klaeren):**
+  - Python-API-Vertrag: Was gibt `page.click()` zurueck? (None + Exception bei Fehler, oder Result-Objekt?) Was gibt `page.evaluate()` zurueck? (Den JS-Wert direkt, oder ein Wrapper-Objekt?)
+  - Koexistenz-Fall: Was passiert wenn MCP OHNE `--script` laeuft und `Chrome.connect()` aufgerufen wird? (Empfehlung: eigenen Server spawnen mit --script, oder Fehler mit Hinweis "starte MCP mit --script")
+
+### Story 9.9: Escape Hatch & CDP-Direktzugriff
+
+As a Power-User,
+I want bei Bedarf CDP-Befehle direkt an Chrome senden koennen, auch wenn ich die Shared-Core-API nutze,
+So that ich nicht eingeschraenkt bin wenn ein MCP-Tool meinen Spezialfall nicht abdeckt.
+
+**Acceptance Criteria:**
+
+**Given** ein Page-Objekt im Shared-Core-Modus
+**When** `page.cdp.send("Network.enable")` aufgerufen wird
+**Then** wird der CDP-Befehl direkt an Chrome gesendet (nicht ueber den Tool-Handler), und das Ergebnis zurueckgegeben
+
+**Given** ein Escape-Hatch-Call
+**When** der CDP-Befehl den Tab-State veraendert (z.B. Navigation)
+**Then** bleibt die Tab-Isolation intakt — der Call geht nur an den Script-eigenen Tab
+
+**Technical Notes:**
+- **Architektur:** Der v1 CdpClient (`python/silbercuechrome/cdp.py`) bleibt als Escape-Hatch erhalten. `page.cdp` exponiert `send(method, params)` fuer direkten CDP-Zugriff.
+- **Session-Routing:** Escape-Hatch-Calls gehen ueber die CDP-WebSocket-Verbindung (Port 9222), nicht ueber den HTTP-Kanal (Port 9223). Die Session-ID des Script-Tabs wird mitgegeben.
+- **Wann relevant:** Network-Interception, Console-Log-Subscription, Custom-DOM-Mutationen, Performance-Tracing — alles was kein Standard-Tool abdeckt.
+
+### Story 9.10: Shared Core Integration Tests
+
+As a Maintainer,
+I want automatisierte Tests die beweisen dass Python-Scripts denselben Code-Pfad wie MCP-Tools nutzen,
+So that die Shared-Core-Architektur vor Regressionen geschuetzt ist.
+
+**Acceptance Criteria:**
+
+**Given** der Server laeuft mit `--script` und ein Python-Script ruft `page.click("#btn")` auf
+**When** der Server den Click ausfuehrt
+**Then** laeuft derselbe `clickHandler` in `src/tools/click.ts` wie bei einem MCP-Call (verifiziert durch Logging oder Instrumentation)
+
+**Given** der MCP-Click wird verbessert (z.B. besseres Shadow-DOM-Handling)
+**When** ein Python-Script `page.click()` aufruft
+**Then** profitiert es automatisch von der Verbesserung (kein separater Fix noetig)
+
+**Given** ein Python-Script ruft jede der 7 Tool-Methoden auf: navigate, click, fill, type, wait_for, evaluate, download
+**When** der Server die Calls verarbeitet
+**Then** laeuft fuer jede Methode der entsprechende MCP-Tool-Handler (navigateHandler, clickHandler, fillFormHandler, typeHandler, waitForHandler, evaluateHandler, downloadHandler) — verifiziert per Test
+
+**Given** kein laufender Server
+**When** ein Python-Script `Chrome.connect()` aufruft
+**Then** startet der Server automatisch, Chrome wird gelauncht, und der erste Tool-Call funktioniert innerhalb von 10 Sekunden
+
+**Technical Notes:**
+- **Vitest (Node.js-Seite):** Tests in `src/transport/script-api-server.test.ts` — HTTP-Routing, Tool-Dispatch, Tab-Session-Management.
+- **pytest (Python-Seite):** Tests in `python/tests/test_shared_core.py` — Auto-Start, Tool-Call-Roundtrip, API-Paritaet (v1 vs v2 Ergebnisse vergleichen), Escape-Hatch.
+- **Regressionsschutz:** Test der explizit prueft dass `page.click()` den Server-seitigen clickHandler aufruft, nicht eigenen CDP-Code. Kann ueber einen Debug-Header im HTTP-Response verifiziert werden.
+- **Koexistenz-Matrix (erweitert gegenueber v1 Story 9.4):**
+  - MCP + Shared-Core-Script gleichzeitig (Tab-Isolation)
+  - Mehrere Python-Scripts gleichzeitig am selben Server (separate Sessions)
+  - Shared-Core-Script + Escape-Hatch-Call im selben Script (Ref-Konsistenz)
+  - Abnormaler Python-Prozess-Abbruch (Server raeumt verwaiste Session nach Timeout auf)
+- **Skip-Guards:** Integrationstests brauchen Chrome — `@pytest.mark.integration` und `describe.skipIf` analog zu Story 9.4.
+
+### Story 9.11: Script API v2 Dokumentation
+
+As a Developer,
+I want die Dokumentation spiegelt die neue Shared-Core-Architektur wider,
+So that ich verstehe dass meine Scripts von Server-Verbesserungen profitieren und wie Auto-Start funktioniert.
+
+**Acceptance Criteria:**
+
+**Given** ein Developer liest die README
+**When** er den Script API Abschnitt findet
+**Then** steht dort: "Scripts nutzen dieselben Tool-Implementierungen wie der MCP-Server — jede Verbesserung kommt automatisch auch Scripts zugute."
+
+**Given** ein Developer will die Script API nutzen
+**When** er die Installationsanleitung liest
+**Then** steht dort: `pip install silbercuechrome` genuegt — `Chrome.connect()` startet den Server automatisch
+
+**Given** ein Developer will verstehen wie es intern funktioniert
+**When** er die Architektur-Beschreibung liest
+**Then** findet er das Data-Flow-Diagramm: `Python Script → Server → Tool Handler → CDP → Chrome`
+
+**Technical Notes:**
+- **README.md (Root):** Script API Abschnitt aktualisieren — Shared Core hervorheben, Auto-Start erwaehnen, neues Data-Flow-Diagramm.
+- **python/README.md:** Komplett ueberarbeiten — keine Erwaehnung von "direktem CDP", stattdessen "nutzt den SilbercueChrome-Server intern".
+- **CHANGELOG.md:** v1.1 (oder v2.0) Eintrag fuer Shared Core Umbau.
+- **Escape-Hatch:** `page.cdp.send()` in der Doku erwaehnen als Fallback fuer Power-User.

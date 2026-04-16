@@ -9,7 +9,7 @@ stepsCompleted:
   - step-07-validation
   - step-08-complete
 status: 'complete'
-completedAt: '2026-04-15'
+completedAt: '2026-04-16'
 lastStep: 8
 inputDocuments:
   - _bmad-output/planning-artifacts/prd.md
@@ -46,7 +46,7 @@ Die FRs decken die gesamte Browser-Automation-Pipeline ab:
 - **Connection** (FR21-FR24): Zero-Config Auto-Launch, --attach, Auto-Reconnect, Ref-Stabilitaet — CDP-Lifecycle
 - **Tool Steering** (FR25-FR29): Anti-Pattern-Detection, Stale-Ref-Recovery, Negativ-Abgrenzung, Profile, DOM-Diff — LLM-Fuehrung
 - **Distribution** (FR30-FR33): npx, License-Key, Grace-Period, Free-Tier-Vollstaendigkeit — Open-Core-Modell
-- **Script API** (FR34-FR39): Python-Client-Library mit CDP-Koexistenz, --script Flag, Tab-Isolation, Context-Manager, pip-Distribution — dritter Zugangsweg neben MCP und CLI
+- **Script API** (FR34-FR39): Python-Client-Library mit Shared Core (nutzt MCP-Tool-Implementierungen), --script Flag, Tab-Isolation, Context-Manager, pip-Distribution — dritter Zugangsweg neben MCP und CLI
 
 Architektonische Implikation: Jede FR-Kategorie mappt auf ein eigenes Modul oder Sub-System. Script API (FR34-FR39) ist das groesste neue architektonische Thema fuer v1.0 — ein komplett neuer Zugangsweg zum bestehenden CDP-Layer.
 
@@ -60,7 +60,7 @@ Architektur-treibende NFRs:
 - **NFR7+8 (Reconnect + State-Erhalt):** Erzwingt Cache-Layer zwischen CDP und Tools
 - **NFR15 (OOPIF transparent):** Erzwingt CDP-Session-Manager fuer Cross-Origin-iFrames
 - **NFR17 (webdriver-Maskierung):** Erzwingt Stealth-Konfiguration im Chrome-Launcher
-- **NFR19 (CDP-Koexistenz):** Erzwingt Multi-Client-faehigen CDP-Zugriff: MCP via Pipe und Script API via Port 9222 gleichzeitig, Tab-Isolation zwischen Clients
+- **NFR19 (CDP-Koexistenz):** Erzwingt Multi-Client-faehigen Zugriff: MCP via Pipe/stdio und Script API via Server HTTP-Endpunkt (Port 9223) gleichzeitig, Tab-Isolation zwischen Clients
 
 ### Technical Constraints & Dependencies
 
@@ -81,7 +81,7 @@ Architektur-treibende NFRs:
 3. **Free/Pro Feature-Gating:** Combined Binary, Lizenz-Pruefung zur Runtime. Betrifft run_plan (Step-Limit), Tab-Tools, press_key.
 4. **Error-Recovery-Kette:** Stale-Refs → view_page-Hint, CDP-Disconnect → Auto-Reconnect, evaluate-Spiral → Anti-Pattern-Hint. Drei Schichten, alle muessen zusammenspielen.
 5. **LLM-Steering:** Tool-Descriptions, Server-Instructions, Anti-Pattern-Detection, Profile-System. Nicht Code sondern Prosa — aber architektonisch genauso wichtig.
-6. **CDP-Koexistenz (Script API):** MCP-Server via Pipe und Python-Skripte via Port 9222 greifen gleichzeitig auf denselben Chrome zu. Tab-Isolation, Session-Routing und Guard-Deaktivierung muessen koordiniert sein.
+6. **Koexistenz (Script API):** MCP-Server via Pipe und Python-Skripte via Server HTTP-Endpunkt (Port 9223) greifen gleichzeitig auf denselben Chrome zu. Shared Core: beide nutzen dieselben Tool-Handler. Tab-Isolation und Session-Routing muessen koordiniert sein.
 
 ## Starter Template Evaluation
 
@@ -218,36 +218,39 @@ Alle Kern-Entscheidungen sind implementiert und produktiv validiert. Kein Redesi
 
 **Rationale:** Hooks statt Middleware — keine Plugin-Architektur, keine DI. Einfache Funktionsaufrufe an definierten Stellen. Solo-Developer-tauglich.
 
-### Script API & CDP-Koexistenz
+### Script API & Shared Core
 
-**Entscheidung:** Python-Client-Library die ueber Port 9222 direkt per CDP mit Chrome kommuniziert — parallel zum laufenden MCP-Server.
+**Entscheidung:** Python-Scripts routen Tool-Calls durch den SilbercueChrome-Server und nutzen dieselben Implementierungen wie MCP-Tools (Shared Core).
 
 **Architektur:**
-- `--script` CLI-Flag signalisiert dem MCP-Server externe CDP-Clients auf dem bereits offenen Port 9222 zu tolerieren und lockert MCP-Layer-Guards (Tab-Schutz in registry.ts, Tab-Switch-Mutex in switch-tab.ts) die Script-Zugriff blockieren wuerden
-- Jedes Python-Script verbindet sich eigenstaendig per WebSocket auf `ws://localhost:9222` und erstellt einen eigenen Tab via `Target.createTarget`
-- MCP-Server und Script-Client sind vollstaendig entkoppelt — sie teilen nur den Chrome-Prozess, nicht den CDP-Session-State
+- `Chrome.connect()` startet den SilbercueChrome-Server als Subprocess falls nicht bereits laufend (selbes Pattern wie Playwright, das einen unsichtbaren Node.js-Prozess startet)
+- Die Python-Library kommuniziert mit dem Server ueber einen lokalen Kanal (Kommunikationsprotokoll — Subprocess stdio, HTTP oder WebSocket — wird bei Epic-Erstellung entschieden)
+- Tool-Calls (click, navigate, fill etc.) werden serverseitig ausgefuehrt — gleicher Code-Pfad wie MCP-Tools, gleiche Tests, gleiche Bugfixes
+- `--script` CLI-Flag (aus Epic 9 v1) bleibt: aktiviert Tab-Isolation (ownedTargetIds-Set filtert Script-Tabs aus MCP-Tab-Listen) und startet den HTTP-Endpunkt auf Port 9223. MCP-interne Guards (switch_tab-Mutex, registry Parallel-Block) bleiben UNBERUEHRT — sie schuetzen MCP-interne Races und sind von Script-API-Calls nicht betroffen
 - Tab-Isolation: Scripts arbeiten in eigenen Tabs, MCP-Tabs werden nicht modifiziert
 - Context-Manager-Pattern (`with chrome.new_page()`) schliesst den Tab beim Exit automatisch
+- Escape-Hatch: `cdp.send()` fuer direkten CDP-Zugriff bei Spezialfaellen (Power-User)
 
-**Warum kein MCP-zu-MCP-Proxy:**
-Ein HTTP-Server oder zweiter MCP-Kanal wuerde eine neue Abstraktionsschicht einfuehren. CDP direkt ist einfacher, schneller und erfordert keine Protokoll-Uebersetzung. Python `websockets` Library spricht CDP nativ.
+**Warum Shared Core statt separater Implementierung:**
+Marktanalyse (`docs/research/script-api-shared-core.md`) zeigt: kein Konkurrent bietet diesen Ansatz — unbesetzte Nische. Feature-Paritaet ohne manuelles Portieren. Eine Codebase, ein Testset (1600+ Tests). Jede Verbesserung an click, navigate, fill etc. kommt Scripts automatisch zugute.
 
 **Warum Python (nicht Node.js/TypeScript):**
 Die Zielgruppe fuer deterministische Scripting (Tomek-Persona) arbeitet typischerweise in Python. Node.js-User nutzen bereits den MCP-Weg. Python erweitert die Zielgruppe statt sie zu duplizieren.
 
 **Distribution-Entscheidung:**
 - `pip install silbercuechrome` als primaerer Installationspfad
-- Alternative: einzelne `.py` Datei mit `websockets` als einziger Dependency
-- Kein Build-Schritt, kein Compiler, kein Framework — pure Python
+- `Chrome.connect()` startet den Server automatisch — kein separates Setup noetig
+- Server-Binary wird ueber PATH gefunden (Homebrew, npx, oder expliziter Pfad)
 
-**Neue Module:**
-- `python/` (Projekt-Root) — Python-Package mit `Chrome`, `Page` Klassen
-- `src/index.ts` — `--script` Flag-Parsing analog zu `--attach` (process.argv.includes), durchgereicht als Option an startServer()
+**Module:**
+- `python/` (Projekt-Root) — Python-Package mit `Chrome`, `Page` Klassen (API-Oberflaeche stabil, interne Implementierung routet durch Server)
+- `src/index.ts` — `--script` Flag-Parsing (bereits implementiert, Epic 9 v1)
+- Server-seitiges Script-API-Gateway (neu) — nimmt Tool-Calls von Python entgegen und fuehrt sie ueber die bestehenden Tool-Handler aus
 
 **NFR19-Sicherstellung:**
-- Chrome erlaubt von Haus aus mehrere CDP-Clients gleichzeitig (jeder bekommt eigene DevToolsSession)
-- Tab-Isolation wird durch `Target.createTarget` pro Script-Client sichergestellt
-- Kein Locking, kein Mutex — Chrome serialisiert CDP-Commands intern pro Session
+- Tab-Isolation ueber `--script` Mode und `_ownedTargetIds` Set (Epic 9 v1, bewaehrt)
+- Scripts und MCP-Agent teilen denselben Server-Prozess und Chrome, aber arbeiten in getrennten Tabs
+- Kein CDP-Konflikt: Scripts gehen durch den Server, nicht direkt an Chrome
 
 ### Decision Impact Analysis
 
@@ -261,7 +264,7 @@ Die Zielgruppe fuer deterministische Scripting (Tomek-Persona) arbeitet typische
 - Tool Steering (registry.ts) ↔ Anti-Pattern-Detection (hooks) ↔ run_plan (plan/)
 - CDP Session-Manager ↔ alle Tools (Ref-Stabilitaet)
 - License-Gating ↔ run_plan, switch_tab, virtual_desk, press_key
-- Script API (python/) ↔ CDP Chrome-Launcher (--script Flag) ↔ NFR19 Tab-Isolation
+- Script API (python/) ↔ Script-API-Gateway (neu) ↔ Tool-Handler (shared) ↔ CDP ↔ NFR19 Tab-Isolation
 
 ## Implementation Patterns & Consistency Rules
 
@@ -491,11 +494,11 @@ SilbercueChrome/
 - Tab-State-Cache macht tab_status 0ms-faehig
 - A11y-Tree-Cache + Prefetch-Slot ermoeglichen Speculative Prefetch
 
-**Boundary 6: Script API ↔ CDP**
-- `python/` kommuniziert direkt per WebSocket mit Chrome (Port 9222) — ohne den MCP-Server dazwischen
-- Script API kennt keine MCP-Konzepte, keine Tool-Registry, kein Steering
-- Der einzige Beruehrungspunkt mit dem Node.js-Server ist das `--script` CLI-Flag (signalisiert Toleranz fuer externe Clients, lockert MCP-Guards)
-- Kein Shared State zwischen MCP-Server und Script-Client — nur geteilter Chrome-Prozess
+**Boundary 6: Script API ↔ Server**
+- `python/` kommuniziert mit dem SilbercueChrome-Server, der Tool-Calls intern ausfuehrt — kein direkter CDP-Zugriff (ausser Escape-Hatch)
+- Script API nutzt die Tool-Handler des Servers (Shared Core) — gleicher Code-Pfad wie MCP-Tools
+- Der Server verwaltet Chrome, CDP-Sessions und Tab-Isolation
+- `--script` CLI-Flag signalisiert dem Server externe Script-Clients zu tolerieren
 
 ### FR-Kategorie → Modul-Mapping
 
@@ -509,7 +512,7 @@ SilbercueChrome/
 | Connection (FR21-24) | cdp/chrome-launcher, cdp-client | cdp/session-manager |
 | Tool Steering (FR25-29) | registry.ts, hooks/ | telemetry/tool-sequence |
 | Distribution (FR30-33) | license/, cli/ | scripts/publish.ts |
-| Script API (FR34-39) | python/silbercuechrome/ | src/cli/ (--script Flag) |
+| Script API (FR34-39) | python/silbercuechrome/, Script-API-Gateway (neu) | src/tools/ (Shared Core), src/cli/ (--script Flag) |
 
 ### Data Flow
 
@@ -530,13 +533,14 @@ LLM ──→ run_plan tool ──→ plan-executor ──→ tool1 → tool2 �
                                                     single response ──→ LLM
 ```
 
-Fuer Script API (parallel zum MCP-Pfad):
+Fuer Script API (Shared Core — gleicher Server, gleiche Tool-Handler):
 ```
-Python Script ──ws──→ Chrome Port 9222 ──→ eigener Tab (Target.createTarget)
-                         │
-MCP Server ──pipe──→ Chrome (selber Prozess, andere CDP-Session)
-                         │
-                    Tab-Isolation: Script-Tabs ≠ MCP-Tabs
+Python Script ──→ SilbercueChrome Server ──→ Tool Handler ──→ CDP ──→ Chrome
+                   (auto-gestartet)           (shared mit MCP)     (eigener Tab)
+
+LLM ──stdio──→ MCP SDK ──→ server.ts ──→ registry.ts ──→ Tool Handler ──→ CDP ──→ Chrome
+                                                              │                (MCP-Tab)
+                                                         gleicher Code
 ```
 
 ## Architecture Validation Results
@@ -570,12 +574,12 @@ MCP Server ──pipe──→ Chrome (selber Prozess, andere CDP-Session)
 |---|---|---|
 | ✅ Architektonisch unterstuetzt | 30 | FR1-10, FR12-24, FR26-28, FR30-33 |
 | ⚠️ Unterstuetzt, Implementierung pruefen | 3 | FR11 (Drag-and-Drop), FR25 (Anti-Pattern v2), FR29 (DOM-Diff) |
-| 🆕 Neu — Architektur definiert, Implementierung ausstehend | 6 | FR34-39 (Script API) |
+| 🔄 v1 implementiert, v2 (Shared Core) ausstehend | 6 | FR34-39 (Script API) |
 
 - FR11: `tools/drag.ts` existiert, aber deferred-work.md listet HTML5-Drag-API-Limitation
 - FR25: Basis-Anti-Pattern existiert (BUG-018), Story 23.1 plant v2 mit drei neuen Detections
 - FR29: DOM-Diff via `hooks/default-on-tool-result.ts` + `cache/deferred-diff-slot.ts` vorhanden
-- FR34-39: Script API ist vollstaendig neu. Architektur-Entscheidung dokumentiert, python/-Verzeichnis und --script CLI-Mode muessen implementiert werden.
+- FR34-39: Script API v1 implementiert (Epic 9, 6 Stories, v1.0.0). v2-Umbau auf Shared Core (Scripts nutzen MCP-Tool-Implementierungen) geplant — siehe Sprint Change Proposal 2026-04-16.
 
 **Non-Functional Requirements (19 NFRs):**
 
@@ -649,9 +653,9 @@ MCP Server ──pipe──→ Chrome (selber Prozess, andere CDP-Session)
 
 ### Architecture Readiness Assessment
 
-**Overall Status: READY FOR IMPLEMENTATION**
+**Overall Status: READY FOR IMPLEMENTATION (aktualisiert 2026-04-16)**
 
-**Confidence Level: HIGH** — Brownfield-Projekt mit bewaehrter Codebasis. Architecture dokumentiert den Ist-Zustand, nicht ein hypothetisches Design.
+**Confidence Level: HIGH** — Brownfield-Projekt bei v1.0.0. Epic 1-9 v1 implementiert. Architecture wurde am 2026-04-16 fuer den Script API v2 Shared-Core-Umbau aktualisiert (Sprint Change Proposal).
 
 **Staerken:**
 - Minimale Dependency-Liste (4 Runtime-Deps)
@@ -672,8 +676,7 @@ MCP Server ──pipe──→ Chrome (selber Prozess, andere CDP-Session)
 - Projekt-Struktur und Boundaries respektieren
 - Dieses Dokument als Referenz fuer alle architektonischen Fragen nutzen
 
-**Erste Implementation-Prioritaet:**
-1. Script API: Python-Package + --script CLI-Mode (Epic 9)
-2. Story 23.1 (evaluate Anti-Spiral v2)
+**Implementation-Prioritaet (post-v1.0):**
+1. Script API v2: Shared Core Umbau (Epic 9, Stories 9.7-9.11) — Scripts nutzen MCP-Tool-Implementierungen
+2. Story 23.1/6.1 (evaluate Anti-Spiral v2) — deferred post-v1.0
 3. Verbleibende Friction-Fixes und Deferred Work
-4. v1.0 Release-Vorbereitung
