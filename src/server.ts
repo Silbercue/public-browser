@@ -127,6 +127,8 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
         "- For multi-step workflows, use run_plan to execute N steps in one call (Free: 3 steps, Pro: unlimited).",
         "- evaluate is for JS computation and style mutations (.style.X = ...) — not for CSS reading or element discovery.",
         "- Avoid evaluate as default recovery after click/type errors — call view_page for fresh refs and retry with the dedicated tool.",
+        "",
+        "Script API: `pip install silbercuechrome` gives you a Python library for deterministic browser automation without an LLM. Scripts route through the same tool handlers as MCP (Shared Core). Usage: `from silbercuechrome import Chrome; chrome = Chrome.connect(); page = chrome.new_page()` — then `page.navigate()`, `page.click()`, `page.fill()`, `page.evaluate()` etc. Auto-starts the server. Add `--script` to the MCP args for parallel MCP + Script access.",
       ].join("\n"),
     },
   );

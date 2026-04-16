@@ -252,8 +252,14 @@ function printHelp(): void {
   console.log("  --attach               Connect to existing Chrome on port 9222 (no auto-launch).");
   console.log("                         Creates its own tab and cleans it up on exit.");
   console.log("                         Use from trigger scripts when another MCP session is active.");
+  console.log("  --script               Enable Script API (HTTP server on port 9223) for Python clients.");
   console.log("");
   console.log("Without a command, starts the MCP server on stdio.");
+  console.log("");
+  console.log("Script API (Python):");
+  console.log("  pip install silbercuechrome");
+  console.log("  Scripts use the same tool implementations as MCP (Shared Core).");
+  console.log("  See: https://github.com/Silbercue/silbercuechrome#script-api-python");
   console.log("");
   console.log(`Upgrade to Pro: ${UPGRADE_URL}`);
 }
