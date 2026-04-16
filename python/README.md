@@ -10,6 +10,8 @@ pip install silbercuechrome
 
 That's it. No manual Chrome launch needed — `Chrome.connect()` starts everything automatically.
 
+Dependencies: `websockets` (for the Escape Hatch / `CdpClient` low-level access). The main Shared Core API uses `urllib` (built-in).
+
 ## Quick Start
 
 ```python
@@ -182,6 +184,10 @@ claude mcp add --scope user silbercuechrome npx -y @silbercue/chrome@latest -- -
   }
 }
 ```
+
+## Legacy: Single-File Alternative
+
+For quick prototyping, you can copy `silbercuechrome.py` into your project. This uses the v1 code path (direct CDP via WebSocket) and does **not** benefit from server-side improvements. Use `pip install silbercuechrome` for the full Shared Core experience.
 
 ## License
 
