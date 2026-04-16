@@ -1,33 +1,24 @@
-"""Page — high-level API for a single browser tab.
+"""Page — high-level API for a single browser tab (v2 — Shared Core Client).
 
-A Page wraps a CDP session attached to a specific target (tab).
-It exposes ergonomic, synchronous methods that map to CDP commands:
+A Page wraps a Script API session attached to a specific tab.
+All browser automation logic runs server-side. Page methods send HTTP
+tool calls and parse the MCP-format responses.
 
     with chrome.new_page() as page:
         page.navigate("https://example.com")
         page.click("#login")
         page.type("#user", "admin")
 
-All public methods are synchronous. Internally they delegate to the
-CdpClient's sync API running on a background event loop.
+All public methods are synchronous.
 """
 
 from __future__ import annotations
 
-import os
-import time
-import tempfile
+import json
 from typing import Any
 
-from silbercuechrome.cdp import CdpClient, DEFAULT_TIMEOUT
-
-
-# Default polling interval for wait_for (seconds)
-_POLL_INTERVAL = 0.1
-# Default wait_for timeout (seconds)
-_WAIT_TIMEOUT = 30.0
-# Default download directory
-_DOWNLOAD_DIR = os.path.join(tempfile.gettempdir(), "silbercuechrome-downloads")
+from silbercuechrome.client import ScriptApiClient, DEFAULT_TIMEOUT, LONG_TIMEOUT
+from silbercuechrome.escape_hatch import CdpEscapeHatch
 
 
 class Page:
@@ -36,36 +27,40 @@ class Page:
     Do not instantiate directly — use ``chrome.new_page()`` instead.
 
     Args:
-        browser_client: The browser-level CdpClient (for closing the target).
-        session_client: A CdpClient connected to this tab's CDP session.
+        client: The ScriptApiClient for HTTP communication.
+        session_token: The session token for this tab.
         target_id: The CDP target ID of this tab.
     """
 
     def __init__(
         self,
-        browser_client: CdpClient,
-        session_id: str,
+        client: ScriptApiClient,
+        session_token: str,
         target_id: str,
+        cdp_ws_url: str | None = None,
+        cdp_session_id: str | None = None,
     ) -> None:
-        self._browser = browser_client
-        self._session_id = session_id
+        self._client = client
+        self._session_token = session_token
         self._target_id = target_id
-        self._closed = False
+        self._cdp_ws_url = cdp_ws_url
+        self._cdp_session_id = cdp_session_id
+        self._escape_hatch: CdpEscapeHatch | None = None
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _send(
+    def _call_tool(
         self,
-        method: str,
-        params: dict[str, Any] | None = None,
+        name: str,
+        params: dict[str, Any],
         *,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Send a CDP command routed to this tab's session."""
-        return self._browser.send_sync(
-            method, params, timeout=timeout, session_id=self._session_id
+        """Send a tool call to the server and return the raw response."""
+        return self._client.call_tool(
+            name, params, self._session_token, timeout=timeout
         )
 
     @property
@@ -74,329 +69,239 @@ class Page:
         return self._target_id
 
     @property
-    def closed(self) -> bool:
-        """Whether this page (tab) has been closed."""
-        return self._closed
+    def session_token(self) -> str:
+        """The session token for this tab."""
+        return self._session_token
+
+    @property
+    def cdp(self) -> CdpEscapeHatch:
+        """Direct CDP access for this tab (Escape Hatch).
+
+        Returns a ``CdpEscapeHatch`` instance that communicates directly
+        with Chrome via WebSocket, bypassing the Script API server.
+        The instance is created lazily on first access and reused on
+        subsequent accesses. The WebSocket connection itself is only
+        opened on the first ``send()`` call.
+
+        Raises:
+            RuntimeError: If no CDP WebSocket URL is available.
+        """
+        if self._escape_hatch is None:
+            if not self._cdp_ws_url:
+                raise RuntimeError(
+                    "CDP Escape Hatch not available — no cdp_ws_url. "
+                    "Ensure the server supports Story 9.9."
+                )
+            self._escape_hatch = CdpEscapeHatch(
+                self._cdp_ws_url, self._cdp_session_id
+            )
+        return self._escape_hatch
 
     # ------------------------------------------------------------------
     # Page methods
     # ------------------------------------------------------------------
 
-    def navigate(self, url: str, *, timeout: float = DEFAULT_TIMEOUT) -> dict[str, Any]:
+    def navigate(self, url: str, *, timeout: float = LONG_TIMEOUT) -> None:
         """Navigate to a URL and wait for the page to load.
 
         Args:
             url: The URL to navigate to.
-            timeout: Maximum wait time for the load event (seconds).
-
-        Returns:
-            Dict with ``frameId`` and ``loaderId`` from Page.navigate.
+            timeout: Maximum wait time (seconds).
 
         Raises:
-            RuntimeError: If navigation fails (e.g. net::ERR_NAME_NOT_RESOLVED).
-            TimeoutError: If the page does not finish loading in time.
+            RuntimeError: If navigation fails.
         """
-        # Navigate
-        result = self._send("Page.navigate", {"url": url}, timeout=timeout)
-
-        # Check for navigation error
-        error_text = result.get("errorText")
-        if error_text:
-            raise RuntimeError(f"Navigation failed: {error_text}")
-
-        # Poll document.readyState until "complete"
-        deadline = time.monotonic() + timeout
-        while True:
-            ready_state = self.evaluate("document.readyState")
-            if ready_state == "complete":
-                break
-            if time.monotonic() >= deadline:
-                raise TimeoutError(
-                    f"Page did not finish loading within {timeout}s: {url}"
-                )
-            time.sleep(_POLL_INTERVAL)
-
-        return result
+        response = self._call_tool("navigate", {"url": url}, timeout=timeout)
+        _check_error(response)
 
     def click(self, selector: str, *, timeout: float = DEFAULT_TIMEOUT) -> None:
-        """Click an element identified by CSS selector.
+        """Click an element.
 
-        Uses Runtime.evaluate to find the element and get its bounding box,
-        then dispatches mousePressed + mouseReleased via Input domain.
+        The server handles selector resolution (CSS, visible text, ref),
+        scroll-into-view, Shadow DOM traversal, and paint-order filtering.
 
         Args:
-            selector: CSS selector for the element to click.
-            timeout: Timeout for finding the element.
+            selector: CSS selector, visible text, or ref (e.g. "ref:42").
+            timeout: Timeout for the operation.
 
         Raises:
-            RuntimeError: If the element is not found or not visible.
+            RuntimeError: If the element is not found or click fails.
         """
-        # Find element and get its center coordinates
-        js = f"""
-        (() => {{
-            const el = document.querySelector({_js_string(selector)});
-            if (!el) return {{ error: 'Element not found: {selector}' }};
-            const rect = el.getBoundingClientRect();
-            if (rect.width === 0 && rect.height === 0)
-                return {{ error: 'Element has zero size: {selector}' }};
-            return {{
-                x: Math.round(rect.x + rect.width / 2),
-                y: Math.round(rect.y + rect.height / 2)
-            }};
-        }})()
-        """
-        result = self.evaluate(js, timeout=timeout)
-        if isinstance(result, dict) and "error" in result:
-            raise RuntimeError(result["error"])
-
-        x = result["x"]
-        y = result["y"]
-
-        # mousePressed
-        self._send(
-            "Input.dispatchMouseEvent",
-            {
-                "type": "mousePressed",
-                "x": x,
-                "y": y,
-                "button": "left",
-                "clickCount": 1,
-            },
-        )
-        # mouseReleased
-        self._send(
-            "Input.dispatchMouseEvent",
-            {
-                "type": "mouseReleased",
-                "x": x,
-                "y": y,
-                "button": "left",
-                "clickCount": 1,
-            },
-        )
+        response = self._call_tool("click", {"selector": selector}, timeout=timeout)
+        _check_error(response)
 
     def type(self, selector: str, text: str, *, timeout: float = DEFAULT_TIMEOUT) -> None:
-        """Type text into an element identified by CSS selector.
-
-        Focuses the element first, then dispatches keyDown + keyUp events
-        for each character.
+        """Type text into an element.
 
         Args:
-            selector: CSS selector for the input element.
+            selector: CSS selector, visible text, or ref for the input element.
             text: The text to type.
-            timeout: Timeout for finding the element.
+            timeout: Timeout for the operation.
 
         Raises:
             RuntimeError: If the element is not found.
         """
-        # Focus the element
-        focus_js = f"""
-        (() => {{
-            const el = document.querySelector({_js_string(selector)});
-            if (!el) return {{ error: 'Element not found: {selector}' }};
-            el.focus();
-            return {{ ok: true }};
-        }})()
-        """
-        result = self.evaluate(focus_js, timeout=timeout)
-        if isinstance(result, dict) and "error" in result:
-            raise RuntimeError(result["error"])
-
-        # Type each character
-        for char in text:
-            self._send(
-                "Input.dispatchKeyEvent",
-                {"type": "keyDown", "text": char, "key": char},
-            )
-            self._send(
-                "Input.dispatchKeyEvent",
-                {"type": "keyUp", "key": char},
-            )
+        response = self._call_tool(
+            "type", {"selector": selector, "text": text}, timeout=timeout
+        )
+        _check_error(response)
 
     def fill(self, fields: dict[str, str], *, timeout: float = DEFAULT_TIMEOUT) -> None:
         """Fill multiple form fields at once.
 
         Args:
-            fields: Mapping of CSS selector to value. Each field is focused,
-                cleared, and the value is typed in.
-            timeout: Timeout for finding each element.
+            fields: Mapping of selector to value.
+            timeout: Timeout for the operation.
 
         Raises:
             RuntimeError: If any element is not found.
         """
-        for selector, value in fields.items():
-            # Focus and clear the field
-            clear_js = f"""
-            (() => {{
-                const el = document.querySelector({_js_string(selector)});
-                if (!el) return {{ error: 'Element not found: {selector}' }};
-                el.focus();
-                el.value = '';
-                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                return {{ ok: true }};
-            }})()
-            """
-            result = self.evaluate(clear_js, timeout=timeout)
-            if isinstance(result, dict) and "error" in result:
-                raise RuntimeError(result["error"])
+        field_list = [
+            {"selector": selector, "value": value}
+            for selector, value in fields.items()
+        ]
+        response = self._call_tool("fill_form", {"fields": field_list}, timeout=timeout)
+        _check_error(response)
 
-            # Type the value
-            for char in value:
-                self._send(
-                    "Input.dispatchKeyEvent",
-                    {"type": "keyDown", "text": char, "key": char},
-                )
-                self._send(
-                    "Input.dispatchKeyEvent",
-                    {"type": "keyUp", "key": char},
-                )
-
-    def wait_for(
-        self,
-        condition: str,
-        *,
-        timeout: float = _WAIT_TIMEOUT,
-        poll_interval: float = _POLL_INTERVAL,
-    ) -> Any:
+    def wait_for(self, condition: str, *, timeout: float = LONG_TIMEOUT) -> None:
         """Wait for a condition to become truthy.
 
-        Supports a ``text=`` shorthand: ``wait_for("text=Dashboard")`` is
-        equivalent to ``wait_for('document.body.innerText.includes("Dashboard")')``.
+        The server handles all polling. Supports the same condition syntax
+        as the MCP wait_for tool (JavaScript expressions, ``text=...`` shorthand).
 
         Args:
-            condition: A JavaScript expression that evaluates to a truthy
-                value when the condition is met.  Use ``"text=<string>"`` to
-                wait for visible text on the page.
+            condition: A JavaScript expression or ``text=<string>`` shorthand.
             timeout: Maximum wait time (seconds).
-            poll_interval: How often to check the condition (seconds).
-
-        Returns:
-            The truthy value of the condition expression.
 
         Raises:
             TimeoutError: If the condition does not become truthy in time.
+            RuntimeError: If the wait fails for other reasons.
         """
-        # Shorthand: "text=Dashboard" → document.body.innerText.includes("Dashboard")
-        if condition.startswith("text="):
-            search_text = condition[5:]
-            import json as _json
-            condition = f"document.body.innerText.includes({_json.dumps(search_text)})"
+        # Map user-friendly condition string to server tool params.
+        # Server expects: condition="element"|"network_idle"|"js"
+        # plus selector= or expression= fields.
+        # The HTTP gateway doesn't apply Zod schema defaults, so we must
+        # always include timeout_ms explicitly (server expects milliseconds).
+        timeout_ms = int(timeout * 1000)
+        if condition == "network_idle":
+            params: dict[str, Any] = {"condition": "network_idle", "timeout": timeout_ms}
+        elif condition.startswith("text="):
+            params = {"condition": "element", "selector": f"text/{condition[5:]}", "timeout": timeout_ms}
+        elif condition.startswith(("#", ".", "[")) or condition.startswith("ref:"):
+            params = {"condition": "element", "selector": condition, "timeout": timeout_ms}
+        else:
+            params = {"condition": "js", "expression": condition, "timeout": timeout_ms}
+        response = self._call_tool("wait_for", params, timeout=timeout)
+        # wait_for may return isError for timeouts
+        if response.get("isError"):
+            text = _extract_text(response)
+            if "timeout" in text.lower() or "timed out" in text.lower():
+                raise TimeoutError(text)
+            raise RuntimeError(text)
 
-        deadline = time.monotonic() + timeout
-        while True:
-            result = self.evaluate(condition)
-            if result:
-                return result
-            if time.monotonic() >= deadline:
-                raise TimeoutError(
-                    f"Condition not met within {timeout}s: {condition}"
-                )
-            time.sleep(poll_interval)
-
-    def evaluate(
-        self,
-        expression: str,
-        *,
-        timeout: float = DEFAULT_TIMEOUT,
-        await_promise: bool = False,
-    ) -> Any:
+    def evaluate(self, expression: str, *, timeout: float = DEFAULT_TIMEOUT) -> Any:
         """Evaluate JavaScript in the page context.
 
         Args:
             expression: JavaScript expression to evaluate.
             timeout: Timeout for the evaluation.
-            await_promise: If True, await the result if it is a Promise.
 
         Returns:
-            The evaluated value. Objects are returned by value.
-            Returns None for undefined results.
+            The evaluated value. Attempts to parse JSON from the server
+            response; returns the raw string if parsing fails.
 
         Raises:
             RuntimeError: If the evaluation throws an exception.
         """
-        params: dict[str, Any] = {
-            "expression": expression,
-            "returnByValue": True,
-        }
-        if await_promise:
-            params["awaitPromise"] = True
+        response = self._call_tool(
+            "evaluate", {"expression": expression}, timeout=timeout
+        )
+        _check_error(response)
+        return _parse_evaluate_response(response)
 
-        result = self._send("Runtime.evaluate", params, timeout=timeout)
-
-        # Check for exceptions
-        if "exceptionDetails" in result:
-            exc = result["exceptionDetails"]
-            text = exc.get("text", "")
-            exception = exc.get("exception", {})
-            desc = exception.get("description", text)
-            raise RuntimeError(f"JavaScript error: {desc}")
-
-        # Extract the value
-        remote_obj = result.get("result", {})
-        if remote_obj.get("type") == "undefined":
-            return None
-        return remote_obj.get("value")
-
-    def download(
-        self,
-        *,
-        download_path: str | None = None,
-        timeout: float = DEFAULT_TIMEOUT,
-    ) -> str:
+    def download(self, *, timeout: float = DEFAULT_TIMEOUT) -> str:
         """Enable downloads and return the download directory.
-
-        After calling this method, any downloads triggered by page actions
-        will be saved to the specified directory (or a temp directory).
-
-        Uses ``allowAndName`` behavior so Chrome saves each download under a
-        GUID-based filename, preventing overwrites during parallel downloads.
-        The original filename is available via the ``Browser.downloadWillBegin``
-        event's ``suggestedFilename`` field.
-
-        Args:
-            download_path: Directory to save downloads. Defaults to a temp dir.
-            timeout: Timeout for the CDP command.
 
         Returns:
             The absolute path of the download directory.
-        """
-        path = download_path or _DOWNLOAD_DIR
-        os.makedirs(path, exist_ok=True)
 
-        # Use Browser.setDownloadBehavior via the browser client (no session)
-        self._browser.send_sync(
-            "Browser.setDownloadBehavior",
-            {
-                "behavior": "allowAndName",
-                "downloadPath": path,
-                "eventsEnabled": True,
-            },
-            timeout=timeout,
-        )
-        return path
+        Raises:
+            RuntimeError: If the operation fails.
+        """
+        response = self._call_tool("download", {}, timeout=timeout)
+        _check_error(response)
+        return _extract_text(response)
 
     def close(self) -> None:
-        """Close this tab.
+        """Close the Escape Hatch WebSocket connection if open.
 
-        Called automatically when using ``chrome.new_page()`` as context manager.
+        The tab itself is not closed here — tab lifecycle is managed via
+        session create/close. The context manager (Chrome.new_page()) calls
+        close_session to close the tab.
         """
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            self._browser.send_sync(
-                "Target.closeTarget", {"targetId": self._target_id}
-            )
-        except Exception:
-            pass  # Best effort — tab might already be gone
+        if self._escape_hatch is not None:
+            self._escape_hatch.close()
+            self._escape_hatch = None
 
 
-def _js_string(s: str) -> str:
-    """Escape a Python string for safe embedding in JavaScript.
+# ------------------------------------------------------------------
+# Response parsing helpers
+# ------------------------------------------------------------------
 
-    Returns the string wrapped in JSON quotes (double-quoted, with
-    special characters escaped).
+
+def _extract_text(response: dict[str, Any]) -> str:
+    """Extract the text content from a MCP ToolResponse.
+
+    The server response format is:
+    ``{"content": [{"type": "text", "text": "..."}], "isError": false}``
+
+    Returns:
+        The text from the first content item, or empty string.
     """
-    import json
+    content = response.get("content", [])
+    if content and isinstance(content, list) and len(content) > 0:
+        return content[0].get("text", "")
+    return ""
 
-    return json.dumps(s)
+
+def _check_error(response: dict[str, Any]) -> None:
+    """Check if the server response indicates an error.
+
+    Args:
+        response: The parsed server response.
+
+    Raises:
+        RuntimeError: If ``isError`` is true in the response.
+    """
+    if response.get("isError"):
+        text = _extract_text(response)
+        raise RuntimeError(text or "Unknown server error")
+
+
+def _parse_evaluate_response(response: dict[str, Any]) -> Any:
+    """Parse the evaluate tool response into a Python value.
+
+    The server returns the JS value as serialized text. We try to parse
+    it as JSON first (handles numbers, booleans, objects, arrays, null).
+    If that fails, return the raw string.
+
+    Returns:
+        The parsed Python value (str, int, float, dict, list, None, bool).
+    """
+    text = _extract_text(response)
+    if not text:
+        return None
+
+    # Try JSON parse for structured values
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return text
+
+
+def _parse_tool_response(response: dict[str, Any]) -> str:
+    """Parse a generic tool response, returning the text content.
+
+    This is a convenience alias for _extract_text used in tests.
+    """
+    return _extract_text(response)

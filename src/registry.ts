@@ -426,6 +426,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         isOwnedTarget: () => true,
         trackOwnedTarget: () => { /* legacy: no-op */ },
         untrackOwnedTarget: () => { /* legacy: no-op */ },
+        cdpPort: 9222,
         shutdown: async () => { /* legacy: no-op */ },
       };
       this._browserSession = session;

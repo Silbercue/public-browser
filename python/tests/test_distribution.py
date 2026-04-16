@@ -145,9 +145,9 @@ class TestPackageImports:
         assert silbercuechrome.__version__ == "1.0.0"
 
     def test_all_exports(self) -> None:
-        """__all__ lists exactly Chrome, Page, CdpClient, CdpError."""
+        """__all__ lists Chrome, Page, ScriptApiClient, CdpClient, CdpError, CdpEscapeHatch."""
         import silbercuechrome
-        expected = {"Chrome", "Page", "CdpClient", "CdpError"}
+        expected = {"Chrome", "Page", "ScriptApiClient", "CdpClient", "CdpError", "CdpEscapeHatch"}
         assert set(silbercuechrome.__all__) == expected
 
     def test_py_typed_marker_exists(self) -> None:
@@ -197,9 +197,15 @@ class TestSingleFile:
         assert hasattr(self.mod, "CdpError")
 
     def test_all_exports_match_package(self) -> None:
-        """Single-file __all__ matches package __all__."""
+        """Single-file __all__ is a subset of package __all__.
+
+        The single-file version is v1 (CDP-based) and does not include
+        ScriptApiClient. It provides the core symbols that both v1 and v2 share.
+        """
         import silbercuechrome
-        assert set(self.mod.__all__) == set(silbercuechrome.__all__)
+        single_file_exports = set(self.mod.__all__)
+        package_exports = set(silbercuechrome.__all__)
+        assert single_file_exports.issubset(package_exports)
 
     def test_chrome_connect_method(self) -> None:
         """Chrome.connect is a classmethod in the single file."""

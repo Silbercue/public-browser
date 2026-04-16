@@ -217,7 +217,7 @@ class TestSharedCoreRouting:
 
         reqs = [r for r in _TrackingHandler.received_requests if r[0] == "/tool/wait_for"]
         assert len(reqs) == 1
-        assert reqs[0][2] == {"condition": "document.querySelector('#done')"}
+        assert reqs[0][2] == {"condition": "js", "expression": "document.querySelector('#done')", "timeout": 120000}
 
     def test_evaluate_sends_to_tool_evaluate(self, tracking_server: int) -> None:
         """page.evaluate(expression) sends POST /tool/evaluate with {expression: ...}."""
@@ -497,6 +497,7 @@ class TestAutoStartVerification:
             # PATH binary is used, NOT npx
             mock_popen.assert_called_once_with(
                 ["/opt/bin/silbercuechrome", "--script"],
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -523,6 +524,7 @@ class TestAutoStartVerification:
 
             mock_popen.assert_called_once_with(
                 ["/usr/local/bin/npx", "-y", "@silbercue/chrome@latest", "--", "--script"],
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )

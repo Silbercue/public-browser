@@ -1,13 +1,16 @@
-"""Chrome — entry point for browser automation.
+"""Chrome — entry point for browser automation (v2 — Shared Core Client).
 
-Provides the top-level ``Chrome`` class that connects to a running Chrome
-instance and manages tab lifecycle via ``new_page()``.
+Provides the top-level ``Chrome`` class that connects to the SilbercueChrome
+Script API server and manages tab lifecycle via ``new_page()``.
+
+In v2, all browser automation logic runs server-side. The Python library is a
+thin HTTP client that sends tool calls to the server on port 9223.
 
 Usage::
 
     from silbercuechrome import Chrome
 
-    chrome = Chrome.connect(port=9222)
+    chrome = Chrome.connect()
     with chrome.new_page() as page:
         page.navigate("https://example.com")
         title = page.evaluate("document.title")
@@ -16,24 +19,23 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import contextmanager
 from typing import Any, Generator
 
-from silbercuechrome.cdp import CdpClient
+from silbercuechrome.client import ScriptApiClient
 from silbercuechrome.page import Page
 
 
 class Chrome:
-    """Connection to a Chrome browser instance.
+    """Connection to the SilbercueChrome Script API server.
 
     Use ``Chrome.connect()`` to create an instance. Do not instantiate directly.
 
-    The Chrome object holds a browser-level CDP connection and can create
-    new tabs via ``new_page()``.
+    The Chrome object holds an HTTP client for the Script API and can create
+    new tabs via ``new_page()``. If no server is running, it auto-starts one.
     """
 
-    def __init__(self, client: CdpClient) -> None:
+    def __init__(self, client: ScriptApiClient) -> None:
         self._client = client
         self._closed = False
 
@@ -41,32 +43,53 @@ class Chrome:
     def connect(
         cls,
         host: str = "localhost",
-        port: int = 9222,
+        port: int = 9223,
+        *,
+        server_path: str | None = None,
+        auto_start: bool = True,
     ) -> Chrome:
-        """Connect to a running Chrome instance.
+        """Connect to the SilbercueChrome Script API server.
+
+        If the server is not running and ``auto_start`` is True, starts it
+        automatically as a subprocess.
 
         Args:
-            host: Chrome host (default: localhost).
-            port: Chrome debugging port (default: 9222).
+            host: Server host (default: localhost).
+            port: Server port (default: 9223).
+            server_path: Explicit path to the server binary. If not given,
+                the server is found via PATH or npx fallback.
+            auto_start: Whether to auto-start the server if not running
+                (default: True).
 
         Returns:
             A connected Chrome instance.
 
         Raises:
-            ConnectionError: If Chrome is not reachable on the given port.
+            ConnectionError: If the server is not reachable and auto_start
+                is False.
+            FileNotFoundError: If auto_start is True but no server binary
+                can be found.
+            TimeoutError: If the auto-started server does not become ready.
         """
-        client = CdpClient.connect_sync(host=host, port=port)
+        client = ScriptApiClient(host, port)
+
+        if not client._is_server_running():
+            if auto_start:
+                client.start_server(server_path=server_path)
+            else:
+                raise ConnectionError(
+                    f"SilbercueChrome server not reachable on {host}:{port}. "
+                    f"Start it with 'silbercuechrome --script' or set auto_start=True."
+                )
+
         return cls(client)
 
     @contextmanager
-    def new_page(self, url: str = "about:blank") -> Generator[Page, None, None]:
+    def new_page(self) -> Generator[Page, None, None]:
         """Create a new tab and return a Page as a context manager.
 
-        The tab is automatically closed when the context manager exits,
-        even if an exception occurs.
-
-        Args:
-            url: Initial URL for the new tab (default: about:blank).
+        The session (tab) is automatically closed when the context manager
+        exits, even if an exception occurs.
 
         Yields:
             A Page instance for the new tab.
@@ -77,29 +100,29 @@ class Chrome:
                 page.navigate("https://example.com")
                 page.click("#button")
         """
-        # Create a new tab
-        result = self._client.send_sync(
-            "Target.createTarget", {"url": url}
+        session_token, target_id, cdp_ws_url, cdp_session_id = (
+            self._client.create_session()
         )
-        target_id = result["targetId"]
-
-        # Attach to the new tab to get a session ID
-        attach_result = self._client.send_sync(
-            "Target.attachToTarget",
-            {"targetId": target_id, "flatten": True},
-        )
-        session_id = attach_result["sessionId"]
 
         page = Page(
-            browser_client=self._client,
-            session_id=session_id,
+            client=self._client,
+            session_token=session_token,
             target_id=target_id,
+            cdp_ws_url=cdp_ws_url,
+            cdp_session_id=cdp_session_id,
         )
 
         try:
             yield page
         finally:
-            page.close()
+            try:
+                page.close()  # Close Escape Hatch WebSocket if open
+            except Exception:
+                pass
+            try:
+                self._client.close_session(session_token)
+            except Exception:
+                pass  # Cleanup errors must not propagate
 
     @property
     def closed(self) -> bool:
@@ -107,14 +130,15 @@ class Chrome:
         return self._closed
 
     def close(self) -> None:
-        """Close the browser connection.
+        """Close the connection and terminate any auto-started server.
 
-        Does NOT close Chrome itself — only the CDP WebSocket connection.
+        Does NOT close Chrome itself — only the HTTP client and any
+        auto-started server subprocess.
         """
         if self._closed:
             return
         self._closed = True
-        self._client.close_sync()
+        self._client.close()
 
     def __enter__(self) -> Chrome:
         return self

@@ -289,9 +289,15 @@ export class ScriptApiServer {
       // 4. Store session.
       const session = this.sessionStore.create(targetId, cdpSessionId);
 
+      // 5. Build CDP WebSocket URL for Escape Hatch (Story 9.9).
+      const cdpPort = this._browserSession.cdpPort;
+      const cdpWsUrl = `ws://localhost:${cdpPort}/devtools/page/${targetId}`;
+
       this._sendJson(res, 200, {
         session_token: session.sessionToken,
         target_id: session.targetId,
+        cdp_ws_url: cdpWsUrl,
+        cdp_session_id: cdpSessionId,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

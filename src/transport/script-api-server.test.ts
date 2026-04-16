@@ -58,6 +58,7 @@ function createMockBrowserSession(): IBrowserSession {
     sessionId: "main-session",
     headless: false,
     scriptMode: true,
+    cdpPort: 9222,
     tabStateCache: {} as never,
     sessionDefaults: {} as never,
     sessionManager: undefined,
@@ -233,6 +234,13 @@ describe("ScriptApiServer", () => {
     expect(res.body.session_token).toBeTruthy();
     expect(typeof res.body.session_token).toBe("string");
     expect(res.body.target_id).toBe("tab-1");
+  });
+
+  it("POST /session/create returns cdp_ws_url and cdp_session_id (Story 9.9)", async () => {
+    const res = await request(port, "/session/create");
+    expect(res.status).toBe(200);
+    expect(res.body.cdp_ws_url).toBe("ws://localhost:9222/devtools/page/tab-1");
+    expect(res.body.cdp_session_id).toBe("cdp-session-1");
   });
 
   it("POST /session/create calls Target.createTarget and Target.attachToTarget", async () => {
@@ -492,6 +500,169 @@ describe("ScriptApiServer", () => {
     const closeRes = await request(port, "/session/close", {}, { "X-Session": token });
     expect(closeRes.status).toBe(200);
     expect(closeRes.body.ok).toBe(true);
+  });
+});
+
+// ── Shared Core Verification — Story 9.10 ────────────────────────────
+//
+// These tests prove that /tool/{name} routes through executeTool() with the
+// correct arguments — the same entry point used by MCP and run_plan.
+// This is the server-side proof that Script API uses the Shared Core.
+
+describe("ScriptApiServer — Shared Core tool dispatch (Story 9.10)", () => {
+  let server: ScriptApiServer;
+  let registry: ScriptApiToolRegistry;
+  let browserSession: IBrowserSession;
+  let port: number;
+  let sessionToken: string;
+  let cdpSessionId: string;
+
+  beforeEach(async () => {
+    registry = createMockRegistry();
+    browserSession = createMockBrowserSession();
+
+    server = new ScriptApiServer({ port: 0, registry, browserSession });
+    await server.start();
+    const addr = (server as unknown as { _server: http.Server })._server.address() as { port: number };
+    port = addr.port;
+
+    // Create a session for tool calls.
+    const createRes = await request(port, "/session/create");
+    sessionToken = createRes.body.session_token as string;
+    cdpSessionId = createRes.body.cdp_session_id as string;
+  });
+
+  afterEach(async () => {
+    await server.stop();
+  });
+
+  // ── Task 1.1: /tool/click routes through executeTool ────────────────
+
+  it("routes /tool/click through executeTool with correct args", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    await request(port, "/tool/click", { selector: "#btn" }, { "X-Session": sessionToken });
+
+    expect(spy).toHaveBeenCalledWith("click", { selector: "#btn" }, cdpSessionId);
+  });
+
+  // ── Task 1.2: All 7 tool paths dispatch through executeTool ─────────
+
+  it("routes /tool/navigate through executeTool", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    await request(port, "/tool/navigate", { url: "https://example.com" }, { "X-Session": sessionToken });
+
+    expect(spy).toHaveBeenCalledWith("navigate", { url: "https://example.com" }, cdpSessionId);
+  });
+
+  it("routes /tool/type through executeTool", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    await request(port, "/tool/type", { selector: "#input", text: "Hello" }, { "X-Session": sessionToken });
+
+    expect(spy).toHaveBeenCalledWith("type", { selector: "#input", text: "Hello" }, cdpSessionId);
+  });
+
+  it("routes /tool/fill_form through executeTool", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    const fields = [{ selector: "#user", value: "admin" }, { selector: "#pass", value: "secret" }];
+    await request(port, "/tool/fill_form", { fields }, { "X-Session": sessionToken });
+
+    expect(spy).toHaveBeenCalledWith("fill_form", { fields }, cdpSessionId);
+  });
+
+  it("routes /tool/wait_for through executeTool", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    await request(port, "/tool/wait_for", { condition: "document.title === 'Done'" }, { "X-Session": sessionToken });
+
+    expect(spy).toHaveBeenCalledWith("wait_for", { condition: "document.title === 'Done'" }, cdpSessionId);
+  });
+
+  it("routes /tool/evaluate through executeTool", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    await request(port, "/tool/evaluate", { expression: "1+1" }, { "X-Session": sessionToken });
+
+    expect(spy).toHaveBeenCalledWith("evaluate", { expression: "1+1" }, cdpSessionId);
+  });
+
+  it("routes /tool/download through executeTool", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    await request(port, "/tool/download", {}, { "X-Session": sessionToken });
+
+    expect(spy).toHaveBeenCalledWith("download", {}, cdpSessionId);
+  });
+
+  // ── Task 1.3: sessionIdOverride matches CDP session (not MCP main) ──
+
+  it("passes the script session's cdpSessionId as sessionIdOverride (not MCP main session)", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    // The main MCP session ID is "main-session" (set by createMockBrowserSession).
+    // The script session's CDP session ID comes from Target.attachToTarget → "cdp-session-1".
+    await request(port, "/tool/evaluate", { expression: "42" }, { "X-Session": sessionToken });
+
+    // Third argument must be the script session's CDP ID, NOT the MCP main session.
+    const callArgs = spy.mock.calls.find(
+      (c: unknown[]) => c[0] === "evaluate" && (c[1] as Record<string, unknown>).expression === "42",
+    );
+    expect(callArgs).toBeDefined();
+    expect(callArgs![2]).toBe(cdpSessionId);
+    expect(callArgs![2]).not.toBe("main-session");
+  });
+
+  // ── Task 1.4: Handler improvement is immediately visible ────────────
+
+  it("handler return value changes are immediately visible in HTTP response (shared code path)", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    // First call: default mock result
+    const res1 = await request(port, "/tool/evaluate", { expression: "v1" }, { "X-Session": sessionToken });
+    expect(res1.body.content).toEqual([{ type: "text", text: "mock result" }]);
+
+    // Simulate a handler improvement — change mock return value
+    spy.mockImplementation(async (_name: string, _params: Record<string, unknown>, _sessionIdOverride?: string): Promise<ToolResponse> => {
+      return {
+        content: [{ type: "text", text: "improved result with shadow-dom fix" }],
+        isError: false,
+        _meta: { elapsedMs: 5, method: _name },
+      };
+    });
+
+    // Second call: improved result is immediately visible
+    const res2 = await request(port, "/tool/evaluate", { expression: "v2" }, { "X-Session": sessionToken });
+    expect(res2.body.content).toEqual([{ type: "text", text: "improved result with shadow-dom fix" }]);
+  });
+
+  // ── Two separate sessions use separate CDP session IDs ──────────────
+
+  it("two script sessions get different cdpSessionIds routed correctly", async () => {
+    const spy = registry.executeTool as ReturnType<typeof vi.fn>;
+
+    // Create a second session
+    const createRes2 = await request(port, "/session/create");
+    const sessionToken2 = createRes2.body.session_token as string;
+    const cdpSessionId2 = createRes2.body.cdp_session_id as string;
+
+    // Both sessions should have different CDP session IDs
+    expect(cdpSessionId).not.toBe(cdpSessionId2);
+
+    // Calls on session 1
+    await request(port, "/tool/click", { selector: "#a" }, { "X-Session": sessionToken });
+    // Calls on session 2
+    await request(port, "/tool/click", { selector: "#b" }, { "X-Session": sessionToken2 });
+
+    const calls = spy.mock.calls.filter((c: unknown[]) => c[0] === "click");
+    expect(calls).toHaveLength(2);
+
+    // Session 1 call → cdpSessionId 1
+    expect(calls[0][2]).toBe(cdpSessionId);
+    // Session 2 call → cdpSessionId 2
+    expect(calls[1][2]).toBe(cdpSessionId2);
   });
 });
 

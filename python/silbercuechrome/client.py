@@ -131,6 +131,7 @@ class ScriptApiClient:
 
         self._server_proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -183,6 +184,13 @@ class ScriptApiClient:
     def _shutdown_server(self) -> None:
         """Terminate the auto-started server process."""
         if self._server_proc and self._server_proc.poll() is None:
+            # Close stdin pipe first — this signals the MCP stdio transport
+            # to shut down gracefully before we send SIGTERM.
+            if self._server_proc.stdin:
+                try:
+                    self._server_proc.stdin.close()
+                except OSError:
+                    pass
             self._server_proc.terminate()
             try:
                 self._server_proc.wait(timeout=3.0)
@@ -193,11 +201,11 @@ class ScriptApiClient:
     # Session management
     # ------------------------------------------------------------------
 
-    def create_session(self) -> tuple[str, str]:
+    def create_session(self) -> tuple[str, str, str, str]:
         """Create a new session on the server.
 
         Returns:
-            Tuple of (session_token, target_id).
+            Tuple of (session_token, target_id, cdp_ws_url, cdp_session_id).
 
         Raises:
             RuntimeError: If the server returns an error.
@@ -206,7 +214,9 @@ class ScriptApiClient:
         result = self._post("/session/create", {})
         session_token = result["session_token"]
         target_id = result["target_id"]
-        return session_token, target_id
+        cdp_ws_url = result["cdp_ws_url"]
+        cdp_session_id = result["cdp_session_id"]
+        return session_token, target_id, cdp_ws_url, cdp_session_id
 
     def close_session(self, session_token: str) -> None:
         """Close a session on the server.

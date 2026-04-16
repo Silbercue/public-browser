@@ -1,94 +1,119 @@
-"""CDP coexistence tests — Story 9.4.
+"""CDP coexistence tests — Story 9.4 (updated for v2 Script API).
 
 Verifies NFR19: MCP server and Python Script API can operate in parallel
 without interference. Tests cover:
 
 1. Script-tab lifecycle does not disturb MCP (AC #1, #2)
-2. Context manager closes tab on normal exit and on exception (AC #3)
-3. Parallel Page objects operate in independent tabs (AC #1)
+2. Context manager closes session on normal exit and on exception (AC #3)
+3. Parallel Page objects operate in independent sessions (AC #1)
 
-**Unit tests** (run with `pytest`):
-  Mock-based tests using FakeWebSocket — no Chrome needed. These verify
-  the Python-side contract: correct CDP commands are sent, context manager
+**Unit tests** (run with ``pytest``):
+  Mock-based tests using a fake HTTP server — no Chrome needed. These verify
+  the Python-side contract: correct HTTP requests are sent, context manager
   cleanup works, and parallel pages get different target IDs.
 
-**Integration tests** (run with `pytest -m integration`):
-  Require a running Chrome with ``--remote-debugging-port=9222``.
+**Integration tests** (run with ``pytest -m integration``):
+  Require a running SilbercueChrome server with ``--script`` flag.
   Skipped by default in ``pytest`` (no ``-m integration`` flag).
-
-To run integration tests manually:
-  1. Start Chrome with: ``google-chrome --remote-debugging-port=9222``
-  2. Run: ``cd python && pytest -m integration tests/test_coexistence.py -v``
 """
 
 from __future__ import annotations
 
 import json
 import shutil
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-import time
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from silbercuechrome.cdp import CdpClient
 from silbercuechrome.chrome import Chrome
+from silbercuechrome.client import ScriptApiClient
 from silbercuechrome.page import Page
-from tests.conftest import FakeWebSocket
 
 
 # ---------------------------------------------------------------------------
-# Helper: create a Chrome with FakeWebSocket
+# Helper: Fake HTTP server that mimics Script API responses
 # ---------------------------------------------------------------------------
 
+# Global counter for unique session/target IDs
+_session_counter = 0
 
-class _FakeConnectCtx:
-    """Async context manager that returns a FakeWebSocket."""
 
-    def __init__(self, ws: FakeWebSocket) -> None:
-        self._ws = ws
+class _FakeScriptApiHandler(BaseHTTPRequestHandler):
+    """Minimal HTTP handler that returns pre-configured responses."""
 
-    async def __aenter__(self) -> FakeWebSocket:
-        return self._ws
+    responses: list[tuple[int, dict[str, Any]]] = []
+    received_requests: list[tuple[str, dict[str, str], bytes]] = []
 
-    async def __aexit__(self, *exc: Any) -> None:
+    def do_POST(self) -> None:
+        global _session_counter
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length)
+
+        headers_dict = {k: v for k, v in self.headers.items()}
+        _FakeScriptApiHandler.received_requests.append(
+            (self.path, headers_dict, body)
+        )
+
+        if _FakeScriptApiHandler.responses:
+            status, response_body = _FakeScriptApiHandler.responses.pop(0)
+        else:
+            # Default: auto-generate session responses
+            if self.path == "/session/create":
+                _session_counter += 1
+                status = 200
+                response_body = {
+                    "session_token": f"SESSION-{_session_counter}",
+                    "target_id": f"TARGET-{_session_counter}",
+                    "cdp_ws_url": f"ws://localhost:9222/devtools/page/TARGET-{_session_counter}",
+                    "cdp_session_id": f"cdp-session-{_session_counter}",
+                }
+            elif self.path == "/session/close":
+                status = 200
+                response_body = {"ok": True}
+            else:
+                status = 200
+                response_body = {
+                    "content": [{"type": "text", "text": "ok"}],
+                    "isError": False,
+                }
+
+        data = json.dumps(response_body).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, format: str, *args: Any) -> None:
         pass
 
 
-def make_chrome(fake_ws: FakeWebSocket) -> Chrome:
-    """Create a Chrome instance with a FakeWebSocket-backed CdpClient."""
-    with (
-        patch.object(
-            CdpClient,
-            "_discover_browser_ws",
-            return_value="ws://localhost:9222/devtools/browser/xyz",
-        ),
-        patch(
-            "silbercuechrome.cdp.connect",
-            return_value=_FakeConnectCtx(fake_ws),
-        ),
-    ):
-        return Chrome.connect(port=9222)
+@pytest.fixture
+def fake_api():
+    """Start a fake Script API server."""
+    global _session_counter
+    _session_counter = 0
+    _FakeScriptApiHandler.responses = []
+    _FakeScriptApiHandler.received_requests = []
+
+    server = HTTPServer(("127.0.0.1", 0), _FakeScriptApiHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    yield port
+
+    server.shutdown()
 
 
-def inject_from_thread(
-    fake_ws: FakeWebSocket,
-    loop: Any,
-    messages: list[dict[str, Any]],
-    delay: float = 0.03,
-) -> None:
-    """Inject responses from a background thread."""
-
-    def _inject() -> None:
-        for msg in messages:
-            time.sleep(delay)
-            loop.call_soon_threadsafe(
-                fake_ws._incoming.put_nowait,
-                json.dumps(msg),
-            )
-
-    threading.Thread(target=_inject, daemon=True).start()
+def make_chrome(port: int) -> Chrome:
+    """Create a Chrome instance connected to the fake server."""
+    # _is_server_running will create+close a probe session, so we need
+    # the fake server to handle those requests (handled by default auto-responses)
+    return Chrome.connect(host="127.0.0.1", port=port, auto_start=False)
 
 
 # ---------------------------------------------------------------------------
@@ -99,183 +124,128 @@ def inject_from_thread(
 class TestScriptTabLifecycle:
     """Test that the Script API tab lifecycle is clean and isolated."""
 
-    def test_new_page_creates_and_closes_tab_cleanly(self, fake_ws: FakeWebSocket) -> None:
-        """new_page() creates a tab via CDP and closes it on context exit.
+    def test_new_page_creates_and_closes_tab_cleanly(self, fake_api: int) -> None:
+        """new_page() creates a session and closes it on context exit.
 
         This is the fundamental contract: a script tab has a bounded lifecycle
         managed by the context manager. The MCP server never sees it because
         it only tracks tabs it created itself.
         """
-        chrome = make_chrome(fake_ws)
-        loop = chrome._client._sync_loop
-
-        # Responses: createTarget, attachToTarget, closeTarget
-        inject_from_thread(fake_ws, loop, [
-            {"id": 1, "result": {"targetId": "SCRIPT-TAB-1"}},
-            {"id": 2, "result": {"sessionId": "SCRIPT-SESSION-1"}},
-        ])
+        chrome = make_chrome(fake_api)
 
         with chrome.new_page() as page:
-            assert page.target_id == "SCRIPT-TAB-1"
-            assert not page.closed
+            assert page.target_id.startswith("TARGET-")
+            assert page.session_token.startswith("SESSION-")
 
-            # Queue close response for context exit
-            inject_from_thread(fake_ws, loop, [
-                {"id": 3, "result": {"success": True}},
-            ], delay=0.01)
-
-        # After context manager exit: tab is closed
-        assert page.closed
-
-        # Verify CDP commands sent
-        sent = fake_ws.sent_messages
-        assert sent[0]["method"] == "Target.createTarget"
-        assert sent[1]["method"] == "Target.attachToTarget"
-        assert sent[1]["params"]["targetId"] == "SCRIPT-TAB-1"
-        assert sent[2]["method"] == "Target.closeTarget"
-        assert sent[2]["params"]["targetId"] == "SCRIPT-TAB-1"
+        # Verify create + close requests were sent
+        paths = [r[0] for r in _FakeScriptApiHandler.received_requests]
+        # First two are probe (create + close), then new_page (create), then exit (close)
+        assert paths.count("/session/create") >= 2  # probe + new_page
+        assert paths.count("/session/close") >= 2   # probe + new_page exit
 
         chrome.close()
 
-    def test_context_manager_closes_tab_on_exception(self, fake_ws: FakeWebSocket) -> None:
-        """Context manager __exit__ sends Target.closeTarget even when an exception occurs.
+    def test_context_manager_closes_tab_on_exception(self, fake_api: int) -> None:
+        """Context manager __exit__ sends close_session even when an exception occurs.
 
-        This guarantees AC #3: script tabs are cleaned up on both normal exit
-        and exception paths. The MCP server never sees orphaned script tabs.
+        This guarantees AC #3: script sessions are cleaned up on both normal exit
+        and exception paths.
         """
-        chrome = make_chrome(fake_ws)
-        loop = chrome._client._sync_loop
-
-        inject_from_thread(fake_ws, loop, [
-            {"id": 1, "result": {"targetId": "CRASH-TAB"}},
-            {"id": 2, "result": {"sessionId": "CRASH-SESSION"}},
-        ])
+        chrome = make_chrome(fake_api)
 
         with pytest.raises(RuntimeError, match="simulated crash"):
             with chrome.new_page() as page:
-                # Queue close response before raising
-                inject_from_thread(fake_ws, loop, [
-                    {"id": 3, "result": {"success": True}},
-                ], delay=0.01)
                 raise RuntimeError("simulated crash in script")
 
-        # Tab was closed despite the exception
-        assert page.closed
-
-        # closeTarget was called
-        sent = fake_ws.sent_messages
-        close_calls = [m for m in sent if m["method"] == "Target.closeTarget"]
-        assert len(close_calls) == 1
-        assert close_calls[0]["params"]["targetId"] == "CRASH-TAB"
+        # Verify close_session was still called
+        close_requests = [
+            r for r in _FakeScriptApiHandler.received_requests
+            if r[0] == "/session/close"
+        ]
+        assert len(close_requests) >= 2  # probe close + crash cleanup close
 
         chrome.close()
 
-    def test_context_manager_handles_already_closed_tab(self, fake_ws: FakeWebSocket) -> None:
-        """__exit__ does not raise if the tab was already closed (e.g. by user).
+    def test_context_manager_handles_already_closed_tab(self, fake_api: int) -> None:
+        """__exit__ does not raise if close_session fails (e.g. server error).
 
-        This tests the robustness of the cleanup: if Chrome already closed the
-        tab (user manually closed it), the context manager must not crash.
+        This tests the robustness of the cleanup: if the server returns an error
+        on close, the context manager must not crash.
         """
-        chrome = make_chrome(fake_ws)
-        loop = chrome._client._sync_loop
+        chrome = make_chrome(fake_api)
 
-        inject_from_thread(fake_ws, loop, [
-            {"id": 1, "result": {"targetId": "GONE-TAB"}},
-            {"id": 2, "result": {"sessionId": "GONE-SESSION"}},
-        ])
+        # After probe (2 auto-responses) and new_page create (1 auto-response),
+        # the exit close_session should get an error
+        _FakeScriptApiHandler.responses = [
+            # probe create
+            (200, {"session_token": "PROBE", "target_id": "T0", "cdp_ws_url": "ws://localhost:9222/devtools/page/T0", "cdp_session_id": "cdp-0"}),
+            # probe close
+            (200, {"ok": True}),
+            # new_page create
+            (200, {"session_token": "GONE-SESSION", "target_id": "GONE-TAB", "cdp_ws_url": "ws://localhost:9222/devtools/page/GONE-TAB", "cdp_session_id": "cdp-gone"}),
+            # new_page exit close — server error
+            (500, {"error": "Internal server error"}),
+        ]
 
+        # Should NOT raise despite cleanup failure
         with chrome.new_page() as page:
-            # Queue an error response for closeTarget (tab already gone)
-            inject_from_thread(fake_ws, loop, [
-                {"id": 3, "error": {"code": -32000, "message": "No target with given id"}},
-            ], delay=0.01)
-
-        # Should NOT raise — close is best-effort
-        assert page.closed
+            pass
 
         chrome.close()
 
 
 class TestParallelPages:
-    """Test that multiple Page objects operate in independent tabs."""
+    """Test that multiple Page objects operate in independent sessions."""
 
-    def test_two_pages_have_different_target_ids(self, fake_ws: FakeWebSocket) -> None:
-        """Two sequential new_page() calls create tabs with different targetIds.
+    def test_two_pages_have_different_target_ids(self, fake_api: int) -> None:
+        """Two sequential new_page() calls create sessions with different target IDs.
 
         This verifies AC #1: parallel script operations get their own tabs
         and do not interfere with each other or MCP-owned tabs.
         """
-        chrome = make_chrome(fake_ws)
-        loop = chrome._client._sync_loop
-
-        # First page
-        inject_from_thread(fake_ws, loop, [
-            {"id": 1, "result": {"targetId": "PAGE-A"}},
-            {"id": 2, "result": {"sessionId": "SESSION-A"}},
-        ])
+        chrome = make_chrome(fake_api)
 
         with chrome.new_page() as page_a:
-            assert page_a.target_id == "PAGE-A"
-
-            # Queue close for page_a
-            inject_from_thread(fake_ws, loop, [
-                {"id": 3, "result": {"success": True}},
-            ], delay=0.01)
-
-        # Second page
-        inject_from_thread(fake_ws, loop, [
-            {"id": 4, "result": {"targetId": "PAGE-B"}},
-            {"id": 5, "result": {"sessionId": "SESSION-B"}},
-        ])
+            target_a = page_a.target_id
 
         with chrome.new_page() as page_b:
-            assert page_b.target_id == "PAGE-B"
-            assert page_b.target_id != page_a.target_id
+            target_b = page_b.target_id
 
-            # Queue close for page_b
-            inject_from_thread(fake_ws, loop, [
-                {"id": 6, "result": {"success": True}},
-            ], delay=0.01)
-
-        assert page_a.closed
-        assert page_b.closed
+        assert target_a != target_b
 
         chrome.close()
 
-    def test_page_operations_routed_to_correct_session(self, fake_ws: FakeWebSocket) -> None:
-        """CDP commands from a Page are routed to its own session, not another's.
+    def test_page_operations_routed_to_correct_session(self, fake_api: int) -> None:
+        """Tool calls from a Page are routed to its own session via X-Session header.
 
-        This ensures that when two Pages exist simultaneously, evaluate()
-        on page A goes to session A, not session B.
+        This ensures that when two Pages exist, evaluate() on page A goes to
+        session A's tab, not session B's tab.
         """
-        chrome = make_chrome(fake_ws)
-        loop = chrome._client._sync_loop
+        # Use auto-responses for probe, then specific responses for the test
+        chrome = make_chrome(fake_api)
 
-        # Create a page
-        inject_from_thread(fake_ws, loop, [
-            {"id": 1, "result": {"targetId": "TAB-X"}},
-            {"id": 2, "result": {"sessionId": "SID-X"}},
-        ])
+        # After probe consumed auto-responses, set up specific responses
+        # for new_page create, evaluate, and close
+        _FakeScriptApiHandler.responses = [
+            # new_page create
+            (200, {"session_token": "SID-X", "target_id": "TAB-X", "cdp_ws_url": "ws://localhost:9222/devtools/page/TAB-X", "cdp_session_id": "cdp-x"}),
+            # evaluate response
+            (200, {"content": [{"type": "text", "text": '"hello"'}], "isError": False}),
+            # new_page exit close
+            (200, {"ok": True}),
+        ]
 
         with chrome.new_page() as page:
-            # evaluate() sends Runtime.evaluate with the page's sessionId
-            inject_from_thread(fake_ws, loop, [
-                {"id": 3, "result": {"result": {"type": "string", "value": "hello"}}},
-            ])
-
-            result = page.evaluate("'hello'", timeout=5.0)
+            result = page.evaluate("'hello'")
             assert result == "hello"
 
-            # Verify the session routing
-            sent = fake_ws.sent_messages
-            evaluate_calls = [m for m in sent if m["method"] == "Runtime.evaluate"]
-            assert len(evaluate_calls) == 1
-            assert evaluate_calls[0]["sessionId"] == "SID-X"
-
-            # Queue close
-            inject_from_thread(fake_ws, loop, [
-                {"id": 4, "result": {"success": True}},
-            ], delay=0.01)
+        # Find the evaluate request and verify X-Session header
+        eval_requests = [
+            r for r in _FakeScriptApiHandler.received_requests
+            if r[0] == "/tool/evaluate"
+        ]
+        assert len(eval_requests) == 1
+        assert eval_requests[0][1]["X-Session"] == "SID-X"
 
         chrome.close()
 
@@ -283,120 +253,95 @@ class TestParallelPages:
 class TestTabIsolation:
     """Test that script tabs do not interfere with each other or MCP state."""
 
-    def test_script_tab_uses_own_session_id(self, fake_ws: FakeWebSocket) -> None:
-        """Each script tab gets its own CDP session via Target.attachToTarget.
+    def test_script_tab_uses_own_session_token(self, fake_api: int) -> None:
+        """Each script tab gets its own session token from the server.
 
-        This is the mechanism that ensures isolation: CDP commands are scoped
-        to a session. The MCP server's session is completely separate.
+        This is the mechanism that ensures isolation: HTTP calls are scoped
+        to a session via X-Session header. The MCP server's sessions are
+        completely separate.
         """
-        chrome = make_chrome(fake_ws)
-        loop = chrome._client._sync_loop
+        # Use auto-responses for probe
+        chrome = make_chrome(fake_api)
 
-        inject_from_thread(fake_ws, loop, [
-            {"id": 1, "result": {"targetId": "ISO-TAB"}},
-            {"id": 2, "result": {"sessionId": "ISO-SESSION-UNIQUE"}},
-        ])
+        # After probe consumed auto-responses, set up specific responses
+        _FakeScriptApiHandler.responses = [
+            # new_page create
+            (200, {"session_token": "ISO-SESSION-UNIQUE", "target_id": "ISO-TAB", "cdp_ws_url": "ws://localhost:9222/devtools/page/ISO-TAB", "cdp_session_id": "cdp-iso"}),
+            # new_page exit close
+            (200, {"ok": True}),
+        ]
 
         with chrome.new_page() as page:
-            # The Page stores its own session_id
-            assert page._session_id == "ISO-SESSION-UNIQUE"
-
-            inject_from_thread(fake_ws, loop, [
-                {"id": 3, "result": {"success": True}},
-            ], delay=0.01)
+            assert page.session_token == "ISO-SESSION-UNIQUE"
 
         chrome.close()
 
-    def test_page_close_is_idempotent(self, fake_ws: FakeWebSocket) -> None:
-        """Calling page.close() multiple times only sends one closeTarget."""
-        chrome = make_chrome(fake_ws)
-        loop = chrome._client._sync_loop
-
-        inject_from_thread(fake_ws, loop, [
-            {"id": 1, "result": {"targetId": "IDEMPOTENT-TAB"}},
-            {"id": 2, "result": {"sessionId": "IDEMPOTENT-SID"}},
-        ])
+    def test_page_close_is_noop(self, fake_api: int) -> None:
+        """Calling page.close() is a no-op in v2 — session lifecycle is managed by context manager."""
+        chrome = make_chrome(fake_api)
 
         with chrome.new_page() as page:
-            # Manually close once
-            inject_from_thread(fake_ws, loop, [
-                {"id": 3, "result": {"success": True}},
-            ])
+            initial_count = len(_FakeScriptApiHandler.received_requests)
             page.close()
-            assert page.closed
-
-        # Context manager exit tries close again — should be no-op
-        sent = fake_ws.sent_messages
-        close_calls = [m for m in sent if m["method"] == "Target.closeTarget"]
-        assert len(close_calls) == 1
+            page.close()  # Multiple calls are safe
+            # No additional requests should be sent by page.close()
+            assert len(_FakeScriptApiHandler.received_requests) == initial_count
 
         chrome.close()
 
 
 # ---------------------------------------------------------------------------
-# Integration Tests — require real Chrome (skipped by default)
+# Integration Tests — require real SilbercueChrome server (skipped by default)
 # ---------------------------------------------------------------------------
 
-# Detect if Chrome is available for integration tests
 _CHROME_AVAILABLE = shutil.which("google-chrome") is not None or shutil.which(
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ) is not None
 
 _SKIP_REASON = (
-    "Integration test requires Chrome with --remote-debugging-port=9222. "
-    "Start Chrome manually and run with: pytest -m integration"
+    "Integration test requires SilbercueChrome server with --script flag. "
+    "Start with: silbercuechrome --script"
 )
 
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _CHROME_AVAILABLE, reason=_SKIP_REASON)
 class TestCoexistenceIntegration:
-    """End-to-end coexistence tests against a real Chrome instance.
+    """End-to-end coexistence tests against a real SilbercueChrome server.
 
     Prerequisites:
-      1. Chrome running with ``--remote-debugging-port=9222``
+      1. SilbercueChrome server running with ``--script`` flag
       2. Run with: ``pytest -m integration tests/test_coexistence.py -v``
-
-    These tests create real tabs in Chrome and verify that the Script API
-    correctly creates, operates on, and cleans up tabs without interfering
-    with other tabs.
     """
 
     def test_script_tab_lifecycle_real_chrome(self) -> None:
-        """Create a tab, navigate, evaluate, close — all against real Chrome."""
-        chrome = Chrome.connect(port=9222)
+        """Create a session, navigate, evaluate, close — all against real server."""
+        chrome = Chrome.connect()
         try:
             with chrome.new_page() as page:
                 page.navigate("about:blank")
                 result = page.evaluate("1 + 1")
                 assert result == 2
-                assert not page.closed
-            assert page.closed
         finally:
             chrome.close()
 
     def test_context_manager_cleanup_on_exception_real_chrome(self) -> None:
-        """Verify tab cleanup on exception with real Chrome."""
-        chrome = Chrome.connect(port=9222)
+        """Verify session cleanup on exception with real server."""
+        chrome = Chrome.connect()
         try:
             with pytest.raises(ValueError, match="test exception"):
                 with chrome.new_page() as page:
-                    target_id = page.target_id
                     raise ValueError("test exception")
-
-            # Tab should be closed
-            assert page.closed
         finally:
             chrome.close()
 
     def test_parallel_pages_different_targets_real_chrome(self) -> None:
-        """Two pages have different target IDs in real Chrome."""
-        chrome = Chrome.connect(port=9222)
+        """Two pages have different target IDs on real server."""
+        chrome = Chrome.connect()
         try:
             with chrome.new_page() as page_a:
                 with chrome.new_page() as page_b:
                     assert page_a.target_id != page_b.target_id
-                    # Both can navigate independently
                     page_a.navigate("about:blank")
                     page_b.navigate("about:blank")
         finally:
