@@ -1377,7 +1377,11 @@ describe("A11yTreeProcessor", () => {
     expect(iframeSections.length).toBe(3); // original + 2 splits = 3 parts
   });
 
-  it("FR-023: cross-origin iframe is NOT inlined via Page.getFrameTree", async () => {
+  it("FR-023: OOPIF iframe is excluded from same-process inlining (handled by OOPIF path)", async () => {
+    // A true OOPIF (different eTLD+1, e.g. evil.com inside example.com) is handled
+    // by the SessionManager path, not by the same-process inlining path.
+    // The frame appears in Page.getFrameTree but must be skipped because the
+    // SessionManager already has an OOPIF session for it.
     const mainNodes: AXNode[] = [
       makeNode({
         nodeId: "1",
@@ -1393,15 +1397,36 @@ describe("A11yTreeProcessor", () => {
       }),
     ];
 
+    const oopifNodes: AXNode[] = [
+      makeNode({
+        nodeId: "o1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Evil Widget" },
+        backendDOMNodeId: 200,
+        childIds: ["o2"],
+      }),
+      makeNode({
+        nodeId: "o2",
+        parentId: "o1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Evil Button" },
+        backendDOMNodeId: 201,
+      }),
+    ];
+
     const cdp = {
-      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>, sessionId?: string) => {
         if (method === "Runtime.evaluate") {
           return Promise.resolve({ result: { value: "https://example.com/cross" } });
         }
         if (method === "Accessibility.getFullAXTree") {
-          // Should NOT be called with frameId for the cross-origin frame
+          // OOPIF session gets its own getFullAXTree call (without frameId)
+          if (sessionId === "oopif-evil") {
+            return Promise.resolve({ nodes: oopifNodes });
+          }
+          // Same-process inlining must NOT call getFullAXTree with this frameId
           if (params && params.frameId === "cross-frame") {
-            throw new Error("Should not fetch cross-origin frame AX tree via main session");
+            throw new Error("Should not fetch OOPIF frame AX tree via main session — it has its own session");
           }
           return Promise.resolve({ nodes: mainNodes });
         }
@@ -1422,11 +1447,112 @@ describe("A11yTreeProcessor", () => {
       off: vi.fn(),
     } as unknown as CdpClient;
 
-    const result = await processor.getTree(cdp, "s1", { filter: "all" });
+    // SessionManager reports this frame as an OOPIF → excluded from same-process path
+    const mockSessionManager = {
+      getAllSessions: () => [
+        { sessionId: "s1", frameId: "main", url: "", isMain: true },
+        { sessionId: "oopif-evil", frameId: "cross-frame", url: "https://evil.com/widget", isMain: false },
+      ],
+      registerNode: vi.fn(),
+    } as unknown as import("../cdp/session-manager.js").SessionManager;
 
-    // No cross-origin iframe section should appear
-    expect(result.text).not.toContain("--- iframe: https://evil.com/widget ---");
-    expect(result.text).not.toContain("evil.com");
+    const result = await processor.getTree(cdp, "s1", { filter: "all" }, mockSessionManager);
+
+    // OOPIF content appears via the OOPIF path, NOT via same-process inlining
+    expect(result.text).toContain("--- iframe: https://evil.com/widget ---");
+    expect(result.text).toContain('[e4] button "Evil Button"');
+  });
+
+  it("FR-023: same-site cross-origin iframe IS inlined (not an OOPIF)", async () => {
+    // Chrome groups by Site (eTLD+1), not Origin. Two subdomains like
+    // www.freenet.de and cmp.freenet.de share the same renderer process.
+    // They appear in Page.getFrameTree but NOT in Target.getTargets(type:"iframe").
+    // The same-process inlining path must pick them up.
+    const mainNodes: AXNode[] = [
+      makeNode({
+        nodeId: "1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Freenet Page" },
+        backendDOMNodeId: 100,
+        childIds: ["2", "3"],
+      }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Main Nav" },
+        backendDOMNodeId: 101,
+      }),
+      makeNode({
+        nodeId: "3",
+        parentId: "1",
+        role: { type: "role", value: "Iframe" },
+        name: { type: "computedString", value: "SP Consent Message" },
+        backendDOMNodeId: 102,
+      }),
+    ];
+
+    const consentNodes: AXNode[] = [
+      makeNode({
+        nodeId: "c1",
+        role: { type: "role", value: "WebArea" },
+        name: { type: "computedString", value: "Notice Message App" },
+        backendDOMNodeId: 300,
+        childIds: ["c2", "c3"],
+      }),
+      makeNode({
+        nodeId: "c2",
+        parentId: "c1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Alle akzeptieren" },
+        backendDOMNodeId: 301,
+      }),
+      makeNode({
+        nodeId: "c3",
+        parentId: "c1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Ohne Einwilligung weiter" },
+        backendDOMNodeId: 302,
+      }),
+    ];
+
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate") {
+          return Promise.resolve({ result: { value: "https://www.freenet.de/rechnungen" } });
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          if (params && params.frameId === "consent-frame") {
+            return Promise.resolve({ nodes: consentNodes });
+          }
+          return Promise.resolve({ nodes: mainNodes });
+        }
+        if (method === "Page.getFrameTree") {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: "main-frame", url: "https://www.freenet.de/rechnungen", securityOrigin: "https://www.freenet.de" },
+              childFrames: [{
+                // Same site (freenet.de) but different origin (cmp vs www)
+                // Chrome keeps this in the same process → NOT an OOPIF
+                frame: { id: "consent-frame", url: "https://cmp.freenet.de/consent", securityOrigin: "https://cmp.freenet.de" },
+              }],
+            },
+          });
+        }
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    // No SessionManager → no OOPIF sessions → frame must be inlined via same-process path
+    const result = await processor.getTree(cdp, "s1", { filter: "interactive" });
+
+    // Consent iframe content should be visible
+    expect(result.text).toContain("--- iframe: https://cmp.freenet.de/consent ---");
+    expect(result.text).toContain('button "Alle akzeptieren"');
+    expect(result.text).toContain('button "Ohne Einwilligung weiter"');
   });
 
   it("FR-023: Page.getFrameTree failure is handled gracefully", async () => {

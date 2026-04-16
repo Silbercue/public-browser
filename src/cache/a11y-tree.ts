@@ -1496,10 +1496,12 @@ export class A11yTreeProcessor {
       }
     }
 
-    // FR-023: Inline same-origin iframe A11y trees so LLM sees iframe content
+    // FR-023: Inline same-process iframe A11y trees so LLM sees iframe content
     // directly in read_page instead of a blind "(use evaluate to access iframe content)" hint.
-    // Same-origin frames (including srcdoc and about:blank) share the main renderer process,
-    // so we fetch their AX trees via getFullAXTree({frameId}) on the main session.
+    // Chrome groups frames by SITE (eTLD+1), not by ORIGIN. Two subdomains of the
+    // same site (e.g. www.freenet.de + cmp.freenet.de) share one renderer process
+    // and are NOT OOPIFs — they won't appear in Target.getTargets(type:"iframe").
+    // We fetch their AX trees via getFullAXTree({frameId}) on the main session.
     // Their backendDOMNodeIds are unique within the main session's namespace → use main sessionId as key.
     try {
       const frameTreeResult = await cdpClient.send<{
@@ -1512,19 +1514,29 @@ export class A11yTreeProcessor {
         };
       }>("Page.getFrameTree", {}, sessionId);
 
-      const mainOrigin = frameTreeResult.frameTree.frame.securityOrigin;
       const mainFrameId = frameTreeResult.frameTree.frame.id;
 
-      // Collect all same-origin child frames recursively
+      // Build OOPIF set early — needed to classify frames correctly
+      const oopifFrameIds = new Set(
+        sessionManager?.getAllSessions()
+          .filter((s: SessionInfo) => !s.isMain)
+          .map((s: SessionInfo) => s.frameId) ?? [],
+      );
+
+      // Collect all same-process child frames recursively.
+      // Any frame in Page.getFrameTree() that is NOT an OOPIF lives in the
+      // main renderer process and can be queried via getFullAXTree({frameId}).
+      // This covers: same-origin, about:blank, about:srcdoc, AND same-site
+      // cross-origin frames (e.g. cmp.freenet.de inside www.freenet.de).
       interface FrameInfo {
         id: string;
         url: string;
         securityOrigin: string;
         name?: string;
       }
-      const sameOriginFrames: FrameInfo[] = [];
+      const sameProcessFrames: FrameInfo[] = [];
 
-      const collectSameOriginFrames = (childFrames: unknown[] | undefined): void => {
+      const collectSameProcessFrames = (childFrames: unknown[] | undefined): void => {
         if (!childFrames) return;
         for (const child of childFrames as Array<{
           frame: { id: string; url: string; securityOrigin: string; name?: string };
@@ -1532,36 +1544,25 @@ export class A11yTreeProcessor {
         }>) {
           const frame = child.frame;
           if (frame.id === mainFrameId) continue; // skip main frame
-          // Same-origin classification: srcdoc, about:blank, or matching origin
-          const isSameOrigin =
-            frame.url === "about:srcdoc" ||
-            frame.url === "about:blank" ||
-            frame.securityOrigin === mainOrigin;
-          if (isSameOrigin) {
-            sameOriginFrames.push(frame);
+          // A frame in the frame tree that is NOT an OOPIF is same-process.
+          // OOPIFs are handled separately via their own CDP sessions.
+          const isSameProcess = !oopifFrameIds.has(frame.id);
+          if (isSameProcess) {
+            sameProcessFrames.push(frame);
+            // Recurse — nested frames of same-process parents are also same-process
+            collectSameProcessFrames(child.childFrames);
           }
-          // Recurse into nested frames regardless — a cross-origin frame's child
-          // could be same-origin again (but that's handled by OOPIF sessions already,
-          // so we only recurse same-origin subtrees to avoid duplicates with OOPIF handling)
-          if (isSameOrigin) {
-            collectSameOriginFrames(child.childFrames);
-          }
+          // Don't recurse into OOPIF subtrees — they have their own sessions
         }
       };
-      collectSameOriginFrames(frameTreeResult.frameTree.childFrames);
+      collectSameProcessFrames(frameTreeResult.frameTree.childFrames);
 
-      // Fetch AX trees for each same-origin child frame
-      if (sameOriginFrames.length > 0) {
-        // Deduplicate: skip frames already covered by OOPIF sessions
-        const oopifFrameIds = new Set(
-          sessionManager?.getAllSessions()
-            .filter((s: SessionInfo) => !s.isMain)
-            .map((s: SessionInfo) => s.frameId) ?? [],
-        );
+      // Fetch AX trees for each same-process child frame
+      if (sameProcessFrames.length > 0) {
+        // OOPIF dedup already done during collection above
 
         const inlineResults = await Promise.all(
-          sameOriginFrames
-            .filter((f) => !oopifFrameIds.has(f.id))
+          sameProcessFrames
             .map(async (frame) => {
               try {
                 const result = await cdpClient.send<{ nodes: AXNode[] }>(
