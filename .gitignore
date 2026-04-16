@@ -32,6 +32,10 @@ coverage/
 .eslintcache
 .nyc_output/
 
+# Python
+__pycache__/
+*.pyc
+
 # Browser automation runtime data
 .playwright-mcp/
 .playwright-cli/

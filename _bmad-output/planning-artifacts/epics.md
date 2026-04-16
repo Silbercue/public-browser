@@ -56,6 +56,12 @@ FR30: Der Developer kann SilbercueChrome via `npx @silbercue/chrome@latest` ohne
 FR31: Der Developer kann einen Pro-License-Key per Umgebungsvariable oder Config-Datei aktivieren
 FR32: Pro-Features funktionieren 7 Tage offline nach letzter Lizenz-Validierung (Grace Period)
 FR33: Free-Tier-Tools funktionieren ohne Lizenz-Key vollstaendig und ohne kuenstliche Einschraenkungen (ausser run_plan Step-Limit)
+FR34: Der MCP-Server kann im --script Modus gestartet werden, der dem MCP-Server signalisiert externe CDP-Clients auf dem bereits offenen Port 9222 zu tolerieren und parallel zum MCP-Betrieb koexistieren zu lassen
+FR35: Das --script Flag deaktiviert spezifische Guards (Tab-Schutz, Single-Client-Annahmen) die Script-API-Zugriff blockieren wuerden
+FR36: Jedes Script arbeitet in einem eigenen Tab — MCP-Tabs werden nicht gestoert, Script-Tabs werden beim Context-Manager-Exit geschlossen
+FR37: Die Script API bietet die Methoden navigate, click, fill, type, wait_for, evaluate und download — deckungsgleich mit den MCP-Kern-Tools
+FR38: Die Script API nutzt ein Context-Manager-Pattern (with chrome.new_page()), das Tab-Lifecycle automatisch verwaltet
+FR39: Die Script API wird als Python-Package (pip install silbercuechrome) oder als einzelne Datei distribuiert, mit websockets als einziger externer Abhaengigkeit
 
 ### NonFunctional Requirements
 
@@ -77,6 +83,7 @@ NFR15: Cross-Origin-iFrames (OOPIF) werden transparent per CDP-Session-Manager b
 NFR16: License-Keys werden lokal gespeichert und nur zur Validierung an Polar.sh gesendet (kein Tracking)
 NFR17: `navigator.webdriver` wird maskiert um Bot-Detection auf besuchten Seiten zu vermeiden
 NFR18: Kein Telemetrie-Versand, keine Nutzungsdaten, keine Analytics — der Server ist vollstaendig offline-faehig (ausser Lizenz-Check)
+NFR19: MCP-Server (via Pipe/stdio) und Script-API (via Port 9222) koennen gleichzeitig auf denselben Chrome zugreifen, ohne sich gegenseitig zu stoeren. Jeder Client arbeitet in eigenen Tabs
 
 ### Additional Requirements
 
@@ -128,6 +135,12 @@ FR30: Epic 7 — npx Zero-Install
 FR31: Epic 7 — License-Key Aktivierung
 FR32: Epic 7 — Grace Period
 FR33: Epic 7 — Free-Tier Vollstaendigkeit
+FR34: Epic 9 — --script CLI-Mode (CDP-Port oeffnen)
+FR35: Epic 9 — Guard-Deaktivierung fuer Script-Zugriff
+FR36: Epic 9 — Tab-Isolation (eigener Tab pro Script)
+FR37: Epic 9 — Python-Methoden (navigate, click, fill, type, wait_for, evaluate, download)
+FR38: Epic 9 — Context-Manager-Pattern (with chrome.new_page())
+FR39: Epic 9 — pip-Distribution und Single-File-Alternative
 
 ## Epic List
 
@@ -162,6 +175,11 @@ Nahtlose Installation und Free-to-Pro-Upgrade — npx Zero-Install, License-Key 
 ### Epic 8: Documentation & v1.0 Release
 Alles was v1.0 versandfertig macht — README mit Getting-Started, BUG-003-Dokumentation, Benchmark-Dokumentation, verbleibende Friction-Fixes, Release-Vorbereitung.
 **FRs covered:** Keine direkten FRs — adressiert Additional Requirements und NFR11, NFR12
+
+### Epic 9: Script API (Python)
+Dritter Zugangsweg neben MCP und CLI — eine Python-Client-Library fuer deterministische Browser-Automation ohne LLM im Loop. CDP-Koexistenz mit dem MCP-Server, Tab-Isolation, Context-Manager-Pattern, pip-Distribution.
+**FRs covered:** FR34, FR35, FR36, FR37, FR38, FR39
+**NFRs covered:** NFR19
 
 ## Epic 1: Page Reading & Navigation
 
@@ -294,3 +312,189 @@ So that ich ohne Trial-and-Error die richtigen Tools in der richtigen Reihenfolg
 **Given** Tool-Renames (read_page → view_page, screenshot → capture_image)
 **When** die Instructions geladen werden
 **Then** verwenden sie konsistent die neuen Namen ohne Referenz auf alte Namen
+
+## Epic 9: Script API (Python)
+
+Python-Client-Library fuer deterministische Browser-Automation. Kommuniziert direkt per CDP (WebSocket) mit Chrome — parallel zum laufenden MCP-Server. Kein LLM im Loop, kein MCP-Protokoll, keine Protokoll-Uebersetzung.
+
+### Story 9.1: --script CLI-Mode (Server-Seite)
+
+As a Developer der SilbercueChrome mit --script starten will,
+I want dass der MCP-Server MCP-seitige Guards lockert damit externe CDP-Clients Tabs erstellen koennen ohne den MCP-Betrieb zu stoeren,
+So that Python-Skripte sich parallel zum MCP-Server auf den bereits offenen Port 9222 verbinden koennen.
+
+**Acceptance Criteria:**
+
+**Given** der MCP-Server wird mit `--script` Flag gestartet
+**When** ein externer CDP-Client (z.B. Python websockets) sich auf Port 9222 verbindet und `Target.createTarget` aufruft
+**Then** ignoriert der MCP-Server den neuen Tab (kein Cleanup, kein navigate-Block, kein Tab-Tracking fuer fremde Tabs)
+
+**Given** der MCP-Server laeuft mit `--script` und ein externer Client hat einen Tab erstellt
+**When** der MCP-Server Tools wie navigate oder switch_tab ausfuehrt
+**Then** operieren diese ausschliesslich auf MCP-eigenen Tabs — Script-Tabs werden nicht angefasst
+
+**Given** der MCP-Server laeuft OHNE `--script`
+**When** ein externer CDP-Client einen Tab via Target.createTarget erstellt
+**Then** kann der MCP-Server diesen Tab als unbekannt behandeln oder in sein Tab-Tracking aufnehmen (Default-Verhalten, keine Garantie fuer Script-Kompatibilitaet)
+
+**Technical Notes:**
+- **Port 9222 ist IMMER offen:** Chrome wird bereits mit `--remote-debugging-port=9222` gelauncht (`src/cdp/chrome-launcher.ts:142-157`). `--attach` und der interne CDP-Client nutzen diesen Port ebenfalls. Das `--script` Flag oeffnet KEINEN Port — es signalisiert dem MCP-Server nur, dass externe Clients erwartet werden.
+- **CLI-Parsing analog zu --attach:** In `src/index.ts:85-98` wird `--attach` per `process.argv.includes("--attach")` geparst und vor dem CLI-Dispatch gefiltert. `--script` muss auf demselben Weg implementiert werden — NICHT in `src/cli/top-level-commands.ts` (das behandelt nur Subcommands wie version/status/help).
+- **Externe CDP-Calls (Target.createTarget via Port 9222) gehen am MCP-Layer komplett vorbei** — sie laufen nicht durch registry.ts, nicht durch switch-tab.ts und nicht durch den Tab-Switch-Mutex. Diese Guards schuetzen MCP-internes switch_tab vor Parallel-Races und muessen NICHT gelockert werden.
+- **Was tatsaechlich angepasst werden muss:**
+  - `src/cdp/browser-session.ts` — Tab-Tracking (TabStateCache, Target-Discovery): Extern erstellte Tabs duerfen nicht ins MCP-Tab-Tracking aufgenommen werden. Kriterium: Tab nicht ueber MCP-switch_tab geoeffnet → ignorieren. Die "owned tab"-Lifecycle (`browser-session.ts:355-377`) darf extern erstellte Tabs nicht schliessen.
+  - `src/registry.ts:1412-1437` — navigate-Blocker der auf virtual_desk wartet: Darf nicht blockieren weil ein externer Client einen Tab erstellt hat. Der Blocker prueft aktuell nur MCP-Tabs — muss verifiziert werden ob extern erstellte Tabs den Check triggern.
+  - `src/tools/switch-tab.ts` — Das MCP-switch_tab darf NICHT auf Script-Tabs wechseln. Tab-Liste filtern.
+- **NICHT anfassen:** switch_tab-Mutex (`switch-tab.ts:55-68`) und registry.ts Parallel-Block (`1815-1822`) — diese schuetzen MCP-interne Races und sind von externen CDP-Calls nicht betroffen.
+- **Kein neues File `src/cli/script-mode.ts` noetig** — das Flag wird in index.ts geparst und als Option an startServer() durchgereicht, analog zu attachMode.
+
+### Story 9.2: Python CDP Client (cdp.py)
+
+As a Python-Developer,
+I want einen minimalen CDP-Client der ueber WebSocket mit Chrome kommuniziert,
+So that ich die Grundlage fuer die Script API habe.
+
+**Acceptance Criteria:**
+
+**Given** Chrome laeuft mit offenem CDP-Port (9222)
+**When** der Python CDP-Client `CdpClient.connect("localhost", 9222)` aufruft
+**Then** wird eine WebSocket-Verbindung hergestellt und CDP-Commands koennen gesendet werden
+
+**Given** eine aktive CDP-Verbindung
+**When** `client.send("Runtime.evaluate", {"expression": "1+1"})` aufgerufen wird
+**Then** kommt `{"result": {"type": "number", "value": 2}}` zurueck
+
+**Given** eine aktive CDP-Verbindung
+**When** `client.send("Target.createTarget", {"url": "about:blank"})` aufgerufen wird
+**Then** wird ein neuer Tab erstellt und die targetId zurueckgegeben
+
+**Technical Notes:**
+- Datei: `python/silbercuechrome/cdp.py`
+- Einzige Dependency: `websockets` (async WebSocket Library)
+- CDP-Protokoll: JSON-RPC ueber WebSocket. Request: `{"id": N, "method": "...", "params": {...}}`. Response matcht per `id`.
+- Target-Discovery: `GET http://localhost:9222/json/version` fuer Browser-WebSocket-URL, dann `Target.createTarget` fuer neue Tabs.
+- Async: Python `asyncio` intern, aber die Public API (Chrome, Page) soll synchron sein (asyncio.run() wrapping).
+- **Python-Projekt-Konventionen (das Verzeichnis python/ existiert noch nicht, muss von Grund auf aufgebaut werden):**
+  - Packaging: `pyproject.toml` (PEP 621), KEIN setup.py
+  - Tests: `python/tests/` mit pytest, analog zu Vitest im Node-Repo
+  - Type Hints: PEP 484, `py.typed` Marker fuer Library-Consumers
+  - Formatter: ruff (oder black), Linter: ruff
+  - Minimale Python-Version: 3.10+ (fuer match/case und moderne type hints)
+  - CI: pytest in bestehende GitHub Actions integrieren (neuer Job, nicht neues Workflow-File)
+
+### Story 9.3: Chrome + Page API
+
+As a Python-Developer,
+I want `Chrome.connect(port=9222)` und `chrome.new_page()` als einfache, synchrone API nutzen,
+So that ich Browser-Automation-Skripte ohne Boilerplate schreiben kann.
+
+**Acceptance Criteria:**
+
+**Given** Chrome laeuft mit --script
+**When** `Chrome.connect(port=9222)` aufgerufen wird
+**Then** wird eine Verbindung hergestellt und ein Chrome-Objekt zurueckgegeben
+
+**Given** eine Chrome-Verbindung
+**When** `with chrome.new_page() as page:` als Context Manager verwendet wird
+**Then** wird ein neuer Tab geoeffnet, und beim Verlassen des Context Managers wird der Tab automatisch geschlossen
+
+**Given** ein Page-Objekt
+**When** die Methoden navigate(url), click(selector), fill(fields), type(selector, text), wait_for(condition), evaluate(js), download() aufgerufen werden
+**Then** fuehren sie die jeweilige Browser-Aktion ueber CDP aus und geben das Ergebnis zurueck
+
+**Given** ein Page-Objekt in einem Script-Tab
+**When** das Script Aktionen ausfuehrt
+**Then** bleiben MCP-Tabs komplett unberuehrt (Tab-Isolation)
+
+**Technical Notes:**
+- Dateien: `python/silbercuechrome/chrome.py`, `python/silbercuechrome/page.py`, `python/silbercuechrome/__init__.py`
+- Chrome.connect(): HTTP GET auf `/json/version`, dann WebSocket-Verbindung zum Browser
+- chrome.new_page(): `Target.createTarget` → neue CDP-Session → Page-Objekt
+- Page-Methoden mappen auf CDP-Commands:
+  - navigate(url) → `Page.navigate` + `Page.loadEventFired`
+  - click(selector) → `Runtime.evaluate` (querySelector) + `Input.dispatchMouseEvent`
+  - fill(fields) → Fuer jedes Feld: focus + `Input.dispatchKeyEvent` oder `DOM.setAttributeValue`
+  - type(selector, text) → focus + `Input.dispatchKeyEvent` pro Zeichen
+  - wait_for(condition) → Polling mit `Runtime.evaluate` oder CDP-Event-Listener
+  - evaluate(js) → `Runtime.evaluate`
+  - download() → `Browser.setDownloadBehavior` + Event-Tracking
+- Synchrone API: Intern async (asyncio), extern synchron via `asyncio.run()` oder `loop.run_until_complete()`
+
+### Story 9.4: CDP-Koexistenz-Test
+
+As a Maintainer,
+I want einen Integrationstest der beweist dass MCP und Script API parallel funktionieren,
+So that NFR19 (CDP-Koexistenz) verifiziert und vor Regressionen geschuetzt ist.
+
+**Acceptance Criteria:**
+
+**Given** der MCP-Server laeuft mit --script und ein LLM-Agent nutzt MCP-Tools
+**When** gleichzeitig ein Python-Script per Script API Browser-Aktionen ausfuehrt
+**Then** funktionieren beide fehlerfrei — kein Timeout, kein Crash, keine Interferenz
+
+**Given** der MCP-Server hat einen aktiven Tab auf URL X
+**When** ein Python-Script parallel einen neuen Tab oeffnet, navigiert und schliesst
+**Then** bleibt die MCP-Tab-URL X unveraendert (binaerer Test)
+
+**Given** ein Python-Script beendet sich (normal oder via Exception)
+**When** der Context Manager `with chrome.new_page()` den Scope verlaesst
+**Then** wird der Script-Tab geschlossen und der MCP-Server merkt nichts davon
+
+**Technical Notes:**
+- Test-Setup: MCP-Server mit --script starten, dann parallel MCP-Tool-Calls und Python-Script-Calls ausfuehren
+- Verifikation: MCP-Tab-URL vor und nach Script-Execution vergleichen (muss identisch sein)
+- Edge Case: Script-Crash (unhandled Exception) — Tab muss trotzdem geschlossen werden (Context-Manager __exit__)
+- Kann als Vitest-Test (Node.js-Seite) und als pytest (Python-Seite) implementiert werden
+
+### Story 9.5: pip Distribution
+
+As a Python-Developer,
+I want `pip install silbercuechrome` ausfuehren und sofort loslegen koennen,
+So that die Installation genauso einfach ist wie `npx @silbercue/chrome@latest` fuer MCP-User.
+
+**Acceptance Criteria:**
+
+**Given** ein Python-Developer fuehrt `pip install silbercuechrome` aus
+**When** die Installation abgeschlossen ist
+**Then** kann er `from silbercuechrome import Chrome` importieren und nutzen
+
+**Given** ein Developer der keine pip-Installation will
+**When** er die einzelne Datei `silbercuechrome.py` in sein Projekt kopiert
+**Then** funktioniert die API identisch (websockets muss installiert sein)
+
+**Given** die installierten Dependencies
+**When** `pip show silbercuechrome` ausgefuehrt wird
+**Then** ist `websockets` die einzige externe Abhaengigkeit
+
+**Technical Notes:**
+- `python/pyproject.toml`: Package-Metadata (name: silbercuechrome, version: 1.0.0, dependencies: [websockets])
+- `python/silbercuechrome/__init__.py`: Re-export Chrome, Page
+- Single-File-Alternative: Ein `silbercuechrome.py` das alle Klassen in einer Datei enthaelt (fuer Copy-Paste-Deployment)
+- PyPI-Publish: `python -m build && twine upload dist/*` (oder GitHub Actions)
+- Versioning: Python-Package-Version synchron mit npm-Package-Version halten
+
+### Story 9.6: Script API Dokumentation
+
+As a Developer der die Script API entdeckt,
+I want eine klare Dokumentation mit Installationsanleitung und Beispielen,
+So that ich in unter 5 Minuten mein erstes Script schreiben kann.
+
+**Acceptance Criteria:**
+
+**Given** ein Developer oeffnet die README
+**When** er den Script API Abschnitt liest
+**Then** findet er: pip-Installation, ein vollstaendiges Beispiel-Script (Login + Daten extrahieren), Methodenliste, und den Hinweis auf --script Flag
+
+**Given** ein Developer der die Script API parallel zum MCP nutzen will
+**When** er die Dokumentation liest
+**Then** versteht er: Chrome muss mit --script gestartet sein, jedes Script bekommt einen eigenen Tab, MCP-Betrieb wird nicht gestoert
+
+**Given** die CHANGELOG
+**When** v1.0 Release-Notes gelesen werden
+**Then** ist die Script API als neues Feature aufgefuehrt
+
+**Technical Notes:**
+- README.md: Neuer Abschnitt "Script API (Python)" nach dem MCP-Abschnitt
+- Beispiel-Script: Das Tomek-Beispiel aus der PRD (Journey 5) adaptieren
+- CHANGELOG.md: Script API unter "Added" eintragen
+- Hinweis auf --script Flag im MCP-Config-Abschnitt

@@ -15,20 +15,11 @@ inputs:
 
 # Product Brief: SilbercueChrome
 
-> **Hinweis (2026-04-11):** Dieses Product Brief dokumentiert den Stand vom
-> 4. April 2026, **vor** dem strategischen Kurswechsel auf das Operator-
-> Paradigma. Es wird als historisches Dokument bewahrt, nicht mehr
-> aktualisiert.
->
-> **Aktuell gueltige Richtungsdokumente:**
-> - `docs/vision/operator.md` — Vision und strategische Neuausrichtung
-> - `_bmad-output/planning-artifacts/sprint-change-proposal-2026-04-11-operator.md` — formaler Change Proposal
-> - *(Folgt in Kuerze)* Neues PRD auf Basis der Operator-Vision, erstellt mit `bmad-create-prd`
->
-> Das im Folgenden beschriebene Modell (8+1 Free-Tools, 12 Pro-Tools, `run_plan` als
-> Kern-USP, *40x schneller durch Batching*) ist historisch und wird durch die
-> Zwei-Tools-Architektur (`virtual_desk` + `operator` mit Kartenstapel und Fallback)
-> abgeloest.
+> **Hinweis (2026-04-14):** Der Operator/Kartentisch-Pivot (Epic 19) wurde
+> implementiert und nach empirischer Pruefung verworfen (kein Mehrwert).
+> Dieses Product Brief beschreibt wieder den aktuellen Produkt-Stand.
+> Seitdem hinzugekommen: Async DOM-Diff, Tool-Rename (view_page/capture_image),
+> Download-Tools (Epic 22), --attach CLI-Mode, aktuell v0.9.0.
 
 ## Executive Summary
 
