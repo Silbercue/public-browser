@@ -9,8 +9,13 @@ stepsCompleted:
   - step-07-validation
   - step-08-complete
 status: 'complete'
-completedAt: '2026-04-16'
+completedAt: '2026-04-26'
 lastStep: 8
+editHistory:
+  - date: '2026-04-26'
+    changes: 'Public Browser Pivot: Pro/License entfernt, Cortex-Architektur (src/cortex/, cortex-validator/), Rename, FR40-46+NFR19-21 gemappt'
+  - date: '2026-04-16'
+    changes: 'Script API v2 Shared Core Architektur-Update'
 inputDocuments:
   - _bmad-output/planning-artifacts/prd.md
   - _bmad-output/planning-artifacts/product-brief-SilbercueChrome-distillate.md
@@ -35,22 +40,23 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 ### Requirements Overview
 
-**Functional Requirements (39 FRs in 9 Kategorien):**
+**Functional Requirements (46 FRs in 10 Kategorien):**
 
 Die FRs decken die gesamte Browser-Automation-Pipeline ab:
 - **Page Reading** (FR1-FR5): A11y-Tree mit stabilen Refs, progressive Tiefe, Tab-Status-Cache — die Grundlage fuer jede Interaktion
 - **Element Interaction** (FR6-FR11): Click, Type, Fill-Form, Scroll, Press-Key, Drag-and-Drop — direkte CDP-Operationen mit Ref-basiertem Targeting
-- **Execution** (FR12-FR16): run_plan (Batch-Execution, Free-Limit, Teilergebnis), evaluate (JS), wait_for, observe (MutationObserver) — der Automatisierungs-Kern
-- **Tab Management** (FR17-FR18): Multi-Tab-Handling und Uebersicht — Pro-Features
+- **Execution** (FR12-FR16): run_plan (Batch-Execution, unbegrenzte Steps, Teilergebnis bei Fehler), evaluate (JS), wait_for, observe (MutationObserver) — der Automatisierungs-Kern
+- **Tab Management** (FR17-FR18): Multi-Tab-Handling und Uebersicht — alle Tools Free
 - **Download Management** (FR19-FR20): Download-Status und Session-History — passive CDP-Events
 - **Connection** (FR21-FR24): Zero-Config Auto-Launch, --attach, Auto-Reconnect, Ref-Stabilitaet — CDP-Lifecycle
 - **Tool Steering** (FR25-FR29): Anti-Pattern-Detection, Stale-Ref-Recovery, Negativ-Abgrenzung, Profile, DOM-Diff — LLM-Fuehrung
-- **Distribution** (FR30-FR33): npx, License-Key, Grace-Period, Free-Tier-Vollstaendigkeit — Open-Core-Modell
+- **Distribution** (FR30-FR31): npx public-browser, alle Tools ohne Einschraenkungen — Open Source
 - **Script API** (FR34-FR39): Python-Client-Library mit Shared Core (nutzt MCP-Tool-Implementierungen), --script Flag, Tab-Isolation, Context-Manager, pip-Distribution — dritter Zugangsweg neben MCP und CLI
+- **Cortex** (FR40-FR46): Selbstlernendes Wissen — Pattern-Recorder, Merkle Log, Cortex-Hints, Telemetrie-Upload, Bundle-Download mit Sigstore-Verifikation
 
-Architektonische Implikation: Jede FR-Kategorie mappt auf ein eigenes Modul oder Sub-System. Script API (FR34-FR39) ist das groesste neue architektonische Thema fuer v1.0 — ein komplett neuer Zugangsweg zum bestehenden CDP-Layer.
+Architektonische Implikation: Jede FR-Kategorie mappt auf ein eigenes Modul oder Sub-System. Cortex (FR40-FR46) ist das groesste neue architektonische Thema — ein komplett neues Subsystem mit eigener Persistenz (Merkle Log), externer Kommunikation (Telemetrie-Upload, Bundle-Download) und kryptographischer Verifikation (Sigstore, WASM-Validator).
 
-**Non-Functional Requirements (19 NFRs):**
+**Non-Functional Requirements (21 NFRs):**
 
 Architektur-treibende NFRs:
 - **NFR1 (<50ms Median):** Erzwingt synchrone CDP-Calls, kein Queueing, kein Batching-Overhead
@@ -59,16 +65,19 @@ Architektur-treibende NFRs:
 - **NFR6 (keine Zwischen-Latenz):** Erzwingt tight-loop Execution in run_plan
 - **NFR7+8 (Reconnect + State-Erhalt):** Erzwingt Cache-Layer zwischen CDP und Tools
 - **NFR15 (OOPIF transparent):** Erzwingt CDP-Session-Manager fuer Cross-Origin-iFrames
-- **NFR17 (webdriver-Maskierung):** Erzwingt Stealth-Konfiguration im Chrome-Launcher
-- **NFR19 (CDP-Koexistenz):** Erzwingt Multi-Client-faehigen Zugriff: MCP via Pipe/stdio und Script API via Server HTTP-Endpunkt (Port 9223) gleichzeitig, Tab-Isolation zwischen Clients
+- **NFR16 (webdriver-Maskierung):** Erzwingt Stealth-Konfiguration im Chrome-Launcher
+- **NFR18 (CDP-Koexistenz):** Erzwingt Multi-Client-faehigen Zugriff: MCP via Pipe/stdio und Script API via Server HTTP-Endpunkt (Port 9223) gleichzeitig, Tab-Isolation zwischen Clients
+- **NFR19 (Bundle-Download max 2s):** Erzwingt asynchronen Cortex-Bundle-Download mit Cache-First-Strategie und hartem Timeout beim Server-Start
+- **NFR20 (WASM-Determinismus):** Erzwingt Nix-Build fuer den Cortex-Validator, gleiche Inputs → gleiche Outputs auf jeder Plattform
+- **NFR21 (Pattern-Privacy):** Erzwingt striktes Datenmodell im Cortex — nur Domain, Pfad-Pattern, Tool-Sequenz, Metriken. Keine User-Daten, keine Credentials
 
 ### Technical Constraints & Dependencies
 
 **Runtime:** TypeScript auf Node.js 22+ (LTS). Direktes CDP ueber `ws` Library.
 **Protokoll:** MCP (JSON-RPC ueber stdio) via `@modelcontextprotocol/sdk`.
 **Chrome-Kompatibilitaet:** Chrome 120+ (4 Major-Versionen).
-**Build:** `tsc` nach `build/`, Distribution als npm-Package + Node SEA Binary (Pro).
-**Lizenzierung:** Polar.sh API, 7-Tage Offline-Grace.
+**Build:** `tsc` nach `build/`, Distribution als npm-Package (`public-browser`).
+**Cortex-Validator:** Rust → WASM (wasmtime, WASI P2), Nix-Build fuer Reproduzierbarkeit.
 **Bekannte CDP-Einschraenkungen:**
 - CDP serialisiert pro Session — kein echtes Parallelism (Research: speculative-execution)
 - Node 22 WebSocket Accept-Mismatch (BUG-003, Accept-Check deaktiviert)
@@ -78,7 +87,7 @@ Architektur-treibende NFRs:
 
 1. **Token-Effizienz:** Durchzieht alles — Tool-Definitions, A11y-Tree, Screenshots, Response-Payloads, run_plan-Aggregation. Jedes Modul muss token-budget-bewusst sein.
 2. **CDP-Session-Lifecycle:** Auto-Connect, Reconnect, Target-Discovery, OOPIF-Sessions. Betrifft alle Tools.
-3. **Free/Pro Feature-Gating:** Combined Binary, Lizenz-Pruefung zur Runtime. Betrifft run_plan (Step-Limit), Tab-Tools, press_key.
+3. **Cortex-Integration:** Pattern-Recording nach Tool-Calls, Hint-Matching bei navigate/view_page, Bundle-Download beim Start, Telemetrie-Upload (opt-in). Betrifft hooks/, navigate, view_page, Server-Startup.
 4. **Error-Recovery-Kette:** Stale-Refs → view_page-Hint, CDP-Disconnect → Auto-Reconnect, evaluate-Spiral → Anti-Pattern-Hint. Drei Schichten, alle muessen zusammenspielen.
 5. **LLM-Steering:** Tool-Descriptions, Server-Instructions, Anti-Pattern-Detection, Profile-System. Nicht Code sondern Prosa — aber architektonisch genauso wichtig.
 6. **Koexistenz (Script API):** MCP-Server via Pipe und Python-Skripte via Server HTTP-Endpunkt (Port 9223) greifen gleichzeitig auf denselben Chrome zu. Shared Core: beide nutzen dieselben Tool-Handler. Tab-Isolation und Session-Routing muessen koordiniert sein.
@@ -91,11 +100,11 @@ Developer Tool (MCP-Server) — TypeScript/Node.js CLI-Anwendung mit stdio-Trans
 
 ### Starter Options Considered
 
-Nicht anwendbar. SilbercueChrome ist ein Brownfield-Projekt bei v0.9.0 mit 22 abgeschlossenen Epics und 1500+ Tests. Der "Starter" ist die bestehende `master`-Branch. Es gibt keine Scaffolding-Story.
+Nicht anwendbar. Public Browser (formerly SilbercueChrome) ist ein Brownfield-Projekt bei v1.3.0 mit 22 abgeschlossenen Epics und 1500+ Tests. Der "Starter" ist die bestehende `master`-Branch. Es gibt keine Scaffolding-Story.
 
-### Selected Starter: SilbercueChrome Master-Branch (v0.9.0)
+### Selected Starter: Public Browser Master-Branch (v1.3.0)
 
-**Rationale:** Bestehende, produktiv genutzte Codebasis. Keine Migration, kein Framework-Wechsel.
+**Rationale:** Bestehende, produktiv genutzte Codebasis. v2.0 ist ein Rename + Feature-Freischaltung + Cortex-Ergaenzung, kein Rewrite.
 
 ### Architectural Decisions Provided by the Existing Codebase
 
@@ -107,6 +116,7 @@ Nicht anwendbar. SilbercueChrome ist ein Brownfield-Projekt bei v0.9.0 mit 22 ab
 - `@modelcontextprotocol/sdk` — MCP-Protokoll-Handling
 - `zod` — Schema-Validation (Tool-Parameter, run_plan)
 - `pixelmatch` + `pngjs` — Screenshot-Diff fuer DOM-Change-Detection
+- (Cortex, Phase 2+): WASM-Runtime fuer Validator, HTTPS-Client fuer Bundle-Download/Telemetrie-Upload
 
 **DevDependencies:**
 - `vitest` (Test-Framework), `eslint` + `prettier` (Linting/Formatting)
@@ -117,8 +127,8 @@ Nicht anwendbar. SilbercueChrome ist ein Brownfield-Projekt bei v0.9.0 mit 22 ab
 - `tools/` — MCP-Tool-Implementierungen (27 Dateien): Ein File pro Tool (click, type, fill-form, run-plan, etc.) plus Shared Utilities (element-utils, error-utils, visual-constants)
 - `plan/` — run_plan Execution Engine
 - `cache/` — State-Caching (Tab-Status, A11y-Tree)
-- `hooks/` — Lifecycle-Hooks (on-tool-result, ambient-context)
-- `license/` — Polar.sh License-Validation
+- `hooks/` — Lifecycle-Hooks (on-tool-result, ambient-context, pattern-recording)
+- `cortex/` — Selbstlernende Wissensschicht (Pattern-Recorder, Merkle Log, Hint-Matcher, Bundle-Loader, Telemetrie)
 - `transport/` — MCP stdio/SSE Transport
 - `cli/` — CLI-Argument-Parsing (--attach, etc.)
 - `overlay/` — Visual Overlay fuer Debugging
@@ -133,9 +143,8 @@ Nicht anwendbar. SilbercueChrome ist ein Brownfield-Projekt bei v0.9.0 mit 22 ab
 
 **Build & Distribution:**
 - `npm run build` → `tsc` nach `build/`
-- npm-Package `@silbercue/chrome`, npx-faehig
-- Node SEA Binary fuer Pro (separate Pipeline)
-- Dual-Repo: Public (Free) + Private (Pro) → Combined Binary
+- npm-Package `public-browser`, npx-faehig
+- Single-Repo: Open Source, kein Pro-Repo
 
 ## Core Architectural Decisions
 
@@ -164,7 +173,7 @@ Alle Kern-Entscheidungen sind implementiert und produktiv validiert. Kein Redesi
 **Entscheidung:** Serverseitige deterministische Batch-Execution ohne LLM-Feedback zwischen Steps.
 
 - Plan-Parser und Executor in `src/plan/`
-- Free-Tier: 3 Steps, dann graceful Teilergebnis (kein Error)
+- Unbegrenzte Steps, bei Fehler graceful Teilergebnis (kein Error)
 - Ambient-Context-Suppression waehrend Execution (spart 2850 Chars + 1000-5250ms pro Plan)
 - Step-Response-Aggregation: ein kompakter Return am Ende statt N Zwischen-Payloads
 - Kein Conditional/Loop innerhalb Plans — Plans sind lineare Sequenzen
@@ -195,17 +204,35 @@ Alle Kern-Entscheidungen sind implementiert und produktiv validiert. Kein Redesi
 
 **Rationale:** Progressive Tiefe ist der Token-Effizienz-Hebel — nicht jede Seite braucht den vollen Tree. Safety-Cap verhindert Context-Window-Sprengung bei DOM-Monstern.
 
-### Free/Pro Feature Gating
+### Cortex — Selbstlernende Wissensschicht
 
-**Entscheidung:** Combined Binary mit Runtime-Lizenzpruefung.
+**Entscheidung:** Neues Subsystem `src/cortex/` das erfolgreiche Tool-Sequenzen aufzeichnet, lokal in einem Merkle Log speichert, und ueber die Community teilt.
 
-- Ein npm-Package, Polar.sh License-Key schaltet Pro-Features frei
-- `src/license/` validiert gegen Polar.sh API, 7-Tage Offline-Grace
-- Pro-Code wird zur Build-Zeit aus privatem Repo injiziert, nach Build entfernt
-- Gated Features: run_plan unlimited, switch_tab, virtual_desk, press_key
-- `SILBERCUECHROME_LICENSE` Env-Variable oder Config-Datei
+**Architektur:**
+- `cortex/pattern-recorder.ts` — Hook nach erfolgreichen Tool-Calls (wie Ambient-Context). Zeichnet Domain, Pfad-Pattern, Tool-Sequenz, Outcome und Content-Hash auf.
+- `cortex/local-store.ts` — Lokaler Append-Only Merkle Log (RFC-6962-kompatibel). Speichert Patterns kryptographisch gesichert.
+- `cortex/hint-matcher.ts` — URL-Pattern-Matching. Wird in navigate und view_page eingebunden, liefert Cortex-Hints in `_meta.cortex`.
+- `cortex/bundle-loader.ts` — Laeuft beim Server-Start. Laedt Community-Bundle herunter, verifiziert Sigstore-Signatur und Merkle Inclusion Proof. Cache-First mit hartem 2s-Timeout (NFR19).
+- `cortex/telemetry-upload.ts` — Opt-in. Sendet anonymisierte Pattern-Eintraege an Collection-Endpoint (HTTPS POST, Rate-Limited, kein PII).
+- `cortex/cortex-types.ts` — Pattern, Bundle, MerkleProof, HintMatch Typen.
 
-**Rationale:** Combined Binary vermeidet zwei separate Distributionen. Runtime-Gating statt Build-Time-Gating bedeutet: ein Artefakt, ein npm-Package, ein npx-Befehl.
+**Externe Komponente: cortex-validator/**
+- Separates Rust-Projekt (nicht Teil des Node.js-Builds)
+- Kompiliert zu WASM (wasmtime, WASI P2) fuer deterministische Ausfuehrung
+- Nix-Build fuer Reproduzierbarkeit (gleicher Hash = gleicher Output)
+- Validierungsregeln: N unabhaengige Bestaetigungen, Zeitfenster, Anomalie-Check
+
+**Warum ein eigenes Subsystem statt Integration in bestehende Module:**
+Cortex hat eigene Persistenz (Merkle Log), eigene externe Kommunikation (Telemetrie, Bundle-Download), eigene Kryptographie (Sigstore, Merkle Proofs) und eigene Privacy-Anforderungen (NFR21). Diese Concerns gehoeren nicht in tools/ oder hooks/.
+
+**Warum Rust/WASM fuer den Validator:**
+Determinismus ist die zentrale Anforderung — gleiche Inputs muessen auf jeder Plattform identische Outputs erzeugen (NFR20). WASM garantiert das. Rust bietet Memory Safety ohne GC, Nix-Build ermoeglicht reproduzierbare Kompilierung.
+
+**Integration mit bestehendem Code:**
+- `hooks/` ruft `cortex/pattern-recorder.ts` nach erfolgreichen Tool-Calls auf (neuer Hook neben Ambient-Context)
+- `tools/navigate.ts` und `tools/read-page.ts` fragen `cortex/hint-matcher.ts` ab und fuegen Hints in die Response ein
+- `src/index.ts` (Server-Start) ruft `cortex/bundle-loader.ts` auf (async, max 2s)
+- Kein Tool importiert cortex/ direkt — alles laeuft ueber hooks/ und die zwei Integration Points (navigate, view_page)
 
 ### Hooks & Lifecycle
 
@@ -220,10 +247,10 @@ Alle Kern-Entscheidungen sind implementiert und produktiv validiert. Kein Redesi
 
 ### Script API & Shared Core
 
-**Entscheidung:** Python-Scripts routen Tool-Calls durch den SilbercueChrome-Server und nutzen dieselben Implementierungen wie MCP-Tools (Shared Core).
+**Entscheidung:** Python-Scripts routen Tool-Calls durch den Public-Browser-Server und nutzen dieselben Implementierungen wie MCP-Tools (Shared Core).
 
 **Architektur:**
-- `Chrome.connect()` startet den SilbercueChrome-Server als Subprocess falls nicht bereits laufend (selbes Pattern wie Playwright, das einen unsichtbaren Node.js-Prozess startet)
+- `Chrome.connect()` startet den Public-Browser-Server als Subprocess falls nicht bereits laufend (selbes Pattern wie Playwright, das einen unsichtbaren Node.js-Prozess startet)
 - Die Python-Library kommuniziert mit dem Server ueber einen lokalen Kanal (Kommunikationsprotokoll — Subprocess stdio, HTTP oder WebSocket — wird bei Epic-Erstellung entschieden)
 - Tool-Calls (click, navigate, fill etc.) werden serverseitig ausgefuehrt — gleicher Code-Pfad wie MCP-Tools, gleiche Tests, gleiche Bugfixes
 - `--script` CLI-Flag (aus Epic 9 v1) bleibt: aktiviert Tab-Isolation (ownedTargetIds-Set filtert Script-Tabs aus MCP-Tab-Listen) und startet den HTTP-Endpunkt auf Port 9223. MCP-interne Guards (switch_tab-Mutex, registry Parallel-Block) bleiben UNBERUEHRT — sie schuetzen MCP-interne Races und sind von Script-API-Calls nicht betroffen
@@ -238,7 +265,7 @@ Marktanalyse (`docs/research/script-api-shared-core.md`) zeigt: kein Konkurrent 
 Die Zielgruppe fuer deterministische Scripting (Tomek-Persona) arbeitet typischerweise in Python. Node.js-User nutzen bereits den MCP-Weg. Python erweitert die Zielgruppe statt sie zu duplizieren.
 
 **Distribution-Entscheidung:**
-- `pip install silbercuechrome` als primaerer Installationspfad
+- `pip install publicbrowser` als primaerer Installationspfad
 - `Chrome.connect()` startet den Server automatisch — kein separates Setup noetig
 - Server-Binary wird ueber PATH gefunden (Homebrew, npx, oder expliziter Pfad)
 
@@ -254,17 +281,16 @@ Die Zielgruppe fuer deterministische Scripting (Tomek-Persona) arbeitet typische
 
 ### Decision Impact Analysis
 
-**Implementation Sequence fuer v1.0:**
-1. Script API: Python-Package und --script CLI-Mode (Epic 9) — groesste neue Architektur-Komponente
-2. Story 23.1 (evaluate Anti-Spiral v2) — Tool-Steering-Erweiterung
-3. Verbleibende Friction-Fixes aus deferred-work.md
-4. v1.0 Release-Vorbereitung
+**Implementation Sequence fuer v2.0:**
+1. Epic 11: Public Browser Migration — Pro-Gates entfernen, License entfernen, Rename, npm/pip-Package migrieren
+2. Epic 12: Cortex Phase 1 — Pattern-Recorder, Merkle Log, Cortex-Hints, Telemetrie-Upload
+3. Epic 13: Cortex Phase 2 — WASM-Validator, Sigstore-Signierung, OCI Distribution, Canary-Deployment
 
 **Cross-Component Dependencies:**
 - Tool Steering (registry.ts) ↔ Anti-Pattern-Detection (hooks) ↔ run_plan (plan/)
 - CDP Session-Manager ↔ alle Tools (Ref-Stabilitaet)
-- License-Gating ↔ run_plan, switch_tab, virtual_desk, press_key
-- Script API (python/) ↔ Script-API-Gateway (neu) ↔ Tool-Handler (shared) ↔ CDP ↔ NFR19 Tab-Isolation
+- Cortex (cortex/) ↔ hooks/ (Pattern-Recording) ↔ navigate + view_page (Hint-Delivery) ↔ index.ts (Bundle-Loading beim Start)
+- Script API (python/) ↔ Script-API-Gateway ↔ Tool-Handler (shared) ↔ CDP ↔ NFR18 Tab-Isolation
 
 ## Implementation Patterns & Consistency Rules
 
@@ -337,7 +363,7 @@ Jede Aktion die als run_plan-Step ausfuehrbar sein soll, muss:
 
 **Anti-Patterns:**
 - Tool A importiert Tool B → Shared Logic nach utils extrahieren
-- `console.log` fuer Debugging → NFR18 verbietet Telemetrie, Logs gehen nach stderr
+- `console.log` fuer Debugging → Logs gehen nach stderr, nicht nach stdout (MCP-Transport)
 - Neue Abhaengigkeit in package.json → Muss zwingend begruendet werden (aktuell nur 4 Runtime-Deps)
 - CDP-Calls direkt ueber WebSocket statt ueber session.send
 
@@ -346,12 +372,12 @@ Jede Aktion die als run_plan-Step ausfuehrbar sein soll, muss:
 ### Complete Project Directory Structure
 
 ```
-SilbercueChrome/
-├── package.json              # @silbercue/chrome v0.9.0
+PublicBrowser/
+├── package.json              # public-browser v2.0.0
 ├── tsconfig.json             # TypeScript Strict, ESM
 ├── vitest.config.ts          # Test-Konfiguration
 ├── eslint.config.js          # Linting
-├── LICENSE                   # MIT (Free), proprietary (Pro)
+├── LICENSE                   # MIT
 ├── README.md                 # Getting-Started, Tool-Uebersicht
 ├── CLAUDE.md                 # MCP-Server-Instruktionen
 ├── prompt.md                 # MCP Server Instructions (LLM-Steering)
@@ -421,12 +447,15 @@ SilbercueChrome/
 │   │   └── session-defaults.ts # Session-Default-Werte
 │   │
 │   ├── hooks/                # Lifecycle-Hooks
-│   │   ├── default-on-tool-result.ts # Ambient-Context, DOM-Diff
-│   │   └── pro-hooks.ts      # Pro-spezifische Hooks (Stub)
+│   │   └── default-on-tool-result.ts # Ambient-Context, DOM-Diff, Cortex-Pattern-Recording
 │   │
-│   ├── license/              # Polar.sh License-Validation
-│   │   ├── license-status.ts # Lizenz-Pruefung + Grace-Period
-│   │   └── free-tier-config.ts # Free-Tier-Defaults
+│   ├── cortex/               # Selbstlernende Wissensschicht
+│   │   ├── pattern-recorder.ts # Zeichnet erfolgreiche Sequenzen auf
+│   │   ├── local-store.ts     # Lokaler Merkle Log (WASM oder native)
+│   │   ├── hint-matcher.ts    # URL-Pattern-Matching fuer Cortex-Hints
+│   │   ├── bundle-loader.ts   # Download + Verifikation des Community-Bundles
+│   │   ├── telemetry-upload.ts # Opt-in Upload anonymisierter Patterns
+│   │   └── cortex-types.ts    # Pattern, Bundle, MerkleProof Typen
 │   │
 │   ├── transport/            # MCP-Transport-Layer
 │   │   ├── pipe-transport.ts # stdio (Default)
@@ -434,8 +463,7 @@ SilbercueChrome/
 │   │   └── websocket-transport.ts # WebSocket (fuer SSE)
 │   │
 │   ├── cli/                  # CLI-Subcommands (version, status, help)
-│   │   ├── top-level-commands.ts # Subcommands: version, status, help (NICHT --attach/--script — die werden in index.ts geparst)
-│   │   └── license-commands.ts   # --activate, --deactivate
+│   │   └── top-level-commands.ts # Subcommands: version, status, help (NICHT --attach/--script — die werden in index.ts geparst)
 │   │
 │   ├── overlay/              # Visual Debugging
 │   │   └── session-overlay.ts
@@ -445,15 +473,20 @@ SilbercueChrome/
 │
 ├── scripts/                  # Build- und Analyse-Scripts
 │   ├── publish.ts            # npm publish + GitHub Release
-│   ├── build-binary-linux.sh # Node SEA Binary (Linux)
 │   ├── dev-mode.sh           # Dev-Mode Toggle
 │   ├── token-count.mjs       # Token-Zaehlung fuer Budgets
 │   ├── tool-list-tokens.mjs  # Tool-Definition Token-Messung
 │   ├── run-plan-delta.mjs    # Benchmark-Forensik
 │   └── visual-feedback.mjs   # Visual-Feedback-Analyse
 │
+├── cortex-validator/          # Rust-Projekt (WASM-Validator, deterministisch)
+│   ├── Cargo.toml
+│   ├── src/
+│   │   └── main.rs           # Validierungslogik
+│   └── flake.nix             # Nix-Build fuer Reproduzierbarkeit
+│
 ├── python/                   # Script API (Python-Package)
-│   ├── silbercuechrome/      # Package-Verzeichnis
+│   ├── publicbrowser/        # Package-Verzeichnis
 │   │   ├── __init__.py       # Public API: Chrome, Page
 │   │   ├── chrome.py         # Chrome.connect(port) — CDP-Verbindung
 │   │   ├── page.py           # Page-Klasse: navigate, click, fill, type, wait_for, evaluate, download
@@ -484,10 +517,12 @@ SilbercueChrome/
 - Plan-Engine unterdrueckt Ambient-Context-Hooks zwischen Steps
 - Tools wissen nicht ob sie innerhalb eines Plans laufen (ausser ueber Context-Flag)
 
-**Boundary 4: License ↔ Features**
-- `license/` prueft Lizenz-Status, exportiert `isProEnabled()`
-- Feature-Gating passiert in `registry.ts` (Tool-Sichtbarkeit) und `plan-executor.ts` (Step-Limit)
-- Kein Tool importiert license direkt
+**Boundary 4: Cortex ↔ Tools**
+- `cortex/` ist read-only fuer Tools — Tools lesen Cortex-Hints, schreiben nicht direkt
+- `cortex/pattern-recorder.ts` wird als Hook nach erfolgreichen Tool-Calls aufgerufen (wie Ambient-Context)
+- `cortex/bundle-loader.ts` laeuft beim Server-Start, blockiert maximal 2s (NFR19)
+- `cortex/hint-matcher.ts` wird von navigate und view_page abgefragt — einzige zwei Integration Points
+- Kein Tool importiert cortex/ direkt — alles laeuft ueber hooks/ und die Response-Integration in navigate/read-page
 
 **Boundary 5: Cache ↔ Alles**
 - `cache/` ist rein passiv — wird befuellt und abgefragt
@@ -495,10 +530,16 @@ SilbercueChrome/
 - A11y-Tree-Cache + Prefetch-Slot ermoeglichen Speculative Prefetch
 
 **Boundary 6: Script API ↔ Server**
-- `python/` kommuniziert mit dem SilbercueChrome-Server, der Tool-Calls intern ausfuehrt — kein direkter CDP-Zugriff (ausser Escape-Hatch)
+- `python/` kommuniziert mit dem Public-Browser-Server, der Tool-Calls intern ausfuehrt — kein direkter CDP-Zugriff (ausser Escape-Hatch)
 - Script API nutzt die Tool-Handler des Servers (Shared Core) — gleicher Code-Pfad wie MCP-Tools
 - Der Server verwaltet Chrome, CDP-Sessions und Tab-Isolation
 - `--script` CLI-Flag signalisiert dem Server externe Script-Clients zu tolerieren
+
+**Boundary 7: Cortex ↔ Externe Systeme**
+- `cortex/telemetry-upload.ts` kommuniziert ueber HTTPS mit dem Collection-Endpoint — opt-in, Rate-Limited
+- `cortex/bundle-loader.ts` laedt Bundles von OCI Registry (ORAS, SHA-256 Content-Addressed)
+- Signatur-Verifikation erfolgt lokal (Sigstore Cosign Keyless, Rekor Transparency Log)
+- `cortex-validator/` (Rust/WASM) ist ein separater Build-Schritt, wird vom CI als WASM-Modul bereitgestellt — nicht zur Node.js-Laufzeit kompiliert
 
 ### FR-Kategorie → Modul-Mapping
 
@@ -511,8 +552,9 @@ SilbercueChrome/
 | Download (FR19-20) | tools/download | cdp/download-collector |
 | Connection (FR21-24) | cdp/chrome-launcher, cdp-client | cdp/session-manager |
 | Tool Steering (FR25-29) | registry.ts, hooks/ | telemetry/tool-sequence |
-| Distribution (FR30-33) | license/, cli/ | scripts/publish.ts |
-| Script API (FR34-39) | python/silbercuechrome/, Script-API-Gateway (neu) | src/tools/ (Shared Core), src/cli/ (--script Flag) |
+| Distribution (FR30-31) | cli/, scripts/publish.ts | — |
+| Script API (FR34-39) | python/publicbrowser/, Script-API-Gateway | src/tools/ (Shared Core), src/cli/ (--script Flag) |
+| Cortex (FR40-46) | cortex/ | hooks/ (Pattern-Recording), tools/navigate + read-page (Hints) |
 
 ### Data Flow
 
@@ -535,12 +577,33 @@ LLM ──→ run_plan tool ──→ plan-executor ──→ tool1 → tool2 �
 
 Fuer Script API (Shared Core — gleicher Server, gleiche Tool-Handler):
 ```
-Python Script ──→ SilbercueChrome Server ──→ Tool Handler ──→ CDP ──→ Chrome
-                   (auto-gestartet)           (shared mit MCP)     (eigener Tab)
+Python Script ──→ Public Browser Server ──→ Tool Handler ──→ CDP ──→ Chrome
+                   (auto-gestartet)          (shared mit MCP)     (eigener Tab)
 
 LLM ──stdio──→ MCP SDK ──→ server.ts ──→ registry.ts ──→ Tool Handler ──→ CDP ──→ Chrome
                                                               │                (MCP-Tab)
                                                          gleicher Code
+```
+
+Fuer Cortex (Learning → Distribution → Consumption):
+```
+Erfolgreicher Tool-Call ──→ hooks/ ──→ cortex/pattern-recorder.ts
+                                              │
+                                              ▼
+                                    cortex/local-store.ts (Merkle Log, lokal)
+                                              │
+                                              ▼ (opt-in)
+                                    cortex/telemetry-upload.ts ──HTTPS──→ Collection-Endpoint
+                                                                                │
+                                                                    (taeglich, CI)
+                                                                                ▼
+                                                                    WASM-Validator → Sigstore → OCI
+                                                                                │
+                                    cortex/bundle-loader.ts  ←──────────────────┘
+                                    (beim Server-Start, max 2s)
+                                              │
+                                              ▼
+                                    cortex/hint-matcher.ts ──→ navigate/view_page Response
 ```
 
 ## Architecture Validation Results
@@ -563,43 +626,45 @@ LLM ──stdio──→ MCP SDK ──→ server.ts ──→ registry.ts ─�
 **Structure Alignment: ✅ Boundaries eingehalten**
 - cdp/ kennt keine MCP-Konzepte, tools/ kennt keine CDP-Interna
 - plan/ ruft Tools direkt auf, nicht ueber MCP-Layer
-- license/ wird nur in registry.ts und plan-executor.ts genutzt
+- cortex/ ist read-only fuer Tools, Integration nur ueber hooks/ und navigate/read-page
 - cache/ ist passiv, keine zirkulaeren Abhaengigkeiten
 
 ### Requirements Coverage Validation
 
-**Functional Requirements (39 FRs):**
+**Functional Requirements (46 FRs):**
 
 | Status | Anzahl | FRs |
 |---|---|---|
-| ✅ Architektonisch unterstuetzt | 30 | FR1-10, FR12-24, FR26-28, FR30-33 |
+| ✅ Architektonisch unterstuetzt | 28 | FR1-10, FR12-24, FR26-28, FR30-31 |
 | ⚠️ Unterstuetzt, Implementierung pruefen | 3 | FR11 (Drag-and-Drop), FR25 (Anti-Pattern v2), FR29 (DOM-Diff) |
 | 🔄 v1 implementiert, v2 (Shared Core) ausstehend | 6 | FR34-39 (Script API) |
+| 🆕 Architektur definiert, Implementierung ausstehend | 7 | FR40-46 (Cortex) |
 
 - FR11: `tools/drag.ts` existiert, aber deferred-work.md listet HTML5-Drag-API-Limitation
 - FR25: Basis-Anti-Pattern existiert (BUG-018), Story 23.1 plant v2 mit drei neuen Detections
 - FR29: DOM-Diff via `hooks/default-on-tool-result.ts` + `cache/deferred-diff-slot.ts` vorhanden
-- FR34-39: Script API v1 implementiert (Epic 9, 6 Stories, v1.0.0). v2-Umbau auf Shared Core (Scripts nutzen MCP-Tool-Implementierungen) geplant — siehe Sprint Change Proposal 2026-04-16.
+- FR34-39: Script API v1 implementiert (Epic 9, 6 Stories, v1.0.0). v2-Umbau auf Shared Core geplant.
+- FR40-46: Cortex-Architektur in diesem Dokument definiert (src/cortex/, 6 Dateien + cortex-validator/). Epic 12+13.
 
-**Non-Functional Requirements (19 NFRs):**
+**Non-Functional Requirements (21 NFRs):**
 
 | Status | Anzahl | NFRs |
 |---|---|---|
-| ✅ Architektonisch unterstuetzt | 16 | NFR1-10, NFR12-14, NFR16-18 |
-| ⚠️ Zu verifizieren | 2 | NFR11 (Chrome 120+), NFR15 (OOPIF) |
-| 🆕 Neu — Architektur definiert, Implementierung ausstehend | 1 | NFR19 (CDP-Koexistenz) |
+| ✅ Architektonisch unterstuetzt | 15 | NFR1-10, NFR12-15, NFR16 |
+| ⚠️ Zu verifizieren | 2 | NFR11 (Chrome 120+), NFR17 (Cortex-Telemetrie opt-in) |
+| 🆕 Architektur definiert, Implementierung ausstehend | 4 | NFR18 (CDP-Koexistenz), NFR19-21 (Cortex-Integritaet) |
 
 ### Implementation Readiness Validation
 
 **Decision Completeness: ✅**
-- Alle 6 Kern-Entscheidungen dokumentiert mit Rationale
+- 6 Kern-Entscheidungen dokumentiert mit Rationale (Free/Pro Gating → Cortex ersetzt)
+- Cortex-Architektur vollstaendig definiert (Module, Integration Points, Data Flow, externe Boundaries)
 - Technologie-Versionen aus bestehendem Code (kein Raten)
-- 3 offene Punkte fuer v1.0 klar benannt
 
 **Structure Completeness: ✅**
-- Vollstaendiger Directory-Tree aus echtem Filesystem
-- Alle 70+ Source-Dateien aufgelistet mit Zweck-Annotation
-- 5 Boundary-Definitionen mit klaren Regeln
+- Vollstaendiger Directory-Tree aktualisiert (license/ entfernt, cortex/ + cortex-validator/ hinzugefuegt)
+- 7 Boundary-Definitionen mit klaren Regeln (2 neu: Cortex ↔ Tools, Cortex ↔ Externe Systeme)
+- FR → Modul-Mapping aktualisiert (10 Kategorien inkl. Cortex)
 
 **Pattern Completeness: ✅**
 - 7 Naming-Konventionen, 4 CDP-Call-Regeln, 5 Error-Handling-Regeln
@@ -613,28 +678,30 @@ LLM ──stdio──→ MCP SDK ──→ server.ts ──→ registry.ts ─�
 
 **Wichtige Luecken:**
 
-1. **Story 23.1 (Anti-Spiral v2)** — Einzige groessere architektonische Erweiterung fuer v1.0. Acceptance Criteria existieren, architektonische Integration bei Story-Implementation entscheiden.
+1. **Cortex Dependency-Entscheidung (Epic 12)** — WASM-Runtime fuer Merkle-Log (ct-merkle als WASM oder native Dependency) muss bei Story-Erstellung entschieden werden. Optionen: (a) reines TypeScript Merkle-Log, (b) Rust-WASM-Modul, (c) native Rust-Dependency via N-API.
 
-2. **registry.ts Maintainability** — 94 KB in einer Datei. Fuer Solo-Developer akzeptabel, bei Community-Growth post-v1.0 evaluieren.
+2. **Cortex Collection-Endpoint Infrastruktur (Epic 13)** — Server-Infrastruktur fuer Pattern-Collection noch nicht spezifiziert. Optionen: (a) GitHub Pages als statische Bundle-Distribution, (b) minimaler HTTPS-Endpoint (Cloudflare Workers / Vercel Edge), (c) OCI Registry direkt.
 
-3. **BUG-003 Dokumentation** — WebSocket Accept-Check Workaround muss im README stehen. Teil der README-Story.
+3. **registry.ts Maintainability** — 94 KB in einer Datei. Bei Community-Growth evaluieren.
+
+4. **BUG-003 Dokumentation** — WebSocket Accept-Check Workaround muss im README stehen.
 
 **Nice-to-Have:**
-- CI/CD-Pipeline-Definition im Architecture-Doc
-- Monitoring/Alerting-Strategie (aktuell nicht noetig: Solo-Developer + lokales Tool)
+- CI/CD-Pipeline fuer Cortex-Bundle (taeglich: Validierung → Signierung → Distribution)
+- Monitoring-Dashboard fuer Cortex-Gesundheit (rekor-monitor Integration)
 
 ### Architecture Completeness Checklist
 
 **✅ Requirements Analysis**
-- [x] Projekt-Kontext analysiert (v0.9.0, 22 Epics, Brownfield)
+- [x] Projekt-Kontext analysiert (v1.3.0 → v2.0.0, 22 Epics, Brownfield)
 - [x] Komplexitaet bewertet (Medium)
 - [x] Technische Constraints identifiziert (CDP, Node 22, MCP)
 - [x] Cross-Cutting Concerns gemappt (5 Concerns)
 
 **✅ Architectural Decisions**
-- [x] 6 Kern-Entscheidungen mit Rationale dokumentiert
-- [x] Tech-Stack vollstaendig spezifiziert
-- [x] Integration Patterns definiert (5 Boundaries)
+- [x] 6 Kern-Entscheidungen mit Rationale dokumentiert (Cortex ersetzt Free/Pro Gating)
+- [x] Tech-Stack vollstaendig spezifiziert (inkl. Cortex: Rust/WASM, Sigstore, OCI)
+- [x] Integration Patterns definiert (7 Boundaries, inkl. Cortex ↔ Tools und Cortex ↔ Externe)
 - [x] Performance-Anforderungen adressiert (NFR1-6)
 
 **✅ Implementation Patterns**
@@ -646,27 +713,28 @@ LLM ──stdio──→ MCP SDK ──→ server.ts ──→ registry.ts ─�
 - [x] run_plan Step Pattern
 
 **✅ Project Structure**
-- [x] Vollstaendiger Directory-Tree (70+ Dateien)
-- [x] 5 Boundary-Definitionen
+- [x] Vollstaendiger Directory-Tree (70+ Dateien, cortex/ + cortex-validator/ hinzugefuegt)
+- [x] 7 Boundary-Definitionen
 - [x] FR → Modul-Mapping (8 Kategorien)
 - [x] Data-Flow-Diagramme (Standard + run_plan)
 
 ### Architecture Readiness Assessment
 
-**Overall Status: READY FOR IMPLEMENTATION (aktualisiert 2026-04-16)**
+**Overall Status: READY FOR IMPLEMENTATION (aktualisiert 2026-04-26)**
 
-**Confidence Level: HIGH** — Brownfield-Projekt bei v1.0.0. Epic 1-9 v1 implementiert. Architecture wurde am 2026-04-16 fuer den Script API v2 Shared-Core-Umbau aktualisiert (Sprint Change Proposal).
+**Confidence Level: HIGH** — Brownfield-Projekt bei v1.3.0. Epic 1-9 v1 implementiert. Architecture aktualisiert fuer Public Browser Pivot: Pro/License entfernt, Cortex-Subsystem definiert.
 
 **Staerken:**
-- Minimale Dependency-Liste (4 Runtime-Deps)
-- Klare Modul-Boundaries
-- Deterministische run_plan-Engine
+- Minimale Dependency-Liste (4 Runtime-Deps, Cortex-Deps kommen inkrementell)
+- Klare Modul-Boundaries (7 definiert, inkl. 2 neue fuer Cortex)
+- Deterministische run_plan-Engine (jetzt unbegrenzte Steps)
 - Drei-Schichten Tool-Steering
+- Cortex-Architektur mit klarer Separation (read-only fuer Tools, Hook-basiertes Recording)
 
 **Bereiche fuer spaetere Verbesserung:**
-- registry.ts Aufspaltung (post-v1.0)
-- CI/CD-Dokumentation
-- Automatisierte Chrome-Versions-Kompatibilitaets-Tests
+- registry.ts Aufspaltung (bei Community-Growth)
+- CI/CD-Pipeline fuer Cortex-Bundle
+- Cortex Collection-Endpoint Infrastruktur
 
 ### Implementation Handoff
 
@@ -676,7 +744,9 @@ LLM ──stdio──→ MCP SDK ──→ server.ts ──→ registry.ts ─�
 - Projekt-Struktur und Boundaries respektieren
 - Dieses Dokument als Referenz fuer alle architektonischen Fragen nutzen
 
-**Implementation-Prioritaet (post-v1.0):**
-1. Script API v2: Shared Core Umbau (Epic 9, Stories 9.7-9.11) — Scripts nutzen MCP-Tool-Implementierungen
-2. Story 23.1/6.1 (evaluate Anti-Spiral v2) — deferred post-v1.0
-3. Verbleibende Friction-Fixes und Deferred Work
+**Implementation-Prioritaet:**
+1. Epic 11: Public Browser Migration — Pro-Gates entfernen, License entfernen, Rename, v2.0.0
+2. Epic 12: Cortex Phase 1 — Pattern-Recorder, Merkle Log, Cortex-Hints, Telemetrie-Upload
+3. Epic 13: Cortex Phase 2 — WASM-Validator, Sigstore, OCI Distribution, Canary-Deployment
+4. Script API v2: Shared Core Umbau (Epic 9, Stories 9.7-9.11)
+5. Story 23.1/6.1 (evaluate Anti-Spiral v2) — deferred

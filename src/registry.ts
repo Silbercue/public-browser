@@ -60,11 +60,9 @@ import type { DownloadParams } from "./tools/download.js";
 import { updateOverlayStatus, getToolLabel, setLastElapsed, showClickIndicator } from "./overlay/session-overlay.js";
 import { PlanStateStore } from "./plan/plan-state-store.js";
 import type { LicenseStatus } from "./license/license-status.js";
-import type { FreeTierConfig } from "./license/free-tier-config.js";
 import { FreeTierLicenseStatus } from "./license/license-status.js";
-import { loadFreeTierConfig } from "./license/free-tier-config.js";
 import { z } from "zod";
-import { getProHooks, registerProHooks, proFeatureError } from "./hooks/pro-hooks.js";
+import { getProHooks, registerProHooks } from "./hooks/pro-hooks.js";
 import type { ToolRegistryPublic } from "./hooks/pro-hooks.js";
 import { createDefaultOnToolResult, drainPendingDiff } from "./hooks/default-on-tool-result.js";
 import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
@@ -325,7 +323,6 @@ export class ToolRegistry implements ToolRegistryPublic {
   }
 
   private _licenseStatus: LicenseStatus;
-  private _freeTierConfig: FreeTierConfig;
 
   // FR-H: Track whether the LLM has checked browser context before acting
   private _contextChecked = false;
@@ -352,7 +349,7 @@ export class ToolRegistry implements ToolRegistryPublic {
    * from the legacy parameters. This keeps the test surface stable while
    * still exercising the new wiring through the same constructor.
    */
-  constructor(server: McpServer, browserSession: IBrowserSession, licenseStatus?: LicenseStatus, freeTierConfig?: FreeTierConfig);
+  constructor(server: McpServer, browserSession: IBrowserSession, licenseStatus?: LicenseStatus);
   constructor(
     server: McpServer,
     cdpClient: CdpClient,
@@ -362,7 +359,6 @@ export class ToolRegistry implements ToolRegistryPublic {
     sessionManager?: SessionManager,
     dialogHandler?: DialogHandler,
     licenseStatus?: LicenseStatus,
-    freeTierConfig?: FreeTierConfig,
     consoleCollector?: ConsoleCollector,
     networkCollector?: NetworkCollector,
     sessionDefaults?: SessionDefaultsType,
@@ -372,12 +368,11 @@ export class ToolRegistry implements ToolRegistryPublic {
     private server: McpServer,
     browserSessionOrCdpClient: IBrowserSession | CdpClient,
     sessionIdOrLicense?: string | LicenseStatus,
-    tabStateCacheOrFreeTier?: TabStateCache | FreeTierConfig,
+    tabStateCacheLegacy?: TabStateCache,
     _getConnectionStatus?: unknown,
     sessionManager?: SessionManager,
     dialogHandler?: DialogHandler,
     licenseStatusLegacy?: LicenseStatus,
-    freeTierConfigLegacy?: FreeTierConfig,
     consoleCollector?: ConsoleCollector,
     networkCollector?: NetworkCollector,
     sessionDefaults?: SessionDefaultsType,
@@ -390,10 +385,9 @@ export class ToolRegistry implements ToolRegistryPublic {
       !!v && typeof v === "object" && typeof (v as { ensureReady?: unknown }).ensureReady === "function";
 
     if (looksLikeSession(browserSessionOrCdpClient)) {
-      // New signature: (server, session, licenseStatus?, freeTierConfig?)
+      // New signature: (server, session, licenseStatus?)
       this._browserSession = browserSessionOrCdpClient;
       this._licenseStatus = (sessionIdOrLicense as LicenseStatus | undefined) ?? new FreeTierLicenseStatus();
-      this._freeTierConfig = (tabStateCacheOrFreeTier as FreeTierConfig | undefined) ?? loadFreeTierConfig();
     } else {
       // Legacy signature (test-only): synthesise an IBrowserSession from
       // the old positional parameters. `ensureReady()` is a no-op so
@@ -402,7 +396,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       const legacyCdpClient = browserSessionOrCdpClient as CdpClient;
       const legacySessionId = (sessionIdOrLicense as string | undefined) ?? "test-session";
       const legacyTabCache =
-        (tabStateCacheOrFreeTier as TabStateCache | undefined) ?? new TabStateCacheCtor({ ttlMs: 30_000 });
+        tabStateCacheLegacy ?? new TabStateCacheCtor({ ttlMs: 30_000 });
       const legacySessionDefaults = sessionDefaults ?? new SessionDefaults();
       // Mutable wrapper so `applyTabSwitch()` / legacy `updateClient()` can
       // update the returned getters.
@@ -442,7 +436,6 @@ export class ToolRegistry implements ToolRegistryPublic {
       };
       this._browserSession = session;
       this._licenseStatus = licenseStatusLegacy ?? new FreeTierLicenseStatus();
-      this._freeTierConfig = freeTierConfigLegacy ?? loadFreeTierConfig();
     }
   }
 
@@ -988,32 +981,6 @@ export class ToolRegistry implements ToolRegistryPublic {
     };
   }
 
-  /**
-   * Story 9.5: Wrap a tool handler with a Pro feature gate check.
-   * If a featureGate hook is registered and returns { allowed: false },
-   * the tool is blocked with an isError response.
-   * When no hook is registered, the tool executes normally.
-   */
-  wrapWithGate<T>(
-    toolName: string,
-    fn: (params: T) => Promise<ToolResponse>,
-    hooks: ReturnType<typeof getProHooks>,
-  ): (params: T) => Promise<ToolResponse> {
-    return async (params: T): Promise<ToolResponse> => {
-      const gate = hooks.featureGate?.(toolName);
-      if (gate && !gate.allowed) {
-        if (gate.message) {
-          return {
-            content: [{ type: "text", text: gate.message }],
-            isError: true,
-            _meta: { elapsedMs: 0, method: toolName },
-          };
-        }
-        return proFeatureError(toolName);
-      }
-      return fn(params);
-    };
-  }
 
   /**
    * Registriert alle Free-Tools auf dem MCP-Server und befuellt den internen
@@ -1039,31 +1006,15 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Story 9.5: Read Pro hooks once at startup
     const hooks = getProHooks();
 
-    // Story 9.6: Register default feature gate for Pro-only tools
-    // Pro-Repo can override by calling registerProHooks() before startServer()
-    if (!hooks.featureGate) {
-      const licenseStatus = this._licenseStatus;
-      registerProHooks({
-        ...hooks,
-        featureGate: (toolName: string) => {
-          const gatedTools = ["dom_snapshot", "switch_tab", "virtual_desk", "observe", "console_logs", "network_monitor"];
-          if (gatedTools.includes(toolName) && !licenseStatus.isPro()) {
-            return { allowed: false };
-          }
-          return { allowed: true };
-        },
-      });
-    }
     // FR-022 (P3 fix): Register the default Free-tier `onToolResult` hook
     // when no Pro-Repo override is present. This is the source of the
     // DOM-diff lines that the `click` tool description promises ("The
     // response already includes the DOM diff (NEW/REMOVED/CHANGED lines)").
     // The Pro-Repo can still register a richer hook before startServer();
     // we only fill the gap.
-    const hooksAfterFeatureGate = getProHooks();
-    if (!hooksAfterFeatureGate.onToolResult) {
+    if (!hooks.onToolResult) {
       registerProHooks({
-        ...hooksAfterFeatureGate,
+        ...hooks,
         onToolResult: createDefaultOnToolResult(),
       });
     }
@@ -1311,7 +1262,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       "virtual_desk",
       "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs to navigate to an existing tab instead of opening duplicates. Cheap, call liberally.",
       {},
-      wrap(this.wrapWithGate("virtual_desk", async (params) => {
+      wrap(async (params) => {
         this._contextChecked = true;
         return virtualDeskHandler(
           params as unknown as VirtualDeskParams,
@@ -1321,7 +1272,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           undefined /* connectionStatus removed in lazy-launch refactor */,
           tabFilter,
         );
-      }, finalHooks), "virtual_desk"),
+      }, "virtual_desk"),
     );
 
     // --- 2. Reading ---
@@ -1489,7 +1440,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         url: switchTabSchema.shape.url,
         tab: switchTabSchema.shape.tab,
       },
-      wrap(this.wrapWithGate("switch_tab", async (params) => {
+      wrap(async (params) => {
         return switchTabHandler(
           params as unknown as SwitchTabParams,
           this.cdpClient,
@@ -1501,7 +1452,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           this._browserSession.sessionManager,
           tabOwnership,
         );
-      }, finalHooks), "switch_tab"),
+      }, "switch_tab"),
     );
 
     maybeRegisterFreeMCPTool(
@@ -1600,9 +1551,9 @@ export class ToolRegistry implements ToolRegistryPublic {
       {
         ref: domSnapshotSchema.shape.ref,
       },
-      wrap(this.wrapWithGate("dom_snapshot", async (params) => {
+      wrap(async (params) => {
         return domSnapshotHandler(params as unknown as DomSnapshotParams, this.cdpClient, this.sessionId, this._browserSession.sessionManager);
-      }, finalHooks), "dom_snapshot"),
+      }, "dom_snapshot"),
     );
 
     // --- 7. Special interactions (handle_dialog/file_upload) ---
@@ -1761,7 +1712,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           cdpClient: this.cdpClient,
           sessionId: this._browserSession.sessionId,
           sessionManager: this._browserSession.sessionManager,
-        }, this.planStateStore, this._licenseStatus, this._freeTierConfig);
+        }, this.planStateStore, this._licenseStatus);
         // Convert SuspendedPlanResponse to ToolResponse for MCP transport
         if ("status" in result && (result as { status: string }).status === "suspended") {
           const suspended = result as import("./plan/plan-executor.js").SuspendedPlanResponse;
@@ -1848,14 +1799,6 @@ export class ToolRegistry implements ToolRegistryPublic {
       );
     });
     this._handlers.set("switch_tab", async (params, sessionIdOverride?) => {
-      // Story 9.9: Pro-Feature-Gate must fire BEFORE the parallel check
-      const switchGate = finalHooks.featureGate?.("switch_tab");
-      if (switchGate && !switchGate.allowed) {
-        if (switchGate.message) {
-          return { content: [{ type: "text", text: switchGate.message }], isError: true, _meta: { elapsedMs: 0, method: "switch_tab" } };
-        }
-        return proFeatureError("switch_tab");
-      }
       // H3 fix: switch_tab in parallel context would mutate the global session — block it
       if (sessionIdOverride) {
         return {
@@ -1877,14 +1820,6 @@ export class ToolRegistry implements ToolRegistryPublic {
       );
     });
     this._handlers.set("virtual_desk", async (params, sessionIdOverride?) => {
-      // Story 9.9: Pro-Feature-Gate for virtual_desk
-      const vdGate = finalHooks.featureGate?.("virtual_desk");
-      if (vdGate && !vdGate.allowed) {
-        if (vdGate.message) {
-          return { content: [{ type: "text", text: vdGate.message }], isError: true, _meta: { elapsedMs: 0, method: "virtual_desk" } };
-        }
-        return proFeatureError("virtual_desk");
-      }
       return virtualDeskHandler(
         params as unknown as VirtualDeskParams,
         this.cdpClient,
@@ -1895,14 +1830,6 @@ export class ToolRegistry implements ToolRegistryPublic {
       );
     });
     this._handlers.set("dom_snapshot", async (params, sessionIdOverride?) => {
-      // C1 fix: dom_snapshot must use sessionIdOverride for parallel tab execution
-      const gate = finalHooks.featureGate?.("dom_snapshot");
-      if (gate && !gate.allowed) {
-        if (gate.message) {
-          return { content: [{ type: "text", text: gate.message }], isError: true, _meta: { elapsedMs: 0, method: "dom_snapshot" } };
-        }
-        return proFeatureError("dom_snapshot");
-      }
       return domSnapshotHandler(params as unknown as DomSnapshotParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
     });
     // Story 18.3 Review-Fix H2: Unbedingte Registrierung im _handlers-Map.

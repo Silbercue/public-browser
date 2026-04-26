@@ -1,20 +1,19 @@
 /**
- * Story 15.6: Regressions-Tests — Free-Tier-Benchmark
+ * Story 15.6: Regressions-Tests — Tool-Verfuegbarkeit
  *
  * Dieser Test stellt sicher, dass nach der Pro-Feature-Extraktion
- * (Stories 15.1–15.5) das Free-Repo weiterhin sauber funktioniert und
- * entfernte Features einen deterministischen `proFeatureError()` liefern
- * statt Crashes/Undefined-Exceptions.
+ * (Stories 15.1–15.5) und der Gate-Entfernung (Story 11.1) alle Tools
+ * ohne Einschraenkung verfuegbar sind.
  *
- * Fokus (Acceptance Criteria Story 15.6):
- * - AC #3: inspect_element ist NICHT in tools/list registriert
- * - AC #4: run_plan mit `parallel` → proFeatureError
- * - AC #5: run_plan mit `use_operator: true` → proFeatureError
- * - AC #6: switch_tab / virtual_desk / dom_snapshot ohne featureGate → proFeatureError
+ * Fokus:
+ * - AC #3: inspect_element ist NICHT in tools/list registriert (Pro-only via registerProTools)
+ * - AC #4: run_plan mit `parallel` → proFeatureError (Pro-Hook noetig)
+ * - AC #5: run_plan mit `use_operator: true` → proFeatureError (Pro-Hook noetig)
+ * - AC #6: switch_tab / virtual_desk / dom_snapshot sind ohne Gate ausfuehrbar (Story 11.1)
  * - AC #7: evaluate mit Style-Change-Expression liefert KEIN Visual-Feedback-Bild
  *
  * Diese Tests laufen OHNE Pro-Hooks (`registerProHooks({})` in beforeEach),
- * simulieren also einen frischen Free-Repo-Zustand.
+ * simulieren also einen frischen Zustand ohne Pro-Erweiterungen.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -234,11 +233,11 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
   });
 
   // -------------------------------------------------------------
-  // AC #6 — switch_tab / virtual_desk / dom_snapshot ohne featureGate
-  //          → proFeatureError (default gate from registerAll())
+  // AC #6 — switch_tab / virtual_desk / dom_snapshot are ungated (Story 11.1)
   // -------------------------------------------------------------
-  describe("switch_tab / virtual_desk / dom_snapshot default gate (AC #6)", () => {
-    function buildRegistryForGating() {
+  // Story 11.1: Pro-Feature-Gates removed — tools are now always executable
+  describe("switch_tab / virtual_desk / dom_snapshot execute without gate (Story 11.1)", () => {
+    function buildRegistry() {
       const toolFn = vi.fn();
       const mockServer = { tool: toolFn } as never;
       const mockCdpClient = { send: vi.fn() } as unknown as CdpClient;
@@ -247,50 +246,38 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
         mockCdpClient,
         "session-1",
         {} as never,
-        undefined, // getConnectionStatus
-        undefined, // sessionManager
-        undefined, // dialogHandler
-        new FreeTierLicenseStatus(false), // force Free tier
       );
       registry.registerAll();
       return registry;
     }
 
-    it("dom_snapshot via executeTool returns warm Pro-Feature error", async () => {
-      const registry = buildRegistryForGating();
+    it("dom_snapshot via executeTool does NOT return Pro-Feature error", async () => {
+      const registry = buildRegistry();
       const result = await registry.executeTool("dom_snapshot", { ref: "e1" });
 
-      expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("dom_snapshot (Pro)");
-      expect(textOf(result)).toContain("view_page"); // Free alternative
-      expect(textOf(result)).toContain("silbercuechrome license activate");
+      // May error due to missing CDP mock, but must NOT be a Pro-Feature gate
+      expect(textOf(result)).not.toContain("silbercuechrome license activate");
     });
 
-    it("switch_tab via executeTool returns warm Pro-Feature error", async () => {
-      const registry = buildRegistryForGating();
+    it("switch_tab via executeTool does NOT return Pro-Feature error", async () => {
+      const registry = buildRegistry();
       const result = await registry.executeTool("switch_tab", {
         action: "open",
         url: "about:blank",
       });
 
-      expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("switch_tab (Pro)");
-      expect(textOf(result)).toContain("navigate"); // Free alternative
-      expect(textOf(result)).toContain("silbercuechrome license activate");
+      expect(textOf(result)).not.toContain("silbercuechrome license activate");
     });
 
-    it("virtual_desk via executeTool returns warm Pro-Feature error", async () => {
-      const registry = buildRegistryForGating();
+    it("virtual_desk via executeTool does NOT return Pro-Feature error", async () => {
+      const registry = buildRegistry();
       const result = await registry.executeTool("virtual_desk", {});
 
-      expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("virtual_desk (Pro)");
-      expect(textOf(result)).toContain("tab_status"); // Free alternative
-      expect(textOf(result)).toContain("silbercuechrome license activate");
+      expect(textOf(result)).not.toContain("silbercuechrome license activate");
     });
 
-    it("none of the gated calls crash (no thrown exception, no undefined deref)", async () => {
-      const registry = buildRegistryForGating();
+    it("none of the calls crash (no thrown exception, no undefined deref)", async () => {
+      const registry = buildRegistry();
       await expect(
         registry.executeTool("dom_snapshot", { ref: "e1" }),
       ).resolves.toBeDefined();

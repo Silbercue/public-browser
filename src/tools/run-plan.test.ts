@@ -374,17 +374,16 @@ describe("runPlanSchema — Suspend/Resume (Story 6.5)", () => {
   });
 });
 
-// ===== Story 9.1: Free-Tier Step-Limit =====
+// ===== Story 11.1: Step-Limit entfernt — alle Steps werden ausgefuehrt =====
 
 import type { LicenseStatus } from "../license/license-status.js";
-import type { FreeTierConfig } from "../license/free-tier-config.js";
 
 function createMockLicense(isPro: boolean): LicenseStatus {
   return { isPro: () => isPro };
 }
 
-describe("runPlanHandler — Free-Tier Step-Limit (Story 9.1)", () => {
-  it("truncates steps to freeTierConfig.runPlanLimit when license is free", async () => {
+describe("runPlanHandler — No Step-Limit (Story 11.1)", () => {
+  it("executes all steps without truncation regardless of count", async () => {
     const callLog: string[] = [];
     const registry = {
       executeTool: vi.fn(async (name: string) => {
@@ -406,60 +405,17 @@ describe("runPlanHandler — Free-Tier Step-Limit (Story 9.1)", () => {
       ],
     };
 
-    const license = createMockLicense(false);
-    const config: FreeTierConfig = { runPlanLimit: 3 };
-
-    const result = await runPlanHandler(params, registry, undefined, undefined, license, config);
-
-    expect(callLog).toHaveLength(3);
-    expect(callLog).toEqual(["navigate", "click", "capture_image"]);
-    expect(result._meta).toBeDefined();
-    expect(result._meta!.truncated).toBe(true);
-    expect(result._meta!.limit).toBe(3);
-    expect(result._meta!.total).toBe(5);
-    expect(result.isError).toBeFalsy();
-
-    // BUG-008: Visible truncation warning in content (not just _meta)
-    const firstBlock = result.content[0];
-    expect(firstBlock).toEqual(expect.objectContaining({ type: "text" }));
-    const text = (firstBlock as { type: "text"; text: string }).text;
-    expect(text).toContain("truncated from 5 to 3");
-    expect(text).toContain("[4] evaluate");
-    expect(text).toContain("[5] type");
-  });
-
-  it("does not limit steps when license is Pro", async () => {
-    const callLog: string[] = [];
-    const registry = {
-      executeTool: vi.fn(async (name: string) => {
-        callLog.push(name);
-        return {
-          content: [{ type: "text" as const, text: `${name} done` }],
-          _meta: { elapsedMs: 5, method: name },
-        };
-      }),
-    } as unknown as ToolRegistry;
-
-    const params: RunPlanParams = {
-      steps: [
-        { tool: "navigate" },
-        { tool: "click" },
-        { tool: "capture_image" },
-        { tool: "evaluate" },
-        { tool: "type" },
-      ],
-    };
-
-    const license = createMockLicense(true);
-    const config: FreeTierConfig = { runPlanLimit: 3 };
-
-    const result = await runPlanHandler(params, registry, undefined, undefined, license, config);
+    const result = await runPlanHandler(params, registry);
 
     expect(callLog).toHaveLength(5);
+    expect(callLog).toEqual(["navigate", "click", "capture_image", "evaluate", "type"]);
+    expect(result._meta).toBeDefined();
     expect(result._meta!.truncated).toBeUndefined();
+    expect(result._meta!.stepsCompleted).toBe(5);
+    expect(result.isError).toBeFalsy();
   });
 
-  it("uses custom runPlanLimit from config", async () => {
+  it("executes many steps (>3) without truncation even without license", async () => {
     const callLog: string[] = [];
     const registry = {
       executeTool: vi.fn(async (name: string) => {
@@ -484,18 +440,14 @@ describe("runPlanHandler — Free-Tier Step-Limit (Story 9.1)", () => {
       ],
     };
 
-    const license = createMockLicense(false);
-    const config: FreeTierConfig = { runPlanLimit: 5 };
+    const result = await runPlanHandler(params, registry);
 
-    const result = await runPlanHandler(params, registry, undefined, undefined, license, config);
-
-    expect(callLog).toHaveLength(5);
-    expect(result._meta!.truncated).toBe(true);
-    expect(result._meta!.limit).toBe(5);
-    expect(result._meta!.total).toBe(8);
+    expect(callLog).toHaveLength(8);
+    expect(result._meta!.truncated).toBeUndefined();
+    expect(result._meta!.stepsCompleted).toBe(8);
   });
 
-  it("defaults to free tier (stepLimit applied) when no license provided", async () => {
+  it("defaults to no truncation when no license provided", async () => {
     const callLog: string[] = [];
     const registry = {
       executeTool: vi.fn(async (name: string) => {
@@ -517,12 +469,11 @@ describe("runPlanHandler — Free-Tier Step-Limit (Story 9.1)", () => {
       ],
     };
 
-    // Explicit Free license — cache file on dev machines would default to Pro
     const result = await runPlanHandler(params, registry, undefined, undefined, new FreeTierLicenseStatus(false));
 
-    // Free tier no longer has a step limit — all 5 steps execute
     expect(callLog).toHaveLength(5);
     expect(result._meta!.truncated).toBeUndefined();
+    expect(result._meta!.stepsCompleted).toBe(5);
   });
 
 });

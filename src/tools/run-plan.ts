@@ -8,9 +8,7 @@ import type { PlanStep, PlanOptions, SuspendedPlanResponse } from "../plan/plan-
 import type { PlanStateStore } from "../plan/plan-state-store.js";
 import { getProHooks, proFeatureError } from "../hooks/pro-hooks.js";
 import type { LicenseStatus } from "../license/license-status.js";
-import type { FreeTierConfig } from "../license/free-tier-config.js";
 import { FreeTierLicenseStatus } from "../license/license-status.js";
-import { DEFAULT_FREE_TIER_CONFIG } from "../license/free-tier-config.js";
 
 const suspendSchema = z.object({
   question: z.string().optional().describe("Question to ask the agent when suspending"),
@@ -76,7 +74,6 @@ export async function runPlanHandler(
   deps?: RunPlanDeps,
   stateStore?: PlanStateStore,
   license?: LicenseStatus,
-  freeTierConfig?: FreeTierConfig,
 ): Promise<ToolResponse | SuspendedPlanResponse> {
   // Story 15.1: use_operator is a Pro-Feature — return pro-feature error
   // BEFORE any mode validation so users get a clear pro-feature hint even
@@ -103,10 +100,8 @@ export async function runPlanHandler(
     };
   }
 
-  // --- Story 9.1: Resolve step limit from license status ---
+  // --- Resolve license status ---
   const resolvedLicense = license ?? new FreeTierLicenseStatus();
-  const resolvedConfig = freeTierConfig ?? DEFAULT_FREE_TIER_CONFIG;
-  const stepLimit = resolvedLicense.isPro() ? undefined : resolvedConfig.runPlanLimit;
 
   // --- Story 7.6 / 15.4: Parallel path ---
   // Multi-Tab-Parallel-Engine lebt im Pro-Repo und wird via executeParallel-Hook injiziert.
@@ -266,37 +261,7 @@ export async function runPlanHandler(
     errorStrategy: params.errorStrategy,
   };
 
-  // Story 9.1: Apply step limit to steps array before execution
-  const allSteps = params.steps as PlanStep[];
-  let steps = allSteps;
-  const total = allSteps.length;
-  const truncated = stepLimit !== undefined && allSteps.length > stepLimit;
-  if (truncated) {
-    steps = allSteps.slice(0, stepLimit);
-  }
-
   // Default: plain sequential execution
-  const result = await executePlan(steps, registry, planOptions, stateStore);
-  // Story 9.1 + BUG-008: Inject truncation info into _meta AND visible output
-  if (truncated && result._meta) {
-    result._meta.truncated = true;
-    result._meta.limit = stepLimit!;
-    result._meta.total = total;
-    injectTruncationWarning(result as ToolResponse, total, stepLimit!, allSteps);
-  }
-  return result;
-}
-
-/** BUG-008: Inject visible truncation warning into response content */
-function injectTruncationWarning(
-  result: ToolResponse,
-  total: number,
-  limit: number,
-  allSteps: PlanStep[],
-): void {
-  const skippedTools = allSteps.slice(limit).map((s, i) => `[${limit + i + 1}] ${s.tool}`).join(", ");
-  result.content.unshift({
-    type: "text",
-    text: `Plan truncated from ${total} to ${limit} steps (Free Tier limit). Skipped: ${skippedTools}. Upgrade to Pro for unlimited steps.`,
-  });
+  const steps = params.steps as PlanStep[];
+  return executePlan(steps, registry, planOptions, stateStore);
 }

@@ -21,72 +21,48 @@ describe("ProHooks", () => {
   it("default hooks are an empty object (all properties undefined)", () => {
     const hooks = getProHooks();
     expect(hooks).toEqual({});
-    expect(hooks.featureGate).toBeUndefined();
     expect(hooks.enhanceTool).toBeUndefined();
     expect(hooks.onToolResult).toBeUndefined();
   });
 
   it("registerProHooks sets new hooks", () => {
-    const gate = (toolName: string) => ({ allowed: toolName !== "dom_snapshot" });
-    registerProHooks({ featureGate: gate });
+    const enhance = (_name: string, params: Record<string, unknown>) => params;
+    registerProHooks({ enhanceTool: enhance });
 
     const hooks = getProHooks();
-    expect(hooks.featureGate).toBe(gate);
-    expect(hooks.enhanceTool).toBeUndefined();
+    expect(hooks.enhanceTool).toBe(enhance);
     expect(hooks.onToolResult).toBeUndefined();
   });
 
   it("getProHooks returns the registered hooks", () => {
     const myHooks: ProHooks = {
-      featureGate: () => ({ allowed: true }),
       enhanceTool: (_name, params) => params,
       onToolResult: async (_name, result, _ctx) => result,
     };
     registerProHooks(myHooks);
 
     const hooks = getProHooks();
-    expect(hooks.featureGate).toBe(myHooks.featureGate);
     expect(hooks.enhanceTool).toBe(myHooks.enhanceTool);
     expect(hooks.onToolResult).toBe(myHooks.onToolResult);
   });
 
   it("multiple registerProHooks calls — last one wins", () => {
-    const first = () => ({ allowed: false });
-    const second = () => ({ allowed: true });
+    const first = (_n: string, p: Record<string, unknown>) => p;
+    const second = (_n: string, _p: Record<string, unknown>) => null;
 
-    registerProHooks({ featureGate: first });
-    expect(getProHooks().featureGate).toBe(first);
+    registerProHooks({ enhanceTool: first });
+    expect(getProHooks().enhanceTool).toBe(first);
 
-    registerProHooks({ featureGate: second });
-    expect(getProHooks().featureGate).toBe(second);
+    registerProHooks({ enhanceTool: second });
+    expect(getProHooks().enhanceTool).toBe(second);
   });
 
   it("registerProHooks with empty object resets hooks", () => {
-    registerProHooks({ featureGate: () => ({ allowed: true }) });
-    expect(getProHooks().featureGate).toBeDefined();
+    registerProHooks({ enhanceTool: (_n, p) => p });
+    expect(getProHooks().enhanceTool).toBeDefined();
 
     registerProHooks({});
-    expect(getProHooks().featureGate).toBeUndefined();
-  });
-
-  it("featureGate hook returns gate result with optional message", () => {
-    registerProHooks({
-      featureGate: (toolName) => {
-        if (toolName === "dom_snapshot") {
-          return { allowed: false, message: "dom_snapshot requires Pro license" };
-        }
-        return { allowed: true };
-      },
-    });
-
-    const hooks = getProHooks();
-    const blocked = hooks.featureGate!("dom_snapshot");
-    expect(blocked.allowed).toBe(false);
-    expect(blocked.message).toBe("dom_snapshot requires Pro license");
-
-    const allowed = hooks.featureGate!("evaluate");
-    expect(allowed.allowed).toBe(true);
-    expect(allowed.message).toBeUndefined();
+    expect(getProHooks().enhanceTool).toBeUndefined();
   });
 
   it("enhanceTool hook can modify params", () => {
@@ -177,7 +153,6 @@ describe("ProHooks", () => {
   });
 
   it("onToolResult works alongside other hooks", () => {
-    const gate = () => ({ allowed: true });
     const enhance = (_n: string, p: Record<string, unknown>) => p;
     const result: ProHooks["onToolResult"] = async (_name, r, _ctx) => r;
     const provider: ProHooks["provideLicenseStatus"] = async () => ({
@@ -185,14 +160,12 @@ describe("ProHooks", () => {
     });
 
     registerProHooks({
-      featureGate: gate,
       enhanceTool: enhance,
       onToolResult: result,
       provideLicenseStatus: provider,
     });
 
     const hooks = getProHooks();
-    expect(hooks.featureGate).toBe(gate);
     expect(hooks.enhanceTool).toBe(enhance);
     expect(hooks.onToolResult).toBe(result);
     expect(hooks.provideLicenseStatus).toBe(provider);
@@ -280,59 +253,24 @@ describe("ProHooks", () => {
     );
   });
 
-  // --- Story 9.6: proFeatureError ---
+  // --- Story 11.1: proFeatureError — generic message only (warm messages removed) ---
 
-  it("proFeatureError returns warm marketing message for dom_snapshot", () => {
-    const result = proFeatureError("dom_snapshot");
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toHaveLength(1);
-    const text = (result.content[0] as { text: string }).text;
-    // Must name the tool and flag it as Pro
-    expect(text).toContain("dom_snapshot (Pro)");
-    // Must briefly describe what the Pro tool does
-    expect(text).toMatch(/DOM tree snapshot/i);
-    // Must mention the Free alternative so the LLM can continue
-    expect(text).toContain("view_page");
-    // Must provide a clear upgrade path
-    expect(text).toContain("Upgrade:");
-    expect(text).toContain("silbercuechrome license activate");
-    expect(result._meta).toEqual({ elapsedMs: 0, method: "dom_snapshot" });
-  });
-
-  it("proFeatureError returns warm marketing message for virtual_desk", () => {
-    const result = proFeatureError("virtual_desk");
-    const text = (result.content[0] as { text: string }).text;
-
-    expect(result.isError).toBe(true);
-    expect(text).toContain("virtual_desk (Pro)");
-    // Describes the value proposition
-    expect(text).toMatch(/window layout|multi-tab/i);
-    // Points to the Free alternative
-    expect(text).toContain("tab_status");
-    // Upgrade path
-    expect(text).toContain("Upgrade:");
-  });
-
-  it("proFeatureError returns warm marketing message for switch_tab", () => {
-    const result = proFeatureError("switch_tab");
-    const text = (result.content[0] as { text: string }).text;
-
-    expect(result.isError).toBe(true);
-    expect(text).toContain("switch_tab (Pro)");
-    expect(text).toMatch(/multi-tab workflows/i);
-    expect(text).toContain("navigate");
-    expect(text).toContain("Upgrade:");
-  });
-
-  it("proFeatureError falls back to generic message for unknown tool names", () => {
-    // Tools like `parallel` and `use_operator` from run_plan use the generic
-    // fallback since they're not traditional tool names but feature flags.
+  it("proFeatureError returns generic Pro-Feature error for any tool name", () => {
     const result = proFeatureError("some_future_tool");
 
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain("some_future_tool is a Pro feature");
+    expect((result.content[0] as { text: string }).text).toBe(
+      "some_future_tool is a Pro feature — activate with 'silbercuechrome license activate <key>'",
+    );
     expect(result._meta!.method).toBe("some_future_tool");
+  });
+
+  it("proFeatureError returns consistent format for parallel", () => {
+    const result = proFeatureError("parallel");
+
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toContain("parallel is a Pro feature");
+    expect(result._meta).toEqual({ elapsedMs: 0, method: "parallel" });
   });
 
   // --- Story 15.5: provideLicenseStatus Hook ---
@@ -356,13 +294,13 @@ describe("ProHooks", () => {
   });
 
   it("provideLicenseStatus works alongside other hooks", () => {
-    const gate = () => ({ allowed: true });
+    const enhance = (_n: string, p: Record<string, unknown>) => p;
     const provider = async (): Promise<LicenseStatus> => ({ isPro: () => false });
 
-    registerProHooks({ featureGate: gate, provideLicenseStatus: provider });
+    registerProHooks({ enhanceTool: enhance, provideLicenseStatus: provider });
 
     const hooks = getProHooks();
-    expect(hooks.featureGate).toBe(gate);
+    expect(hooks.enhanceTool).toBe(enhance);
     expect(hooks.provideLicenseStatus).toBe(provider);
   });
 
@@ -417,16 +355,16 @@ describe("ProHooks", () => {
   });
 
   it("executeParallel works alongside other hooks", () => {
-    const gate = () => ({ allowed: true });
+    const enhance = (_n: string, p: Record<string, unknown>) => p;
     const impl = async (): Promise<ToolResponse> => ({
       content: [],
       _meta: { elapsedMs: 0, method: "run_plan" },
     });
 
-    registerProHooks({ featureGate: gate, executeParallel: impl });
+    registerProHooks({ enhanceTool: enhance, executeParallel: impl });
 
     const hooks = getProHooks();
-    expect(hooks.featureGate).toBe(gate);
+    expect(hooks.enhanceTool).toBe(enhance);
     expect(hooks.executeParallel).toBe(impl);
   });
 
@@ -471,15 +409,15 @@ describe("ProHooks", () => {
   });
 
   it("registerProTools works alongside other hooks", () => {
-    const gate = () => ({ allowed: true });
+    const enhance = (_n: string, p: Record<string, unknown>) => p;
     const registerImpl = (_registry: ToolRegistryPublic) => {
       /* no-op */
     };
 
-    registerProHooks({ featureGate: gate, registerProTools: registerImpl });
+    registerProHooks({ enhanceTool: enhance, registerProTools: registerImpl });
 
     const hooks = getProHooks();
-    expect(hooks.featureGate).toBe(gate);
+    expect(hooks.enhanceTool).toBe(enhance);
     expect(hooks.registerProTools).toBe(registerImpl);
   });
 

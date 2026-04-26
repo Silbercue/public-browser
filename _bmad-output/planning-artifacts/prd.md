@@ -14,6 +14,9 @@ stepsCompleted:
   - step-10-nonfunctional
   - step-11-polish
   - step-12-complete
+  - step-e-01-discovery
+  - step-e-02-review
+  - step-e-03-edit
 inputDocuments:
   - _bmad-output/planning-artifacts/product-brief-SilbercueChrome.md
   - _bmad-output/planning-artifacts/product-brief-SilbercueChrome-distillate.md
@@ -39,32 +42,34 @@ workflowType: 'prd'
 project: SilbercueChrome
 author: Julian
 date: 2026-04-14
-lastEdited: '2026-04-16'
+lastEdited: '2026-04-26'
 editHistory:
+  - date: '2026-04-26'
+    changes: 'Public Browser Pivot: Open-Core → Open Source, Pro entfernt, Rename zu Public Browser, Cortex-Vision (FR40-46, NFR20-22, Journey 6 Priya). Sprint Change Proposal 2026-04-26.'
   - date: '2026-04-16'
     changes: 'Script API v2: FR37+FR39+Executive Summary auf Shared Core umgestellt (Scripts nutzen MCP-Tool-Implementierungen statt eigener CDP-Logik). Sprint Change Proposal 2026-04-16.'
   - date: '2026-04-15'
     changes: 'Script API (FR34-FR39, NFR19, Journey 5 Tomek) restauriert und von Growth nach v1.0 MVP verschoben'
 ---
 
-# Product Requirements Document - SilbercueChrome
+# Product Requirements Document - Public Browser (formerly SilbercueChrome)
 
 **Author:** Julian
 **Date:** 2026-04-14
 
 ## Executive Summary
 
-SilbercueChrome ist ein MCP-Server (Model Context Protocol), der KI-Agenten steuerbaren Zugriff auf einen Chrome-Browser gibt. Der Server sitzt direkt auf dem Chrome DevTools Protocol (CDP) per WebSocket — ohne Playwright-Proxy, ohne Extension-Relay, ohne Framework-Overhead. Das Ergebnis: In LLM-gesteuerten Benchmarks ist SilbercueChrome 27 bis 86 Mal schneller als die Konkurrenz (Playwright MCP, browser-use, claude-in-chrome) bei gleichzeitig 65 Prozent weniger Token-Verbrauch.
+Public Browser ist ein MCP-Server (Model Context Protocol), der KI-Agenten steuerbaren Zugriff auf einen Chrome-Browser gibt. Der Server sitzt direkt auf dem Chrome DevTools Protocol (CDP) per WebSocket — ohne Playwright-Proxy, ohne Extension-Relay, ohne Framework-Overhead. Das Ergebnis: In LLM-gesteuerten Benchmarks ist Public Browser 27 bis 86 Mal schneller als die Konkurrenz (Playwright MCP, browser-use, claude-in-chrome) bei gleichzeitig 65 Prozent weniger Token-Verbrauch.
 
-Der zentrale Hebel heisst `run_plan`: Wo andere MCPs fuer jeden Browser-Schritt einen separaten LLM-Roundtrip brauchen (2-10 Sekunden Denkzeit pro Aktion), batcht SilbercueChrome beliebig viele Steps serverseitig. N Schritte, ein LLM-Aufruf. Das eliminiert nicht Browser-Latenz, sondern LLM-Wartezeit — den eigentlichen Flaschenhals, der vier Fuenftel der Gesamtlaufzeit ausmacht.
+Der zentrale Hebel heisst `run_plan`: Wo andere MCPs fuer jeden Browser-Schritt einen separaten LLM-Roundtrip brauchen (2-10 Sekunden Denkzeit pro Aktion), batcht Public Browser beliebig viele Steps serverseitig. N Schritte, ein LLM-Aufruf. Das eliminiert nicht Browser-Latenz, sondern LLM-Wartezeit — den eigentlichen Flaschenhals, der vier Fuenftel der Gesamtlaufzeit ausmacht.
 
-Gleichwertiger zweiter Hebel ist Tool-Steering: Das LLM muss nicht nur schnell ausfuehren, sondern zuverlaessig das richtige Tool waehlen. SilbercueChrome setzt auf Negativ-Abgrenzung in Tool-Descriptions, konfigurierbare Tool-Profile (Default 10 Tools statt 25) und Anti-Pattern-Detection, die das LLM aktiv vom falschen Tool zum richtigen umlenkt. Die Erkenntnis aus einem verworfenen Paradigmenwechsel (Epic 19, Kartentisch): Weniger Tools und hoehere Abstraktion hilft nicht automatisch — die zusaetzliche Abstraktionsschicht erzeugte mehr kognitiven Load fuer das LLM, nicht weniger. Der direkte Toolbox-Ansatz mit praezisem Steering funktioniert besser.
+Gleichwertiger zweiter Hebel ist Tool-Steering: Das LLM muss nicht nur schnell ausfuehren, sondern zuverlaessig das richtige Tool waehlen. Public Browser setzt auf Negativ-Abgrenzung in Tool-Descriptions, konfigurierbare Tool-Profile (Default 10 Tools statt 25) und Anti-Pattern-Detection, die das LLM aktiv vom falschen Tool zum richtigen umlenkt. Die Erkenntnis aus einem verworfenen Paradigmenwechsel (Epic 19, Kartentisch): Weniger Tools und hoehere Abstraktion hilft nicht automatisch — die zusaetzliche Abstraktionsschicht erzeugte mehr kognitiven Load fuer das LLM, nicht weniger. Der direkte Toolbox-Ansatz mit praezisem Steering funktioniert besser.
 
-Das Geschaeftsmodell ist Open-Core: Ein Free-Tier mit allen Kern-Tools und gedeckeltem `run_plan` (bereits besser als die gesamte Konkurrenz), ein Pro-Tier mit unbegrenztem `run_plan`, Multi-Tab-Management und erweitertem Debugging. Distribution laeuft ueber `npx @silbercue/chrome@latest`, Lizenzierung ueber Polar.sh.
+Public Browser ist vollstaendig Open Source und Free — alle Tools, unbegrenztes `run_plan`, Multi-Tab-Management inklusive. Der zentrale Differenzierer neben Performance ist der Cortex: eine selbstlernende Wissensschicht, die aus erfolgreichen Browser-Interaktionen aller Installationen lernt und das Wissen kryptographisch gesichert teilt. Kein Mensch kuratiert den Cortex — er waechst durch statistische Validierung ueber die Community. Jeder Eintrag ist durch Merkle Proofs verifizierbar, jeder Bundle durch Sigstore signiert. Distribution laeuft ueber `npx public-browser@latest`.
 
-Dritter Zugangsweg neben MCP und direktem CLI: Eine Python Script API (Epic 9) macht SilbercueChrome auch ohne LLM im Loop nutzbar. Scripts nutzen intern dieselben Tool-Implementierungen wie der MCP-Server (click, navigate, fill etc.) — jede Verbesserung an den MCP-Tools kommt Scripts automatisch zugute. `Chrome.connect()` startet den SilbercueChrome-Server bei Bedarf automatisch im Hintergrund. `pip install silbercuechrome` genuegt. Jedes Script arbeitet in einem eigenen Tab, MCP-Tabs bleiben unangetastet. Damit bedient SilbercueChrome drei Zielgruppen: KI-Agenten (MCP), Power-User (CLI), und Automation-Scripter (Python API).
+Dritter Zugangsweg neben MCP und direktem CLI: Eine Python Script API (Epic 9) macht Public Browser auch ohne LLM im Loop nutzbar. Scripts nutzen intern dieselben Tool-Implementierungen wie der MCP-Server (click, navigate, fill etc.) — jede Verbesserung an den MCP-Tools kommt Scripts automatisch zugute. `Chrome.connect()` startet den Server bei Bedarf automatisch im Hintergrund. `pip install publicbrowser` genuegt. Jedes Script arbeitet in einem eigenen Tab, MCP-Tabs bleiben unangetastet. Damit bedient Public Browser drei Zielgruppen: KI-Agenten (MCP), Power-User (CLI), und Automation-Scripter (Python API).
 
-Das Produkt steht bei v0.9.0 nach 22 abgeschlossenen Epics mit 1500+ Tests. Zielgruppe sind KI-Entwickler, Claude-Code/Cursor/Cline-Nutzer und Automation-Scripter, die Browser-Automation in ihre Workflows integrieren.
+Das Produkt steht bei v1.3.0 nach 22 abgeschlossenen Epics mit 1500+ Tests. Zielgruppe sind KI-Entwickler, Claude-Code/Cursor/Cline-Nutzer und Automation-Scripter, die Browser-Automation in ihre Workflows integrieren.
 
 ### What Makes This Special
 
@@ -74,8 +79,8 @@ Der Unterschied liegt nicht in einem einzelnen technischen Trick, sondern in der
 
 - **Projekt-Typ:** Developer Tool (MCP-Server fuer LLM-gesteuerte Browser-Automation ueber direktes Chrome DevTools Protocol)
 - **Domain:** General — technisch fordernd, regulatorisch entspannt (keine Compliance-Pflichten)
-- **Komplexitaet:** Medium — CDP-Internals, Chromium-Feldtypen, Cross-Origin-iFrames, Open-Core-Lizenzmodell
-- **Projekt-Kontext:** Brownfield — 22 Epics, v0.9.0, aktive Weiterentwicklung
+- **Komplexitaet:** Medium — CDP-Internals, Chromium-Feldtypen, Cross-Origin-iFrames, Cortex-Vertrauensinfrastruktur
+- **Projekt-Kontext:** Brownfield — 22 Epics, v1.3.0, aktive Weiterentwicklung
 
 ## Success Criteria
 
@@ -85,19 +90,20 @@ Der Aha-Moment ist der erste `run_plan`-Aufruf: Der Agent erledigt eine mehrstuf
 
 Konkret messbar:
 - **Benchmark-Dominanz:** 35/35 Tests bestanden, schnellste Wall-Clock-Zeit aller getesteten MCPs
-- **Null-Konfiguration:** `npx @silbercue/chrome@latest` startet Chrome und verbindet — kein manuelles Setup, kein Debugging
+- **Null-Konfiguration:** `npx public-browser@latest` startet Chrome und verbindet — kein manuelles Setup, kein Debugging
 - **Tool-Steering-Qualitaet:** In einem typischen 10-Step-Workflow waehlt das LLM in mindestens 90 Prozent der Schritte das optimale Tool (kein Rueckfall auf `evaluate` wo `click` oder `fill_form` besser waere)
-- **Eigennutzung:** Julian nutzt SilbercueChrome taeglich produktiv und greift nur bei bewusst unbekannten Edge Cases auf Alternativen zurueck
+- **Eigennutzung:** Julian nutzt Public Browser taeglich produktiv und greift nur bei bewusst unbekannten Edge Cases auf Alternativen zurueck
 - **Script-Koexistenz:** Ein Python-Script kann parallel zum MCP-Betrieb Browser-Aufgaben ausfuehren, ohne den MCP-Tab zu stoeren. Binaerer Test: MCP-Tab-URL bleibt unveraendert waehrend und nach Script-Ausfuehrung
 
 ### Business Success
 
 Adoption getrieben durch Produktqualitaet, nicht durch Marketing-Push. Die Benchmark-Suite ist oeffentlich — wer es ausprobiert, sieht den Unterschied.
 
-Konkret nach 90 Tagen post-v1.0:
+Konkret nach 90 Tagen post-v2.0:
 - **GitHub Stars:** 500
 - **npm Downloads:** 1.000 pro Monat
-- **Pro-Subscriber:** 20 zahlende Abos
+- **Community-Contributions:** 50 Cortex-Patterns von unabhaengigen Installationen
+- **Cortex-Adoption:** 30 Prozent der Installationen haben Telemetrie-Upload aktiviert (opt-in)
 - **Community-Signal:** Mindestens eine organische Erwaehnung in einem relevanten Forum (HN, Reddit r/ClaudeAI, Dev.to) die nicht von Julian stammt
 
 ### Technical Success
@@ -109,29 +115,29 @@ Konkret nach 90 Tagen post-v1.0:
 ### Measurable Outcomes
 
 Gate-System fuer die naechsten Schritte:
-- **v1.0 Release Gate:** Benchmark 35/35, Token-Overhead <5.000, Zero-Config-Setup funktioniert auf macOS und Linux, Free/Pro-Schnitt stabil
-- **90-Tage-Gate:** 500 Stars, 1.000 Downloads/Monat, 20 Pro-Subscriber
-- **6-Monate-Gate:** Benchmark-Vorsprung gehalten (mindestens 3 MQS-Punkte vor naechstem Konkurrent), Pro-Revenue deckt Infrastrukturkosten
+- **v2.0 Release Gate:** Benchmark 35/35, Token-Overhead <5.000, Zero-Config-Setup funktioniert auf macOS und Linux, Rename komplett (npm + pip + GitHub)
+- **90-Tage-Gate:** 500 Stars, 1.000 Downloads/Monat, 50 Community-Cortex-Patterns, 30% Telemetrie-Adoption
+- **6-Monate-Gate:** Benchmark-Vorsprung gehalten (mindestens 3 MQS-Punkte vor naechstem Konkurrent), Cortex-Bundle wird taeglich gebaut und von mindestens 100 Installationen konsumiert
 
 ## User Journeys
 
-### Journey 1: Marco — Erster Kontakt (Claude Code User, Free)
+### Journey 1: Marco — Erster Kontakt (Claude Code User)
 
-Marco entwickelt eine Web-App und will seinen Claude-Code-Agenten Formulare auf einer Staging-Seite testen lassen. Er hat bisher keinen Browser-MCP und tippt `npx @silbercue/chrome@latest` in sein MCP-Config. Beim naechsten Claude-Code-Start verbindet der Server automatisch mit Chrome. Marco sagt dem Agenten "fuell das Registrierungsformular auf staging.example.com aus und pruefe ob die Bestaetigung erscheint". Der Agent nutzt `navigate`, `fill_form` und `wait_for` — drei Tool-Calls, jeder unter 50ms. Marco sieht das Ergebnis in Sekunden statt Minuten. Er merkt nicht, was fehlt — es funktioniert einfach.
+Marco entwickelt eine Web-App und will seinen Claude-Code-Agenten Formulare auf einer Staging-Seite testen lassen. Er hat bisher keinen Browser-MCP und tippt `npx public-browser@latest` in sein MCP-Config. Beim naechsten Claude-Code-Start verbindet der Server automatisch mit Chrome. Marco sagt dem Agenten "fuell das Registrierungsformular auf staging.example.com aus und pruefe ob die Bestaetigung erscheint". Der Agent nutzt `navigate`, `fill_form` und `wait_for` — drei Tool-Calls, jeder unter 50ms. Marco sieht das Ergebnis in Sekunden statt Minuten. Er merkt nicht, was fehlt — es funktioniert einfach.
 
 **Was diese Journey aufdeckt:** Zero-Config-Setup, Tool-Steering-Qualitaet (Agent waehlt `fill_form` statt einzelne `type`-Calls), Geschwindigkeit als stilles Differenzierungsmerkmal.
 
-### Journey 2: Lena — run_plan Discovery (Cursor Power User, Free → Pro)
+### Journey 2: Lena — run_plan Discovery (Cursor Power User)
 
-Lena automatisiert woechentliche Reports: Login bei drei internen Dashboards, Daten extrahieren, in ein Sheet uebertragen. Mit einzelnen Tool-Calls dauert jeder Dashboard-Durchlauf 30+ Sekunden (LLM-Denkzeit dominiert). Sie entdeckt `run_plan` und formuliert den ganzen Login-Extract-Flow als einen Plan. Free-Tier fuehrt die ersten drei Steps aus — der Rest wird abgeschnitten, aber sauber als Teilergebnis zurueckgegeben. Lena sieht den Speedup sofort und aktiviert Pro fuer unbegrenztes `run_plan`. Drei Dashboards in unter 10 Sekunden statt 90.
+Lena automatisiert woechentliche Reports: Login bei drei internen Dashboards, Daten extrahieren, in ein Sheet uebertragen. Mit einzelnen Tool-Calls dauert jeder Dashboard-Durchlauf 30+ Sekunden (LLM-Denkzeit dominiert). Sie entdeckt `run_plan` und formuliert den ganzen Login-Extract-Flow als einen Plan. `run_plan` fuehrt alle Steps aus — kein Limit. Lena sieht den Speedup sofort. Drei Dashboards in unter 10 Sekunden statt 90. Nach einigen erfolgreichen Durchlaeufen bemerkt sie den Cortex-Hint: "847 Installationen bestaetigen: nach navigate auf dashboard.internal braucht es wait_for mit network idle." Ihr Agent nutzt den Hint und ueberspringt eine Fehlstrategie.
 
-**Was diese Journey aufdeckt:** run_plan als Upgrade-Trigger, weiches Step-Limit (kein Fehler, Teilergebnis), Pro-Wert spuerbar im Alltag.
+**Was diese Journey aufdeckt:** run_plan als zentraler Speedup-Mechanismus, Cortex-Hints als Community-Intelligence die individuelle Lernkurve verkuerzt.
 
-### Journey 3: Dev — Multi-Tab Workflow (Pro User, fortgeschritten)
+### Journey 3: Dev — Multi-Tab Workflow (fortgeschritten)
 
-Dev nutzt SilbercueChrome Pro fuer Cross-Site-Testing: Er oeffnet parallel eine Produktseite, ein Admin-Panel und eine API-Monitoring-Seite. Mit `virtual_desk` sieht er alle drei Tabs auf einen Blick (<500 Tokens). Mit `switch_tab` wechselt er zwischen den Kontexten. Er laesst den Agenten einen Kauf auf der Produktseite ausfuehren, prueft im Admin-Panel ob die Bestellung erscheint, und verifiziert im Monitoring ob der API-Call korrekt geloggt wurde. Alles in einer Agenten-Session ohne manuelles Tab-Switching.
+Dev nutzt Public Browser fuer Cross-Site-Testing: Er oeffnet parallel eine Produktseite, ein Admin-Panel und eine API-Monitoring-Seite. Mit `virtual_desk` sieht er alle drei Tabs auf einen Blick (<500 Tokens). Mit `switch_tab` wechselt er zwischen den Kontexten. Er laesst den Agenten einen Kauf auf der Produktseite ausfuehren, prueft im Admin-Panel ob die Bestellung erscheint, und verifiziert im Monitoring ob der API-Call korrekt geloggt wurde. Alles in einer Agenten-Session ohne manuelles Tab-Switching.
 
-**Was diese Journey aufdeckt:** Multi-Tab als Pro-Feature, virtual_desk Token-Effizienz, Cross-Site-Workflow als realer Use Case.
+**Was diese Journey aufdeckt:** Multi-Tab-Management, virtual_desk Token-Effizienz, Cross-Site-Workflow als realer Use Case.
 
 ### Journey 4: Kai — Debugging und Edge Cases (Erfahrener User)
 
@@ -141,10 +147,10 @@ Kai's Agent scheitert an einer Seite mit dynamisch geladenen Shadow-DOM-Komponen
 
 ### Journey 5: Tomek — Deterministische Automation (Script API User)
 
-Tomek betreibt einen E-Commerce-Shop und braucht ein naechtliches Script das Preise auf einer Konkurrenz-Seite abgleicht. Ein LLM im Loop waere Overkill — die Schritte sind immer identisch: Login, drei Kategorien oeffnen, Preistabellen extrahieren, CSV speichern. Tomek installiert `pip install silbercuechrome` und schreibt ein Python-Script:
+Tomek betreibt einen E-Commerce-Shop und braucht ein naechtliches Script das Preise auf einer Konkurrenz-Seite abgleicht. Ein LLM im Loop waere Overkill — die Schritte sind immer identisch: Login, drei Kategorien oeffnen, Preistabellen extrahieren, CSV speichern. Tomek installiert `pip install publicbrowser` und schreibt ein Python-Script:
 
 ```python
-from silbercuechrome import Chrome
+from publicbrowser import Chrome
 
 chrome = Chrome.connect(port=9222)
 with chrome.new_page() as page:
@@ -163,33 +169,41 @@ Waehrend das Script laeuft, arbeitet Claude Code im selben Chrome weiter — Tom
 
 **Was diese Journey aufdeckt:** Script API als dritter Zugangsweg neben MCP und CLI, CDP-Koexistenz (MCP + Script parallel), deterministische Automation ohne LLM-Overhead, Python als Zielsprache fuer Scripter.
 
+### Journey 6: Priya — Community-Contributor (DevOps-Ingenieurin)
+
+Priya ist DevOps-Ingenieurin und automatisiert interne Dashboards mit Public Browser. Nach zwei Wochen hat ihr Cortex lokal 15 Patterns gelernt. Sie aktiviert den Telemetrie-Upload (opt-in). Drei Wochen spaeter sieht sie in ihrem MCP: "1.247 community patterns loaded". Ein Kollege installiert Public Browser zum ersten Mal und bekommt sofort Cortex-Hints fuer ihre internen Tools — ohne eigene Lernphase.
+
+**Was diese Journey aufdeckt:** Cortex-Kreislauf (lokales Lernen → Upload → Community-Bundle → Hint-Delivery), Opt-in-Vertrauen, sofortiger Wert fuer Neuinstallationen durch Community-Wissen.
+
 ### Journey Requirements Summary
 
-| Capability | Journey 1 | Journey 2 | Journey 3 | Journey 4 | Journey 5 |
-|-----------|-----------|-----------|-----------|-----------|-----------|
-| Zero-Config-Setup | Primaer | — | — | — | — |
-| Tool-Steering | Primaer | Sekundaer | — | Primaer | — |
-| run_plan Batch-Execution | — | Primaer | Sekundaer | — | — |
-| Free/Pro Step-Limit | — | Primaer | — | — | — |
-| Multi-Tab-Management | — | — | Primaer | — | — |
-| Anti-Pattern-Detection | — | — | — | Primaer | — |
-| Stale-Ref-Recovery | — | — | — | Primaer | — |
-| Shadow-DOM-Support | — | — | — | Primaer | — |
-| Script API (Python) | — | — | — | — | Primaer |
-| CDP-Koexistenz | — | — | — | — | Primaer |
-| Tab-Isolation | — | — | — | — | Primaer |
+| Capability | Journey 1 | Journey 2 | Journey 3 | Journey 4 | Journey 5 | Journey 6 |
+|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
+| Zero-Config-Setup | Primaer | — | — | — | — | — |
+| Tool-Steering | Primaer | Sekundaer | — | Primaer | — | — |
+| run_plan Batch-Execution | — | Primaer | Sekundaer | — | — | — |
+| Multi-Tab-Management | — | — | Primaer | — | — | — |
+| Anti-Pattern-Detection | — | — | — | Primaer | — | — |
+| Stale-Ref-Recovery | — | — | — | Primaer | — | — |
+| Shadow-DOM-Support | — | — | — | Primaer | — | — |
+| Script API (Python) | — | — | — | — | Primaer | — |
+| CDP-Koexistenz | — | — | — | — | Primaer | — |
+| Tab-Isolation | — | — | — | — | Primaer | — |
+| Cortex Local Learning | — | Sekundaer | — | — | — | Primaer |
+| Cortex Community-Bundle | — | Sekundaer | — | — | — | Primaer |
+| Telemetrie Opt-in | — | — | — | — | — | Primaer |
 
 ## Innovation & Novel Patterns
 
 ### Detected Innovation Areas
 
-**Server-Side Batch-Execution (run_plan):** SilbercueChrome ist der einzige MCP-Server, der N Browser-Aktionen in einem einzigen LLM-Roundtrip deterministisch serverseitig ausfuehrt. Der Unterschied zu Multi-Action-Patterns (browser-use: bis zu 5 Aktionen pro LLM-Step) liegt in der Determinismus-Garantie: Der Plan wird ohne LLM-Feedback zwischen den Steps ausgefuehrt. Das eliminiert nicht Latenz pro Step, sondern die LLM-Denkzeit zwischen Steps — den dominanten Kostenfaktor.
+**Server-Side Batch-Execution (run_plan):** Public Browser ist der einzige MCP-Server, der N Browser-Aktionen in einem einzigen LLM-Roundtrip deterministisch serverseitig ausfuehrt. Der Unterschied zu Multi-Action-Patterns (browser-use: bis zu 5 Aktionen pro LLM-Step) liegt in der Determinismus-Garantie: Der Plan wird ohne LLM-Feedback zwischen den Steps ausgefuehrt. Das eliminiert nicht Latenz pro Step, sondern die LLM-Denkzeit zwischen Steps — den dominanten Kostenfaktor.
 
-**Tool-Steering als Server-Verantwortung:** Wo andere MCPs dem LLM die volle Last der Tool-Auswahl ueberlassen, verlagert SilbercueChrome die Steuerung in den Server: Negativ-Abgrenzung in Descriptions ("fuer Seiteninhalt view_page nutzen, nicht capture_image"), Anti-Pattern-Detection zur Laufzeit (evaluate-Spiral-Erkennung), und konfigurierbare Tool-Profile (10 Default-Tools statt 25). Das ist kein Framework-Feature sondern eine Architektur-Entscheidung auf MCP-Protokoll-Ebene.
+**Tool-Steering als Server-Verantwortung:** Wo andere MCPs dem LLM die volle Last der Tool-Auswahl ueberlassen, verlagert Public Browser die Steuerung in den Server: Negativ-Abgrenzung in Descriptions ("fuer Seiteninhalt view_page nutzen, nicht capture_image"), Anti-Pattern-Detection zur Laufzeit (evaluate-Spiral-Erkennung), und konfigurierbare Tool-Profile (10 Default-Tools statt 25). Das ist kein Framework-Feature sondern eine Architektur-Entscheidung auf MCP-Protokoll-Ebene.
 
 ### Market Context & Competitive Landscape
 
-Die Konkurrenz bewegt sich in eine aehnliche Richtung — Playwright MCP hat eine CLI-Variante gelauncht um Tokens zu sparen, Stagehand cached Action-Ergebnisse per SHA256, browser-use baut paint-order-filtering. Aber keiner adressiert den LLM-Roundtrip-Overhead systematisch. Das Vercel-Experiment (Reduktion von 25 auf 5 Tools, 3.5x Speedup bei 100% Erfolgsrate) bestaetigt die Grundthese, aber SilbercueChrome geht den anderen Weg: statt Tools zu reduzieren, die Tool-Auswahl zu steuern.
+Die Konkurrenz bewegt sich in eine aehnliche Richtung — Playwright MCP hat eine CLI-Variante gelauncht um Tokens zu sparen, Stagehand cached Action-Ergebnisse per SHA256, browser-use baut paint-order-filtering. Aber keiner adressiert den LLM-Roundtrip-Overhead systematisch. Das Vercel-Experiment (Reduktion von 25 auf 5 Tools, 3.5x Speedup bei 100% Erfolgsrate) bestaetigt die Grundthese, aber Public Browser geht den anderen Weg: statt Tools zu reduzieren, die Tool-Auswahl zu steuern.
 
 ### Validation Approach
 
@@ -201,7 +215,7 @@ Die Konkurrenz bewegt sich in eine aehnliche Richtung — Playwright MCP hat ein
 
 ### Project-Type Overview
 
-SilbercueChrome ist ein MCP-Server — kein Framework, keine Library, kein CLI-Tool. Die primaere Schnittstelle ist das MCP-Protokoll (JSON-RPC ueber stdio), die Ziel-Clients sind KI-Agenten (Claude Code, Cursor, Cline, Windsurf). Der Server wird nicht direkt vom Endnutzer aufgerufen, sondern vom KI-Client gestartet und gesteuert.
+Public Browser ist ein MCP-Server — kein Framework, keine Library, kein CLI-Tool. Die primaere Schnittstelle ist das MCP-Protokoll (JSON-RPC ueber stdio), die Ziel-Clients sind KI-Agenten (Claude Code, Cursor, Cline, Windsurf). Der Server wird nicht direkt vom Endnutzer aufgerufen, sondern vom KI-Client gestartet und gesteuert.
 
 ### Technical Architecture Considerations
 
@@ -212,8 +226,8 @@ SilbercueChrome ist ein MCP-Server — kein Framework, keine Library, kein CLI-T
 - Build: `tsc` nach `build/`, Distribution als npm-Package
 
 **Installation Methods:**
-- **Primaer:** `npx @silbercue/chrome@latest` — Zero-Install, startet direkt
-- **npm:** `npm install -g @silbercue/chrome` fuer persistente Installation
+- **Primaer:** `npx public-browser@latest` — Zero-Install, startet direkt
+- **npm:** `npm install -g public-browser` fuer persistente Installation
 - **MCP-Config:** JSON-Eintrag in Claude Code / Cursor MCP-Settings
 
 **IDE/Client Integration:**
@@ -225,24 +239,24 @@ SilbercueChrome ist ein MCP-Server — kein Framework, keine Library, kein CLI-T
 
 **API Surface (MCP Tools):**
 
-| Tool | Tier | Beschreibung |
-|------|------|-------------|
-| view_page | Free | A11y-Tree mit stabilen Element-Refs |
-| capture_image | Free | Komprimierter WebP Screenshot |
-| click | Free | Klick per Ref, Selector oder Text |
-| type | Free | Text eingeben |
-| fill_form | Free | Mehrere Felder in einem Call |
-| scroll | Free | Seite oder Container scrollen |
-| wait_for | Free | Warten auf Element, Network, JS-Bedingung |
-| evaluate | Free | JavaScript ausfuehren |
-| navigate | Free | URL Navigation |
-| run_plan | Free (3 Steps) / Pro (unbegrenzt) | Batch-Execution |
-| tab_status | Free | Tab-Status aus Cache |
-| observe | Free | DOM-Aenderungen beobachten (MutationObserver) |
-| download | Free | Download-Status und Session-History |
-| switch_tab | Pro | Tabs oeffnen, wechseln, schliessen |
-| virtual_desk | Pro | Alle Tabs auf einen Blick |
-| press_key | Pro | Tastendruck mit Target-Focus |
+| Tool | Beschreibung |
+|------|-------------|
+| view_page | A11y-Tree mit stabilen Element-Refs |
+| capture_image | Komprimierter WebP Screenshot |
+| click | Klick per Ref, Selector oder Text |
+| type | Text eingeben |
+| fill_form | Mehrere Felder in einem Call |
+| scroll | Seite oder Container scrollen |
+| wait_for | Warten auf Element, Network, JS-Bedingung |
+| evaluate | JavaScript ausfuehren |
+| navigate | URL Navigation |
+| run_plan | Batch-Execution (unbegrenzte Steps) |
+| tab_status | Tab-Status aus Cache |
+| observe | DOM-Aenderungen beobachten (MutationObserver) |
+| download | Download-Status und Session-History |
+| switch_tab | Tabs oeffnen, wechseln, schliessen |
+| virtual_desk | Alle Tabs auf einen Blick |
+| press_key | Tastendruck mit Target-Focus |
 
 **Script API (Python):**
 
@@ -258,21 +272,15 @@ SilbercueChrome ist ein MCP-Server — kein Framework, keine Library, kein CLI-T
 | page.evaluate(js) | JavaScript ausfuehren |
 | page.download() | Download-Status abfragen |
 
-Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Tool-Implementierungen wie der MCP-Server (Shared Core). Der SilbercueChrome-Server wird bei Bedarf automatisch gestartet — ueber PATH (Homebrew), npx, oder expliziten Pfad.
+Distribution: `pip install publicbrowser`. Scripts nutzen intern dieselben Tool-Implementierungen wie der MCP-Server (Shared Core). Der Server wird bei Bedarf automatisch gestartet — ueber PATH (Homebrew), npx, oder expliziten Pfad.
 
 **CLI Interface:**
 - `--attach` Mode: Verbindung zu laufendem Chrome (kein Auto-Launch)
 - `--script` Mode: Startet zusaetzlich einen lokalen HTTP-Endpunkt (Port 9223) fuer Script-API-Clients und aktiviert Tab-Isolation fuer externe Clients
 - Chrome Auto-Launch mit `--remote-debugging-port=9222`
-- Umgebungsvariablen: `SILBERCUECHROME_LICENSE`, `SILBERCUE_CHROME_FULL_TOOLS`
+- Umgebungsvariablen: `SILBERCUE_CHROME_FULL_TOOLS`
 
 ### Implementation Considerations
-
-**Free/Pro Build-Mechanismus:**
-- Ein Combined Binary, Lizenz schaltet Pro-Features frei
-- Pro-Code wird zur Build-Zeit aus privatem Repo injiziert, nach Build entfernt
-- Runtime Feature-Detection via Polar.sh License-Key-Validation
-- 7-Tage-Grace-Period fuer Offline-Robustheit
 
 **Dokumentation:**
 - README mit Getting-Started und Tool-Uebersicht
@@ -282,33 +290,38 @@ Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Too
 
 **Migration Guide:**
 - Von anderen MCPs: Kein Code-Migration noetig — MCP-Config austauschen reicht
-- Von aelteren SilbercueChrome-Versionen: Tool-Rename-Mapping (read_page → view_page, screenshot → capture_image)
+- Von aelteren Versionen (SilbercueChrome → Public Browser): Tool-Rename-Mapping (read_page → view_page, screenshot → capture_image), Package-Migration (@silbercue/chrome → public-browser)
 
 ## Project Scoping & Phased Development
 
 ### MVP Strategy & Philosophy
 
-**MVP-Ansatz: Problem-Solving MVP.** Das Produkt loest bereits ein konkretes Problem (Browser-Automation fuer KI-Agenten) und funktioniert. "MVP" heisst nicht "erstes lauffaehiges Produkt" sondern "v1.0-Release-Kandidat": alles stabil, dokumentiert und oeffentlich vertretbar.
+**MVP-Ansatz: Problem-Solving MVP.** Das Produkt loest bereits ein konkretes Problem (Browser-Automation fuer KI-Agenten) und funktioniert. "MVP" heisst hier "v2.0-Release-Kandidat" (v2.0 wegen Breaking Change durch Rename): alles stabil, dokumentiert und oeffentlich vertretbar.
 
-**Resource Requirements:** Solo-Developer (Julian). Keine Team-Skalierung noetig fuer v1.0. Externe Abhaengigkeiten: Polar.sh (Lizenzierung), npm (Distribution), GitHub Actions (CI/CD).
+**Resource Requirements:** Solo-Developer (Julian). Keine Team-Skalierung noetig fuer v2.0. Externe Abhaengigkeiten: npm (Distribution), GitHub Actions (CI/CD), OCI Registry (Cortex-Bundle), Sigstore (Signierung).
 
-### MVP Feature Set (Phase 1 — v1.0)
+### MVP Feature Set (Phase 1 — v2.0)
 
-**Core User Journeys:** Alle fuenf Journeys (Marco, Lena, Dev, Kai, Tomek) muessen funktionieren.
+**Core User Journeys:** Alle sechs Journeys (Marco, Lena, Dev, Kai, Tomek, Priya) muessen funktionieren.
 
 **Must-Have Capabilities:**
-- 13 Free-Tools stabil und gut gesteuert (inkl. observe und download)
-- 3 Pro-Tools funktional (switch_tab, virtual_desk, press_key)
-- run_plan mit Free-Limit (3 Steps) und Pro-Unlimited
-- Zero-Config-Setup via `npx @silbercue/chrome@latest`
+- 16 Tools stabil und gut gesteuert (inkl. observe, download, switch_tab, virtual_desk, press_key)
+- run_plan unbegrenzt
+- Zero-Config-Setup via `npx public-browser@latest`
 - `--attach` CLI-Mode
 - `--script` CLI-Mode fuer Script-API-Zugriff (Epic 9)
-- Script API: Python-Client-Library mit CDP-Koexistenz (FR34-FR39, NFR19)
-- Free/Pro-Lizenzierung via Polar.sh
+- Script API: Python-Client-Library mit CDP-Koexistenz (FR34-FR39, NFR18)
 - Benchmark 35/35 bestanden
 - README mit Getting-Started
 
-**Explizit nicht v1.0:**
+**Cortex (Phase 2 — nach v2.0-Migration):**
+- Lokales Pattern-Recording und Merkle Log (FR40-FR41)
+- Cortex-Hints in Tool-Responses (FR42-FR43)
+- Opt-in Telemetrie-Upload (FR44)
+- Bundle-Download mit Sigstore-Verifikation (FR45-FR46)
+
+**Explizit nicht v2.0:**
+- Cortex Phase 2 (Community-Distribution, WASM-Validator, Sigstore) — Post-Migration
 - Network-Monitoring, Console-Log-Filtering — Growth Feature
 - Session-Persistierung — Growth Feature
 - Firefox/WebKit-Support — nicht geplant
@@ -316,15 +329,18 @@ Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Too
 
 ### Post-MVP Features
 
-**Phase 2 (Growth — nach v1.0-Validierung):**
+**Phase 2 (Cortex — nach v2.0-Migration):**
+- Cortex Phase 1: Lokales Lernen, Pattern-Recorder, Merkle Log, Cortex-Hints (Epic 12)
+- Cortex Phase 2: WASM-Validator, Sigstore-Signierung, OCI Distribution, Canary-Deployment (Epic 13)
+
+**Phase 3 (Growth — nach Cortex-Validierung):**
 - Erweiterte Observability: Network-Monitoring, Console-Log-Filtering
 - Session-Persistierung
 - AI-Framework-Integrationen (LangChain, CrewAI)
 
-**Phase 3 (Expansion — nach Markt-Traction):**
+**Phase 4 (Expansion — nach Markt-Traction):**
 - Benchmark-Suite als oeffentliche Plattform (mcp-test.second-truth.com existiert)
 - Community-Plugins und Erweiterungen
-- Enterprise-Features (Team-Lizenzen, SLAs)
 - Potentiell WebDriver BiDi als CDP-Alternative
 
 ### Risk Mitigation Strategy
@@ -340,7 +356,8 @@ Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Too
 
 **Resource Risks:**
 - *Solo-Developer-Bottleneck:* Julian ist Single Point of Failure. Mitigation: Gute Dokumentation, 1500+ Tests, Open-Source-Community kann bei Bugs helfen.
-- *Minimaler Fallback:* Wenn v1.0 nicht die erwartete Traction bekommt, ist das Free-Tier trotzdem das beste kostenlose Browser-MCP — kein Totalverlust.
+- *Minimaler Fallback:* Wenn v2.0 nicht die erwartete Traction bekommt, bleibt Public Browser trotzdem das schnellste freie Browser-MCP — kein Totalverlust.
+- *Cortex-Poisoning:* Boesartige Patterns koennten das Community-Bundle kontaminieren. Mitigation: WASM-Validator mit statistischer Validierung (N unabhaengige Bestaetigungen), Sigstore-Signierung, Canary-Deployment an 5 Prozent der Installationen.
 
 ## Functional Requirements
 
@@ -358,21 +375,21 @@ Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Too
 - FR7: Der LLM-Agent kann Text in ein Eingabefeld eingeben (per Ref oder Selector)
 - FR8: Der LLM-Agent kann mehrere Formularfelder in einem einzigen Tool-Call ausfuellen
 - FR9: Der LLM-Agent kann die Seite oder einen spezifischen Container scrollen
-- FR10: Der LLM-Agent kann Tastendruecke an ein Element senden (Pro)
+- FR10: Der LLM-Agent kann Tastendruecke an ein Element senden
 - FR11: Der LLM-Agent kann Drag-and-Drop-Operationen ausfuehren
 
 ### Execution & Automation
 
-- FR12: Der LLM-Agent kann einen mehrstufigen Plan in einem einzigen Tool-Call ausfuehren (run_plan), wobei Free-Tier auf 3 Steps begrenzt ist
+- FR12: Der LLM-Agent kann einen mehrstufigen Plan in einem einzigen Tool-Call ausfuehren (run_plan) mit unbegrenzter Anzahl an Steps
 - FR13: Der LLM-Agent kann beliebiges JavaScript im Browser-Kontext ausfuehren und das Ergebnis erhalten
 - FR14: Der LLM-Agent kann auf eine Bedingung warten (Element sichtbar, Network idle, JS-Expression true)
 - FR15: Der LLM-Agent kann DOM-Aenderungen an einem Element beobachten und erhaelt alle Mutationen als Ergebnis
-- FR16: run_plan liefert bei Ueberschreitung des Step-Limits ein Teilergebnis ohne Fehlermeldung zurueck
+- FR16: run_plan liefert bei Abbruch (Fehler in einem Step) ein Teilergebnis der bereits ausgefuehrten Steps zurueck
 
 ### Tab Management
 
-- FR17: Der LLM-Agent kann neue Tabs oeffnen, zwischen Tabs wechseln und Tabs schliessen (Pro)
-- FR18: Der LLM-Agent kann eine Uebersicht aller offenen Tabs mit URL und Titel in unter 500 Tokens abrufen (Pro)
+- FR17: Der LLM-Agent kann neue Tabs oeffnen, zwischen Tabs wechseln und Tabs schliessen
+- FR18: Der LLM-Agent kann eine Uebersicht aller offenen Tabs mit URL und Titel in unter 500 Tokens abrufen
 
 ### Download Management
 
@@ -394,12 +411,10 @@ Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Too
 - FR28: Der Server bietet konfigurierbare Tool-Profile an (Default 10 Tools, Full-Set via Env-Variable)
 - FR29: Der Server gibt bei click/type einen synchronen DOM-Diff zurueck (was hat sich geaendert)
 
-### Licensing & Distribution
+### Distribution
 
-- FR30: Der Developer kann SilbercueChrome via `npx @silbercue/chrome@latest` ohne Installation starten
-- FR31: Der Developer kann einen Pro-License-Key per Umgebungsvariable oder Config-Datei aktivieren
-- FR32: Pro-Features funktionieren 7 Tage offline nach letzter Lizenz-Validierung (Grace Period)
-- FR33: Free-Tier-Tools funktionieren ohne Lizenz-Key vollstaendig und ohne kuenstliche Einschraenkungen (ausser run_plan Step-Limit)
+- FR30: Der Developer kann Public Browser via `npx public-browser@latest` ohne Installation starten
+- FR31: Alle Tools funktionieren vollstaendig und ohne kuenstliche Einschraenkungen
 
 ### Script API
 
@@ -408,7 +423,17 @@ Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Too
 - FR36: Jedes Script arbeitet in einem eigenen Tab — MCP-Tabs werden nicht gestoert, Script-Tabs werden beim Context-Manager-Exit geschlossen
 - FR37: Die Script API bietet die Methoden navigate, click, fill, type, wait_for, evaluate und download — diese nutzen intern die gleichen Tool-Implementierungen wie der MCP-Server (Shared Core), sodass Verbesserungen an den MCP-Tools automatisch auch Script-Nutzern zugutekommen
 - FR38: Die Script API nutzt ein Context-Manager-Pattern (`with chrome.new_page() as page`), das Tab-Lifecycle automatisch verwaltet
-- FR39: Die Script API wird als Python-Package (`pip install silbercuechrome`) distribuiert. `Chrome.connect()` startet den SilbercueChrome-Server bei Bedarf automatisch im Hintergrund — der Nutzer braucht nur das Python-Package, kein separates Server-Setup
+- FR39: Die Script API wird als Python-Package (`pip install publicbrowser`) distribuiert. `Chrome.connect()` startet den Public-Browser-Server bei Bedarf automatisch im Hintergrund — der Nutzer braucht nur das Python-Package, kein separates Server-Setup
+
+### Cortex — Selbstlernendes Wissen
+
+- FR40: Der MCP zeichnet erfolgreiche Tool-Sequenzen automatisch als Pattern-Eintraege auf (Domain, Pfad-Pattern, Tool-Sequenz, Outcome, Content-Hash)
+- FR41: Pattern-Eintraege werden in einem kryptographisch gesicherten Append-Only Merkle Log gespeichert (RFC-6962-kompatibel)
+- FR42: Bei URL-Pattern-Match liefern navigate und view_page Cortex-Hints in der Tool-Response (_meta.cortex)
+- FR43: Der MCP zeigt in seiner Server-Description die Anzahl geladener Community-Patterns an
+- FR44: Pattern-Eintraege koennen opt-in an einen Collection-Endpoint gesendet werden (anonymisiert, Rate-Limited, kein PII)
+- FR45: Der Cortex-Bundle wird beim Start heruntergeladen, Sigstore-Signatur und Merkle Inclusion Proof werden lokal verifiziert
+- FR46: Ungueltige oder nicht-verifizierbare Bundles werden ignoriert (sicherer Default, kein Fallback auf unverifizierten Content)
 
 ## Non-Functional Requirements
 
@@ -438,10 +463,15 @@ Distribution: `pip install silbercuechrome`. Scripts nutzen intern dieselben Too
 
 ### Security
 
-- NFR16: License-Keys werden lokal gespeichert und nur zur Validierung an Polar.sh gesendet (kein Tracking)
-- NFR17: `navigator.webdriver` wird maskiert um Bot-Detection auf besuchten Seiten zu vermeiden
-- NFR18: Kein Telemetrie-Versand, keine Nutzungsdaten, keine Analytics — der Server ist vollstaendig offline-faehig (ausser Lizenz-Check)
+- NFR16: `navigator.webdriver` wird maskiert um Bot-Detection auf besuchten Seiten zu vermeiden
+- NFR17: Cortex-Telemetrie ist opt-in. Ohne Opt-in werden keine Daten gesendet. Pattern-Eintraege enthalten keine PII, keine URLs mit Auth-Tokens, keine Seiteninhalte. Der Server ist ohne Opt-in vollstaendig offline-faehig
 
 ### CDP-Koexistenz
 
-- NFR19: MCP-Server (via Pipe/stdio) und Script-API (via Server HTTP-Endpunkt) koennen gleichzeitig auf denselben Chrome zugreifen, ohne sich gegenseitig zu stoeren. Jeder Client arbeitet in eigenen Tabs. Validierung: Gleichzeitiger MCP-Betrieb und Script-Ausfuehrung, MCP-Tab-URL bleibt unveraendert
+- NFR18: MCP-Server (via Pipe/stdio) und Script-API (via Server HTTP-Endpunkt) koennen gleichzeitig auf denselben Chrome zugreifen, ohne sich gegenseitig zu stoeren. Jeder Client arbeitet in eigenen Tabs. Validierung: Gleichzeitiger MCP-Betrieb und Script-Ausfuehrung, MCP-Tab-URL bleibt unveraendert
+
+### Cortex-Integritaet
+
+- NFR19: Cortex-Bundle-Download darf den MCP-Start um maximal 2 Sekunden verzoegern (Cache-Hit: 0ms, Cache-Miss: max 2s, Timeout: Fallback auf lokalen Cache oder kein Cortex)
+- NFR20: Der WASM-Validator ist deterministisch — gleiche Inputs erzeugen auf jeder Plattform identische Outputs (verifizierbar durch Nix-Build-Hash)
+- NFR21: Cortex-Patterns enthalten ausschliesslich: Domain, Pfad-Pattern, Tool-Sequenz, Success-Rate, Installations-Count, Validator-Hash, Timestamp. Keine User-Daten, keine Credentials, keine Session-Tokens

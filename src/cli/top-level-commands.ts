@@ -29,12 +29,8 @@ import { fileURLToPath } from "node:url";
  * smoke-test (`test-hardest/smoke-test.mjs`) — bei Aenderungen muss die
  * Zahl hier nachgezogen werden.
  *
- * Stand 2026-04-07 (nach Phase 1): 21 Free-Tools (3 Tools sind Pro-gated:
- * dom_snapshot, switch_tab, virtual_desk → werden ueber featureGate
- * geblockt aber trotzdem in tools/list angezeigt).
- *
- * Free-User sehen also 21 nutzbare + 3 gated = 22 Tools insgesamt.
- * Pro-Zaehlung in der Pro-Variante: 22 + inspect_element = 23.
+ * Stand Story 11.1: Alle Tools sind ungated verfuegbar (Pro-Feature-Gates entfernt).
+ * Aktuelle Zaehlung: 23 Tools (inkl. dom_snapshot, switch_tab, virtual_desk, drag, download).
  */
 export const FREE_TIER_TOOL_COUNT = 21;
 

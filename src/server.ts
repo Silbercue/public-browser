@@ -6,7 +6,6 @@ import { ToolRegistry } from "./registry.js";
 import { setTierLabel, setLicenseInfo } from "./overlay/session-overlay.js";
 import { FreeTierLicenseStatus } from "./license/license-status.js";
 import type { LicenseStatus } from "./license/license-status.js";
-import { loadFreeTierConfig } from "./license/free-tier-config.js";
 import { getProHooks } from "./hooks/pro-hooks.js";
 import { VERSION } from "./version.js";
 import { ScriptApiServer } from "./transport/script-api-server.js";
@@ -99,7 +98,6 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
       // Fallback to Free Tier
     }
   }
-  const freeTierConfig = loadFreeTierConfig();
   setTierLabel(licenseStatus.isPro());
   setLicenseInfo(undefined, undefined, undefined);
 
@@ -124,7 +122,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
         "Other rules:",
         "- After every interaction, use view_page again to verify the result before proceeding.",
         "- fill_form beats multiple type calls for any form with 2+ fields.",
-        "- For multi-step workflows, use run_plan to execute N steps in one call (Free: 3 steps, Pro: unlimited).",
+        "- For multi-step workflows, use run_plan to execute N steps in one call.",
         "- evaluate is for JS computation and style mutations (.style.X = ...) — not for CSS reading or element discovery.",
         "- Avoid evaluate as default recovery after click/type errors — call view_page for fresh refs and retry with the dedicated tool.",
         "",
@@ -139,7 +137,6 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     server,
     browserSession,
     licenseStatus,
-    freeTierConfig,
   );
   registry.registerAll();
 

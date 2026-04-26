@@ -31,8 +31,8 @@
 # - Dev moves story to 'review', then runs code-review
 
 generated: 2026-04-16
-last_updated: 2026-04-19  # Story 10.1 → review (POC VERLIERT, Rollback ausgefuehrt)
-project: SilbercueChrome
+last_updated: 2026-04-26  # Story 11.1 done
+project: SilbercueChrome  # wird zu PublicBrowser in Epic 11
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -93,6 +93,38 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: Vision-Hybrid POC — Gate vor Kategorie-A-Friction-Fixes
-  epic-10: in-progress
-  10-1-vision-hybrid-poc-amazon-szenario: review
+  epic-10: done  # POC VERLIERT, Kategorie-A-Pause aufgehoben
+  10-1-vision-hybrid-poc-amazon-szenario: done
   epic-10-retrospective: optional
+
+  # === PUBLIC BROWSER PIVOT (Sprint Change 2026-04-26) ===
+
+  # Epic 11: Public Browser Migration (v2.0.0) — Pro→Free, Rename, Package-Migration
+  epic-11: in-progress
+  11-1-pro-feature-gates-entfernen: done
+  11-2-license-system-entfernen: backlog
+  11-3-pro-repo-archivieren: backlog
+  11-4-rename-public-browser: backlog
+  11-5-npm-package-migration: backlog
+  11-6-python-package-migration: backlog
+  11-7-v2-0-0-release: backlog
+  epic-11-retrospective: optional
+
+  # Epic 12: Cortex Phase 1 — Lokales Lernen + Merkle Log
+  epic-12: backlog
+  12-1-pattern-recorder: backlog
+  12-2-lokaler-merkle-log: backlog
+  12-3-cortex-hint-in-tool-responses: backlog
+  12-4-icon-badge-indikator: backlog
+  12-5-opt-in-telemetrie-upload: backlog
+  epic-12-retrospective: optional
+
+  # Epic 13: Cortex Phase 2 — Validierung + Distribution
+  epic-13: backlog
+  13-1-wasm-validator: backlog
+  13-2-sigstore-signierung: backlog
+  13-3-oci-distribution: backlog
+  13-4-canary-deployment: backlog
+  13-5-community-monitoring: backlog
+  13-6-client-verifikation: backlog
+  epic-13-retrospective: optional

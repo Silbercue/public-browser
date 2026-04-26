@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ToolRegistry, jsonSchemaToZodShape } from "./registry.js";
 import { z } from "zod";
 import type { LicenseStatus } from "./license/license-status.js";
-import type { FreeTierConfig } from "./license/free-tier-config.js";
+// FreeTierConfig import removed — Story 11.1: Pro-Feature-Gates entfernt
 import { registerProHooks } from "./hooks/pro-hooks.js";
 import type { ProHooks } from "./hooks/pro-hooks.js";
 import { SessionDefaults } from "./cache/session-defaults.js";
@@ -596,10 +596,9 @@ describe("ToolRegistry", () => {
     expect(result.content[0]).toHaveProperty("text", "42");
   });
 
-  // --- Story 9.1: Registry wiring for licenseStatus and freeTierConfig (C4) ---
+  // --- Story 11.1: run_plan executes all steps without truncation (no step limit) ---
 
-  it("constructor accepts licenseStatus and freeTierConfig, wiring them to run_plan handler", async () => {
-    // Create a mock CdpClient that returns results for evaluate calls
+  it("run_plan executes all steps without truncation regardless of step count", async () => {
     const mockCdpClient = {
       send: vi.fn().mockResolvedValue({
         result: { type: "number", value: 1 },
@@ -608,36 +607,24 @@ describe("ToolRegistry", () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    // Free tier license with custom limit of 2
-    const license: LicenseStatus = { isPro: () => false };
-    const config: FreeTierConfig = { runPlanLimit: 2 };
-
     const registry = new ToolRegistry(
       mockServer,
       mockCdpClient,
       "session-1",
       {} as never,
-      undefined,
-      undefined,
-      undefined,
-      license,
-      config,
     );
     registry.registerAll();
 
-    // Execute run_plan indirectly: the handler is registered via server.tool,
-    // so we call the callback captured by the mock. The last server.tool call is run_plan.
     const runPlanCall = toolFn.mock.calls.find(
       (call: unknown[]) => call[0] === "run_plan",
     );
     expect(runPlanCall).toBeDefined();
 
-    // The handler is the last argument in the server.tool call
     const runPlanCallback = runPlanCall![runPlanCall!.length - 1] as (
       params: Record<string, unknown>,
     ) => Promise<{ content: Array<{ type: string; text?: string }>; _meta?: Record<string, unknown> }>;
 
-    // Run a plan with 4 steps — free tier limit is 2, so only 2 should execute
+    // Run a plan with 4 steps — all should execute, no truncation
     const result = await runPlanCallback({
       steps: [
         { tool: "evaluate", params: { expression: "1" } },
@@ -648,177 +635,21 @@ describe("ToolRegistry", () => {
       use_operator: false,
     });
 
-    expect(result._meta).toBeDefined();
-    expect(result._meta!.truncated).toBe(true);
-    expect(result._meta!.limit).toBe(2);
-    expect(result._meta!.total).toBe(4);
-  });
-
-  it("Pro license does not truncate steps in run_plan", async () => {
-    const mockCdpClient = {
-      send: vi.fn().mockResolvedValue({
-        result: { type: "number", value: 1 },
-      }),
-    } as never;
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-
-    // Pro license — no truncation expected
-    const license: LicenseStatus = { isPro: () => true };
-    const config: FreeTierConfig = { runPlanLimit: 2 };
-
-    const registry = new ToolRegistry(
-      mockServer,
-      mockCdpClient,
-      "session-1",
-      {} as never,
-      undefined,
-      undefined,
-      undefined,
-      license,
-      config,
-    );
-    registry.registerAll();
-
-    const runPlanCall = toolFn.mock.calls.find(
-      (call: unknown[]) => call[0] === "run_plan",
-    );
-    const runPlanCallback = runPlanCall![runPlanCall!.length - 1] as (
-      params: Record<string, unknown>,
-    ) => Promise<{ content: Array<{ type: string; text?: string }>; _meta?: Record<string, unknown> }>;
-
-    const result = await runPlanCallback({
-      steps: [
-        { tool: "evaluate", params: { expression: "1" } },
-        { tool: "evaluate", params: { expression: "2" } },
-        { tool: "evaluate", params: { expression: "3" } },
-        { tool: "evaluate", params: { expression: "4" } },
-      ],
-      use_operator: false,
-    });
-
-    // Pro license: all 4 steps executed, no truncation
     expect(result._meta).toBeDefined();
     expect(result._meta!.truncated).toBeUndefined();
     expect(result._meta!.stepsCompleted).toBe(4);
   });
 
-  // --- Story 9.5: Feature-Gate Hook integration tests ---
-
-  it("wrapWithGate blocks tool when featureGate returns { allowed: false }", async () => {
-    registerProHooks({
-      featureGate: (toolName) => {
-        if (toolName === "dom_snapshot") {
-          return { allowed: false, message: "dom_snapshot requires Pro license" };
-        }
-        return { allowed: true };
-      },
-    });
-
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
-
-    // Import getProHooks to pass to wrapWithGate
-    const { getProHooks } = await import("./hooks/pro-hooks.js");
-    const hooks = getProHooks();
-
-    const innerHandler = vi.fn().mockResolvedValue({
-      content: [{ type: "text", text: "snapshot data" }],
-      _meta: { elapsedMs: 50, method: "dom_snapshot" },
-    });
-
-    const gated = registry.wrapWithGate("dom_snapshot", innerHandler, hooks);
-    const result = await gated({});
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0]).toHaveProperty("text", "dom_snapshot requires Pro license");
-    expect(result._meta).toEqual({ elapsedMs: 0, method: "dom_snapshot" });
-    // Inner handler should NOT have been called
-    expect(innerHandler).not.toHaveBeenCalled();
-  });
-
-  it("wrapWithGate allows tool when featureGate returns { allowed: true }", async () => {
-    registerProHooks({
-      featureGate: () => ({ allowed: true }),
-    });
-
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
-
-    const { getProHooks } = await import("./hooks/pro-hooks.js");
-    const hooks = getProHooks();
-
-    const expectedResponse = {
-      content: [{ type: "text" as const, text: "snapshot data" }],
-      _meta: { elapsedMs: 50, method: "dom_snapshot" },
-    };
-    const innerHandler = vi.fn().mockResolvedValue(expectedResponse);
-
-    const gated = registry.wrapWithGate("dom_snapshot", innerHandler, hooks);
-    const result = await gated({ ref: "e1" });
-
-    expect(result).toBe(expectedResponse);
-    expect(innerHandler).toHaveBeenCalledWith({ ref: "e1" });
-  });
-
-  it("wrapWithGate passes through when no featureGate hook is registered", async () => {
-    // Default empty hooks — no featureGate
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
-
-    const { getProHooks } = await import("./hooks/pro-hooks.js");
-    const hooks = getProHooks();
-
-    const expectedResponse = {
-      content: [{ type: "text" as const, text: "result" }],
-      _meta: { elapsedMs: 10, method: "evaluate" },
-    };
-    const innerHandler = vi.fn().mockResolvedValue(expectedResponse);
-
-    const gated = registry.wrapWithGate("evaluate", innerHandler, hooks);
-    const result = await gated({ expression: "1+1" });
-
-    expect(result).toBe(expectedResponse);
-    expect(innerHandler).toHaveBeenCalledWith({ expression: "1+1" });
-  });
-
-  it("wrapWithGate uses default message when featureGate returns no message", async () => {
-    registerProHooks({
-      featureGate: () => ({ allowed: false }),
-    });
-
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-    const registry = new ToolRegistry(mockServer, {} as never, "session-1", {} as never);
-
-    const { getProHooks } = await import("./hooks/pro-hooks.js");
-    const hooks = getProHooks();
-
-    const innerHandler = vi.fn().mockResolvedValue({
-      content: [{ type: "text", text: "data" }],
-    });
-
-    const gated = registry.wrapWithGate("my_tool", innerHandler, hooks);
-    const result = await gated({});
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0]).toHaveProperty("text", "my_tool is a Pro feature — activate with 'silbercuechrome license activate <key>'");
-  });
+  // Story 11.1: wrapWithGate tests removed — feature gates no longer exist
 
   // --- Story 9.6: dom_snapshot Pro-Feature-Gate ---
 
-  it("dom_snapshot is registered in server.tool() regardless of license tier (discoverability)", () => {
+  it("dom_snapshot is registered in server.tool() (discoverability)", () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    // Free tier — dom_snapshot should still be registered
-    const license: LicenseStatus = { isPro: () => false };
     const registry = new ToolRegistry(
       mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
@@ -831,76 +662,23 @@ describe("ToolRegistry", () => {
     );
   });
 
-  it("Free-Tier: dom_snapshot via MCP returns isError with warm Pro-Feature message", async () => {
+  it("Story 11.1: dom_snapshot via executeTool executes without feature gate block", async () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    const license: LicenseStatus = { isPro: () => false };
+    // No license needed — all tools are now ungated
     const registry = new ToolRegistry(
       mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
-    // Find the dom_snapshot callback registered via server.tool()
-    const domSnapshotCall = toolFn.mock.calls.find(
-      (call: unknown[]) => call[0] === "dom_snapshot",
-    );
-    expect(domSnapshotCall).toBeDefined();
-
-    const domSnapshotCallback = domSnapshotCall![domSnapshotCall!.length - 1] as (
-      params: Record<string, unknown>,
-    ) => Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean; _meta?: Record<string, unknown> }>;
-
-    const result = await domSnapshotCallback({ ref: "e1" });
-
-    expect(result.isError).toBe(true);
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("dom_snapshot (Pro)");
-    expect(text).toContain("view_page"); // Free alternative mentioned
-    expect(text).toContain("silbercuechrome license activate"); // Upgrade path
-  });
-
-  it("Free-Tier: dom_snapshot via executeTool (run_plan path) returns isError with warm Pro-Feature message", async () => {
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-
-    const license: LicenseStatus = { isPro: () => false };
-    const registry = new ToolRegistry(
-      mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
-    );
-    registry.registerAll();
-
-    const result = await registry.executeTool("dom_snapshot", { ref: "e1" });
-
-    expect(result.isError).toBe(true);
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("dom_snapshot (Pro)");
-    expect(text).toContain("view_page");
-    expect(text).toContain("silbercuechrome license activate");
-  });
-
-  it("Pro-Tier: dom_snapshot via executeTool is NOT blocked by feature gate", async () => {
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-
-    const license: LicenseStatus = { isPro: () => true };
-    const registry = new ToolRegistry(
-      mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
-    );
-    registry.registerAll();
-
-    // Verify the gate allows the call by checking that the response is NOT the
-    // Pro-Feature error message. The handler itself may fail due to missing CDP mock,
-    // but that's a handler error — not a gate block.
+    // The handler may fail due to missing CDP mock, but it must NOT be a
+    // Pro-Feature error — that gate no longer exists.
     const result = await registry.executeTool("dom_snapshot", {});
 
-    // Verify the gate did NOT block — neither the legacy nor the new warm
-    // Pro-Feature marketing message should appear in a Pro-tier response.
     const text = (result.content[0] as { text: string }).text;
     expect(text).not.toContain("silbercuechrome license activate");
+    expect(text).not.toContain("Pro");
   });
 
   // --- Story 7.2: network_monitor registration with NetworkCollector ---
@@ -969,27 +747,6 @@ describe("ToolRegistry", () => {
     expect(text).toContain("network_monitor unavailable");
   });
 
-  it("featureGate is NOT registered when a featureGate hook already exists (Pro-Repo override)", async () => {
-    // Simulate Pro-Repo registering its own featureGate before registerAll()
-    const customGate = vi.fn().mockReturnValue({ allowed: true });
-    registerProHooks({ featureGate: customGate });
-
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-
-    const license: LicenseStatus = { isPro: () => false };
-    const registry = new ToolRegistry(
-      mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
-    );
-    registry.registerAll();
-
-    // The custom gate should still be the active one (not overwritten)
-    const { getProHooks } = await import("./hooks/pro-hooks.js");
-    const hooks = getProHooks();
-    expect(hooks.featureGate).toBe(customGate);
-  });
-
   // --- Story 7.3 M2: wrap-Pipeline Integration Tests with SessionDefaults ---
 
   it("wrap pipeline resolves session defaults into tool params (MCP path)", async () => {
@@ -1015,7 +772,6 @@ describe("ToolRegistry", () => {
       undefined, // sessionManager
       undefined, // dialogHandler
       undefined, // licenseStatus
-      undefined, // freeTierConfig
       undefined, // consoleCollector
       undefined, // networkCollector
       sessionDefaults,
@@ -1280,7 +1036,6 @@ describe("ToolRegistry", () => {
   // --- Story 7.6 Review Fixes: C1, C2, H3 ---
 
   it("C1: dom_snapshot with sessionIdOverride uses the override (not the global session)", async () => {
-    // Reset hooks so the default featureGate is registered fresh based on the license
     registerProHooks({});
 
     const sendCalls: Array<{ method: string; sessionId?: string }> = [];
@@ -1305,12 +1060,8 @@ describe("ToolRegistry", () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    // Pro license to bypass the feature gate
-    const license: LicenseStatus = { isPro: () => true };
-
     const registry = new ToolRegistry(
       mockServer, mockCdpClient, "global-session", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
@@ -1366,11 +1117,8 @@ describe("ToolRegistry", () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    // Story 9.9: Use Pro license so the feature gate passes and the parallel check is reached
-    const license: LicenseStatus = { isPro: () => true };
     const registry = new ToolRegistry(
       mockServer, mockCdpClient, "global-session", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
@@ -1381,113 +1129,12 @@ describe("ToolRegistry", () => {
     expect(result.content[0]).toHaveProperty("text", expect.stringContaining("not allowed in parallel plan groups"));
   });
 
-  // --- Story 9.9: Pro-Feature-Gates for switch_tab, virtual_desk, Human Touch ---
+  // --- Story 11.1: switch_tab, virtual_desk, dom_snapshot are always executable ---
 
-  it("Free-Tier: switch_tab via MCP returns isError with Pro-Feature message", async () => {
+  it("Story 11.1: switch_tab via executeTool executes without feature gate block", async () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    const license: LicenseStatus = { isPro: () => false };
-    const registry = new ToolRegistry(
-      mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
-    );
-    registry.registerAll();
-
-    const switchTabCall = toolFn.mock.calls.find(
-      (call: unknown[]) => call[0] === "switch_tab",
-    );
-    expect(switchTabCall).toBeDefined();
-
-    const switchTabCallback = switchTabCall![switchTabCall!.length - 1] as (
-      params: Record<string, unknown>,
-    ) => Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean; _meta?: Record<string, unknown> }>;
-
-    const result = await switchTabCallback({ action: "list" });
-
-    expect(result.isError).toBe(true);
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("switch_tab (Pro)");
-    expect(text).toContain("navigate"); // Free alternative
-    expect(text).toContain("silbercuechrome license activate");
-  });
-
-  it("Free-Tier: virtual_desk via MCP returns isError with warm Pro-Feature message", async () => {
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-
-    const license: LicenseStatus = { isPro: () => false };
-    const registry = new ToolRegistry(
-      mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
-    );
-    registry.registerAll();
-
-    const virtualDeskCall = toolFn.mock.calls.find(
-      (call: unknown[]) => call[0] === "virtual_desk",
-    );
-    expect(virtualDeskCall).toBeDefined();
-
-    const virtualDeskCallback = virtualDeskCall![virtualDeskCall!.length - 1] as (
-      params: Record<string, unknown>,
-    ) => Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean; _meta?: Record<string, unknown> }>;
-
-    const result = await virtualDeskCallback({});
-
-    expect(result.isError).toBe(true);
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("virtual_desk (Pro)");
-    expect(text).toContain("tab_status"); // Free alternative
-    expect(text).toContain("silbercuechrome license activate");
-  });
-
-  it("Free-Tier: switch_tab via executeTool (run_plan path) returns isError with warm Pro-Feature message", async () => {
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-
-    const license: LicenseStatus = { isPro: () => false };
-    const registry = new ToolRegistry(
-      mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
-    );
-    registry.registerAll();
-
-    const result = await registry.executeTool("switch_tab", { action: "list" });
-
-    expect(result.isError).toBe(true);
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("switch_tab (Pro)");
-    expect(text).toContain("navigate");
-    expect(text).toContain("silbercuechrome license activate");
-  });
-
-  it("Free-Tier: virtual_desk via executeTool (run_plan path) returns isError with warm Pro-Feature message", async () => {
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-
-    const license: LicenseStatus = { isPro: () => false };
-    const registry = new ToolRegistry(
-      mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
-    );
-    registry.registerAll();
-
-    const result = await registry.executeTool("virtual_desk", {});
-
-    expect(result.isError).toBe(true);
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("virtual_desk (Pro)");
-    expect(text).toContain("tab_status");
-    expect(text).toContain("silbercuechrome license activate");
-  });
-
-  it("Pro-Tier: switch_tab via executeTool is NOT blocked by feature gate", async () => {
-    const toolFn = vi.fn();
-    const mockServer = { tool: toolFn } as never;
-
-    const license: LicenseStatus = { isPro: () => true };
-    // Mock CDP client — handler will fail due to incomplete mock, but we only
-    // need to verify the gate does NOT block the call
     const mockCdpClient = {
       send: vi.fn().mockImplementation(async () => {
         throw new Error("mock CDP not available");
@@ -1495,25 +1142,21 @@ describe("ToolRegistry", () => {
     } as never;
     const registry = new ToolRegistry(
       mockServer, mockCdpClient, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
-    // Use "open" action — the handler will fail on CDP call, which is caught
-    // by its internal try/catch and returned as isError with a CDP error message
+    // Handler will fail on CDP, but must NOT be a Pro-Feature error
     const result = await registry.executeTool("switch_tab", { action: "open" });
 
-    // Verify the gate did NOT block — neither legacy nor new warm Pro messages appear.
     const text = (result.content[0] as { text: string }).text;
     expect(text).not.toContain("silbercuechrome license activate");
+    expect(text).not.toContain("Pro");
   });
 
-  it("Pro-Tier: virtual_desk via executeTool is NOT blocked by feature gate", async () => {
+  it("Story 11.1: virtual_desk via executeTool executes without feature gate block", async () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    const license: LicenseStatus = { isPro: () => true };
-    // Mock CDP client that returns enough data for virtual_desk
     const mockCdpClient = {
       send: vi.fn().mockImplementation(async (method: string) => {
         if (method === "Target.getTargets") {
@@ -1524,27 +1167,24 @@ describe("ToolRegistry", () => {
     } as never;
     const registry = new ToolRegistry(
       mockServer, mockCdpClient, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
-    // The handler may fail due to incomplete CDP mock, but verify it's NOT the gate message
     const result = await registry.executeTool("virtual_desk", {});
 
     if (result.content[0]) {
       const text = (result.content[0] as { text: string }).text;
       expect(text).not.toContain("silbercuechrome license activate");
+      expect(text).not.toContain("Pro");
     }
   });
 
-  it("switch_tab is registered in server.tool() regardless of license tier (discoverability)", () => {
+  it("switch_tab is registered in server.tool() (discoverability)", () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    const license: LicenseStatus = { isPro: () => false };
     const registry = new ToolRegistry(
       mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
@@ -1557,14 +1197,12 @@ describe("ToolRegistry", () => {
     );
   });
 
-  it("virtual_desk is registered in server.tool() regardless of license tier (discoverability)", () => {
+  it("virtual_desk is registered in server.tool() (discoverability)", () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    const license: LicenseStatus = { isPro: () => false };
     const registry = new ToolRegistry(
       mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
@@ -1577,26 +1215,22 @@ describe("ToolRegistry", () => {
     );
   });
 
-  it("Free-Tier: switch_tab gate fires BEFORE parallel check (sessionIdOverride)", async () => {
+  it("Story 11.1: switch_tab with sessionIdOverride hits parallel block (not feature gate)", async () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    const license: LicenseStatus = { isPro: () => false };
     const registry = new ToolRegistry(
       mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
-    // Call switch_tab with sessionIdOverride — Free tier should get Pro-Feature error, NOT parallel block
+    // Call switch_tab with sessionIdOverride — should hit parallel block, not a Pro-Feature gate
     const result = await registry.executeTool("switch_tab", { action: "list" }, "tab-override");
 
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("switch_tab (Pro)");
-    expect(text).toContain("silbercuechrome license activate");
-    // Explicitly NOT the parallel error
-    expect(text).not.toContain("parallel plan groups");
+    expect(text).toContain("parallel plan groups");
+    expect(text).not.toContain("silbercuechrome license activate");
   });
 
   // --- Story 12.1: _meta.response_bytes in all tool responses ---
@@ -1716,26 +1350,22 @@ describe("ToolRegistry", () => {
     expect(result._meta!.response_bytes).toBe(expectedBytes);
   });
 
-  it("gate-blocked response has response_bytes in executeTool path", async () => {
+  it("executeTool injects response_bytes for tool that errors due to missing CDP", async () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    const license: LicenseStatus = { isPro: () => false };
     const registry = new ToolRegistry(
       mockServer, {} as never, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
-    // dom_snapshot is blocked for free tier — but executeTool still injects response_bytes
+    // dom_snapshot will fail due to missing CDP mock, but response_bytes should still be injected
     const result = await registry.executeTool("dom_snapshot", { ref: "e1" });
 
-    expect(result.isError).toBe(true);
     expect(result._meta).toBeDefined();
     expect(result._meta!.response_bytes).toBeDefined();
     expect(result._meta!.response_bytes as number).toBeGreaterThan(0);
 
-    // Verify the value is correct
     const expectedBytes = Buffer.byteLength(JSON.stringify(result.content), "utf8");
     expect(result._meta!.response_bytes).toBe(expectedBytes);
   });
@@ -1871,8 +1501,6 @@ describe("ToolRegistry", () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    // dom_snapshot is Pro-gated; use a Pro license
-    const license: LicenseStatus = { isPro: () => true };
     const mockCdpClient = {
       send: vi.fn().mockImplementation(async (method: string) => {
         if (method === "DOMSnapshot.captureSnapshot") {
@@ -1898,7 +1526,6 @@ describe("ToolRegistry", () => {
 
     const registry = new ToolRegistry(
       mockServer, mockCdpClient, "session-1", {} as never,
-      undefined, undefined, undefined, license,
     );
     registry.registerAll();
 
@@ -2295,14 +1922,13 @@ describe("ToolRegistry", () => {
         mockCdpClient,
         "session-1",
         {} as never,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
+        undefined, // getConnectionStatus
+        undefined, // sessionManager
+        undefined, // dialogHandler
+        undefined, // licenseStatus
+        undefined, // consoleCollector
+        undefined, // networkCollector
+        undefined, // sessionDefaults
         waitForAXChange,
       );
       registry.registerAll();
@@ -2498,14 +2124,13 @@ describe("ToolRegistry", () => {
         mockCdpClient,
         "session-1",
         {} as never,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
+        undefined, // getConnectionStatus
+        undefined, // sessionManager
+        undefined, // dialogHandler
+        undefined, // licenseStatus
+        undefined, // consoleCollector
+        undefined, // networkCollector
+        undefined, // sessionDefaults
         waitForAXChange,
       );
       registry.registerAll();
@@ -3338,9 +2963,8 @@ describe("ToolRegistry", () => {
               .some((c) => c.text.includes("No visible changes yet")),
           ).toBe(true);
 
-          // switch_tab over executeTool: it will fail the Pro-gate for
-          // Free-Tier and return an isError response, but the reset runs
-          // BEFORE the handler call so the streak is wiped regardless.
+          // switch_tab over executeTool: will fail due to missing CDP mock,
+          // but the streak reset runs BEFORE the handler call.
           await registry.executeTool("switch_tab", { action: "open", url: "about:blank" });
 
           // Next click sees the hint again.
@@ -3640,7 +3264,7 @@ describe("ToolRegistry", () => {
         await_promise: false,
       });
 
-      // Must have been called at least once for evaluate (ignore featureGate etc.)
+      // Must have been called at least once for evaluate
       const evaluateCalls = enhanceToolSpy.mock.calls.filter(
         (c) => c[0] === "evaluate",
       );
@@ -3977,9 +3601,8 @@ describe("ToolRegistry", () => {
         undefined, // sessionManager
         mockDialogHandler, // dialogHandler (pos 7)
         undefined, // licenseStatus
-        undefined, // freeTierConfig
-        mockConsoleCollector, // consoleCollector (pos 10)
-        mockNetworkCollector, // networkCollector (pos 11)
+        mockConsoleCollector, // consoleCollector
+        mockNetworkCollector, // networkCollector
       );
       registry.registerAll();
 
@@ -4062,8 +3685,8 @@ describe("ToolRegistry", () => {
       expect(result._meta?.method).toBe("scroll");
     });
 
-    it("default-Modus: executeTool('dom_snapshot') findet einen Handler in _handlers — Pro-Gate liefert isError, aber NICHT 'Unknown tool'", async () => {
-      // dom_snapshot ist im Free-Tier per Pro-Gate gesperrt — der Test
+    it("default-Modus: executeTool('dom_snapshot') findet einen Handler in _handlers — kein 'Unknown tool'", async () => {
+      // dom_snapshot ist im _handlers-Dispatcher registriert — der Test
       // prueft NUR, dass der Dispatcher den Handler ueberhaupt findet.
       const mockCdpClient = {
         send: vi.fn().mockResolvedValue({}),
@@ -4071,10 +3694,8 @@ describe("ToolRegistry", () => {
       const toolFn = vi.fn();
       const mockServer = { tool: toolFn } as never;
 
-      const license: LicenseStatus = { isPro: () => false };
       const registry = new ToolRegistry(
         mockServer, mockCdpClient, "session-1", {} as never,
-        undefined, undefined, undefined, license,
       );
       registry.registerAll();
 
@@ -4083,9 +3704,6 @@ describe("ToolRegistry", () => {
       expect(result).toBeDefined();
       const text = (result.content[0] as { text: string }).text;
       expect(text).not.toContain("Unknown tool");
-      // Der Handler wurde aufgerufen → Pro-Gate-Fehler erwartet.
-      expect(result.isError).toBe(true);
-      expect(text).toContain("Pro");
     });
 
     it("default-Modus: executeTool('unknown_tool') liefert weiterhin den Standard-Unknown-tool-Error", async () => {
