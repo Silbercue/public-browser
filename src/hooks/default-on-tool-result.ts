@@ -3,14 +3,13 @@
  *
  * The `click` tool description promises every caller that the response
  * "already includes the DOM diff (NEW/REMOVED/CHANGED lines)". Up until
- * Story 16.6 that promise was kept by the Pro-Repo's
- * `silbercuechrome-pro/src/visual/ambient-context.ts` — but the Free-Repo
- * never registered any `onToolResult` hook by default, so Free users got
- * the bare `Clicked eX (...)` text and a documentation lie.
+ * Story 16.6 that promise was kept by a custom `onToolResult` hook — but
+ * no default hook was registered, so users without a custom hook got the
+ * bare `Clicked eX (...)` text and a documentation lie.
  *
  * This module ports the 3-stage click-analysis logic into the Free-Repo as
  * the default hook so the promise holds for everyone, on every page. The
- * Pro-Repo can still register its own richer hook before `startServer()` —
+ * Hook consumers can still register their own richer hook before `startServer()` —
  * `ToolRegistry.registerAll()` only installs this default when no
  * `onToolResult` is set.
  *
@@ -30,7 +29,7 @@
  *    immediately without the diff. The diff piggybacks on the next tool
  *    response via `drainPendingDiff()`.
  *
- * Improvements over the original Pro-Repo implementation:
+ * Improvements over the original implementation:
  *
  *  - **Settle-Loop** (P3 root cause #2): when the first refresh produces an
  *    empty diff — typical for slow React/Vue re-renders that exceed the

@@ -323,7 +323,7 @@ describe("ProHooks", () => {
 
   it("registerProTools can be registered and retrieved", () => {
     const impl = vi.fn((_registry: ToolRegistryPublic) => {
-      /* Pro-Repo would call registry.registerTool(...) here */
+      /* Hook consumer would call registry.registerTool(...) here */
     });
 
     registerProHooks({ registerProTools: impl });

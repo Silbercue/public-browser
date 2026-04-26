@@ -42,7 +42,8 @@ export type FillFormParams = z.infer<typeof fillFormSchema>;
 /**
  * Story 16.5: Optional human-type callback injected via the `enhanceTool`
  * Pro-Hook. Used to replace the raw `Input.insertText` with a realistic
- * per-character typing sequence from the Pro-Repo Human Touch module.
+ * per-character typing sequence from the Human Touch module (registered
+ * via hook system).
  */
 export type HumanTypeFn = (
   cdpClient: CdpClient,

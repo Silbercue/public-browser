@@ -293,7 +293,7 @@ export async function executePlan(
   // `type` (src/tools/type.ts:310) — exakt die Tools, deren `classifyRef`
   // Ergebnis "clickable" oder "widget-state" ist. Fuer `wait_for`,
   // `view_page`, `capture_image`, `evaluate` oder `navigate` feuert der Hook
-  // NICHT, weil dort kein Transition-DOM-Diff noetig ist und der Pro-Repo-
+  // NICHT, weil dort kein Transition-DOM-Diff noetig ist und der
   // Hook nur zusaetzliche Tokens produzieren wuerde.
   //
   // Zusaetzliche Guards: Kein Hook bei `skipped` oder `isError` — dann
@@ -488,7 +488,7 @@ function buildPlanResponse(
  * den Kurztext-Pfad.
  *
  * **M1-Haertung (Review 18.2):** Der bare `\b(e\d+)\b`-Pattern ist per-se
- * ambig — SilbercueChrome-Refs beginnen bei `e1` und haben keine harte
+ * ambig — Public Browser-Refs beginnen bei `e1` und haben keine harte
  * Obergrenze (siehe `src/cache/a11y-tree.ts:450` — `this.nextRef++`). Ein
  * freier Token wie `e500` im Fehler-Text koennte also faelschlich als Ref
  * interpretiert werden. Haertung:

@@ -253,7 +253,7 @@ describe("evaluateHandler", () => {
 
 // Story 15.2: Visual Feedback is now a Pro-Feature exposed via the
 // `enhanceEvaluateResult` hook. The Free-Repo only returns the plain text
-// result; the Pro-Repo mounts its own tests for the geometry/screenshot path.
+// result; hook consumers mount their own tests for the geometry/screenshot path.
 describe("evaluateHandler visual feedback (Pro-Hook)", () => {
   beforeEach(() => {
     registerProHooks({});
@@ -327,7 +327,7 @@ describe("evaluateHandler visual feedback (Pro-Hook)", () => {
   });
 
   it("enhanceEvaluateResult hook is ALWAYS invoked for successful eval, regardless of expression type", async () => {
-    // Free-Repo no longer performs isStyleChange — the Pro-Repo decides
+    // The core no longer performs isStyleChange — the hook decides
     // itself whether to enrich the response, so the hook must be called
     // even for trivial expressions like `1+1`.
     const hook = vi.fn().mockImplementation(async (_expr, result) => result);
@@ -397,7 +397,7 @@ describe("evaluateHandler visual feedback (Pro-Hook)", () => {
     expect(hook.mock.calls[0][2]).toEqual({ cdpClient: cdp, sessionId: "session-xyz" });
   });
 
-  // Code-Review M2: Defensive wrapping — a buggy Pro-Repo must not crash
+  // Code-Review M2: Defensive wrapping — a buggy hook must not crash
   // the evaluate tool. Any throw / rejection inside `enhanceEvaluateResult`
   // must fall back to the plain `baseResult`.
   it("falls back to baseResult when enhanceEvaluateResult throws synchronously", async () => {

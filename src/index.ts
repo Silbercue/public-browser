@@ -33,26 +33,23 @@ const isSeaBuild = (() => {
 })();
 
 // Build-time-Konstante fuer den Package-Name (vom esbuild --define injiziert
-// im SEA-Bundle). Wird genutzt um zu erkennen, ob das Free-Repo gerade als
-// EIGENE SEA-Binary laeuft (Free-Bundle) oder als Library in einem Fremd-
-// bundle (z.B. Pro-Bundle, das `startServer` aus `@silbercue/chrome`
-// importiert). Im Source-Mode ist die Konstante nicht definiert.
+// im SEA-Bundle). Im Source-Mode ist die Konstante nicht definiert.
 declare const __SCC_NAME__: string;
 
-const FREE_PACKAGE_NAME = "@silbercue/chrome";
+const FREE_PACKAGE_NAME = "public-browser";
 
 // Nur als CLI ausfuehren, wenn die Datei direkt gestartet wurde
-// (nicht wenn sie als Library importiert wird — z.B. vom Pro-Repo).
+// (nicht wenn sie als Library importiert wird).
 // Robuste, symlink- und Windows-sichere Pruefung via realpath.
 const isMainModule = (() => {
   if (isSeaBuild) {
     // Im SEA-Bundle: Wenn ein Build-Time-Marker gesetzt ist, der NICHT auf
-    // das Free-Package zeigt (z.B. "@silbercue/chrome-pro"), dann sind
-    // wir nur eine ein-gebundelte Library — NICHT der Entry-Point.
+    // das eigene Package zeigt, dann sind wir nur eine ein-gebundelte
+    // Library — NICHT der Entry-Point.
     if (typeof __SCC_NAME__ === "string" && __SCC_NAME__ !== "" && __SCC_NAME__ !== FREE_PACKAGE_NAME) {
       return false;
     }
-    // Sonst: das Binary IST der Free-Repo-Entry. `import.meta.url` ist leer
+    // Sonst: das Binary IST der Entry-Point. `import.meta.url` ist leer
     // und `fileURLToPath` wuerde werfen — also direkt true zurueckgeben.
     return true;
   }
@@ -75,8 +72,7 @@ if (isMainModule) {
     // Prozess via process.exit(). Sonst → false zurueck → Server starten.
     //
     // Story 22.3: --attach Flag parsen. Wird BEVOR startServer() an diese
-    // Option weitergereicht. Pro-Repo importiert startServer() und kann
-    // `--attach` auf demselben Weg durchreichen.
+    // Option weitergereicht.
     const attach = process.argv.includes("--attach");
 
     // Story 9.1: --script Flag parsen. Signalisiert dem MCP-Server, dass
@@ -85,7 +81,7 @@ if (isMainModule) {
     const script = process.argv.includes("--script");
 
     // M2-Fix: Filter --attach and --script from argv before dispatch so that e.g.
-    // `silbercuechrome --attach version` correctly dispatches "version"
+    // `public-browser --attach version` correctly dispatches "version"
     // instead of treating "--attach" as argv[2] (unknown command → server start).
     const filteredArgv = process.argv.filter((arg) => arg !== "--attach" && arg !== "--script");
 

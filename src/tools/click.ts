@@ -47,8 +47,9 @@ export type ClickMethod = "cdp" | "js-rect" | "js-click" | "coordinates";
  * Story 16.5: Optional human-mouse-move callback injected via the
  * `enhanceTool` Pro-Hook. When present, this replaces the raw
  * `Input.dispatchMouseEvent("mouseMoved",...)` with a Bezier-curve mouse
- * movement from the Pro-Repo Human Touch module. The Free-Repo does NOT
- * contain any Human-Touch logic — it only knows how to delegate.
+ * movement from the Human Touch module (registered via hook system).
+ * The core repo does NOT contain any Human-Touch logic — it only
+ * knows how to delegate.
  */
 export type HumanMouseMoveFn = (
   cdpClient: CdpClient,

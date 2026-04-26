@@ -149,9 +149,9 @@ export async function runPlanHandler(
       return {
         // Story 18.1: Parallel-Pfad muss dieselbe Suppression-Semantik haben
         // wie der sequentielle Plan-Executor, sonst leakt der Ambient-Context-
-        // Hook in das Pro-Repo zurueck. Das Closure setzt das Flag auf jedem
-        // einzelnen `executeTool`-Call; der Aggregations-Hook am Group-Ende
-        // liegt im Pro-Repo (executeParallel-Hook).
+        // Hook zurueck. Das Closure setzt das Flag auf jedem einzelnen
+        // `executeTool`-Call; der Aggregations-Hook am Group-Ende liegt
+        // im executeParallel-Hook.
         executeTool: (name: string, toolParams: Record<string, unknown>): Promise<ToolResponse> =>
           registry.executeTool(name, toolParams, tabSessionId, {
             skipOnToolResultHook: true,

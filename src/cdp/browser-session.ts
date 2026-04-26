@@ -311,8 +311,8 @@ export class BrowserSession implements IBrowserSession {
     if (!this._relaunchedAfterLoss) return null;
     this._relaunchedAfterLoss = false;
     return [
-      "Note: Chrome was not reachable — SilbercueChrome silently launched a fresh browser.",
-      "Previous tabs and references are gone. Call virtual_desk (Pro) or tab_status (Free) to re-orient.",
+      "Note: Chrome was not reachable — Public Browser silently launched a fresh browser.",
+      "Previous tabs and references are gone. Call virtual_desk or tab_status to re-orient.",
     ].join("\n");
   }
 

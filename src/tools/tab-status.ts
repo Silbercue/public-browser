@@ -33,7 +33,7 @@ export async function tabStatusHandler(
     } else {
       lines.push(
         "Reason: Chrome was closed or crashed and all automatic reconnect attempts failed. The MCP server can no longer reach Chrome via CDP.",
-        "Hint: Restart the MCP server (or your Claude Code session) so SilbercueChrome can auto-launch a fresh Chrome. Alternatively, start Chrome yourself with --remote-debugging-port=9222 before restarting. Auto-launch only runs at server startup — calling navigate/switch_tab now will not recover the connection.",
+        "Hint: Restart the MCP server (or your Claude Code session) so Public Browser can auto-launch a fresh Chrome. Alternatively, start Chrome yourself with --remote-debugging-port=9222 before restarting. Auto-launch only runs at server startup — calling navigate/switch_tab now will not recover the connection.",
       );
     }
     return {

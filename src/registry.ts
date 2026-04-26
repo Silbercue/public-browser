@@ -324,7 +324,7 @@ export class ToolRegistry implements ToolRegistryPublic {
   /**
    * Story 15.2: Delegate for `registerTool()` — set during `registerAll()`
    * so it has access to the wrap() closure (dialog injection, response_bytes,
-   * session defaults). Pro-Repo calls `registerTool()` from within
+   * session defaults). Hook consumers call `registerTool()` from within
    * `registerProTools`, which runs inside `registerAll()` after this delegate
    * is installed.
    */
@@ -341,8 +341,8 @@ export class ToolRegistry implements ToolRegistryPublic {
     | null = null;
 
   /**
-   * Story 15.2: Public method exposed via `ToolRegistryPublic`. The Pro-Repo
-   * uses this from within the `registerProTools` hook to register extra
+   * Story 15.2: Public method exposed via `ToolRegistryPublic`. Hook consumers
+   * use this from within the `registerProTools` hook to register extra
    * MCP tools (e.g. inspect_element).
    *
    * Lifecycle: The delegate is installed at the start of `registerAll()`
@@ -545,7 +545,7 @@ export class ToolRegistry implements ToolRegistryPublic {
    * Story 18.1: `options` ist optional und strikt opt-in. Bestehende
    * Call-Sites ohne 4. Parameter behalten das bisherige Verhalten. Wenn
    * `options.skipOnToolResultHook === true` ist, wird der Ambient-Context-
-   * Pro-Hook nach dem Tool-Handler NICHT aufgerufen (`run_plan` nutzt das
+   * onToolResult-Hook nach dem Tool-Handler NICHT aufgerufen (`run_plan` nutzt das
    * fuer Zwischen-Steps). Siehe `docs/friction-fixes.md#FR-033`.
    */
   async executeTool(
@@ -611,7 +611,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       }
       resolvedParams = sessionDefaults.resolveParams(name, params);
     }
-    // Story 16.5: enhanceTool hook (Operator/Human Touch) — Pro-Repo injiziert
+    // Story 16.5: enhanceTool hook (Operator/Human Touch) — Hook-System injiziert
     // Callback-Funktionen (z.B. humanMouseMove) in params. Sync-Hook, kein await.
     {
       const hooks = getProHooks();
@@ -638,7 +638,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       result.content.unshift({ type: "text", text: piggybackDiff });
     }
 
-    // Story 15.3: Ambient Page Context — delegated to Pro-Repo via onToolResult hook.
+    // Story 15.3: Ambient Page Context — delegated via onToolResult hook.
     // Story 18.1: `skipOnToolResultHook` erlaubt `run_plan`, den Ambient-Context
     // fuer Zwischen-Steps zu unterdruecken. Dialog-Notifications und
     // Relaunch-Notice laufen oben bewusst unabhaengig davon.
@@ -757,12 +757,8 @@ export class ToolRegistry implements ToolRegistryPublic {
   }
 
   /**
-   * Story 15.3: Invokes the `onToolResult` Pro-Hook (if registered) to enrich
+   * Story 15.3: Invokes the `onToolResult` hook (if registered) to enrich
    * the tool response with ambient context (DOM diffs, compact snapshots).
-   *
-   * The Free-Repo itself no longer contains any ambient-context orchestration —
-   * the 3-stage click analysis (classifyRef → waitForAXChange → diffSnapshots →
-   * formatDomDiff) now lives in the Pro-Repo hook implementation.
    *
    * Responsibilities that stay in the Free-Repo:
    *  - FR-007: `a11yTree.reset()` on navigate — called BEFORE the hook so
@@ -809,18 +805,17 @@ export class ToolRegistry implements ToolRegistryPublic {
     if (skipHook) return;
 
     const hooks = getProHooks();
-    // Story 18.6 review-fix H2: FR-029 AJAX-race hint must fire in the
-    // Free-Tier even when NO Pro-Hook (and no Free-Tier-default) is
-    // registered. `registerAll()` always installs the default hook, but
-    // legacy-test paths and bare registries bypass `registerAll()` —
-    // without this early injection the hint would be dead code for the
-    // Free-Tier assertion in AC-4. Placed BEFORE the hook early-return so
-    // it covers both Free-Tier (no hook) and Pro-Tier (custom hook) paths.
+    // Story 18.6 review-fix H2: FR-029 AJAX-race hint must fire even when
+    // no onToolResult hook is registered. `registerAll()` always installs
+    // the default hook, but legacy-test paths and bare registries bypass
+    // `registerAll()` — without this early injection the hint would be
+    // dead code. Placed BEFORE the hook early-return so it covers both
+    // paths (no hook / custom hook).
     //
     // The hint is idempotent with the later injection that runs AFTER
-    // the Pro-Hook merge: the streak-detector in `_maybeAppendFr029...`
+    // the hook merge: the streak-detector in `_maybeAppendFr029...`
     // guards against double-append, and the content-length check skips
-    // the post-hook branch once the Pro-Hook added a diff block.
+    // the post-hook branch once the hook added a diff block.
     if (!hooks.onToolResult) {
       this._maybeAppendFr029AjaxRaceHint(result, name);
       return;
@@ -829,7 +824,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Story 15.3 (AC #5): Build a unified `a11yTree` facade that exposes both
     // the instance methods (classifyRef, getSnapshotMap, refreshPrecomputed, …)
     // AND the static diff/format methods (diffSnapshots, formatDomDiff), so
-    // the Pro-Repo can drive the full 3-stage analysis through a single
+    // hook consumers can drive the full 3-stage analysis through a single
     // `context.a11yTree` object. The legacy `a11yTreeDiffs` field is kept
     // for backward compatibility.
     const a11yTreeFacade = {
@@ -873,8 +868,8 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     // Story 18.6 (FR-029): AJAX-Race-Hint nach click mit leerem DOM-Diff.
     //
-    // Platziert NACH dem Pro-Hook-Merge, damit der Hint nicht versehentlich
-    // mit einem bereits existierenden Diff-Text kollidiert. Der Pro-Hook
+    // Platziert NACH dem Hook-Merge, damit der Hint nicht versehentlich
+    // mit einem bereits existierenden Diff-Text kollidiert. Der Hook
     // (oder der Free-Tier-Default aus `createDefaultOnToolResult`) haengt
     // nur dann Content an, wenn `formatDomDiff` non-empty ist. Bleibt das
     // Content-Array exakt auf Laenge 1 (nur der originale "Clicked eX ..."-
@@ -957,7 +952,7 @@ export class ToolRegistry implements ToolRegistryPublic {
    * Verhaelt sich identisch zu `_runOnToolResultHook` ohne Bypass:
    *  - `a11yTree.reset()` auf navigate
    *  - `isError`-Guard bleibt
-   *  - Pro-Hook wird mit vollem Kontext aufgerufen
+   *  - Hook wird mit vollem Kontext aufgerufen
    *
    * @see docs/friction-fixes.md#FR-033
    */
@@ -1045,10 +1040,10 @@ export class ToolRegistry implements ToolRegistryPublic {
     const hooks = getProHooks();
 
     // FR-022 (P3 fix): Register the default Free-tier `onToolResult` hook
-    // when no Pro-Repo override is present. This is the source of the
+    // when no custom override is present. This is the source of the
     // DOM-diff lines that the `click` tool description promises ("The
     // response already includes the DOM diff (NEW/REMOVED/CHANGED lines)").
-    // The Pro-Repo can still register a richer hook before startServer();
+    // Hook consumers can still register a richer hook before startServer();
     // we only fill the gap.
     if (!hooks.onToolResult) {
       registerProHooks({
@@ -1179,7 +1174,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           }
           // Resolve defaults into params
           let resolvedParams = sessionDefaults.resolveParams(name, params as unknown as Record<string, unknown>) as unknown as T;
-          // Story 16.5: enhanceTool hook (Operator/Human Touch) — Pro-Repo
+          // Story 16.5: enhanceTool hook (Operator/Human Touch) — Hook-System
           // injiziert Callback-Funktionen in params. Sync-Hook, kein await.
           const enhanceHooks = getProHooks();
           const enhanced = enhanceHooks.enhanceTool?.(
@@ -1196,7 +1191,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           const piggybackDiff = drainPendingDiff();
 
           const result = await dialogWrapped(resolvedParams);
-          // Story 15.3: Ambient Page Context — delegated to Pro-Repo via onToolResult hook
+          // Story 15.3: Ambient Page Context — delegated via onToolResult hook
           await this._runOnToolResultHook(result, name);
 
           // Story 20.1 H3-Fix: Prepend the piggybacked diff as a leading
@@ -1242,8 +1237,8 @@ export class ToolRegistry implements ToolRegistryPublic {
     //
     // Pro-Tools (z.B. `inspect_element`) laufen ueber den eigenen
     // `_registerProToolDelegate`-Pfad und sind von diesem Gate NICHT
-    // betroffen. Das Pro-Repo hat keine eigene Vorstellung vom Default-Set
-    // und wuerde sonst seine eigenen Tools verlieren.
+    // betroffen. Hook-registrierte Tools haben keine eigene Vorstellung
+    // vom Default-Set und wuerden sonst ihre eigenen Tools verlieren.
     const fullToolsMode = isFullToolsMode();
     const maybeRegisterFreeMCPTool = (
       name: string,
@@ -1257,13 +1252,13 @@ export class ToolRegistry implements ToolRegistryPublic {
       this.server.tool(name, description, shape, handler);
     };
 
-    // Story 15.2: Install the registerTool delegate so the Pro-Repo can
-    // register extra MCP tools from within its `registerProTools` hook.
+    // Story 15.2: Install the registerTool delegate so hook consumers can
+    // register extra MCP tools from within the `registerProTools` hook.
     // Must be set BEFORE `finalHooks.registerProTools?.(this)` is called.
     this._registerProToolDelegate = (name, description, schema, handler) => {
       // Register in the internal handlers map (for executeTool / run_plan)
       this._handlers.set(name, handler);
-      // Story 16.4: Pro-Repo liefert JSON-Schema-Literale (kein zod).
+      // Story 16.4: Hook consumers liefern JSON-Schema-Literale (kein zod).
       // MCP SDK erwartet Zod — konvertieren wir hier in der Free-Repo-Schicht.
       const zodShape = jsonSchemaToZodShape(schema);
       // Register with the MCP server (for tools/list). Reuse the same
@@ -1278,14 +1273,13 @@ export class ToolRegistry implements ToolRegistryPublic {
       );
     };
 
-    // Story 15.2: Let the Pro-Repo register its tools BEFORE the Free-Tools
-    // so that `tools/list` is deterministic.
+    // Story 15.2: Let hook consumers register their tools BEFORE the built-in
+    // tools so that `tools/list` is deterministic.
     //
-    // AC #8: When the Pro-Repo does NOT call `registerProTools`, the Pro-only
-    // tools (e.g. `inspect_element`) are simply NOT registered — they do not
+    // AC #8: When no `registerProTools` hook is set, extension tools
+    // (e.g. `inspect_element`) are simply NOT registered — they do not
     // appear in `tools/list` at all. If an LLM still attempts to invoke them,
-    // the MCP server returns a standard "Unknown tool" error. This is cleaner
-    // than maintaining a fake stub that clutters the tool list in the free tier.
+    // the MCP server returns a standard "Unknown tool" error.
     finalHooks.registerProTools?.(this);
 
     // Tool order matters for LLM selection (Positional Bias — BiasBusters

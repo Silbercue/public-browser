@@ -35,7 +35,7 @@ describe("FREE_TIER_TOOL_COUNT consistency", () => {
 describe("readPackageVersion", () => {
   it("findet die package.json relativ zur src-Datei", () => {
     const result = readPackageVersion(import.meta.url);
-    expect(result.name).toBe("@silbercue/chrome");
+    expect(result.name).toBe("public-browser");
     expect(result.version).toMatch(/^\d+\.\d+\.\d+/);
   });
 
@@ -87,7 +87,7 @@ describe("dispatchTopLevelCli", () => {
         dispatchTopLevelCli(["node", "index.js", "version"], import.meta.url),
       ).rejects.toThrow("__exit__");
       const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(out).toContain("@silbercue/chrome");
+      expect(out).toContain("public-browser");
       expect(out).toMatch(/\d+\.\d+\.\d+/);
       expect(exitSpy).toHaveBeenCalledWith(0);
     });
@@ -127,7 +127,7 @@ describe("dispatchTopLevelCli", () => {
         dispatchTopLevelCli(["node", "index.js", "help"], import.meta.url),
       ).rejects.toThrow("__exit__");
       const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(out).toContain("SilbercueChrome MCP Server");
+      expect(out).toContain("Public Browser MCP Server");
       expect(out).toContain("Usage:");
       expect(out).toContain("version");
       expect(out).toContain("status");

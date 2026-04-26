@@ -33,8 +33,9 @@ export type TypeParams = z.infer<typeof typeSchema>;
 /**
  * Story 16.5: Optional human-type callback injected via the `enhanceTool`
  * Pro-Hook. When present, this replaces the raw `Input.insertText` with a
- * realistic per-character typing sequence from the Pro-Repo Human Touch
- * module. The Free-Repo itself does NOT contain any Human-Touch logic.
+ * realistic per-character typing sequence from the Human Touch module
+ * (registered via hook system). The core repo does NOT contain any
+ * Human-Touch logic.
  */
 export type HumanTypeFn = (
   cdpClient: CdpClient,

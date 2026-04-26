@@ -60,7 +60,7 @@ describe("ToolRegistry", () => {
 
     // Story 18.3: Mit `SILBERCUE_CHROME_FULL_TOOLS=true` werden alle
     // Free-Tools registriert. `inspect_element` ist Pro-only und wird nur
-    // registriert wenn das Pro-Repo `registerProTools` aufruft — kein
+    // registriert wenn der `registerProTools`-Hook aufgerufen wird — kein
     // Stub-Fallback im Free-Tier.
     //
     // Story 18.3 Review-Fix H1: `handle_dialog`, `console_logs` und
@@ -1145,7 +1145,7 @@ describe("ToolRegistry", () => {
     const result = await registry.executeTool("switch_tab", { action: "open" });
 
     const text = (result.content[0] as { text: string }).text;
-    expect(text).not.toContain("silbercuechrome license activate");
+    expect(text).not.toContain("public-browser license activate");
     expect(text).not.toContain("Pro");
   });
 
@@ -1170,7 +1170,7 @@ describe("ToolRegistry", () => {
 
     if (result.content[0]) {
       const text = (result.content[0] as { text: string }).text;
-      expect(text).not.toContain("silbercuechrome license activate");
+      expect(text).not.toContain("public-browser license activate");
       expect(text).not.toContain("Pro");
     }
   });
@@ -1226,7 +1226,7 @@ describe("ToolRegistry", () => {
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain("parallel plan groups");
-    expect(text).not.toContain("silbercuechrome license activate");
+    expect(text).not.toContain("public-browser license activate");
   });
 
   // --- Story 12.1: _meta.response_bytes in all tool responses ---
@@ -1814,7 +1814,7 @@ describe("ToolRegistry", () => {
       const mockServer = { tool: toolFn } as never;
       const mockCdpClient = {} as never;
 
-      // Explicitly empty hooks — no Pro-Repo loaded.
+      // Explicitly empty hooks — no extension loaded.
       registerProHooks({});
 
       const registry = new ToolRegistry(mockServer, mockCdpClient, "session-1", {} as never);
@@ -2571,7 +2571,7 @@ describe("ToolRegistry", () => {
         const consumeRelaunchNoticeMock = vi
           .fn<() => string | null>()
           .mockReturnValue(
-            "[silbercuechrome] Chrome was relaunched silently after a lost connection.",
+            "[public-browser] Chrome was relaunched silently after a lost connection.",
           );
         const tabCache = new TabStateCacheCtor({ ttlMs: 30_000 });
         const browserSession = {
@@ -2646,7 +2646,7 @@ describe("ToolRegistry", () => {
     );
 
     // FR-022 (P3 fix): registerAll() must install the default Free-tier
-    // onToolResult hook when the Pro-Repo did not register one. This is the
+    // onToolResult hook when no custom hook was registered. This is the
     // architectural fix that makes the click tool description's "DOM diff"
     // promise hold for Free users on every page.
     describe("default Free-tier onToolResult hook (FR-022)", () => {
@@ -2667,7 +2667,7 @@ describe("ToolRegistry", () => {
         expect(typeof installed.onToolResult).toBe("function");
       });
 
-      it("registerAll does NOT overwrite a Pro-Repo onToolResult hook", async () => {
+      it("registerAll does NOT overwrite a custom onToolResult hook", async () => {
         const mockCdpClient = { send: vi.fn() } as never;
         const mockServer = { tool: vi.fn() } as never;
         const proHook = vi.fn<NonNullable<ProHooks["onToolResult"]>>(
@@ -2750,7 +2750,7 @@ describe("ToolRegistry", () => {
         });
 
         it("does NOT append hint when hook already appended a diff-text block", async () => {
-          // Simuliert Pro-Hook, der einen DOM-Diff angehaengt hat.
+          // Simuliert Hook, der einen DOM-Diff angehaengt hat.
           const hook = vi.fn<NonNullable<ProHooks["onToolResult"]>>(
             async (_name, r, _ctx) => {
               r.content.push({ type: "text", text: "DOM-Diff: e7 changed" });
@@ -3728,7 +3728,7 @@ describe("ToolRegistry", () => {
 });
 
 // Story 16.4 H2/H3/M1: Unit-Tests fuer den JSON-Schema → Zod-Shape Konverter,
-// der von `_registerProToolDelegate` benutzt wird, um Pro-Repo Tool-Schemas
+// der von `_registerProToolDelegate` benutzt wird, um Hook-registrierte Tool-Schemas
 // in MCP-SDK-kompatible Zod-Shapes zu uebersetzen.
 describe("jsonSchemaToZodShape", () => {
   it("converts string, boolean, number primitives", () => {

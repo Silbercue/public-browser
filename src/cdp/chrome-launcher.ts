@@ -182,7 +182,7 @@ export async function launchChrome(
     // Default: isolated temp profile
     tmpDir = join(
       tmpdir(),
-      `silbercuechrome-${randomBytes(4).toString("hex")}`,
+      `public-browser-${randomBytes(4).toString("hex")}`,
     );
     await mkdir(tmpDir, { recursive: true });
     userDataDir = tmpDir;

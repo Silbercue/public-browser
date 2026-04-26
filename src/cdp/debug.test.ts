@@ -6,14 +6,14 @@ describe("debug", () => {
     vi.resetModules();
   });
 
-  it("logs to stderr when DEBUG contains silbercuechrome", async () => {
-    process.env.DEBUG = "silbercuechrome";
+  it("logs to stderr when DEBUG contains public-browser", async () => {
+    process.env.DEBUG = "public-browser";
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { debug } = await import("./debug.js");
 
     debug("test message", 42);
 
-    expect(spy).toHaveBeenCalledWith("[silbercuechrome] test message", 42);
+    expect(spy).toHaveBeenCalledWith("[public-browser] test message", 42);
   });
 
   it("does not log when DEBUG is unset", async () => {
@@ -26,7 +26,7 @@ describe("debug", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("does not log when DEBUG does not contain silbercuechrome", async () => {
+  it("does not log when DEBUG does not contain public-browser", async () => {
     process.env.DEBUG = "other-module";
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { debug } = await import("./debug.js");
@@ -36,13 +36,13 @@ describe("debug", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("logs when DEBUG contains silbercuechrome among other values", async () => {
-    process.env.DEBUG = "foo,silbercuechrome,bar";
+  it("logs when DEBUG contains public-browser among other values", async () => {
+    process.env.DEBUG = "foo,public-browser,bar";
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { debug } = await import("./debug.js");
 
     debug("multi-value");
 
-    expect(spy).toHaveBeenCalledWith("[silbercuechrome] multi-value");
+    expect(spy).toHaveBeenCalledWith("[public-browser] multi-value");
   });
 });

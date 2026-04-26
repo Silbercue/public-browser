@@ -12,28 +12,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FREE_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-PRO_REPO="$(cd "$FREE_REPO/../silbercuechrome-pro" && pwd 2>/dev/null || echo "")"
-HOMEBREW_BIN="/opt/homebrew/bin/silbercuechrome"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+HOMEBREW_BIN="/opt/homebrew/bin/public-browser"
 BACKUP_BIN="${HOMEBREW_BIN}.release"
 
 ACTION="${1:-status}"
 
 case "$ACTION" in
   on)
-    if [ -z "$PRO_REPO" ] || [ ! -d "$PRO_REPO" ]; then
-      echo "ERROR: Pro-Repo nicht gefunden unter $(dirname "$FREE_REPO")/silbercuechrome-pro"
-      exit 1
-    fi
+    LOCAL_ENTRY="$REPO_ROOT/build/index.js"
 
-    PRO_ENTRY="$PRO_REPO/build/index.js"
-
-    echo "=== Building Free-Repo ==="
-    (cd "$FREE_REPO" && npm run build)
-
-    echo ""
-    echo "=== Building Pro-Repo ==="
-    (cd "$PRO_REPO" && npm run build)
+    echo "=== Building ==="
+    (cd "$REPO_ROOT" && npm run build)
 
     # Binary sichern (nur wenn noch nicht gesichert)
     if [ -f "$HOMEBREW_BIN" ] && [ ! -f "$BACKUP_BIN" ]; then
@@ -46,13 +36,13 @@ case "$ACTION" in
     # Wrapper-Script erstellen
     cat > "$HOMEBREW_BIN" <<WRAPPER
 #!/usr/bin/env bash
-exec node "$PRO_ENTRY" "\$@"
+exec node "$LOCAL_ENTRY" "\$@"
 WRAPPER
     chmod +x "$HOMEBREW_BIN"
 
     echo ""
     echo "DEV-MODE ON"
-    echo "  $HOMEBREW_BIN → node $PRO_ENTRY"
+    echo "  $HOMEBREW_BIN → node $LOCAL_ENTRY"
     echo ""
     echo "→ MCP reconnect startet jetzt den lokalen Build"
     ;;

@@ -528,7 +528,7 @@ export class A11yTreeProcessor {
    * Story 18.5: Optionaler `signal`-Parameter erlaubt es dem Speculative-
    * Prefetch-Pfad, einen laufenden Build von aussen abzubrechen. Wenn der
    * Signal vor einem Cache-Write feuert, wird das Ergebnis verworfen und
-   * der Cache bleibt unveraendert. Bestehende Aufrufer (Pro-Repo-Hook,
+   * der Cache bleibt unveraendert. Bestehende Aufrufer (onToolResult-Hook,
    * BrowserSession.dom-watcher-callback, Tests) ueberspringen den Parameter
    * und verhalten sich exakt wie vor Story 18.5.
    *
@@ -1669,10 +1669,10 @@ export class A11yTreeProcessor {
             ? err.reason
             : "capture-snapshot-failed";
           console.warn(
-            `[silbercuechrome] Paint-order filtering unavailable (${reason}). ` +
+            `[public-browser] Paint-order filtering unavailable (${reason}). ` +
             `read_page will fall back to the unfiltered A11y tree for this session. ` +
             `This indicates a Chrome CDP DOMSnapshot regression — please report ` +
-            `at https://github.com/silbercue/silbercuechrome/issues with Chrome version.`,
+            `at https://github.com/Silbercue/public-browser/issues with Chrome version.`,
           );
           this._paintOrderWarningEmitted = true;
         }

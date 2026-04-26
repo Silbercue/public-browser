@@ -1,14 +1,14 @@
 /**
- * Top-Level CLI Subcommands fuer SilbercueChrome.
+ * Top-Level CLI Subcommands fuer Public Browser.
  *
  * Wird VOR `startServer()` in `src/index.ts` aufgerufen. Bei Match:
  * Subcommand ausfuehren + `process.exit(0|1)`. Sonst: false zurueckgeben,
  * damit der MCP-Server normal startet.
  *
  * Verfuegbare Subcommands:
- *   silbercuechrome version              — Version anzeigen
- *   silbercuechrome status               — Status + Tool-Anzahl
- *   silbercuechrome --help / -h          — Help-Text
+ *   public-browser version              — Version anzeigen
+ *   public-browser status               — Status + Tool-Anzahl
+ *   public-browser --help / -h          — Help-Text
  */
 import * as fs from "fs";
 import * as path from "path";
@@ -80,7 +80,7 @@ export function readPackageVersion(currentFileUrl: string): { name: string; vers
         const raw = fs.readFileSync(candidate, "utf-8");
         const pkg = JSON.parse(raw) as { name?: string; version?: string };
         return {
-          name: pkg.name ?? "@silbercue/chrome",
+          name: pkg.name ?? "public-browser",
           version: pkg.version ?? "0.0.0",
         };
       }
@@ -91,7 +91,7 @@ export function readPackageVersion(currentFileUrl: string): { name: string; vers
   } catch {
     // Fall through to fallback below.
   }
-  return { name: "@silbercue/chrome", version: "0.0.0" };
+  return { name: "public-browser", version: "0.0.0" };
 }
 
 /**
@@ -147,11 +147,11 @@ export async function dispatchTopLevelCli(
 
 /** Druckt den Help-Text. */
 function printHelp(): void {
-  console.log("SilbercueChrome MCP Server");
+  console.log("Public Browser MCP Server");
   console.log("");
   console.log("Usage:");
-  console.log("  silbercuechrome [command]");
-  console.log("  silbercuechrome --attach        Start MCP server in attach-only mode");
+  console.log("  public-browser [command]");
+  console.log("  public-browser --attach        Start MCP server in attach-only mode");
   console.log("");
   console.log("Commands:");
   console.log("  version                Show version information");
@@ -167,9 +167,9 @@ function printHelp(): void {
   console.log("Without a command, starts the MCP server on stdio.");
   console.log("");
   console.log("Script API (Python):");
-  console.log("  pip install silbercuechrome");
+  console.log("  pip install publicbrowser");
   console.log("  Scripts use the same tool implementations as MCP (Shared Core).");
-  console.log("  See: https://github.com/Silbercue/silbercuechrome#script-api-python");
+  console.log("  See: https://github.com/Silbercue/public-browser#script-api-python");
 }
 
 /** Internal helper for tests — exposes the known subcommand list. */

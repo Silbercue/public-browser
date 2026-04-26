@@ -2,7 +2,7 @@
  * Story 9.7: Script API Gateway (Server-Seite).
  *
  * HTTP-Server auf localhost:9223 der Python-Scripts Zugriff auf die
- * SilbercueChrome Tool-Implementierungen gibt — selber Code-Pfad wie MCP.
+ * Public Browser Tool-Implementierungen gibt — selber Code-Pfad wie MCP.
  *
  * Routes:
  *   POST /session/create  → neuen Tab erstellen, Session-Token zurückgeben
@@ -172,18 +172,18 @@ export class ScriptApiServer {
       server.on("error", (err: NodeJS.ErrnoException) => {
         if (err.code === "EADDRINUSE") {
           console.error(
-            `SilbercueChrome --script: Port ${this._port} already in use. Script API not available. MCP continues to work normally.`,
+            `Public Browser --script: Port ${this._port} already in use. Script API not available. MCP continues to work normally.`,
           );
           reject(err);
           return;
         }
-        console.error(`SilbercueChrome --script: HTTP server error: ${err.message}`);
+        console.error(`Public Browser --script: HTTP server error: ${err.message}`);
       });
 
       server.listen(this._port, "127.0.0.1", () => {
         this._server = server;
         this._startOrphanCleanup();
-        console.error(`SilbercueChrome --script: Script API listening on http://localhost:${this._port}`);
+        console.error(`Public Browser --script: Script API listening on http://localhost:${this._port}`);
         resolve();
       });
     });
@@ -301,7 +301,7 @@ export class ScriptApiServer {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`SilbercueChrome --script: session/create failed: ${msg}`);
+      console.error(`Public Browser --script: session/create failed: ${msg}`);
       this._sendJson(res, 500, { error: "session_create_failed", message: msg });
     }
   }
@@ -367,7 +367,7 @@ export class ScriptApiServer {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`SilbercueChrome --script: tool/${toolName} failed: ${msg}`);
+      console.error(`Public Browser --script: tool/${toolName} failed: ${msg}`);
       this._sendJson(res, 500, { error: "tool_execution_failed", message: msg });
     }
   }
@@ -387,7 +387,7 @@ export class ScriptApiServer {
   private async _cleanupOrphans(): Promise<void> {
     const orphans = this.sessionStore.getOrphans(ORPHAN_TIMEOUT_MS);
     for (const orphan of orphans) {
-      console.error(`SilbercueChrome --script: cleaning up orphaned session ${orphan.sessionToken.slice(0, 8)}…`);
+      console.error(`Public Browser --script: cleaning up orphaned session ${orphan.sessionToken.slice(0, 8)}…`);
       this.sessionStore.delete(orphan.sessionToken);
       await this._closeTab(orphan);
     }

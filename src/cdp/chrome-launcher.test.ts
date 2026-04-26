@@ -402,7 +402,7 @@ describe("ChromeLauncher", () => {
         "/bin/sh",
         "--headless",
         "--remote-debugging-pipe",
-        "--user-data-dir=/tmp/silbercuechrome-test",
+        "--user-data-dir=/tmp/public-browser-test",
       ];
       vi.mocked(spawn).mockReturnValue(mockChild as never);
 
@@ -1068,7 +1068,7 @@ describe("Chrome Profile Support", () => {
       const args = vi.mocked(spawn).mock.calls[0][1] as string[];
       const userDataDirArg = args.find((a) => a.startsWith("--user-data-dir="));
       expect(userDataDirArg).toBeDefined();
-      expect(userDataDirArg).toMatch(/silbercuechrome-/);
+      expect(userDataDirArg).toMatch(/public-browser-/);
 
       // mkdir SHOULD have been called for temp dir
       expect(vi.mocked(mkdir)).toHaveBeenCalled();
@@ -1257,7 +1257,7 @@ describe("Chrome Profile Support", () => {
       };
       const cdpClient = new (await import("./cdp-client.js")).CdpClient(transport);
 
-      const tmpDir = "/tmp/silbercuechrome-test1234";
+      const tmpDir = "/tmp/public-browser-test1234";
       const conn = new ChromeConnection(
         cdpClient,
         transport,
@@ -1440,7 +1440,7 @@ describe("AutoLaunch connection strategy", () => {
       "/bin/sh",
       "--headless",
       "--remote-debugging-pipe",
-      "--user-data-dir=/tmp/silbercuechrome-test",
+      "--user-data-dir=/tmp/public-browser-test",
     ];
     vi.mocked(spawn).mockReturnValue(mockChild as never);
 
@@ -1499,7 +1499,7 @@ describe("AutoLaunch connection strategy", () => {
       "/bin/sh",
       "--headless",
       "--remote-debugging-pipe",
-      "--user-data-dir=/tmp/silbercuechrome-test",
+      "--user-data-dir=/tmp/public-browser-test",
     ];
     vi.mocked(spawn).mockReturnValue(mockChild as never);
 

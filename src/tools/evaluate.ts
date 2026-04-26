@@ -355,14 +355,14 @@ export async function evaluateHandler(
       },
     };
 
-    // Story 15.2: Visual Feedback (Geometry-Diff + Clip-Screenshot) is a
-    // Pro-Feature. The Pro-Repo registers `enhanceEvaluateResult` via
-    // `registerProHooks(...)` to inject geometry + screenshot data. When
-    // no Pro-Repo is loaded, the plain text result is returned unchanged.
+    // Story 15.2: Visual Feedback (Geometry-Diff + Clip-Screenshot) is an
+    // extension feature. The `enhanceEvaluateResult` hook (registered via
+    // `registerProHooks(...)`) injects geometry + screenshot data. When
+    // no hook is registered, the plain text result is returned unchanged.
     //
     // Code-Review M2: The hook is defensively wrapped in try/catch. Any
     // exception (sync throw or rejected Promise) falls back to `baseResult`
-    // so that a buggy Pro-Repo cannot crash the evaluate tool.
+    // so that a buggy hook cannot crash the evaluate tool.
     //
     // FR-045: skip Pro enhancement when the Tier-3/4 streak response has
     // flipped the result to isError. The STOP/REFUSE payload must stay

@@ -45,7 +45,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
       );
 
   if (profilePath) {
-    console.error(`SilbercueChrome using Chrome profile: ${profilePath}`);
+    console.error(`Public Browser using Chrome profile: ${profilePath}`);
   }
 
   // 2. Create the lazy BrowserSession. No launch yet.
@@ -66,13 +66,13 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
   if (attachMode) {
     try {
       await browserSession.ensureReady();
-      console.error("SilbercueChrome --attach: connected to Chrome on port 9222");
+      console.error("Public Browser --attach: connected to Chrome on port 9222");
     } catch {
       console.error(
         [
           "Error: --attach failed — Chrome not reachable on port 9222.",
           "Make sure Chrome is running with remote debugging enabled,",
-          "or that another SilbercueChrome instance (e.g. via Claude Code) is active.",
+          "or that another Public Browser instance (e.g. via Claude Code) is active.",
         ].join("\n"),
       );
       process.exit(1);
@@ -81,18 +81,18 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
 
   // 2c. Script mode: log to stderr for operator visibility.
   if (scriptMode) {
-    console.error("SilbercueChrome --script: external CDP clients expected, tab ownership tracking enabled");
+    console.error("Public Browser --script: external CDP clients expected, tab ownership tracking enabled");
   }
 
   // 3. Create the MCP server.
   const server = new McpServer(
     {
-      name: "silbercuechrome",
+      name: "public-browser",
       version: VERSION,
     },
     {
       instructions: [
-        "SilbercueChrome controls a real Chrome browser via CDP.",
+        "Public Browser controls a real Chrome browser via CDP.",
         "",
         "Workflow: virtual_desk → navigate (to open a page) → view_page (read) → click/type/fill_form (act) → view_page (verify the result).",
         "",
@@ -109,7 +109,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
         "- evaluate is for JS computation and style mutations (.style.X = ...) — not for CSS reading or element discovery.",
         "- Avoid evaluate as default recovery after click/type errors — call view_page for fresh refs and retry with the dedicated tool.",
         "",
-        "Script API: `pip install silbercuechrome` gives you a Python library for deterministic browser automation without an LLM. Scripts route through the same tool handlers as MCP (Shared Core). Usage: `from silbercuechrome import Chrome; chrome = Chrome.connect(); page = chrome.new_page()` — then `page.navigate()`, `page.click()`, `page.fill()`, `page.evaluate()` etc. Auto-starts the server. Add `--script` to the MCP args for parallel MCP + Script access.",
+        "Script API: `pip install publicbrowser` gives you a Python library for deterministic browser automation without an LLM. Scripts route through the same tool handlers as MCP (Shared Core). Usage: `from publicbrowser import Chrome; chrome = Chrome.connect(); page = chrome.new_page()` — then `page.navigate()`, `page.click()`, `page.fill()`, `page.evaluate()` etc. Auto-starts the server. Add `--script` to the MCP args for parallel MCP + Script access.",
       ].join("\n"),
     },
   );
@@ -126,7 +126,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
   //    sees us come online — still no Chrome has been launched.
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("SilbercueChrome MCP server running on stdio (lazy launch enabled)");
+  console.error("Public Browser MCP server running on stdio (lazy launch enabled)");
 
   // 5b. Story 9.7: Script API Gateway — HTTP server on port 9223.
   //     Only started when --script flag is active. Failure to bind the

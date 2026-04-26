@@ -6,14 +6,14 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ElementClassification, SnapshotMap, DOMChange } from "../cache/a11y-tree.js";
 
 /**
- * Story 15.2: Minimales Public-Interface, das das Pro-Repo verwendet,
- * um zusaetzliche MCP-Tools zu registrieren. Dependency Inversion — das
- * Pro-Repo muss nicht die volle `ToolRegistry`-Klasse kennen.
+ * Story 15.2: Minimales Public-Interface fuer die Registrierung
+ * zusaetzlicher MCP-Tools. Dependency Inversion — Hook-Konsumenten
+ * muessen nicht die volle `ToolRegistry`-Klasse kennen.
  */
 export interface ToolRegistryPublic {
   /**
-   * Registriert ein neues MCP-Tool in der Free-Repo-Registry.
-   * Wird vom Pro-Repo ueber den `registerProTools`-Hook aufgerufen.
+   * Registriert ein neues MCP-Tool in der Registry.
+   * Wird ueber den `registerProTools`-Hook aufgerufen.
    */
   registerTool(
     name: string,
@@ -35,13 +35,13 @@ export interface ToolRegistryPublic {
 
 /**
  * Story 15.3: Public-Interface fuer den a11yTree-Cache.
- * Das Pro-Repo verwendet diese Methoden im onToolResult-Hook fuer die
+ * Hook-Konsumenten verwenden diese Methoden im onToolResult-Hook fuer die
  * 3-Stufen-Klick-Analyse (classifyRef → waitForAXChange → diffSnapshots → formatDomDiff).
  *
  * `diffSnapshots` und `formatDomDiff` sind logisch Static-Methoden des
- * Tree-Processors, werden aber ZUSAETZLICH hier exponiert, damit das Pro-Repo
- * die gesamte 3-Stufen-Analyse ueber ein einziges `context.a11yTree`-Objekt
- * fahren kann (siehe AC #5).
+ * Tree-Processors, werden aber ZUSAETZLICH hier exponiert, damit
+ * Hook-Konsumenten die gesamte 3-Stufen-Analyse ueber ein einziges
+ * `context.a11yTree`-Objekt fahren koennen (siehe AC #5).
  */
 export interface A11yTreePublic {
   /** Klassifiziert ein Ref (widget-state/clickable/disabled/static). 0 CDP-Calls. */
@@ -94,7 +94,7 @@ export interface ProHooks {
    * zentrales Ambient-Context-Enrichment-Hook. Async + Context-Parameter.
    *
    * Breaking Change gegenueber der alten Sync-Signatur `(name, result) => ToolResponse`.
-   * Der Pro-Repo implementiert hier die 3-Stufen-Klick-Analyse
+   * Hook-Konsumenten implementieren hier die 3-Stufen-Klick-Analyse
    * (classifyRef → waitForAXChange → diffSnapshots → formatDomDiff).
    */
   onToolResult?: (
@@ -109,7 +109,7 @@ export interface ProHooks {
       sessionManager?: SessionManager;
     },
   ) => Promise<ToolResponse>;
-  /** Pro-Repo registriert hier die Multi-Tab-Parallel-Engine (Story 15.4). */
+  /** Hook-System: Multi-Tab-Parallel-Engine (Story 15.4). */
   executeParallel?: (
     groups: Array<{ tab: string; steps: PlanStep[] }>,
     registryFactory: (tabTargetId: string) => Promise<{
@@ -118,14 +118,14 @@ export interface ProHooks {
     options?: { vars?: VarsMap; errorStrategy?: ErrorStrategy; concurrencyLimit?: number },
   ) => Promise<ToolResponse>;
   /**
-   * Story 15.2: Pro-Repo registriert hier zusaetzliche MCP-Tools
-   * (z.B. inspect_element). Wird einmalig waehrend
+   * Story 15.2: Hook-System ermoeglicht die Registrierung zusaetzlicher
+   * MCP-Tools (z.B. inspect_element). Wird einmalig waehrend
    * `ToolRegistry.registerAll()` aufgerufen.
    */
   registerProTools?: (registry: ToolRegistryPublic) => void;
   /**
-   * Story 15.2: Pro-Repo modifiziert das evaluate-Result fuer
-   * Visual Feedback (Geometry-Diff + Clip-Screenshot). Wird nur
+   * Story 15.2: Hook-System ermoeglicht die Modifikation des evaluate-Results
+   * fuer Visual Feedback (Geometry-Diff + Clip-Screenshot). Wird nur
    * fuer erfolgreiche Eval-Calls aufgerufen.
    */
   enhanceEvaluateResult?: (
@@ -137,7 +137,7 @@ export interface ProHooks {
 
 let _hooks: ProHooks = {};
 
-/** Registriert Pro-Hook-Implementierungen. Aufgerufen vom Pro-Repo vor startServer(). */
+/** Registriert Hook-Implementierungen. Aufgerufen vor startServer(). */
 export function registerProHooks(hooks: ProHooks): void {
   _hooks = hooks;
 }
