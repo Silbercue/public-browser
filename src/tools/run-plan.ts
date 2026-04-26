@@ -6,9 +6,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import { executePlan } from "../plan/plan-executor.js";
 import type { PlanStep, PlanOptions, SuspendedPlanResponse } from "../plan/plan-executor.js";
 import type { PlanStateStore } from "../plan/plan-state-store.js";
-import { getProHooks, proFeatureError } from "../hooks/pro-hooks.js";
-import type { LicenseStatus } from "../license/license-status.js";
-import { FreeTierLicenseStatus } from "../license/license-status.js";
+import { getProHooks } from "../hooks/pro-hooks.js";
 
 const suspendSchema = z.object({
   question: z.string().optional().describe("Question to ask the agent when suspending"),
@@ -43,7 +41,7 @@ export const runPlanSchema = z.object({
   parallel: z
     .array(parallelGroupSchema)
     .optional()
-    .describe("Array of tab groups to execute in parallel. Pro-Feature — requires Pro license."),
+    .describe("Array of tab groups to execute in parallel across tabs."),
   vars: z
     .record(z.unknown())
     .optional()
@@ -54,7 +52,7 @@ export const runPlanSchema = z.object({
     .default("abort")
     .describe("Error handling: 'abort' (default) stops on first error, 'continue' runs all steps, 'capture_image' captures page on error then aborts."),
   use_operator: z.boolean().optional().default(false).describe(
-    "Pro-Feature: Operator mode (rule engine + Micro-LLM). Returns pro-feature error in Free tier."
+    "Operator mode (rule engine + Micro-LLM). Requires the executeOperator hook to be registered."
   ),
   resume: resumeSchema.optional().describe("Resume a previously suspended plan."),
 });
@@ -73,13 +71,14 @@ export async function runPlanHandler(
   registry: ToolRegistry,
   deps?: RunPlanDeps,
   stateStore?: PlanStateStore,
-  license?: LicenseStatus,
 ): Promise<ToolResponse | SuspendedPlanResponse> {
-  // Story 15.1: use_operator is a Pro-Feature — return pro-feature error
-  // BEFORE any mode validation so users get a clear pro-feature hint even
-  // when steps/parallel/resume is missing.
+  // use_operator requires executeOperator hook — not yet implemented in open-source
   if (params.use_operator) {
-    return proFeatureError("use_operator");
+    return {
+      content: [{ type: "text", text: "use_operator requires the operator hook to be registered" }],
+      isError: true,
+      _meta: { elapsedMs: 0, method: "use_operator" },
+    };
   }
 
   // --- Validation: steps, parallel, and resume are mutually exclusive ---
@@ -100,19 +99,9 @@ export async function runPlanHandler(
     };
   }
 
-  // --- Resolve license status ---
-  const resolvedLicense = license ?? new FreeTierLicenseStatus();
-
   // --- Story 7.6 / 15.4: Parallel path ---
-  // Multi-Tab-Parallel-Engine lebt im Pro-Repo und wird via executeParallel-Hook injiziert.
+  // Multi-Tab-Parallel-Engine wird via executeParallel-Hook injiziert.
   if (params.parallel) {
-    // Pro-Feature-Gate: parallel requires Pro license
-    // H1-Fix (Code-Review 15.6): zentralen proFeatureError-Helper nutzen statt
-    // Inline-String, damit der Wortlaut nicht gegen den Helper-Vertrag driftet.
-    if (!resolvedLicense.isPro()) {
-      return proFeatureError("parallel");
-    }
-
     if (params.parallel.length === 0) {
       return {
         content: [{ type: "text", text: "parallel must not be empty" }],
@@ -129,12 +118,15 @@ export async function runPlanHandler(
       };
     }
 
-    // Safety-Net: Pro-Lizenz vorhanden, aber Pro-Repo hat den Hook nicht registriert
-    // (z.B. jemand benutzt das Free-npm-Paket ohne Pro-Add-on). Sauberer Pro-Feature-Error
+    // Safety-Net: executeParallel-Hook muss registriert sein, sonst sauberer Fehler
     // statt undefined.executeParallel(...)-Crash.
     const hooks = getProHooks();
     if (!hooks.executeParallel) {
-      return proFeatureError("parallel");
+      return {
+        content: [{ type: "text", text: "parallel execution requires the executeParallel hook to be registered" }],
+        isError: true,
+        _meta: { elapsedMs: 0, method: "run_plan" },
+      };
     }
 
     // Inline tab-scope: attach + Runtime/Accessibility enable + sessionId-Override.

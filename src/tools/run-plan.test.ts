@@ -6,7 +6,6 @@ import type { ToolResponse } from "../types.js";
 import { PlanStateStore } from "../plan/plan-state-store.js";
 import type { SuspendedPlanResponse } from "../plan/plan-executor.js";
 import { registerProHooks } from "../hooks/pro-hooks.js";
-import { FreeTierLicenseStatus } from "../license/license-status.js";
 
 function createMockRegistry(
   toolResponses: Map<string, ToolResponse>,
@@ -161,8 +160,8 @@ describe("runPlanSchema (Story 6.4)", () => {
   });
 });
 
-describe("runPlanHandler — use_operator:true returns Pro-Feature error (Story 15.1)", () => {
-  it("returns proFeatureError when use_operator is true", async () => {
+describe("runPlanHandler — use_operator:true returns error (Story 11.2: requires hook)", () => {
+  it("returns error when use_operator is true", async () => {
     const registry = createMockRegistry(new Map());
     const params: RunPlanParams = {
       steps: [{ tool: "navigate", params: { url: "https://test.com" } }],
@@ -173,14 +172,11 @@ describe("runPlanHandler — use_operator:true returns Pro-Feature error (Story 
 
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Pro feature");
     expect(text).toContain("use_operator");
+    expect(text).toContain("operator hook");
   });
 
-  it("returns proFeatureError BEFORE mode validation when use_operator is true and no steps/parallel/resume given", async () => {
-    // Regression test for H1: use_operator must be checked before the
-    // "steps/parallel/resume mutually exclusive" mode validation, so users
-    // get a clear pro-feature hint even without any mode field set.
+  it("returns error BEFORE mode validation when use_operator is true and no steps/parallel/resume given", async () => {
     const registry = createMockRegistry(new Map());
     const params = { use_operator: true } as RunPlanParams;
 
@@ -189,7 +185,6 @@ describe("runPlanHandler — use_operator:true returns Pro-Feature error (Story 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
     expect(text).toContain("use_operator");
-    expect(text).toContain("Pro feature");
     // Must NOT be the mode-validation error message
     expect(text).not.toContain("One of 'steps', 'parallel', or 'resume' must be provided");
   });
@@ -376,12 +371,6 @@ describe("runPlanSchema — Suspend/Resume (Story 6.5)", () => {
 
 // ===== Story 11.1: Step-Limit entfernt — alle Steps werden ausgefuehrt =====
 
-import type { LicenseStatus } from "../license/license-status.js";
-
-function createMockLicense(isPro: boolean): LicenseStatus {
-  return { isPro: () => isPro };
-}
-
 describe("runPlanHandler — No Step-Limit (Story 11.1)", () => {
   it("executes all steps without truncation regardless of count", async () => {
     const callLog: string[] = [];
@@ -469,7 +458,7 @@ describe("runPlanHandler — No Step-Limit (Story 11.1)", () => {
       ],
     };
 
-    const result = await runPlanHandler(params, registry, undefined, undefined, new FreeTierLicenseStatus(false));
+    const result = await runPlanHandler(params, registry);
 
     expect(callLog).toHaveLength(5);
     expect(result._meta!.truncated).toBeUndefined();
@@ -514,39 +503,39 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
     expect(text).toContain("Only one of 'steps', 'parallel', or 'resume' may be provided");
   });
 
-  it("parallel without Pro license returns feature-gate error", async () => {
+  it("parallel without executeParallel hook returns error", async () => {
     const registry = createMockRegistry(new Map());
-    const license = createMockLicense(false);
+    const deps: RunPlanDeps = {
+      cdpClient: { send: vi.fn() } as unknown as RunPlanDeps["cdpClient"],
+      sessionId: "test-session",
+    };
     const params: RunPlanParams = {
       parallel: [{ tab: "tab-a", steps: [{ tool: "navigate", params: { url: "https://a.com" } }] }],
     };
 
-    const result = await runPlanHandler(params, registry, undefined, undefined, license);
+    const result = await runPlanHandler(params, registry, deps);
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("parallel is a Pro feature");
+    expect(text).toContain("executeParallel hook");
   });
 
-  it("parallel with use_operator returns Pro-Feature error (Story 15.1)", async () => {
+  it("parallel with use_operator returns error", async () => {
     const registry = createMockRegistry(new Map());
-    const license = createMockLicense(true);
     const params: RunPlanParams = {
       parallel: [{ tab: "tab-a", steps: [{ tool: "navigate" }] }],
       use_operator: true,
     };
 
-    const result = await runPlanHandler(params, registry, undefined, undefined, license);
+    const result = await runPlanHandler(params, registry);
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Pro feature");
     expect(text).toContain("use_operator");
   });
 
   it("parallel with empty groups list returns error", async () => {
     const registry = createMockRegistry(new Map());
-    const license = createMockLicense(true);
     const deps: RunPlanDeps = {
       cdpClient: {} as RunPlanDeps["cdpClient"],
       sessionId: "test-session",
@@ -555,7 +544,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
       parallel: [],
     };
 
-    const result = await runPlanHandler(params, registry, deps, undefined, license);
+    const result = await runPlanHandler(params, registry, deps);
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
@@ -564,12 +553,11 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
 
   it("parallel without deps returns error", async () => {
     const registry = createMockRegistry(new Map());
-    const license = createMockLicense(true);
     const params: RunPlanParams = {
       parallel: [{ tab: "tab-a", steps: [{ tool: "navigate" }] }],
     };
 
-    const result = await runPlanHandler(params, registry, undefined, undefined, license);
+    const result = await runPlanHandler(params, registry);
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
@@ -578,13 +566,10 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
 
   // --- Story 15.4: executeParallel Hook delegation ---
 
-  it("parallel with Pro license but without registered hook returns Pro-Feature error", async () => {
-    // Simulates Free-Repo scenario: Pro license somehow set, but Pro-Repo not loaded
-    // (e.g. npm-installed free package). Must not crash, must return proFeatureError.
+  it("parallel without registered hook returns error", async () => {
     registerProHooks({}); // Ensure no executeParallel hook registered
 
     const registry = createMockRegistry(new Map());
-    const license = createMockLicense(true);
     const deps: RunPlanDeps = {
       cdpClient: {
         send: vi.fn(),
@@ -595,14 +580,14 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
       parallel: [{ tab: "tab-a", steps: [{ tool: "navigate" }] }],
     };
 
-    const result = await runPlanHandler(params, registry, deps, undefined, license);
+    const result = await runPlanHandler(params, registry, deps);
 
     expect((result as ToolResponse).isError).toBe(true);
     const text = ((result as ToolResponse).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("parallel is a Pro feature");
+    expect(text).toContain("executeParallel hook");
   });
 
-  it("parallel with Pro license and registered hook delegates to hook", async () => {
+  it("parallel with registered hook delegates to hook", async () => {
     const mockHookResponse: ToolResponse = {
       content: [{ type: "text", text: "parallel-hook-result" }],
       _meta: { elapsedMs: 42, method: "run_plan", parallel: true, tabGroups: 1 },
@@ -612,7 +597,6 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
     registerProHooks({ executeParallel: executeParallelMock });
 
     const registry = createMockRegistry(new Map());
-    const license = createMockLicense(true);
     const cdpSendMock = vi.fn();
     const deps: RunPlanDeps = {
       cdpClient: {
@@ -626,7 +610,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
       errorStrategy: "continue",
     };
 
-    const result = await runPlanHandler(params, registry, deps, undefined, license);
+    const result = await runPlanHandler(params, registry, deps);
 
     // Hook was called exactly once
     expect(executeParallelMock).toHaveBeenCalledTimes(1);
@@ -659,7 +643,6 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
     registerProHooks({ executeParallel: executeParallelMock });
 
     const registry = createMockRegistry(new Map());
-    const license = createMockLicense(true);
     const cdpSendMock = vi.fn().mockResolvedValue({ sessionId: "tab-session-1" });
     const deps: RunPlanDeps = {
       cdpClient: {
@@ -671,7 +654,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
       parallel: [{ tab: "tab-a", steps: [{ tool: "navigate", params: { url: "https://a.com" } }] }],
     };
 
-    const result = await runPlanHandler(params, registry, deps, undefined, license);
+    const result = await runPlanHandler(params, registry, deps);
 
     expect(executeParallelMock).toHaveBeenCalledTimes(1);
     expect((result as ToolResponse).isError).toBe(true);
@@ -698,7 +681,6 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
     registerProHooks({ executeParallel: executeParallelMock });
 
     const registry = createMockRegistry(new Map());
-    const license = createMockLicense(true);
     const cdpSendMock = vi.fn().mockResolvedValue({ sessionId: "tab-session-1" });
     const deps: RunPlanDeps = {
       cdpClient: {
@@ -710,7 +692,7 @@ describe("runPlanHandler — parallel (Story 7.6)", () => {
       parallel: [{ tab: "tab-a", steps: [{ tool: "navigate" }] }],
     };
 
-    const result = await runPlanHandler(params, registry, deps, undefined, license);
+    const result = await runPlanHandler(params, registry, deps);
 
     expect(executeParallelMock).toHaveBeenCalledTimes(1);
     // Response identisch zurueckgegeben (gleicher Object-Reference)
@@ -897,7 +879,6 @@ describe("runPlanHandler — Ambient-Context suppression (Story 18.1)", () => {
       runAggregationHook,
     } as unknown as ToolRegistry;
 
-    const license = createMockLicense(true);
     const cdpSendMock = vi.fn().mockResolvedValue({ sessionId: "tab-session-1" });
     const deps: RunPlanDeps = {
       cdpClient: {
@@ -918,7 +899,7 @@ describe("runPlanHandler — Ambient-Context suppression (Story 18.1)", () => {
       ],
     };
 
-    const result = await runPlanHandler(params, registry, deps, undefined, license);
+    const result = await runPlanHandler(params, registry, deps);
 
     // The Pro-Hook saw 3 executeTool calls on its tab-registry (one per
     // step) — that is the "N steps" baseline.
@@ -963,7 +944,6 @@ describe("runPlanHandler — Ambient-Context suppression (Story 18.1)", () => {
       runAggregationHook,
     } as unknown as ToolRegistry;
 
-    const license = createMockLicense(true);
     const cdpSendMock = vi.fn().mockResolvedValue({ sessionId: "tab-session-1" });
     const deps: RunPlanDeps = {
       cdpClient: {
@@ -975,7 +955,7 @@ describe("runPlanHandler — Ambient-Context suppression (Story 18.1)", () => {
       parallel: [{ tab: "tab-a", steps: [{ tool: "click", params: { ref: "e1" } }] }],
     };
 
-    const result = await runPlanHandler(params, registry, deps, undefined, license);
+    const result = await runPlanHandler(params, registry, deps);
 
     expect((result as ToolResponse).isError).toBe(true);
     // Aggregation must NOT have fired over the failed parallel response

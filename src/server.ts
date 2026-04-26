@@ -3,10 +3,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { BrowserSession } from "./cdp/browser-session.js";
 import { resolveAutoLaunch } from "./cdp/chrome-launcher.js";
 import { ToolRegistry } from "./registry.js";
-import { setTierLabel, setLicenseInfo } from "./overlay/session-overlay.js";
-import { FreeTierLicenseStatus } from "./license/license-status.js";
-import type { LicenseStatus } from "./license/license-status.js";
-import { getProHooks } from "./hooks/pro-hooks.js";
 import { VERSION } from "./version.js";
 import { ScriptApiServer } from "./transport/script-api-server.js";
 
@@ -88,20 +84,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     console.error("SilbercueChrome --script: external CDP clients expected, tab ownership tracking enabled");
   }
 
-  // 3. Resolve licence status (pure metadata — no CDP calls).
-  const hooks = getProHooks();
-  let licenseStatus: LicenseStatus = new FreeTierLicenseStatus();
-  if (hooks.provideLicenseStatus) {
-    try {
-      licenseStatus = await hooks.provideLicenseStatus();
-    } catch {
-      // Fallback to Free Tier
-    }
-  }
-  setTierLabel(licenseStatus.isPro());
-  setLicenseInfo(undefined, undefined, undefined);
-
-  // 4. Create the MCP server.
+  // 3. Create the MCP server.
   const server = new McpServer(
     {
       name: "silbercuechrome",
@@ -131,22 +114,21 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     },
   );
 
-  // 5. Create the ToolRegistry — it reads cdpClient/sessionId lazily from
+  // 4. Create the ToolRegistry — it reads cdpClient/sessionId lazily from
   //    BrowserSession via getters, so no connection is required here.
   const registry = new ToolRegistry(
     server,
     browserSession,
-    licenseStatus,
   );
   registry.registerAll();
 
-  // 6. Start the stdio transport. This is the point at which Claude Code
+  // 5. Start the stdio transport. This is the point at which Claude Code
   //    sees us come online — still no Chrome has been launched.
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("SilbercueChrome MCP server running on stdio (lazy launch enabled)");
 
-  // 6b. Story 9.7: Script API Gateway — HTTP server on port 9223.
+  // 5b. Story 9.7: Script API Gateway — HTTP server on port 9223.
   //     Only started when --script flag is active. Failure to bind the
   //     port is non-fatal: MCP continues to work, only the Script API
   //     is unavailable.
@@ -164,7 +146,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     }
   }
 
-  // 7. Graceful shutdown — BrowserSession.shutdown() is idempotent and a
+  // 6. Graceful shutdown — BrowserSession.shutdown() is idempotent and a
   //    no-op if Chrome was never launched.
   const shutdown = async () => {
     // Story 9.7: Stop Script API server first (closes all sessions/tabs).

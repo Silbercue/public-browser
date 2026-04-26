@@ -59,8 +59,6 @@ import { downloadSchema, downloadHandler } from "./tools/download.js";
 import type { DownloadParams } from "./tools/download.js";
 import { updateOverlayStatus, getToolLabel, setLastElapsed, showClickIndicator } from "./overlay/session-overlay.js";
 import { PlanStateStore } from "./plan/plan-state-store.js";
-import type { LicenseStatus } from "./license/license-status.js";
-import { FreeTierLicenseStatus } from "./license/license-status.js";
 import { z } from "zod";
 import { getProHooks, registerProHooks } from "./hooks/pro-hooks.js";
 import type { ToolRegistryPublic } from "./hooks/pro-hooks.js";
@@ -109,6 +107,52 @@ export const DEFAULT_TOOL_NAMES: readonly string[] = [
  * `maybeRegisterFreeMCPTool`-Gate in `registerAll()`.
  */
 export const DEFAULT_TOOL_SET: ReadonlySet<string> = new Set(DEFAULT_TOOL_NAMES);
+
+/**
+ * Story 11.2 — Vollstaendige Liste aller Free-Tier-Tools, die in
+ * `registerAll()` via `maybeRegisterFreeMCPTool()` registriert werden.
+ *
+ * Dient als Single Source of Truth fuer `FREE_TIER_TOOL_COUNT` in
+ * `top-level-commands.ts`. Wenn hier ein Tool hinzugefuegt oder entfernt
+ * wird, muss `FREE_TIER_TOOL_COUNT` nachgezogen werden — der Unit-Test
+ * in `top-level-commands.test.ts` prueft die Konsistenz.
+ */
+export const ALL_FREE_TOOL_NAMES: readonly string[] = [
+  // 1. Orientation
+  "virtual_desk",
+  // 2. Reading
+  "view_page",
+  // 3. Interaction
+  "click",
+  "type",
+  "fill_form",
+  "press_key",
+  "scroll",
+  "drag",
+  // 4. Navigation
+  "navigate",
+  // 5. Tab Management
+  "switch_tab",
+  "tab_status",
+  // 6. Timing
+  "wait_for",
+  "observe",
+  // 7. Visual
+  "capture_image",
+  "dom_snapshot",
+  // 8. Special
+  "handle_dialog",
+  "file_upload",
+  // 9. Debug
+  "console_logs",
+  "network_monitor",
+  "download",
+  // 10. Meta
+  "configure_session",
+  "run_plan",
+  // 11. Evaluate (last resort)
+  "evaluate",
+] as const;
 
 /**
  * Story 18.3 — Env-Var-Gate fuer den vollen Tool-Satz.
@@ -322,8 +366,6 @@ export class ToolRegistry implements ToolRegistryPublic {
     this._registerProToolDelegate(name, description, schema, handler);
   }
 
-  private _licenseStatus: LicenseStatus;
-
   // FR-H: Track whether the LLM has checked browser context before acting
   private _contextChecked = false;
 
@@ -349,7 +391,7 @@ export class ToolRegistry implements ToolRegistryPublic {
    * from the legacy parameters. This keeps the test surface stable while
    * still exercising the new wiring through the same constructor.
    */
-  constructor(server: McpServer, browserSession: IBrowserSession, licenseStatus?: LicenseStatus);
+  constructor(server: McpServer, browserSession: IBrowserSession);
   constructor(
     server: McpServer,
     cdpClient: CdpClient,
@@ -358,7 +400,6 @@ export class ToolRegistry implements ToolRegistryPublic {
     getConnectionStatus?: (() => unknown) | undefined,
     sessionManager?: SessionManager,
     dialogHandler?: DialogHandler,
-    licenseStatus?: LicenseStatus,
     consoleCollector?: ConsoleCollector,
     networkCollector?: NetworkCollector,
     sessionDefaults?: SessionDefaultsType,
@@ -367,13 +408,12 @@ export class ToolRegistry implements ToolRegistryPublic {
   constructor(
     private server: McpServer,
     browserSessionOrCdpClient: IBrowserSession | CdpClient,
-    sessionIdOrLicense?: string | LicenseStatus,
+    sessionIdLegacy?: string,
     tabStateCacheLegacy?: TabStateCache,
     _getConnectionStatus?: unknown,
     sessionManager?: SessionManager,
     dialogHandler?: DialogHandler,
-    licenseStatusLegacy?: LicenseStatus,
-    consoleCollector?: ConsoleCollector,
+    consoleCollectorOrLegacy?: ConsoleCollector,
     networkCollector?: NetworkCollector,
     sessionDefaults?: SessionDefaultsType,
     waitForAXChange?: (timeoutMs: number) => Promise<boolean>,
@@ -385,16 +425,15 @@ export class ToolRegistry implements ToolRegistryPublic {
       !!v && typeof v === "object" && typeof (v as { ensureReady?: unknown }).ensureReady === "function";
 
     if (looksLikeSession(browserSessionOrCdpClient)) {
-      // New signature: (server, session, licenseStatus?)
+      // New signature: (server, session)
       this._browserSession = browserSessionOrCdpClient;
-      this._licenseStatus = (sessionIdOrLicense as LicenseStatus | undefined) ?? new FreeTierLicenseStatus();
     } else {
       // Legacy signature (test-only): synthesise an IBrowserSession from
       // the old positional parameters. `ensureReady()` is a no-op so
       // tests that provide a raw CdpClient do not trip over the
       // lazy-launch gate.
       const legacyCdpClient = browserSessionOrCdpClient as CdpClient;
-      const legacySessionId = (sessionIdOrLicense as string | undefined) ?? "test-session";
+      const legacySessionId = (sessionIdLegacy as string | undefined) ?? "test-session";
       const legacyTabCache =
         tabStateCacheLegacy ?? new TabStateCacheCtor({ ttlMs: 30_000 });
       const legacySessionDefaults = sessionDefaults ?? new SessionDefaults();
@@ -413,7 +452,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         sessionDefaults: legacySessionDefaults,
         sessionManager,
         dialogHandler,
-        consoleCollector,
+        consoleCollector: consoleCollectorOrLegacy,
         networkCollector,
         downloadCollector: undefined,
         domWatcher: undefined,
@@ -435,7 +474,6 @@ export class ToolRegistry implements ToolRegistryPublic {
         shutdown: async () => { /* legacy: no-op */ },
       };
       this._browserSession = session;
-      this._licenseStatus = licenseStatusLegacy ?? new FreeTierLicenseStatus();
     }
   }
 
@@ -1700,7 +1738,7 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     maybeRegisterFreeMCPTool(
       "run_plan",
-      "Execute a sequential plan of tool steps server-side. Supports variables ($varName), conditions (if), saveAs, error strategies (abort/continue/capture_image), suspend/resume. Parallel tab execution via parallel: [{ tab, steps }] is a Pro-Feature - requires Pro license.",
+      "Execute a sequential plan of tool steps server-side. Supports variables ($varName), conditions (if), saveAs, error strategies (abort/continue/capture_image), suspend/resume. Parallel tab execution via parallel: [{ tab, steps }].",
       {
         steps: runPlanSchema.shape.steps,
         parallel: runPlanSchema.shape.parallel,
@@ -1712,7 +1750,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           cdpClient: this.cdpClient,
           sessionId: this._browserSession.sessionId,
           sessionManager: this._browserSession.sessionManager,
-        }, this.planStateStore, this._licenseStatus);
+        }, this.planStateStore);
         // Convert SuspendedPlanResponse to ToolResponse for MCP transport
         if ("status" in result && (result as { status: string }).status === "suspended") {
           const suspended = result as import("./plan/plan-executor.js").SuspendedPlanResponse;

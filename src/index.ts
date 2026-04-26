@@ -3,12 +3,10 @@ import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { startServer } from "./server.js";
-import { runLicenseCommand } from "./cli/license-commands.js";
 import { dispatchTopLevelCli } from "./cli/top-level-commands.js";
 
 export { startServer } from "./server.js";
 export type { StartServerOptions } from "./server.js";
-export { runLicenseCommand } from "./cli/license-commands.js";
 export { dispatchTopLevelCli } from "./cli/top-level-commands.js";
 
 // SEA-Detection (Phase 3b): In einem Single-Executable-Application-Bundle
@@ -71,14 +69,8 @@ const isMainModule = (() => {
 if (isMainModule) {
   const command = process.argv[2];
 
-  if (command === "license") {
-    // Bestehender `license <sub>`-Pfad — siehe src/cli/license-commands.ts
-    runLicenseCommand(process.argv.slice(3)).catch((err) => {
-      console.error(err.message);
-      process.exit(1);
-    });
-  } else {
-    // Phase 2: Top-Level Subcommands (version/status/activate/deactivate/help).
+  {
+    // Top-Level Subcommands (version/status/help).
     // Wenn dispatchTopLevelCli einen Subcommand erkennt, beendet es den
     // Prozess via process.exit(). Sonst → false zurueck → Server starten.
     //

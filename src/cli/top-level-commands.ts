@@ -1,54 +1,37 @@
 /**
- * Top-Level CLI Subcommands fuer SilbercueChrome (Free Tier).
+ * Top-Level CLI Subcommands fuer SilbercueChrome.
  *
- * Phase 2 (Distribution-Setup): analog zum SilbercueSwift main.swift Pattern.
  * Wird VOR `startServer()` in `src/index.ts` aufgerufen. Bei Match:
  * Subcommand ausfuehren + `process.exit(0|1)`. Sonst: false zurueckgeben,
  * damit der MCP-Server normal startet.
  *
- * Verfuegbare Subcommands (Free):
+ * Verfuegbare Subcommands:
  *   silbercuechrome version              — Version anzeigen
- *   silbercuechrome status               — Free Tier Status + Tool-Anzahl
- *   silbercuechrome activate <KEY>       — Pro-Feature-Hinweis (nur in Pro verfuegbar)
- *   silbercuechrome deactivate           — Pro-Feature-Hinweis (nur in Pro verfuegbar)
+ *   silbercuechrome status               — Status + Tool-Anzahl
  *   silbercuechrome --help / -h          — Help-Text
- *
- * Diese Datei enthaelt KEINE Pro-Code-Imports — der Free-Repo darf NIEMALS
- * vom Pro-Repo abhaengen (Story 15.x Constraint).
  */
 import * as fs from "fs";
 import * as path from "path";
-import * as os from "os";
 import { fileURLToPath } from "node:url";
 
 /**
- * Anzahl Tools die der Free-Tier MCP-Server registriert.
+ * Anzahl Tools die der MCP-Server registriert.
  *
  * WICHTIG: Diese Konstante MUSS aktuell gehalten werden, wenn Tools im
  * Registry hinzugefuegt oder entfernt werden. Quelle der Wahrheit ist der
  * smoke-test (`test-hardest/smoke-test.mjs`) — bei Aenderungen muss die
  * Zahl hier nachgezogen werden.
  *
- * Stand Story 11.1: Alle Tools sind ungated verfuegbar (Pro-Feature-Gates entfernt).
  * Aktuelle Zaehlung: 23 Tools (inkl. dom_snapshot, switch_tab, virtual_desk, drag, download).
  */
-export const FREE_TIER_TOOL_COUNT = 21;
+export const FREE_TIER_TOOL_COUNT = 23;
 
-/**
- * URL fuer Pro-Upgrade. Wird in `status`-Output und Aktivierungs-Hinweisen
- * gezeigt.
- */
-export const UPGRADE_URL = "https://polar.sh/silbercueswift/silbercuechrome-pro";
-
-/** Liste der bekannten Free-Subcommands fuer Dispatch + Help. */
+/** Liste der bekannten Subcommands fuer Dispatch + Help. */
 const KNOWN_SUBCOMMANDS = [
   "version",
   "--version",
   "-v",
   "status",
-  "activate",
-  "deactivate",
-  "license", // bestehender Subcommand (siehe license-commands.ts)
   "help",
   "--help",
   "-h",
@@ -111,34 +94,6 @@ export function readPackageVersion(currentFileUrl: string): { name: string; vers
   return { name: "@silbercue/chrome", version: "0.0.0" };
 }
 
-/** Shape der Free-Tier Cache-Datei (read-only fuer status). */
-interface LicenseCacheShape {
-  key: string;
-  valid: boolean;
-  lastCheck: string;
-  features?: string[];
-  validUntil?: string;
-}
-
-/** Liest Cache-Datei direkt — kein Remote-Call. */
-function readLicenseCache(): LicenseCacheShape | null {
-  try {
-    const cachePath = path.join(os.homedir(), ".silbercuechrome", "license-cache.json");
-    const raw = fs.readFileSync(cachePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (
-      typeof parsed.valid !== "boolean" ||
-      typeof parsed.lastCheck !== "string" ||
-      typeof parsed.key !== "string"
-    ) {
-      return null;
-    }
-    return parsed as LicenseCacheShape;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Pruft das erste CLI-Argument und dispatcht zu einem Subcommand.
  * Returns:
@@ -155,10 +110,6 @@ export async function dispatchTopLevelCli(
   const command = argv[2];
   if (!command) return false;
 
-  // Sub-Subcommand "license <...>" wird vom existierenden license-commands.ts
-  // Pfad in src/index.ts behandelt — hier NICHT abfangen.
-  if (command === "license") return false;
-
   switch (command) {
     case "version":
     case "--version":
@@ -172,44 +123,10 @@ export async function dispatchTopLevelCli(
 
     case "status": {
       const { name, version } = readPackageVersion(currentFileUrl);
-      const cache = readLicenseCache();
       console.log(`${name} ${version}`);
       console.log("");
-      // Free-Repo sieht IMMER Free-Tier (auch wenn ein Pro-Cache existiert,
-      // weil der Validator im Pro-Repo lebt). Wir zeigen aber, ob ein Cache
-      // existiert, damit der User Bescheid weiss.
-      console.log(`Tier:   Free`);
       console.log(`Tools:  ${FREE_TIER_TOOL_COUNT} available`);
-      if (cache && cache.valid) {
-        console.log("");
-        console.log("A license cache was found, but license validation requires");
-        console.log("the Pro tier. Install @silbercue/chrome-pro to activate.");
-      }
-      console.log("");
-      console.log(`Upgrade to Pro: ${UPGRADE_URL}`);
       process.exit(0);
-      return true;
-    }
-
-    case "activate": {
-      console.log("License activation requires the Pro tier.");
-      console.log("");
-      console.log("Install SilbercueChrome Pro to validate license keys:");
-      console.log("  npm install -g @silbercue/chrome-pro");
-      console.log("");
-      console.log(`More info: ${UPGRADE_URL}`);
-      process.exit(1);
-      return true;
-    }
-
-    case "deactivate": {
-      console.log("License deactivation requires the Pro tier.");
-      console.log("");
-      console.log("Install SilbercueChrome Pro to manage license keys:");
-      console.log("  npm install -g @silbercue/chrome-pro");
-      console.log("");
-      console.log(`More info: ${UPGRADE_URL}`);
-      process.exit(1);
       return true;
     }
 
@@ -228,9 +145,9 @@ export async function dispatchTopLevelCli(
   }
 }
 
-/** Druckt den Free-Tier Help-Text. */
+/** Druckt den Help-Text. */
 function printHelp(): void {
-  console.log("SilbercueChrome MCP Server (Free Tier)");
+  console.log("SilbercueChrome MCP Server");
   console.log("");
   console.log("Usage:");
   console.log("  silbercuechrome [command]");
@@ -238,10 +155,7 @@ function printHelp(): void {
   console.log("");
   console.log("Commands:");
   console.log("  version                Show version information");
-  console.log("  status                 Show current tier and tool count");
-  console.log("  activate <KEY>         Activate Pro license (requires Pro tier)");
-  console.log("  deactivate             Deactivate Pro license (requires Pro tier)");
-  console.log("  license <subcommand>   License management (status/activate/deactivate)");
+  console.log("  status                 Show tool count");
   console.log("  help                   Show this help text");
   console.log("");
   console.log("Flags:");
@@ -256,8 +170,6 @@ function printHelp(): void {
   console.log("  pip install silbercuechrome");
   console.log("  Scripts use the same tool implementations as MCP (Shared Core).");
   console.log("  See: https://github.com/Silbercue/silbercuechrome#script-api-python");
-  console.log("");
-  console.log(`Upgrade to Pro: ${UPGRADE_URL}`);
 }
 
 /** Internal helper for tests — exposes the known subcommand list. */

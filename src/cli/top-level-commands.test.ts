@@ -6,48 +6,32 @@
  * Subcommand vollstaendig durchlaufen kann ohne den Test-Runner zu killen.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
 
 import {
   dispatchTopLevelCli,
   readPackageVersion,
   FREE_TIER_TOOL_COUNT,
-  UPGRADE_URL,
 } from "./top-level-commands.js";
-
-// ---------------------------------------------------------------------------
-// os.homedir mock — same Pattern wie license-commands.test.ts
-// ---------------------------------------------------------------------------
-let mockHomeDir = "";
-vi.mock("os", async (importOriginal) => {
-  const original = (await importOriginal()) as typeof os;
-  return {
-    ...original,
-    homedir: () => mockHomeDir || original.homedir(),
-  };
-});
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function tmpHome(): string {
-  return path.join(os.tmpdir(), `silbercuechrome-cli-toplevel-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-}
-
-function writeCache(dir: string, data: Record<string, unknown>): void {
-  fs.mkdirSync(path.join(dir, ".silbercuechrome"), { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, ".silbercuechrome", "license-cache.json"),
-    JSON.stringify(data),
-    "utf-8",
-  );
-}
+import { ALL_FREE_TOOL_NAMES } from "../registry.js";
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// Story 11.2 (M2): FREE_TIER_TOOL_COUNT muss mit der realen Tool-Liste
+// in registry.ts uebereinstimmen. Faengt Drift ab wenn Tools hinzugefuegt
+// oder entfernt werden ohne die Konstante nachzuziehen.
+describe("FREE_TIER_TOOL_COUNT consistency", () => {
+  it("matches the number of tools in ALL_FREE_TOOL_NAMES", () => {
+    expect(FREE_TIER_TOOL_COUNT).toBe(ALL_FREE_TOOL_NAMES.length);
+  });
+
+  it("ALL_FREE_TOOL_NAMES has no duplicates", () => {
+    const unique = new Set(ALL_FREE_TOOL_NAMES);
+    expect(unique.size).toBe(ALL_FREE_TOOL_NAMES.length);
+  });
+});
+
 describe("readPackageVersion", () => {
   it("findet die package.json relativ zur src-Datei", () => {
     const result = readPackageVersion(import.meta.url);
@@ -75,16 +59,6 @@ describe("dispatchTopLevelCli", () => {
       // Throw a sentinel error so the dispatcher control-flow stops here
       throw new Error("__exit__");
     }) as never);
-    mockHomeDir = tmpHome();
-    fs.mkdirSync(mockHomeDir, { recursive: true });
-  });
-
-  afterEach(() => {
-    try {
-      fs.rmSync(mockHomeDir, { recursive: true, force: true });
-    } catch {
-      // best-effort
-    }
   });
 
   // ---- no command → fall-through ----
@@ -104,14 +78,6 @@ describe("dispatchTopLevelCli", () => {
       expect(exitSpy).not.toHaveBeenCalled();
     });
 
-    it("returns false for `license` (delegated to license-commands.ts)", async () => {
-      const handled = await dispatchTopLevelCli(
-        ["node", "index.js", "license", "status"],
-        import.meta.url,
-      );
-      expect(handled).toBe(false);
-      expect(exitSpy).not.toHaveBeenCalled();
-    });
   });
 
   // ---- version ----
@@ -143,81 +109,14 @@ describe("dispatchTopLevelCli", () => {
 
   // ---- status ----
   describe("status", () => {
-    it("shows Free Tier with tool count when no cache exists", async () => {
+    it("shows tool count and exits 0", async () => {
       await expect(
         dispatchTopLevelCli(["node", "index.js", "status"], import.meta.url),
       ).rejects.toThrow("__exit__");
       const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(out).toContain("Tier:");
-      expect(out).toContain("Free");
       expect(out).toContain(`${FREE_TIER_TOOL_COUNT}`);
       expect(out).toContain("available");
-      expect(out).toContain(UPGRADE_URL);
       expect(exitSpy).toHaveBeenCalledWith(0);
-    });
-
-    it("notes existing cache + Pro-installation hint when cache.valid=true", async () => {
-      writeCache(mockHomeDir, {
-        key: "sk-pro-1234567890abcdef",
-        valid: true,
-        lastCheck: new Date().toISOString(),
-        features: [],
-      });
-      await expect(
-        dispatchTopLevelCli(["node", "index.js", "status"], import.meta.url),
-      ).rejects.toThrow("__exit__");
-      const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(out).toContain("Free");
-      expect(out).toContain("license cache was found");
-      expect(out).toContain("@silbercue/chrome-pro");
-    });
-
-    it("ignores invalid cache structure", async () => {
-      writeCache(mockHomeDir, { not: "a valid cache" });
-      await expect(
-        dispatchTopLevelCli(["node", "index.js", "status"], import.meta.url),
-      ).rejects.toThrow("__exit__");
-      const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(out).not.toContain("license cache was found");
-    });
-  });
-
-  // ---- activate (Pro-only stub) ----
-  describe("activate", () => {
-    it("prints Pro-Feature hint and exits 1 (no key)", async () => {
-      await expect(
-        dispatchTopLevelCli(["node", "index.js", "activate"], import.meta.url),
-      ).rejects.toThrow("__exit__");
-      const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(out).toContain("requires the Pro tier");
-      expect(out).toContain("@silbercue/chrome-pro");
-      expect(out).toContain(UPGRADE_URL);
-      expect(exitSpy).toHaveBeenCalledWith(1);
-    });
-
-    it("prints Pro-Feature hint and exits 1 (with key)", async () => {
-      await expect(
-        dispatchTopLevelCli(
-          ["node", "index.js", "activate", "sk-some-key-1234"],
-          import.meta.url,
-        ),
-      ).rejects.toThrow("__exit__");
-      const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(out).toContain("requires the Pro tier");
-      expect(exitSpy).toHaveBeenCalledWith(1);
-    });
-  });
-
-  // ---- deactivate (Pro-only stub) ----
-  describe("deactivate", () => {
-    it("prints Pro-Feature hint and exits 1", async () => {
-      await expect(
-        dispatchTopLevelCli(["node", "index.js", "deactivate"], import.meta.url),
-      ).rejects.toThrow("__exit__");
-      const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(out).toContain("requires the Pro tier");
-      expect(out).toContain("@silbercue/chrome-pro");
-      expect(exitSpy).toHaveBeenCalledWith(1);
     });
   });
 
@@ -232,8 +131,6 @@ describe("dispatchTopLevelCli", () => {
       expect(out).toContain("Usage:");
       expect(out).toContain("version");
       expect(out).toContain("status");
-      expect(out).toContain("activate");
-      expect(out).toContain("deactivate");
       expect(exitSpy).toHaveBeenCalledWith(0);
     });
 

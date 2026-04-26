@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { registerProHooks, getProHooks, proFeatureError } from "./pro-hooks.js";
+import { registerProHooks, getProHooks } from "./pro-hooks.js";
 import type {
   ProHooks,
   ToolRegistryPublic,
   A11yTreePublic,
   A11yTreeDiffs,
 } from "./pro-hooks.js";
-import type { LicenseStatus } from "../license/license-status.js";
 import type { ToolResponse } from "../types.js";
 import type { PlanStep } from "../plan/plan-executor.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
@@ -155,20 +154,15 @@ describe("ProHooks", () => {
   it("onToolResult works alongside other hooks", () => {
     const enhance = (_n: string, p: Record<string, unknown>) => p;
     const result: ProHooks["onToolResult"] = async (_name, r, _ctx) => r;
-    const provider: ProHooks["provideLicenseStatus"] = async () => ({
-      isPro: () => true,
-    });
 
     registerProHooks({
       enhanceTool: enhance,
       onToolResult: result,
-      provideLicenseStatus: provider,
     });
 
     const hooks = getProHooks();
     expect(hooks.enhanceTool).toBe(enhance);
     expect(hooks.onToolResult).toBe(result);
-    expect(hooks.provideLicenseStatus).toBe(provider);
   });
 
   it("onToolResult is cleared when hooks are reset", () => {
@@ -251,66 +245,6 @@ describe("ProHooks", () => {
     expect((enriched.content[1] as { text: string }).text).toBe(
       "[diff] +button#submit",
     );
-  });
-
-  // --- Story 11.1: proFeatureError — generic message only (warm messages removed) ---
-
-  it("proFeatureError returns generic Pro-Feature error for any tool name", () => {
-    const result = proFeatureError("some_future_tool");
-
-    expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toBe(
-      "some_future_tool is a Pro feature — activate with 'silbercuechrome license activate <key>'",
-    );
-    expect(result._meta!.method).toBe("some_future_tool");
-  });
-
-  it("proFeatureError returns consistent format for parallel", () => {
-    const result = proFeatureError("parallel");
-
-    expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain("parallel is a Pro feature");
-    expect(result._meta).toEqual({ elapsedMs: 0, method: "parallel" });
-  });
-
-  // --- Story 15.5: provideLicenseStatus Hook ---
-
-  it("provideLicenseStatus is undefined by default", () => {
-    const hooks = getProHooks();
-    expect(hooks.provideLicenseStatus).toBeUndefined();
-  });
-
-  it("provideLicenseStatus can be registered and retrieved", async () => {
-    const mockStatus: LicenseStatus = { isPro: () => true };
-    const provider = async () => mockStatus;
-
-    registerProHooks({ provideLicenseStatus: provider });
-
-    const hooks = getProHooks();
-    expect(hooks.provideLicenseStatus).toBe(provider);
-
-    const status = await hooks.provideLicenseStatus!();
-    expect(status.isPro()).toBe(true);
-  });
-
-  it("provideLicenseStatus works alongside other hooks", () => {
-    const enhance = (_n: string, p: Record<string, unknown>) => p;
-    const provider = async (): Promise<LicenseStatus> => ({ isPro: () => false });
-
-    registerProHooks({ enhanceTool: enhance, provideLicenseStatus: provider });
-
-    const hooks = getProHooks();
-    expect(hooks.enhanceTool).toBe(enhance);
-    expect(hooks.provideLicenseStatus).toBe(provider);
-  });
-
-  it("provideLicenseStatus is cleared when hooks are reset", async () => {
-    const provider = async (): Promise<LicenseStatus> => ({ isPro: () => true });
-    registerProHooks({ provideLicenseStatus: provider });
-    expect(getProHooks().provideLicenseStatus).toBeDefined();
-
-    registerProHooks({});
-    expect(getProHooks().provideLicenseStatus).toBeUndefined();
   });
 
   // --- Story 15.4: executeParallel Hook ---

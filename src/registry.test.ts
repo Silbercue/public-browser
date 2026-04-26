@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ToolRegistry, jsonSchemaToZodShape } from "./registry.js";
 import { z } from "zod";
-import type { LicenseStatus } from "./license/license-status.js";
 // FreeTierConfig import removed — Story 11.1: Pro-Feature-Gates entfernt
 import { registerProHooks } from "./hooks/pro-hooks.js";
 import type { ProHooks } from "./hooks/pro-hooks.js";
@@ -202,7 +201,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "run_plan",
-      "Execute a sequential plan of tool steps server-side. Supports variables ($varName), conditions (if), saveAs, error strategies (abort/continue/capture_image), suspend/resume. Parallel tab execution via parallel: [{ tab, steps }] is a Pro-Feature - requires Pro license.",
+      "Execute a sequential plan of tool steps server-side. Supports variables ($varName), conditions (if), saveAs, error strategies (abort/continue/capture_image), suspend/resume. Parallel tab execution via parallel: [{ tab, steps }].",
       expect.objectContaining({
         steps: expect.anything(),
         parallel: expect.anything(),
@@ -666,19 +665,17 @@ describe("ToolRegistry", () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
-    // No license needed — all tools are now ungated
     const registry = new ToolRegistry(
       mockServer, {} as never, "session-1", {} as never,
     );
     registry.registerAll();
 
     // The handler may fail due to missing CDP mock, but it must NOT be a
-    // Pro-Feature error — that gate no longer exists.
+    // feature gate error — all tools are now ungated.
     const result = await registry.executeTool("dom_snapshot", {});
 
     const text = (result.content[0] as { text: string }).text;
-    expect(text).not.toContain("silbercuechrome license activate");
-    expect(text).not.toContain("Pro");
+    expect(text).not.toContain("Pro feature");
   });
 
   // --- Story 7.2: network_monitor registration with NetworkCollector ---
@@ -771,7 +768,6 @@ describe("ToolRegistry", () => {
       undefined, // getConnectionStatus
       undefined, // sessionManager
       undefined, // dialogHandler
-      undefined, // licenseStatus
       undefined, // consoleCollector
       undefined, // networkCollector
       sessionDefaults,
@@ -1925,7 +1921,6 @@ describe("ToolRegistry", () => {
         undefined, // getConnectionStatus
         undefined, // sessionManager
         undefined, // dialogHandler
-        undefined, // licenseStatus
         undefined, // consoleCollector
         undefined, // networkCollector
         undefined, // sessionDefaults
@@ -2127,7 +2122,6 @@ describe("ToolRegistry", () => {
         undefined, // getConnectionStatus
         undefined, // sessionManager
         undefined, // dialogHandler
-        undefined, // licenseStatus
         undefined, // consoleCollector
         undefined, // networkCollector
         undefined, // sessionDefaults
@@ -3600,7 +3594,6 @@ describe("ToolRegistry", () => {
         undefined, // getConnectionStatus
         undefined, // sessionManager
         mockDialogHandler, // dialogHandler (pos 7)
-        undefined, // licenseStatus
         mockConsoleCollector, // consoleCollector
         mockNetworkCollector, // networkCollector
       );

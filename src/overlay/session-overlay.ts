@@ -83,36 +83,10 @@ function buildOverlayScript(): string {
         animation: sc-fadeIn 0.4s ease-out 0.5s both;
       }
 
-      .sc-license {
-        display: none;
-        align-items: center;
-        gap: var(--sc-gap);
-      }
-
-      .sc-license.open {
-        display: flex;
-      }
-
-      .sc-license-key {
-        cursor: pointer;
-        pointer-events: auto;
-        text-decoration: underline;
-        text-decoration-color: rgba(255,255,255,0.3);
-        text-underline-offset: 2px;
-      }
-
-      .sc-license-key:hover {
-        text-decoration-color: rgba(255,255,255,0.7);
-      }
-
-      .sc-copied {
-        color: rgba(140,255,140,0.9);
-      }
     </style>
     <div class="sc-bar">
       <div class="sc-logo"></div>
       <span class="sc-text-area" id="sc-text-area"></span>
-      <span class="sc-license" id="sc-license"></span>
     </div>`;
 
   const escaped = tmpl.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
@@ -130,21 +104,6 @@ function buildOverlayScript(): string {
   var logo = sr.querySelector('.sc-logo');
   if (logo) {
     logo.style.backgroundImage = 'url(' + LOGO + ')';
-    logo.addEventListener('click', function() {
-      var ta = sr.getElementById('sc-text-area');
-      var lp = sr.getElementById('sc-license');
-      var bar = sr.querySelector('.sc-bar');
-      if (!ta || !lp || !bar) return;
-      if (lp.classList.contains('open')) {
-        lp.classList.remove('open');
-        ta.style.display = 'flex';
-        bar.style.background = '';
-      } else {
-        ta.style.display = 'none';
-        lp.classList.add('open');
-        bar.style.background = 'linear-gradient(0deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.75) 55%, rgba(0,0,0,0.3) 85%, transparent 100%)';
-      }
-    });
   }
   document.documentElement.appendChild(host);
 })()`;
@@ -158,40 +117,9 @@ const OVERLAY_REMOVE_SCRIPT = `(() => {
 })()`;
 
 let _scriptIdentifier: string | undefined;
-let _tierLabel = "FREE";
-let _isPro = false;
-// Cumulative token savings for Pro overlay display
-let _tokensSaved = 0;
+let _tierLabel = "Open Source";
 // Last tool elapsed time
 let _lastElapsedMs = 0;
-// License info for the panel
-let _licenseKey = "";
-let _licenseSince = "";
-let _licenseName = "";
-
-export function setTierLabel(isPro: boolean): void {
-  _tierLabel = isPro ? "PRO" : "FREE";
-  _isPro = isPro;
-}
-
-/** Set license details for the info panel. Call once after validation. */
-export function setLicenseInfo(key: string | undefined, lastCheck: string | undefined, customerName: string | undefined): void {
-  _licenseKey = key ?? "";
-  _licenseName = customerName ?? "";
-  if (lastCheck) {
-    try {
-      const d = new Date(lastCheck);
-      _licenseSince = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
-    } catch {
-      _licenseSince = lastCheck;
-    }
-  }
-}
-
-/** Track token savings (call after each tool that saves tokens via ambient context) */
-export function addTokensSaved(tokens: number): void {
-  _tokensSaved += tokens;
-}
 
 /** Track last tool elapsed time */
 export function setLastElapsed(ms: number): void {
@@ -215,59 +143,14 @@ export async function injectOverlay(cdpClient: CdpClient, sessionId: string): Pr
 
     await cdpClient.send("Runtime.evaluate", { expression: OVERLAY_SCRIPT, awaitPromise: false }, sessionId);
 
-    await populateLicensePanel(cdpClient, sessionId);
     await updateOverlayStatus(cdpClient, sessionId, "");
   } catch {
     // Non-critical
   }
 }
 
-/** Populate the license info panel. Called after inject and self-healing re-inject. */
-async function populateLicensePanel(cdpClient: CdpClient, sessionId: string): Promise<void> {
-  let panelHtml: string;
-  let copyScript = "";
-  if (_licenseKey) {
-    const masked = _licenseKey.slice(0, 8) + "\u2026" + _licenseKey.slice(-4);
-    const escapedMasked = masked.replace(/'/g, "\\'");
-    const fullKey = _licenseKey.replace(/'/g, "\\'");
-    const since = _licenseSince.replace(/'/g, "\\'");
-    const name = _licenseName.replace(/'/g, "\\'");
-    // Order: PRO | date | key (clickable) | name
-    panelHtml = `<span>${_tierLabel}</span>`;
-    if (since) panelHtml += `<span class="sc-sep">|</span><span>${since}</span>`;
-    panelHtml += `<span class="sc-sep">|</span><span>License: <span class="sc-license-key" id="sc-lk">${escapedMasked}</span></span>`;
-    if (name) panelHtml += `<span class="sc-sep">|</span><span>${name}</span>`;
-    panelHtml += `<span class="sc-copied" id="sc-copied" style="display:none">COPIED</span>`;
-    copyScript = `var lk = sr.getElementById('sc-lk');
-  if (lk) lk.addEventListener('click', function() {
-    navigator.clipboard.writeText('${fullKey}');
-    var cp = sr.getElementById('sc-copied');
-    if (cp) { cp.style.display = 'inline'; setTimeout(function() { cp.style.display = 'none'; }, 1500); }
-  });`;
-  } else {
-    panelHtml = `<span>${_tierLabel}</span><span class="sc-sep">|</span><span>No license key</span>`;
-  }
-  const panelScript = `(() => {
-  var host = document.getElementById('${OVERLAY_ID}');
-  if (!host || !host.shadowRoot) return;
-  var sr = host.shadowRoot;
-  var lp = sr.getElementById('sc-license');
-  if (!lp) return;
-  lp.innerHTML = '${panelHtml.replace(/'/g, "\\'")}';
-  ${copyScript}
-})()`;
-  try {
-    await cdpClient.send("Runtime.evaluate", { expression: panelScript, awaitPromise: false }, sessionId);
-  } catch { /* non-critical */ }
-}
-
 function formatMs(ms: number): string {
   return String(ms).padStart(4, "0") + "ms";
-}
-
-function formatSaved(tokens: number): string {
-  if (tokens >= 1000) return Math.round(tokens / 1000) + "k saved";
-  return tokens + " saved";
 }
 
 /**
@@ -290,8 +173,6 @@ export async function updateOverlayStatus(cdpClient: CdpClient, sessionId: strin
         expression: `(() => { var h = document.getElementById('${OVERLAY_ID}'); if (h && h.shadowRoot) { var l = h.shadowRoot.querySelector('.sc-logo'); if (l) l.style.backgroundImage = 'url(data:image/png;base64,` + LOGO_BASE64 + `)'; } })()`,
         awaitPromise: false,
       }, sessionId);
-      // Re-populate license panel after self-healing
-      await populateLicensePanel(cdpClient, sessionId);
     }
   } catch { /* non-critical */ }
 
@@ -299,11 +180,9 @@ export async function updateOverlayStatus(cdpClient: CdpClient, sessionId: strin
   const tier = _tierLabel.replace(/'/g, "\\'");
   const action = text.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const timeStr = _lastElapsedMs > 0 ? formatMs(_lastElapsedMs) : "";
-  const savedStr = _isPro && _tokensSaved > 0 ? formatSaved(_tokensSaved) : "";
 
   // Build segments: tier is always shown, others conditional
   const segments: string[] = [tier];
-  if (savedStr) segments.push(savedStr);
   if (timeStr) segments.push(timeStr);
   if (!isIdle && action) segments.push(action);
   // Join with " | " — rendered as separate spans so gap handles spacing

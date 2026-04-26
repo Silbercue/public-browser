@@ -24,7 +24,6 @@ import type { RunPlanParams } from "./tools/run-plan.js";
 import type { ToolResponse } from "./types.js";
 import { evaluateHandler } from "./tools/evaluate.js";
 import type { CdpClient } from "./cdp/cdp-client.js";
-import { FreeTierLicenseStatus } from "./license/license-status.js";
 
 function textOf(result: ToolResponse): string {
   const block = result.content?.[0];
@@ -146,15 +145,18 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
   });
 
   // -------------------------------------------------------------
-  // AC #4 — run_plan parallel → proFeatureError
+  // AC #4 — run_plan parallel without hook → error (Story 11.2: license removed)
   // -------------------------------------------------------------
   describe("run_plan parallel (AC #4)", () => {
-    const freeLicense = new FreeTierLicenseStatus(false);
-
-    it("returns Pro-Feature error for parallel parameter", async () => {
+    it("returns error when parallel is used without executeParallel hook", async () => {
       const registry = {
         executeTool: vi.fn(),
       } as unknown as ToolRegistry;
+
+      const deps = {
+        cdpClient: { send: vi.fn() },
+        sessionId: "test-session",
+      };
 
       const params = {
         parallel: [
@@ -165,12 +167,10 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
         ],
       } as unknown as RunPlanParams;
 
-      const result = (await runPlanHandler(params, registry, undefined, undefined, freeLicense)) as ToolResponse;
+      const result = (await runPlanHandler(params, registry, deps as never)) as ToolResponse;
 
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("parallel is a Pro feature");
-      // The helper's canonical message must be present so clients can parse it.
-      expect(textOf(result)).toContain("silbercuechrome license activate");
+      expect(textOf(result)).toContain("executeParallel hook");
     });
 
     it("does not crash when parallel is provided without deps (no undefined deref)", async () => {
@@ -187,15 +187,15 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
         ],
       } as unknown as RunPlanParams;
 
-      await expect(runPlanHandler(params, registry, undefined, undefined, freeLicense)).resolves.toBeDefined();
+      await expect(runPlanHandler(params, registry)).resolves.toBeDefined();
     });
   });
 
   // -------------------------------------------------------------
-  // AC #5 — run_plan use_operator: true → proFeatureError
+  // AC #5 — run_plan use_operator: true → error (Story 11.2: requires hook)
   // -------------------------------------------------------------
   describe("run_plan use_operator (AC #5)", () => {
-    it("returns Pro-Feature error for use_operator: true", async () => {
+    it("returns error for use_operator: true", async () => {
       const registry = {
         executeTool: vi.fn(),
       } as unknown as ToolRegistry;
@@ -208,24 +208,22 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
       const result = (await runPlanHandler(params, registry)) as ToolResponse;
 
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("use_operator is a Pro feature");
-      expect(textOf(result)).toContain("silbercuechrome license activate");
+      expect(textOf(result)).toContain("use_operator");
     });
 
-    it("returns Pro-Feature error BEFORE mode validation (no 'mutually exclusive' message)", async () => {
+    it("returns error BEFORE mode validation (no 'mutually exclusive' message)", async () => {
       const registry = {
         executeTool: vi.fn(),
       } as unknown as ToolRegistry;
 
-      // No steps/parallel/resume — with use_operator the Pro-Feature gate
-      // must fire before the mutual-exclusion validator, otherwise the LLM
-      // gets a confusing "one of ..." error instead of a clear Pro hint.
+      // No steps/parallel/resume — with use_operator the gate
+      // must fire before the mutual-exclusion validator.
       const params = { use_operator: true } as unknown as RunPlanParams;
 
       const result = (await runPlanHandler(params, registry)) as ToolResponse;
 
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("use_operator is a Pro feature");
+      expect(textOf(result)).toContain("use_operator");
       expect(textOf(result)).not.toContain(
         "Eines von 'steps', 'parallel' oder 'resume' muss angegeben werden",
       );
@@ -256,7 +254,7 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
       const result = await registry.executeTool("dom_snapshot", { ref: "e1" });
 
       // May error due to missing CDP mock, but must NOT be a Pro-Feature gate
-      expect(textOf(result)).not.toContain("silbercuechrome license activate");
+      expect(textOf(result)).not.toContain("Pro feature");
     });
 
     it("switch_tab via executeTool does NOT return Pro-Feature error", async () => {
@@ -266,14 +264,14 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
         url: "about:blank",
       });
 
-      expect(textOf(result)).not.toContain("silbercuechrome license activate");
+      expect(textOf(result)).not.toContain("Pro feature");
     });
 
     it("virtual_desk via executeTool does NOT return Pro-Feature error", async () => {
       const registry = buildRegistry();
       const result = await registry.executeTool("virtual_desk", {});
 
-      expect(textOf(result)).not.toContain("silbercuechrome license activate");
+      expect(textOf(result)).not.toContain("Pro feature");
     });
 
     it("none of the calls crash (no thrown exception, no undefined deref)", async () => {

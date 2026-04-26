@@ -1,5 +1,4 @@
 import type { ToolResponse } from "../types.js";
-import type { LicenseStatus } from "../license/license-status.js";
 import type { PlanStep, ErrorStrategy } from "../plan/plan-executor.js";
 import type { VarsMap } from "../plan/plan-variables.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
@@ -110,8 +109,6 @@ export interface ProHooks {
       sessionManager?: SessionManager;
     },
   ) => Promise<ToolResponse>;
-  /** Liefert den LicenseStatus — Pro-Repo injiziert hier den LicenseValidator. */
-  provideLicenseStatus?: () => Promise<LicenseStatus>;
   /** Pro-Repo registriert hier die Multi-Tab-Parallel-Engine (Story 15.4). */
   executeParallel?: (
     groups: Array<{ tab: string; steps: PlanStep[] }>,
@@ -150,12 +147,3 @@ export function getProHooks(): ProHooks {
   return _hooks;
 }
 
-/** Unified Pro-feature error response (retained for parallel/use_operator gates in run_plan). */
-export function proFeatureError(toolName: string): ToolResponse {
-  const text = `${toolName} is a Pro feature — activate with 'silbercuechrome license activate <key>'`;
-  return {
-    content: [{ type: "text", text }],
-    isError: true,
-    _meta: { elapsedMs: 0, method: toolName },
-  };
-}
