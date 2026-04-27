@@ -324,10 +324,13 @@ export function classify(features: PageFeatureVector): PageType {
     return "signup";
   }
 
-  // 4. mfa — MFA-Keywords + (Passwort oder wenige textbox)
+  // 4. mfa — MFA-Keywords + (Passwort oder wenige textbox) + wenige Links
+  //    linkCount < 10: MFA-Seiten sind single-purpose (Resend, Cancel, Help).
+  //    Verhindert false positives bei GitHub ("Code"-Button, "Verified" Badge).
   if (
     hasAnyKeyword(labelKeywords, ["otp", "2fa", "verify", "authenticator", "code"]) &&
-    (hasPasswordField || textboxCount <= 2)
+    (hasPasswordField || textboxCount <= 2) &&
+    linkCount < 10
   ) {
     return "mfa";
   }
@@ -427,8 +430,19 @@ export function classify(features: PageFeatureVector): PageType {
     return "form_simple";
   }
 
-  // 15. article — mehrere Headings + wenig Links + keine textbox
-  if (headingCount >= 2 && linkCount < 15 && textboxCount === 0) {
+  // 14b. search_form (broad) — Search-Landmark + viele Links + wenig Headings.
+  //      Fängt Commerce/Search-Homepages (Amazon, eBay) die zu viele Links
+  //      für die strenge search_form-Regel (7) haben. headingCount < 8 trennt
+  //      von Artikel-Seiten (Wikipedia: 20+ Headings).
+  if (hasSearchLandmark && linkCount >= 10 && headingCount < 8) {
+    return "search_form";
+  }
+
+  // 15. article — Heading-reicher Content (Wikipedia, Blogs, Docs).
+  //     Zwei Pfade: (a) 5+ Headings = immer Artikel, egal wie viele Links
+  //     (Wikipedia hat 200+ Links). (b) 2-4 Headings = Artikel nur bei
+  //     weniger als 20 Links (verhindert Fehlklassifikation von Link-Directories).
+  if (headingCount >= 2 && textboxCount <= 1 && (headingCount >= 5 || linkCount < 20)) {
     return "article";
   }
 
