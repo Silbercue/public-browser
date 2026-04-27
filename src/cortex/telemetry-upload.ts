@@ -1,12 +1,13 @@
 /**
- * Story 12.5: Opt-in Telemetry Upload.
+ * Story 12a.5: Opt-in Telemetry Upload.
  *
  * Sends anonymised pattern entries to a collection endpoint when
  * telemetry is explicitly enabled via environment variable.
  *
- * Privacy (NFR21): Only whitelisted fields are sent — no PII, no URLs
- * with auth tokens, no page content. The _sanitize() method builds an
- * explicit object literal (no spread) to prevent accidental leakage.
+ * Privacy (NFR21): Only whitelisted fields: pageType, toolSequence,
+ * successRate, contentHash, timestamp — no domain, no URLs.
+ * The _sanitize() method builds an explicit object literal (no spread)
+ * to prevent accidental leakage.
  *
  * Error Handling: Same philosophy as Stories 12.1-12.4 — the uploader
  * NEVER throws or disrupts the tool flow. All errors are debug-logged
@@ -44,10 +45,8 @@ export class TelemetryUploader {
       // AC #1: If telemetry is not enabled, bail out immediately.
       if (!this._config.enabled) return;
 
-      // AC #4: Rate-limiting per pattern key.
-      // Story 12a.2 Temporary Compat: domain is optional, pathPattern removed.
-      // Use fallbacks until Story 12a.5 redesigns the rate-limit key.
-      const key = `${pattern.domain ?? ""}||${(pattern as { pathPattern?: string }).pathPattern ?? ""}`;
+      // AC #4: Rate-limiting per pageType + toolSequence key.
+      const key = `${pattern.pageType}||${pattern.toolSequence.join(",")}`;
       const now = Date.now();
       const lastUpload = this._lastUploadByKey.get(key);
       if (lastUpload !== undefined && now - lastUpload < this._config.rateLimitMs) {
@@ -83,15 +82,9 @@ export class TelemetryUploader {
    * NO Object.assign(). This prevents future CortexPattern fields from
    * leaking into the upload payload (NFR21).
    */
-  /**
-   * Story 12a.2 Temporary Compat: domain is optional and pathPattern is removed
-   * from CortexPattern. Use fallback empty strings for the telemetry payload
-   * fields. Full redesign with pageType in Story 12a.5.
-   */
   _sanitize(pattern: CortexPattern): TelemetryPayload {
     return {
-      domain: pattern.domain ?? "",
-      pathPattern: (pattern as { pathPattern?: string }).pathPattern ?? "",
+      pageType: pattern.pageType,
       toolSequence: [...pattern.toolSequence],
       successRate: 1.0, // Phase 1: only successful patterns are recorded.
       contentHash: pattern.contentHash,

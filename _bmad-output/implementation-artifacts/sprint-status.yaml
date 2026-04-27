@@ -121,12 +121,12 @@ development_status:
 
   # Epic 12a: Cortex Pattern Generalization (Sprint Change 2026-04-27)
   # Domain-basierte Patterns → Seitentyp-basierte Wahrscheinlichkeiten
-  epic-12a: in-progress
+  epic-12a: done
   12a-1-seitentyp-taxonomie-a11y-tree-klassifikator: done
   12a-2-cortexpattern-retrofit-auf-pagetype: done
   12a-3-markov-uebergangstabelle: done
   12a-4-hint-matcher-retrofit: done
-  12a-5-telemetrie-payload-privacy-update: ready-for-dev
+  12a-5-telemetrie-payload-privacy-update: done
   epic-12a-retrospective: optional
 
   # Epic 13: Cortex Phase 2 — Validierung + Distribution

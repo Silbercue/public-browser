@@ -152,11 +152,13 @@ export interface HintMatchResult {
 }
 
 /**
- * Story 12.5: Telemetry Upload Types.
+ * Story 12a.5: Telemetry Upload Types.
  *
  * Defines data structures for the opt-in telemetry upload that sends
  * anonymised pattern entries to a collection endpoint.
- * Privacy (NFR21): ONLY the whitelisted fields below are included.
+ * Privacy (NFR21): Seitentyp statt Domain, keine identifizierenden Informationen.
+ * Only whitelisted fields: pageType, toolSequence, successRate, contentHash,
+ * timestamp — no domain, no URLs.
  */
 
 /**
@@ -166,10 +168,8 @@ export interface HintMatchResult {
  * This prevents accidental leakage of future fields (NFR21).
  */
 export interface TelemetryPayload {
-  /** Domain where the pattern was observed (e.g. "example.com"). */
-  domain: string;
-  /** Normalised URL path pattern (e.g. "/users/:id/profile"). */
-  pathPattern: string;
+  /** Page type classification (e.g. "login", "data_table"). */
+  pageType: string;
   /** Ordered list of tool names in the successful sequence. */
   toolSequence: string[];
   /** Fraction of patterns that succeeded (0-1). Phase 1: always 1.0. */

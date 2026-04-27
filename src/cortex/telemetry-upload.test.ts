@@ -1,10 +1,10 @@
 /**
- * Story 12.5: TelemetryUploader unit tests.
+ * Story 12a.5: TelemetryUploader unit tests.
  *
  * Covers all acceptance criteria:
  *  - AC #1: No data sent when telemetry is disabled (default)
  *  - AC #2: Pattern uploaded when telemetry is enabled
- *  - AC #3: Payload contains ONLY the 6 whitelisted fields (NFR21)
+ *  - AC #3: Payload contains ONLY the 5 whitelisted fields (NFR21)
  *  - AC #4: Rate-limiting (1 upload per minute per pattern key)
  *  - Error handling: fetch failures are silently swallowed
  *  - Singleton configuration via environment variables
@@ -16,23 +16,17 @@ import { TELEMETRY_RATE_LIMIT_MS } from "./cortex-types.js";
 import { TelemetryUploader } from "./telemetry-upload.js";
 
 /**
- * Factory for a minimal valid CortexPattern (Story 12a.2: pageType-based).
- *
- * Story 12a.2 Temporary Compat: pathPattern is no longer on CortexPattern but
- * telemetry-upload still reads it via `(pattern as any).pathPattern` for compat
- * until Story 12a.5. The helper includes pathPattern as an extra field.
+ * Factory for a minimal valid CortexPattern (Story 12a.5: pageType-based).
  */
-function makePattern(overrides: Partial<CortexPattern> & { domain?: string; pathPattern?: string } = {}): CortexPattern {
+function makePattern(overrides: Partial<CortexPattern> = {}): CortexPattern {
   return {
     pageType: "login",
-    domain: "example.com",
-    pathPattern: "/users/:id/profile",
     toolSequence: ["navigate", "view_page", "click"],
     outcome: "success",
     contentHash: "a1b2c3d4e5f6a7b8",
     timestamp: 1700000000000,
     ...overrides,
-  } as CortexPattern;
+  };
 }
 
 /** Factory for a TelemetryConfig with telemetry enabled. */
@@ -54,7 +48,7 @@ function disabledConfig(): TelemetryConfig {
   };
 }
 
-describe("TelemetryUploader (Story 12.5)", () => {
+describe("TelemetryUploader (Story 12a.5)", () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -104,8 +98,7 @@ describe("TelemetryUploader (Story 12.5)", () => {
     it("sends correctly sanitized payload as JSON body", async () => {
       const uploader = new TelemetryUploader(enabledConfig());
       const pattern = makePattern({
-        domain: "shop.test.com",
-        pathPattern: "/cart/:id",
+        pageType: "data_table",
         toolSequence: ["navigate", "fill_form"],
         contentHash: "deadbeef12345678",
         timestamp: 1700000001000,
@@ -117,8 +110,7 @@ describe("TelemetryUploader (Story 12.5)", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(body).toEqual({
-        domain: "shop.test.com",
-        pathPattern: "/cart/:id",
+        pageType: "data_table",
         toolSequence: ["navigate", "fill_form"],
         successRate: 1.0,
         contentHash: "deadbeef12345678",
@@ -128,11 +120,11 @@ describe("TelemetryUploader (Story 12.5)", () => {
   });
 
   // ===========================================================================
-  // AC #3: Payload contains ONLY 6 whitelisted fields (NFR21)
+  // AC #3: Payload contains ONLY 5 whitelisted fields (NFR21)
   // ===========================================================================
 
   describe("AC #3 — NFR21 payload whitelist", () => {
-    it("payload has exactly 6 fields, no additional properties", async () => {
+    it("payload has exactly 5 fields, no additional properties", async () => {
       const uploader = new TelemetryUploader(enabledConfig());
       uploader.maybeUpload(makePattern());
       await vi.advanceTimersByTimeAsync(0);
@@ -140,9 +132,9 @@ describe("TelemetryUploader (Story 12.5)", () => {
       const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
       const keys = Object.keys(body).sort();
       expect(keys).toEqual(
-        ["contentHash", "domain", "pathPattern", "successRate", "timestamp", "toolSequence"],
+        ["contentHash", "pageType", "successRate", "timestamp", "toolSequence"],
       );
-      expect(keys).toHaveLength(6);
+      expect(keys).toHaveLength(5);
     });
 
     it("does NOT leak CortexPattern 'outcome' field into payload", async () => {
@@ -152,6 +144,15 @@ describe("TelemetryUploader (Story 12.5)", () => {
 
       const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(body).not.toHaveProperty("outcome");
+    });
+
+    it("does NOT leak domain into payload (Privacy AC #3)", async () => {
+      const uploader = new TelemetryUploader(enabledConfig());
+      uploader.maybeUpload(makePattern({ domain: "secret.internal.corp" }));
+      await vi.advanceTimersByTimeAsync(0);
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body).not.toHaveProperty("domain");
     });
 
     it("successRate is always 1.0 in Phase 1", async () => {
@@ -209,10 +210,10 @@ describe("TelemetryUploader (Story 12.5)", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 
-    it("rate-limits independently per domain+pathPattern key", async () => {
+    it("rate-limits independently per pageType+toolSequence key", async () => {
       const uploader = new TelemetryUploader(enabledConfig());
-      const patternA = makePattern({ domain: "site-a.com", pathPattern: "/a" });
-      const patternB = makePattern({ domain: "site-b.com", pathPattern: "/b" });
+      const patternA = makePattern({ pageType: "login", toolSequence: ["navigate", "click"] });
+      const patternB = makePattern({ pageType: "search_results", toolSequence: ["navigate", "scroll"] });
 
       uploader.maybeUpload(patternA);
       uploader.maybeUpload(patternB);
@@ -222,16 +223,29 @@ describe("TelemetryUploader (Story 12.5)", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 
-    it("same domain but different pathPattern are independent keys", async () => {
+    it("same pageType but different toolSequence are independent keys", async () => {
       const uploader = new TelemetryUploader(enabledConfig());
-      const pattern1 = makePattern({ domain: "example.com", pathPattern: "/page1" });
-      const pattern2 = makePattern({ domain: "example.com", pathPattern: "/page2" });
+      const pattern1 = makePattern({ pageType: "login", toolSequence: ["navigate", "click"] });
+      const pattern2 = makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form"] });
 
       uploader.maybeUpload(pattern1);
       uploader.maybeUpload(pattern2);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("same pageType and same toolSequence are rate-limited as one key", async () => {
+      const uploader = new TelemetryUploader(enabledConfig());
+      const pattern1 = makePattern({ pageType: "login", toolSequence: ["navigate", "click"] });
+      const pattern2 = makePattern({ pageType: "login", toolSequence: ["navigate", "click"], contentHash: "different1234567" });
+
+      uploader.maybeUpload(pattern1);
+      uploader.maybeUpload(pattern2);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Only the first should be uploaded — same key despite different contentHash.
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -355,19 +369,18 @@ describe("TelemetryUploader (Story 12.5)", () => {
   // ===========================================================================
 
   describe("H1 — HTTPS enforcement", () => {
-    it("http:// endpoint disables telemetry even when enabled is true", () => {
+    it("http:// endpoint disables telemetry even when enabled is true", async () => {
       const uploader = new TelemetryUploader({
         enabled: true,
         endpoint: "http://insecure.example.com/v1/patterns",
         rateLimitMs: TELEMETRY_RATE_LIMIT_MS,
       });
 
-      // The constructor does not enforce — the config is passed as-is.
-      // Enforcement is in resolveConfig(). Test via singleton below.
       uploader.maybeUpload(makePattern());
-      // With enabled: true and http endpoint, fetch IS called because
-      // the constructor trusts the config. The HTTPS enforcement is in
-      // resolveConfig() which is tested via the singleton tests.
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0][0]).toBe("http://insecure.example.com/v1/patterns");
     });
 
     it("singleton is disabled when endpoint is http:// (resolveConfig enforcement)", async () => {
