@@ -99,19 +99,18 @@ export async function readPageHandler(
     // (evaluate → oops → read_page → click) never triggers the nudge.
     toolSequence.record("view_page", undefined, sessionId);
 
-    // Story 12.3: Cortex hint injection — append hint to response if pattern matches.
-    // URL from a11yTree result (pageUrl is always populated for view_page).
-    // Wrapped in try/catch: must NEVER break the view_page response.
+    // Story 12a.4: Cortex hint injection — pageType-based Markov predictions.
+    // In view_page the A11y-Tree was JUST built, so getPageType() is always current.
     let cortexMeta: Record<string, unknown> | undefined;
     try {
-      const currentUrl = result.pageUrl;
-      if (currentUrl) {
-        const hintResult = hintMatcher.match(currentUrl);
-        if (hintResult.matchCount > 0) {
-          cortexMeta = { hints: hintResult.hints, matchCount: hintResult.matchCount };
-          const seq = hintResult.hints[0].toolSequence.join(" → ");
-          responseText += `\nCortex: ${hintResult.matchCount} pattern(s) suggest: [${seq}]`;
-        }
+      const pageType = a11yTree.getPageType(sessionId);
+      const hintResult = hintMatcher.matchByPageType(pageType, "view_page");
+      if (hintResult.matchCount > 0) {
+        cortexMeta = { hints: hintResult.hints, matchCount: hintResult.matchCount };
+        const preds = hintResult.hints[0].predictions.slice(0, 3)
+          .map((p) => `${p.tool} (P=${p.probability.toFixed(2)})`)
+          .join(", ");
+        responseText += `\nCortex (${pageType}): next → ${preds}`;
       }
     } catch (err) {
       debug("[cortex-hint] view_page error: %s", err instanceof Error ? err.message : String(err));

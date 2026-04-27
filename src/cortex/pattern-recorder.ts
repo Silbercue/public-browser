@@ -231,6 +231,17 @@ export class PatternRecorder {
           err instanceof Error ? err.message : String(err),
         );
       });
+
+    // Story 12a.3: Update Markov table after pattern emission.
+    // Dynamic import to break circular dependency. Fire-and-forget.
+    import("./markov-table.js")
+      .then((m) => m.markovTable.refreshFromStore())
+      .catch((err: unknown) => {
+        debug(
+          "[pattern-recorder] markov table refresh failed: %s",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
   }
 
   /**

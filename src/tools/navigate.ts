@@ -6,6 +6,7 @@ import type { SettleResult } from "../cdp/settle.js";
 import { wrapCdpError } from "./error-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
 import { hintMatcher } from "../cortex/hint-matcher.js";
+import { a11yTree } from "../cache/a11y-tree.js";
 import { debug } from "../cdp/debug.js";
 
 export const navigateSchema = z.object({
@@ -267,15 +268,20 @@ async function buildSuccessResponse(
 
   toolSequence.record("navigate", undefined, sessionId);
 
-  // Story 12.3: Cortex hint injection — append hint to response if pattern matches.
-  // Wrapped in try/catch: must NEVER break the navigate response.
+  // Story 12a.4: Cortex hint injection — pageType-based Markov predictions.
+  // After navigate, the A11y-Tree is typically empty (reset after navigation),
+  // so getPageType() returns "unknown" → no hint. This is correct and intended —
+  // the next view_page call has a fresh A11y-Tree and delivers the hint.
   let cortexMeta: Record<string, unknown> | undefined;
   try {
-    const hintResult = hintMatcher.match(finalUrl);
+    const pageType = a11yTree.getPageType(sessionId);
+    const hintResult = hintMatcher.matchByPageType(pageType);
     if (hintResult.matchCount > 0) {
       cortexMeta = { hints: hintResult.hints, matchCount: hintResult.matchCount };
-      const seq = hintResult.hints[0].toolSequence.join(" → ");
-      text += `\nCortex: ${hintResult.matchCount} pattern(s) suggest: [${seq}]`;
+      const preds = hintResult.hints[0].predictions.slice(0, 3)
+        .map((p) => `${p.tool} (P=${p.probability.toFixed(2)})`)
+        .join(", ");
+      text += `\nCortex (${pageType}): next → ${preds}`;
     }
   } catch (err) {
     debug("[cortex-hint] navigate error: %s", err instanceof Error ? err.message : String(err));

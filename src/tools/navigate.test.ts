@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { navigateHandler, navigateSchema } from "./navigate.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { hintMatcher } from "../cortex/hint-matcher.js";
+import { a11yTree } from "../cache/a11y-tree.js";
+import { markovTable } from "../cortex/markov-table.js";
 import type { CortexPattern } from "../cortex/cortex-types.js";
 
 type EventCallback = (params: unknown, sessionId?: string) => void;
@@ -377,22 +379,25 @@ describe("navigateHandler", () => {
   // Story 12.3: Cortex hint injection in navigate response
   // ===========================================================================
 
-  describe("Cortex hint injection (Story 12.3)", () => {
+  describe("Cortex hint injection (Story 12a.4)", () => {
     afterEach(() => {
-      // Reset hintMatcher to empty state after each test
-      hintMatcher.loadPatterns([]);
+      // Clear Markov table state after each test
+      (markovTable as unknown as { _transitions: Map<string, unknown> })._transitions.clear();
+      vi.restoreAllMocks();
     });
 
-    it("navigate response contains _meta.cortex when pattern exists (AC #1, Task 7.2)", async () => {
-      const pattern: CortexPattern = {
-        domain: "example.com",
-        pathPattern: "/dashboard",
-        toolSequence: ["navigate", "view_page", "click"],
+    it("navigate response contains _meta.cortex when pageType is known and Markov data exists (AC #1)", async () => {
+      // Seed Markov table with login patterns
+      markovTable.ingest([{
+        pageType: "login",
+        toolSequence: ["navigate", "fill_form", "click"],
         outcome: "success",
         contentHash: "a1b2c3d4e5f6a7b8",
         timestamp: Date.now(),
-      };
-      hintMatcher.loadPatterns([pattern]);
+      } as CortexPattern]);
+
+      // Mock getPageType to return "login" (normally empty after navigate)
+      vi.spyOn(a11yTree, "getPageType").mockReturnValue("login");
 
       const { cdpClient, emitLifecycle } = createMockCdp({
         "Page.navigate": { frameId: "f1", loaderId: "l1" },
@@ -404,14 +409,14 @@ describe("navigateHandler", () => {
         if (method === "Runtime.evaluate") {
           if (params?.awaitPromise === false) return {};
           evalCount++;
-          if (evalCount === 1) return { result: { value: "https://example.com/dashboard" } };
-          return { result: { value: "Dashboard" } };
+          if (evalCount === 1) return { result: { value: "https://example.com/login" } };
+          return { result: { value: "Login" } };
         }
         return {};
       });
 
       const promise = navigateHandler(
-        { url: "https://example.com/dashboard", action: "goto" },
+        { url: "https://example.com/login", action: "goto" },
         cdpClient,
         "s1",
       );
@@ -426,16 +431,17 @@ describe("navigateHandler", () => {
       // Check _meta.cortex
       const cortex = result._meta?.cortex as { hints: unknown[]; matchCount: number } | undefined;
       expect(cortex).toBeDefined();
-      expect(cortex!.matchCount).toBe(1);
+      expect(cortex!.matchCount).toBeGreaterThan(0);
       expect(cortex!.hints).toHaveLength(1);
 
-      // Check text hint
-      expect(result.content[0].text).toContain("Cortex: 1 pattern(s) suggest: [navigate → view_page → click]");
+      // Check new format text hint: "Cortex (login): next → fill_form (P=..."
+      expect(result.content[0].text).toContain("Cortex (login): next");
+      expect(result.content[0].text).toContain("fill_form");
     });
 
-    it("navigate response has NO _meta.cortex when no pattern exists (AC #2, Task 7.3)", async () => {
-      // hintMatcher is empty (no patterns loaded)
-      hintMatcher.loadPatterns([]);
+    it("navigate response has NO _meta.cortex when pageType is unknown (AC #2)", async () => {
+      // After navigate, A11y-Tree is typically empty → pageType "unknown"
+      vi.spyOn(a11yTree, "getPageType").mockReturnValue("unknown");
 
       const { cdpClient, emitLifecycle } = createMockCdp({
         "Page.navigate": { frameId: "f1", loaderId: "l1" },
@@ -470,7 +476,7 @@ describe("navigateHandler", () => {
       expect(result._meta?.cortex).toBeUndefined();
 
       // No cortex text in response
-      expect(result.content[0].text).not.toContain("Cortex:");
+      expect(result.content[0].text).not.toContain("Cortex");
     });
   });
 });

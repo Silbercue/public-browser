@@ -1,431 +1,388 @@
 /**
- * Story 12.3 (Task 7.1): HintMatcher tests.
+ * Story 12a.4: HintMatcher tests (PageType-based Markov predictions).
  *
  * Covers:
- *  - match() on loaded patterns finds domain+path match (AC #1)
- *  - match() without patterns returns empty result (AC #2)
- *  - match() on wrong domain returns empty result (AC #2)
- *  - match() with path placeholders (:id, :uuid, :hash) matches correctly
- *  - Aggregation: multiple patterns for same domain yield correct hint (AC #3)
- *  - Hint contains toolSequence, successRate, installationCount (AC #3)
- *  - refresh() updates the internal index
- *  - refreshAsync() loads patterns from LocalStore
- *  - Invalid URL is handled gracefully (no throw)
+ *  - matchByPageType() with Markov predictions (AC #1, #2)
+ *  - matchByPageType("unknown") returns empty result (AC #3)
+ *  - Deprecated match(url) returns empty result always (AC #4)
+ *  - CortexHint shape: pageType, predictions, toolSequence, installationCount
+ *  - patternCount delegates to markovTable.size
+ *  - refresh / refreshAsync delegate to markovTable.refreshFromStore
+ *  - Edge cases: empty/null params, graceful degradation
+ *  - Integration with MarkovTable: real predict() results
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { HintMatcher, hintMatcher } from "./hint-matcher.js";
-import type { CortexPattern } from "./cortex-types.js";
+import { MarkovTable, markovTable } from "./markov-table.js";
+import type { CortexPattern, CortexHint } from "./cortex-types.js";
 
 /**
- * Helper to create a minimal CortexPattern (Story 12a.2: pageType required, domain optional).
- *
- * Story 12a.2 Temporary Compat: pathPattern is no longer on CortexPattern but
- * hint-matcher still reads it via `(p as any).pathPattern` for compat until 12a.4.
- * The helper includes pathPattern as an extra field on the object.
+ * Helper: Create a minimal CortexPattern for MarkovTable ingestion.
  */
-function makePattern(overrides: Partial<CortexPattern> & { domain?: string; pathPattern?: string } = {}): CortexPattern {
-  const base = {
-    pageType: "dashboard",
-    domain: "example.com",
-    pathPattern: "/dashboard",
-    toolSequence: ["navigate", "view_page", "click"],
+function makePattern(overrides: Partial<CortexPattern> = {}): CortexPattern {
+  return {
+    pageType: "login",
+    toolSequence: ["navigate", "fill_form", "click"],
     outcome: "success" as const,
     contentHash: "a1b2c3d4e5f6a7b8",
     timestamp: Date.now(),
+    ...overrides,
   };
-  return { ...base, ...overrides } as CortexPattern;
 }
 
-describe("HintMatcher (Story 12.3)", () => {
-  let matcher: HintMatcher;
+/**
+ * Helper: Seed the markovTable singleton with patterns for testing.
+ * Clears existing data, ingests the provided patterns.
+ */
+function seedMarkov(patterns: CortexPattern[]): void {
+  // Access the private _transitions to clear it
+  (markovTable as unknown as { _transitions: Map<string, unknown> })._transitions.clear();
+  markovTable.ingest(patterns);
+}
 
-  beforeEach(() => {
-    matcher = new HintMatcher();
+describe("HintMatcher (Story 12a.4)", () => {
+  // Use a fresh HintMatcher import for each test.
+  // We need to import after any mocking setup.
+  let HintMatcher: typeof import("./hint-matcher.js").HintMatcher;
+  let hintMatcher: import("./hint-matcher.js").HintMatcher;
+
+  beforeEach(async () => {
+    // Clear markov table state
+    (markovTable as unknown as { _transitions: Map<string, unknown> })._transitions.clear();
+
+    // Fresh import of the class
+    const mod = await import("./hint-matcher.js");
+    HintMatcher = mod.HintMatcher;
+    hintMatcher = new HintMatcher();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   // =========================================================================
-  // AC #1: match() finds domain+path match
+  // matchByPageType (AC #1, #2)
   // =========================================================================
 
-  it("match() finds a domain+path match on loaded patterns (AC #1)", () => {
-    matcher.loadPatterns([makePattern({ domain: "dashboard.example.com", pathPattern: "/users/:id/profile" })]);
+  describe("matchByPageType", () => {
+    it("returns predictions for known pageType with Markov data", () => {
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form", "click"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form", "click"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "view_page", "fill_form"] }),
+      ]);
 
-    const result = matcher.match("https://dashboard.example.com/users/42/profile");
-    expect(result.matchCount).toBeGreaterThan(0);
-    expect(result.hints).toHaveLength(1);
-    expect(result.hints[0].domain).toBe("dashboard.example.com");
-    expect(result.hints[0].toolSequence).toEqual(["navigate", "view_page", "click"]);
-  });
+      const result = hintMatcher.matchByPageType("login", "navigate");
+      expect(result.matchCount).toBeGreaterThan(0);
+      expect(result.hints).toHaveLength(1);
 
-  it("match() works with exact path (no placeholders)", () => {
-    matcher.loadPatterns([makePattern({ domain: "example.com", pathPattern: "/dashboard" })]);
-
-    const result = matcher.match("https://example.com/dashboard");
-    expect(result.matchCount).toBe(1);
-    expect(result.hints).toHaveLength(1);
-  });
-
-  it("match() works with root path", () => {
-    matcher.loadPatterns([makePattern({ domain: "example.com", pathPattern: "/" })]);
-
-    const result = matcher.match("https://example.com/");
-    expect(result.matchCount).toBe(1);
-  });
-
-  // =========================================================================
-  // AC #2: No match scenarios
-  // =========================================================================
-
-  it("match() without patterns returns empty result (AC #2)", () => {
-    const result = matcher.match("https://example.com/dashboard");
-    expect(result.matchCount).toBe(0);
-    expect(result.hints).toHaveLength(0);
-  });
-
-  it("match() on wrong domain returns empty result (AC #2)", () => {
-    matcher.loadPatterns([makePattern({ domain: "example.com" })]);
-
-    const result = matcher.match("https://other.com/dashboard");
-    expect(result.matchCount).toBe(0);
-    expect(result.hints).toHaveLength(0);
-  });
-
-  it("match() on wrong path returns empty result", () => {
-    matcher.loadPatterns([makePattern({ domain: "example.com", pathPattern: "/dashboard" })]);
-
-    const result = matcher.match("https://example.com/settings");
-    expect(result.matchCount).toBe(0);
-    expect(result.hints).toHaveLength(0);
-  });
-
-  it("match() with empty string returns empty result", () => {
-    const result = matcher.match("");
-    expect(result.matchCount).toBe(0);
-  });
-
-  it("match() with about:blank returns empty result", () => {
-    const result = matcher.match("about:blank");
-    expect(result.matchCount).toBe(0);
-  });
-
-  it("match() with chrome:// URL returns empty result", () => {
-    const result = matcher.match("chrome://settings");
-    expect(result.matchCount).toBe(0);
-  });
-
-  // =========================================================================
-  // Path placeholder matching
-  // =========================================================================
-
-  it("match() with :id placeholder matches numeric segments", () => {
-    matcher.loadPatterns([makePattern({ pathPattern: "/users/:id/profile" })]);
-
-    expect(matcher.match("https://example.com/users/42/profile").matchCount).toBe(1);
-    expect(matcher.match("https://example.com/users/999999/profile").matchCount).toBe(1);
-    // Non-numeric should NOT match :id
-    expect(matcher.match("https://example.com/users/abc/profile").matchCount).toBe(0);
-  });
-
-  it("match() with :uuid placeholder matches UUID segments", () => {
-    matcher.loadPatterns([makePattern({ pathPattern: "/items/:uuid/details" })]);
-
-    expect(matcher.match("https://example.com/items/550e8400-e29b-41d4-a716-446655440000/details").matchCount).toBe(1);
-    // Non-UUID should NOT match :uuid
-    expect(matcher.match("https://example.com/items/12345/details").matchCount).toBe(0);
-  });
-
-  it("match() with :hash placeholder matches hex hash segments", () => {
-    matcher.loadPatterns([makePattern({ pathPattern: "/assets/:hash/image.png" })]);
-
-    expect(matcher.match("https://example.com/assets/a1b2c3d4e5f6a7b8/image.png").matchCount).toBe(1);
-    expect(matcher.match("https://example.com/assets/abcdef12/image.png").matchCount).toBe(1);
-    // Too short for :hash (needs 8+)
-    expect(matcher.match("https://example.com/assets/abc/image.png").matchCount).toBe(0);
-  });
-
-  // =========================================================================
-  // AC #3: Aggregation and hint fields
-  // =========================================================================
-
-  it("aggregation: multiple patterns yield correct hint (AC #3)", () => {
-    matcher.loadPatterns([
-      makePattern({ domain: "example.com", pathPattern: "/dashboard", toolSequence: ["navigate", "view_page", "click"] }),
-      makePattern({ domain: "example.com", pathPattern: "/dashboard", toolSequence: ["navigate", "view_page", "click"], timestamp: Date.now() + 1 }),
-      makePattern({ domain: "example.com", pathPattern: "/dashboard", toolSequence: ["navigate", "view_page"], timestamp: Date.now() + 2 }),
-    ]);
-
-    const result = matcher.match("https://example.com/dashboard");
-    expect(result.matchCount).toBe(3);
-    expect(result.hints).toHaveLength(1);
-
-    const hint = result.hints[0];
-    // Most frequent toolSequence wins
-    expect(hint.toolSequence).toEqual(["navigate", "view_page", "click"]);
-    // C4: installationCount = distinct domain+pathPattern combos (all 3 share the same, so 1)
-    expect(hint.installationCount).toBe(1);
-  });
-
-  it("hint contains toolSequence, successRate, installationCount (AC #3)", () => {
-    matcher.loadPatterns([makePattern()]);
-
-    const result = matcher.match("https://example.com/dashboard");
-    const hint = result.hints[0];
-
-    expect(hint.toolSequence).toEqual(["navigate", "view_page", "click"]);
-    expect(hint.successRate).toBe(1.0);
-    expect(hint.installationCount).toBe(1);
-    expect(hint.pathPattern).toBe("/dashboard");
-    expect(hint.domain).toBe("example.com");
-  });
-
-  // =========================================================================
-  // refresh() and refreshAsync() — C2/C3: call actual methods, not proxies
-  // =========================================================================
-
-  it("refresh() calls _refreshFromRecorder and updates index from patternRecorder", async () => {
-    // Mock the dynamic import chain that refresh() uses internally.
-    const testPattern = makePattern({ domain: "refreshed.com", pathPattern: "/live" });
-    vi.doMock("./pattern-recorder.js", () => ({
-      patternRecorder: { emittedPatterns: [testPattern] },
-    }));
-
-    // Create a fresh matcher so the mock is picked up
-    const { HintMatcher: FreshMatcher } = await import("./hint-matcher.js");
-    const freshMatcher = new FreshMatcher();
-
-    // Call actual refresh() — fires async, wait a tick for it to settle
-    freshMatcher.refresh();
-    await new Promise((r) => setTimeout(r, 50));
-
-    const result = freshMatcher.match("https://refreshed.com/live");
-    expect(result.matchCount).toBeGreaterThan(0);
-    expect(result.hints[0].domain).toBe("refreshed.com");
-
-    vi.doUnmock("./pattern-recorder.js");
-  });
-
-  it("refreshAsync() loads and merges patterns from LocalStore + patternRecorder", async () => {
-    const tmpDir = await mkdtemp(join(tmpdir(), "hint-matcher-test-"));
-
-    try {
-      const persistedPattern = makePattern({ domain: "persisted.com", pathPattern: "/saved", timestamp: 1000 });
-      const inMemoryPattern = makePattern({ domain: "inmemory.com", pathPattern: "/live", timestamp: 2000 });
-      await mkdir(tmpDir, { recursive: true });
-      await writeFile(join(tmpDir, "patterns.jsonl"), JSON.stringify(persistedPattern) + "\n", "utf-8");
-
-      // Mock both imports that refreshAsync() uses
-      vi.doMock("./pattern-recorder.js", () => ({
-        patternRecorder: { emittedPatterns: [inMemoryPattern] },
-      }));
-      vi.doMock("./local-store.js", () => ({
-        LocalStore: class {
-          async getAll() { return [persistedPattern]; }
-        },
-      }));
-
-      const { HintMatcher: FreshMatcher } = await import("./hint-matcher.js");
-      const freshMatcher = new FreshMatcher();
-
-      // Call actual refreshAsync()
-      await freshMatcher.refreshAsync();
-
-      // Both persisted and in-memory patterns should be loaded
-      expect(freshMatcher.match("https://persisted.com/saved").matchCount).toBeGreaterThan(0);
-      expect(freshMatcher.match("https://inmemory.com/live").matchCount).toBeGreaterThan(0);
-
-      vi.doUnmock("./pattern-recorder.js");
-      vi.doUnmock("./local-store.js");
-    } finally {
-      await rm(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  // =========================================================================
-  // M2: Merge edge-cases
-  // =========================================================================
-
-  it("merge: persisted + in-memory patterns for same domain are correctly merged", () => {
-    // Simulate what refreshAsync produces: patterns from both sources
-    const persisted = makePattern({ domain: "shop.com", pathPattern: "/cart", toolSequence: ["navigate", "click"], timestamp: 1000 });
-    const inMemory = makePattern({ domain: "shop.com", pathPattern: "/checkout", toolSequence: ["navigate", "fill_form"], timestamp: 2000 });
-
-    matcher.loadPatterns([persisted, inMemory]);
-
-    // Both paths should match on the same domain
-    expect(matcher.match("https://shop.com/cart").matchCount).toBeGreaterThan(0);
-    expect(matcher.match("https://shop.com/checkout").matchCount).toBeGreaterThan(0);
-  });
-
-  it("merge: different tool sequences for same domain+path are aggregated, not overwritten (H2)", () => {
-    // Two patterns with same domain+path but different tool sequences
-    const seqA = makePattern({ domain: "app.com", pathPattern: "/dashboard", toolSequence: ["navigate", "view_page", "click"], timestamp: 1000 });
-    const seqB = makePattern({ domain: "app.com", pathPattern: "/dashboard", toolSequence: ["navigate", "fill_form", "click"], timestamp: 2000 });
-
-    matcher.loadPatterns([seqA, seqB]);
-
-    const result = matcher.match("https://app.com/dashboard");
-    // Both patterns match — matchCount should reflect both
-    expect(result.matchCount).toBe(2);
-    // C4: installationCount = distinct domain+pathPattern (both share same, so 1)
-    expect(result.hints[0].installationCount).toBe(1);
-    // Hint should contain a toolSequence (the aggregated best one)
-    expect(result.hints[0].toolSequence.length).toBeGreaterThan(0);
-  });
-
-  it("installationCount counts distinct domain+pathPattern, not raw matches (C4)", () => {
-    // Two different pathPatterns on same domain
-    const patA = makePattern({ domain: "shop.com", pathPattern: "/products/:id", toolSequence: ["navigate", "view_page"] });
-    const patB = makePattern({ domain: "shop.com", pathPattern: "/products/:id", toolSequence: ["navigate", "click"] });
-    const patC = makePattern({ domain: "shop.com", pathPattern: "/products/:id", toolSequence: ["navigate", "view_page"] });
-
-    matcher.loadPatterns([patA, patB, patC]);
-
-    const result = matcher.match("https://shop.com/products/42");
-    // 3 raw matches but only 1 distinct domain+pathPattern
-    expect(result.matchCount).toBe(3);
-    expect(result.hints[0].installationCount).toBe(1);
-  });
-
-  // =========================================================================
-  // Invalid URL handling (graceful)
-  // =========================================================================
-
-  it("invalid URL is handled gracefully (no throw)", () => {
-    matcher.loadPatterns([makePattern()]);
-
-    // These should all return empty results, not throw
-    expect(matcher.match("not-a-url").matchCount).toBe(0);
-    expect(matcher.match("://broken").matchCount).toBe(0);
-    expect(matcher.match("ftp://example.com/file").matchCount).toBe(0);
-  });
-
-  // =========================================================================
-  // _pathPatternToRegex (static helper)
-  // =========================================================================
-
-  describe("_pathPatternToRegex", () => {
-    it("compiles exact path", () => {
-      const re = HintMatcher._pathPatternToRegex("/dashboard");
-      expect(re.test("/dashboard")).toBe(true);
-      expect(re.test("/other")).toBe(false);
+      const hint = result.hints[0];
+      expect(hint.pageType).toBe("login");
+      expect(hint.predictions.length).toBeGreaterThan(0);
+      expect(hint.predictions[0].tool).toBe("fill_form"); // Most frequent
+      expect(hint.predictions[0].probability).toBeGreaterThan(0);
     });
 
-    it("compiles root path", () => {
-      const re = HintMatcher._pathPatternToRegex("/");
-      expect(re.test("/")).toBe(true);
-      expect(re.test("/anything")).toBe(false);
+    it("returns EMPTY_RESULT for pageType 'unknown' (AC #3)", () => {
+      seedMarkov([makePattern()]);
+      const result = hintMatcher.matchByPageType("unknown");
+      expect(result.matchCount).toBe(0);
+      expect(result.hints).toHaveLength(0);
     });
 
-    it("compiles :id placeholder", () => {
-      const re = HintMatcher._pathPatternToRegex("/users/:id/profile");
-      expect(re.test("/users/42/profile")).toBe(true);
-      expect(re.test("/users/abc/profile")).toBe(false);
+    it("defaults lastTool to 'navigate' when not provided", () => {
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form"] }),
+      ]);
+
+      const result = hintMatcher.matchByPageType("login");
+      expect(result.matchCount).toBeGreaterThan(0);
+      expect(result.hints[0].predictions[0].tool).toBe("fill_form");
     });
 
-    it("compiles :uuid placeholder", () => {
-      const re = HintMatcher._pathPatternToRegex("/items/:uuid");
-      expect(re.test("/items/550e8400-e29b-41d4-a716-446655440000")).toBe(true);
-      expect(re.test("/items/12345")).toBe(false);
+    it("returns different predictions for different pageTypes", () => {
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["view_page", "fill_form"] }),
+        makePattern({ pageType: "data_table", toolSequence: ["view_page", "scroll"] }),
+      ]);
+
+      const loginResult = hintMatcher.matchByPageType("login", "view_page");
+      const tableResult = hintMatcher.matchByPageType("data_table", "view_page");
+
+      expect(loginResult.hints[0].predictions[0].tool).toBe("fill_form");
+      expect(tableResult.hints[0].predictions[0].tool).toBe("scroll");
     });
 
-    it("compiles :hash placeholder", () => {
-      const re = HintMatcher._pathPatternToRegex("/assets/:hash/img.png");
-      expect(re.test("/assets/a1b2c3d4e5f6a7b8/img.png")).toBe(true);
-      expect(re.test("/assets/abc/img.png")).toBe(false);
+    it("result contains pageType, not domain or pathPattern", () => {
+      seedMarkov([makePattern()]);
+      const result = hintMatcher.matchByPageType("login", "navigate");
+      const hint = result.hints[0];
+
+      expect(hint.pageType).toBe("login");
+      expect(hint).not.toHaveProperty("domain");
+      expect(hint).not.toHaveProperty("pathPattern");
+      expect(hint).not.toHaveProperty("successRate");
     });
 
-    it("handles empty/null path", () => {
-      const re = HintMatcher._pathPatternToRegex("");
-      expect(re.test("/")).toBe(true);
+    it("returns EMPTY_RESULT when no Markov data exists for the pageType", () => {
+      // markovTable is empty
+      const result = hintMatcher.matchByPageType("login", "navigate");
+      expect(result.matchCount).toBe(0);
+      expect(result.hints).toHaveLength(0);
     });
   });
 
   // =========================================================================
-  // Domain case insensitivity
+  // Deprecated match(url) (AC #4)
   // =========================================================================
 
-  it("domain matching is case-insensitive", () => {
-    matcher.loadPatterns([makePattern({ domain: "Example.COM" })]);
-    expect(matcher.match("https://example.com/dashboard").matchCount).toBe(1);
-    expect(matcher.match("https://EXAMPLE.COM/dashboard").matchCount).toBe(1);
+  describe("deprecated match(url)", () => {
+    it("match(url) returns EMPTY_RESULT always (domain index removed)", () => {
+      seedMarkov([makePattern()]);
+      const result = hintMatcher.match("https://example.com/login");
+      expect(result.matchCount).toBe(0);
+      expect(result.hints).toHaveLength(0);
+    });
+
+    it("match() does not throw on any input", () => {
+      expect(() => hintMatcher.match("")).not.toThrow();
+      expect(() => hintMatcher.match("not-a-url")).not.toThrow();
+      expect(() => hintMatcher.match("https://example.com")).not.toThrow();
+    });
   });
 
   // =========================================================================
-  // Story 12.4: patternCount getter
+  // patternCount (delegates to markovTable.size)
   // =========================================================================
 
-  it("patternCount returns 0 on empty index (Story 12.4)", () => {
-    expect(matcher.patternCount).toBe(0);
-  });
+  describe("patternCount", () => {
+    it("returns 0 on empty Markov table", () => {
+      expect(hintMatcher.patternCount).toBe(0);
+    });
 
-  it("patternCount returns correct count after loadPatterns (Story 12.4)", () => {
-    matcher.loadPatterns([
-      makePattern({ domain: "a.com", pathPattern: "/one" }),
-      makePattern({ domain: "a.com", pathPattern: "/two" }),
-      makePattern({ domain: "b.com", pathPattern: "/three" }),
-    ]);
-    expect(matcher.patternCount).toBe(3);
-  });
+    it("delegates to markovTable.size", () => {
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form", "click"] }),
+      ]);
+      // 2 transitions: navigate→fill_form, fill_form→click
+      expect(hintMatcher.patternCount).toBe(2);
+    });
 
-  it("patternCount updates after refresh via loadPatterns (Story 12.4)", () => {
-    matcher.loadPatterns([makePattern()]);
-    expect(matcher.patternCount).toBe(1);
+    it("updates after more patterns are ingested", () => {
+      seedMarkov([makePattern({ toolSequence: ["navigate", "fill_form"] })]);
+      expect(hintMatcher.patternCount).toBe(1);
 
-    // Reload with more patterns
-    matcher.loadPatterns([
-      makePattern({ pathPattern: "/a" }),
-      makePattern({ pathPattern: "/b" }),
-      makePattern({ pathPattern: "/c" }),
-      makePattern({ pathPattern: "/d" }),
-    ]);
-    expect(matcher.patternCount).toBe(4);
-
-    // Reload with empty → back to 0
-    matcher.loadPatterns([]);
-    expect(matcher.patternCount).toBe(0);
+      markovTable.ingest([makePattern({ toolSequence: ["navigate", "click", "view_page"] })]);
+      // navigate→fill_form + navigate→click + click→view_page = 3
+      expect(hintMatcher.patternCount).toBe(3);
+    });
   });
 
   // =========================================================================
-  // Story 12.4 C2: patternCount after refresh()
+  // refresh / refreshAsync
   // =========================================================================
 
-  it("patternCount returns correct value after refresh() loads from patternRecorder (Story 12.4 C2)", async () => {
-    const patterns = [
-      makePattern({ domain: "c2.com", pathPattern: "/alpha" }),
-      makePattern({ domain: "c2.com", pathPattern: "/beta" }),
-      makePattern({ domain: "c2.com", pathPattern: "/gamma" }),
-    ];
+  describe("refresh / refreshAsync", () => {
+    it("refreshAsync() delegates to markovTable.refreshFromStore()", async () => {
+      const spy = vi.spyOn(markovTable, "refreshFromStore").mockResolvedValue(undefined);
 
-    // Mock the dynamic import that refresh() uses internally
-    vi.doMock("./pattern-recorder.js", () => ({
-      patternRecorder: { emittedPatterns: patterns },
-    }));
+      await hintMatcher.refreshAsync();
 
-    // Fresh import so the mock is picked up by the dynamic import() chain
-    const { HintMatcher: FreshMatcher } = await import("./hint-matcher.js");
-    const freshMatcher = new FreshMatcher();
+      expect(spy).toHaveBeenCalledOnce();
+      spy.mockRestore();
+    });
 
-    // Before refresh: empty
-    expect(freshMatcher.patternCount).toBe(0);
+    it("refresh() is fire-and-forget (no throw)", () => {
+      const spy = vi.spyOn(markovTable, "refreshFromStore").mockRejectedValue(new Error("test"));
 
-    // Call refresh() (fire-and-forget internally), wait for the async settle
-    freshMatcher.refresh();
-    await new Promise((r) => setTimeout(r, 50));
+      expect(() => hintMatcher.refresh()).not.toThrow();
 
-    // After refresh: patternCount reflects the loaded patterns
-    expect(freshMatcher.patternCount).toBe(3);
+      spy.mockRestore();
+    });
 
-    vi.doUnmock("./pattern-recorder.js");
+    it("after refreshAsync with mock data, predictions are available", async () => {
+      // Mock refreshFromStore to ingest patterns
+      const spy = vi.spyOn(markovTable, "refreshFromStore").mockImplementation(async () => {
+        (markovTable as unknown as { _transitions: Map<string, unknown> })._transitions.clear();
+        markovTable.ingest([makePattern()]);
+      });
+
+      await hintMatcher.refreshAsync();
+
+      const result = hintMatcher.matchByPageType("login", "navigate");
+      expect(result.matchCount).toBeGreaterThan(0);
+
+      spy.mockRestore();
+    });
+  });
+
+  // =========================================================================
+  // CortexHint shape (AC #4)
+  // =========================================================================
+
+  describe("CortexHint shape", () => {
+    it("has pageType, predictions, toolSequence, installationCount", () => {
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form", "click"] }),
+      ]);
+
+      const result = hintMatcher.matchByPageType("login", "navigate");
+      const hint = result.hints[0];
+
+      expect(hint).toHaveProperty("pageType");
+      expect(hint).toHaveProperty("predictions");
+      expect(hint).toHaveProperty("toolSequence");
+      expect(hint).toHaveProperty("installationCount");
+    });
+
+    it("does NOT have domain, pathPattern, or successRate", () => {
+      seedMarkov([makePattern()]);
+      const hint = hintMatcher.matchByPageType("login", "navigate").hints[0];
+
+      expect(hint).not.toHaveProperty("domain");
+      expect(hint).not.toHaveProperty("pathPattern");
+      expect(hint).not.toHaveProperty("successRate");
+    });
+
+    it("predictions is Array of { tool: string; probability: number }", () => {
+      seedMarkov([makePattern()]);
+      const hint = hintMatcher.matchByPageType("login", "navigate").hints[0];
+
+      expect(Array.isArray(hint.predictions)).toBe(true);
+      for (const p of hint.predictions) {
+        expect(typeof p.tool).toBe("string");
+        expect(typeof p.probability).toBe("number");
+        expect(p.probability).toBeGreaterThanOrEqual(0);
+        expect(p.probability).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it("probabilities sum to approximately 1.0", () => {
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form", "click"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "view_page"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form"] }),
+      ]);
+
+      const hint = hintMatcher.matchByPageType("login", "navigate").hints[0];
+      const sum = hint.predictions.reduce((acc, p) => acc + p.probability, 0);
+      // Allow rounding tolerance
+      expect(sum).toBeGreaterThanOrEqual(0.95);
+      expect(sum).toBeLessThanOrEqual(1.05);
+    });
+
+    it("toolSequence contains at most 3 entries (top-N)", () => {
+      // Create a pattern with many different next tools from "navigate"
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "view_page"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "click"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "scroll"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "type"] }),
+      ]);
+
+      const hint = hintMatcher.matchByPageType("login", "navigate").hints[0];
+      expect(hint.toolSequence.length).toBeLessThanOrEqual(3);
+      // predictions has all entries
+      expect(hint.predictions.length).toBe(5);
+    });
+
+    it("installationCount equals number of transitions", () => {
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "view_page"] }),
+      ]);
+
+      const hint = hintMatcher.matchByPageType("login", "navigate").hints[0];
+      expect(hint.installationCount).toBe(2); // fill_form + view_page
+    });
+  });
+
+  // =========================================================================
+  // Integration with MarkovTable
+  // =========================================================================
+
+  describe("Integration with Markov table", () => {
+    it("MarkovTable with known patterns yields correct predictions", () => {
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form", "click"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form", "click"] }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form", "click"] }),
+      ]);
+
+      const result = hintMatcher.matchByPageType("login", "navigate");
+      expect(result.hints[0].predictions[0].tool).toBe("fill_form");
+      expect(result.hints[0].predictions[0].probability).toBe(1.0);
+    });
+
+    it("empty MarkovTable yields EMPTY_RESULT", () => {
+      const result = hintMatcher.matchByPageType("login", "navigate");
+      expect(result).toEqual({ hints: [], matchCount: 0 });
+    });
+
+    it("MarkovTable with decay reflects current weights", () => {
+      const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      seedMarkov([
+        makePattern({ pageType: "login", toolSequence: ["navigate", "fill_form"], timestamp: oneWeekAgo }),
+        makePattern({ pageType: "login", toolSequence: ["navigate", "click"], timestamp: Date.now() }),
+      ]);
+
+      // Apply decay — the old fill_form transition should have lower weight
+      markovTable.applyDecay();
+
+      const result = hintMatcher.matchByPageType("login", "navigate");
+      expect(result.hints[0].predictions.length).toBe(2);
+      // click should have higher probability since fill_form is decayed
+      const clickPred = result.hints[0].predictions.find((p) => p.tool === "click");
+      const formPred = result.hints[0].predictions.find((p) => p.tool === "fill_form");
+      expect(clickPred!.probability).toBeGreaterThan(formPred!.probability);
+    });
+  });
+
+  // =========================================================================
+  // Edge cases
+  // =========================================================================
+
+  describe("edge cases", () => {
+    it("empty pageType returns EMPTY_RESULT", () => {
+      seedMarkov([makePattern()]);
+      const result = hintMatcher.matchByPageType("");
+      expect(result.matchCount).toBe(0);
+    });
+
+    it("null/undefined-like parameters degrade gracefully", () => {
+      seedMarkov([makePattern()]);
+      expect(hintMatcher.matchByPageType(null as unknown as string)).toEqual(EMPTY_RESULT());
+      expect(hintMatcher.matchByPageType(undefined as unknown as string)).toEqual(EMPTY_RESULT());
+    });
+
+    it("very many predictions — all returned in predictions, toolSequence capped at 3", () => {
+      // Ingest patterns that create many unique transitions from navigate
+      const patterns: CortexPattern[] = [];
+      for (let i = 0; i < 10; i++) {
+        patterns.push(makePattern({
+          pageType: "form",
+          toolSequence: ["navigate", `tool_${i}`],
+        }));
+      }
+      seedMarkov(patterns);
+
+      const result = hintMatcher.matchByPageType("form", "navigate");
+      expect(result.hints[0].predictions.length).toBe(10);
+      expect(result.hints[0].toolSequence.length).toBe(3);
+    });
   });
 
   // =========================================================================
   // Singleton export
   // =========================================================================
 
-  it("hintMatcher singleton is exported", () => {
-    expect(hintMatcher).toBeInstanceOf(HintMatcher);
+  it("hintMatcher singleton is exported", async () => {
+    const mod = await import("./hint-matcher.js");
+    expect(mod.hintMatcher).toBeInstanceOf(mod.HintMatcher);
   });
 });
+
+/** Helper to create EMPTY_RESULT for comparison. */
+function EMPTY_RESULT() {
+  return { hints: [], matchCount: 0 };
+}

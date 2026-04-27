@@ -121,22 +121,24 @@ export interface LocalStoreOptions {
 }
 
 /**
- * Story 12.3: Cortex Hint Types.
+ * Story 12a.4: Cortex Hint Types (PageType-based).
  *
- * A hint derived from recorded patterns, delivered to the LLM agent
- * via `_meta.cortex` in navigate/view_page responses.
+ * A hint derived from Markov transition predictions, delivered to the
+ * LLM agent via `_meta.cortex` in navigate/view_page responses.
+ *
+ * Story 12a.4: Replaced domain/pathPattern/successRate with pageType
+ * and predictions (Markov-based). toolSequence kept for backward
+ * compatibility (top-3 predicted tools in descending probability).
  */
 export interface CortexHint {
-  /** Recommended tool call sequence (e.g. ["navigate", "view_page", "click"]). */
+  /** Page type classification (e.g. "login", "data_table"). */
+  pageType: string;
+  /** Markov-based predictions: next tool with normalised probability (0-1). */
+  predictions: Array<{ tool: string; probability: number }>;
+  /** Top-3 predicted tools in descending probability (backward compat). */
   toolSequence: string[];
-  /** Fraction of patterns that succeeded (0-1). Phase 1: always 1.0. */
-  successRate: number;
-  /** Number of distinct patterns aggregated (Phase 1: local count). */
+  /** Number of aggregated transitions (Phase 1: local count). */
   installationCount: number;
-  /** Normalised path pattern that matched (e.g. "/users/:id/profile"). */
-  pathPattern: string;
-  /** Domain the pattern was observed on (e.g. "dashboard.example.com"). */
-  domain: string;
 }
 
 /**
@@ -204,3 +206,47 @@ export const MAX_SEQUENCE_LENGTH = 20;
  * sequence. Events older than this are ignored during pattern detection.
  */
 export const SEQUENCE_TIMEOUT_MS = 60_000;
+
+// ─── Story 12a.3: Markov Transition Table Types ─────────────────────
+
+/**
+ * A single transition entry in the Markov table.
+ *
+ * `weight` is the current (possibly decay-adjusted) weighting,
+ * `count` is the absolute observation frequency (never changed by decay),
+ * `lastSeen` is the Unix timestamp (ms) of the most recent observation.
+ */
+export interface MarkovTransition {
+  /** Tool name that this transition leads to. */
+  tool: string;
+  /** Current weight (decay-adjusted). */
+  weight: number;
+  /** Absolute observation count (unaffected by decay). */
+  count: number;
+  /** Unix timestamp (ms) of the last observation. */
+  lastSeen: number;
+}
+
+/**
+ * JSON export format for community bundles (~10KB).
+ *
+ * Three-level nested object: pageType → lastTool → nextTool → weight.
+ * Only normalised weights (0-1), no count or lastSeen — this is the
+ * format distributed via OCI in Epic 13.
+ */
+export interface MarkovTableJSON {
+  [pageType: string]: {
+    [lastTool: string]: {
+      [nextTool: string]: number;
+    };
+  };
+}
+
+/** ACO decay factor per week (weight multiplier). */
+export const MARKOV_DECAY_FACTOR = 0.95;
+
+/** Decay interval: 1 week in milliseconds. */
+export const MARKOV_DECAY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Maximum age: entries older than 30 days are removed entirely. */
+export const MARKOV_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
