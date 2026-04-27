@@ -1,0 +1,65 @@
+/**
+ * Story 12.1: Cortex Type Definitions.
+ *
+ * Defines the core data structures for the Cortex subsystem's pattern
+ * recording. These types are consumed by `PatternRecorder` (this story)
+ * and will later be persisted by the Merkle Log (Story 12.2).
+ *
+ * Privacy (NFR21): Patterns contain ONLY domain, normalised path-pattern,
+ * tool sequence, outcome, content-hash, and timestamp. No full URLs, no
+ * query parameters, no auth tokens, no page content. The content-hash is
+ * a truncated SHA-256 — not reversible.
+ */
+
+/**
+ * A recorded successful tool-interaction pattern.
+ *
+ * Represents a sequence of tool calls that achieved a successful outcome
+ * on a specific domain/path combination. Used by the Cortex to learn
+ * from repeated interactions.
+ */
+export interface CortexPattern {
+  /** The domain where the pattern was observed (e.g. "example.com"). */
+  domain: string;
+  /** Normalised URL path with IDs replaced by placeholders (e.g. "/users/:id/profile"). */
+  pathPattern: string;
+  /** Ordered list of tool names that formed the successful sequence. */
+  toolSequence: string[];
+  /** Outcome of the sequence — only successful sequences are recorded. */
+  outcome: "success";
+  /** Truncated SHA-256 hash (16 hex chars) of the response content. */
+  contentHash: string;
+  /** Unix timestamp (ms) when the pattern was emitted. */
+  timestamp: number;
+}
+
+/**
+ * Internal buffer entry for tracking individual tool-call events.
+ *
+ * The `PatternRecorder` maintains a ring-buffer of these events and
+ * checks after each new event whether a recordable sequence has formed.
+ */
+export interface ToolCallEvent {
+  /** Name of the tool that was called (e.g. "navigate", "click"). */
+  toolName: string;
+  /** Unix timestamp (ms) when the event was recorded. */
+  timestamp: number;
+  /** Domain extracted from the current page URL. */
+  domain: string;
+  /** Path extracted from the current page URL. */
+  path: string;
+  /** Truncated SHA-256 hash (16 hex chars) of the tool response content. */
+  contentHash: string;
+}
+
+/** Minimum number of tools in a sequence to be considered recordable. */
+export const MIN_SEQUENCE_LENGTH = 2;
+
+/** Maximum number of tools in a single recorded sequence. */
+export const MAX_SEQUENCE_LENGTH = 20;
+
+/**
+ * Time window (ms) within which all events must fall to form a valid
+ * sequence. Events older than this are ignored during pattern detection.
+ */
+export const SEQUENCE_TIMEOUT_MS = 60_000;

@@ -55,6 +55,7 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
 import { deferredDiffSlot } from "../cache/deferred-diff-slot.js";
 import { debug } from "../cdp/debug.js";
+import { patternRecorder, PatternRecorder } from "../cortex/pattern-recorder.js";
 
 const DEFAULT_INITIAL_WAIT_MS = 350;
 const DEFAULT_RETRY_WAIT_MS = 500;
@@ -194,64 +195,124 @@ export function createDefaultOnToolResult(): OnToolResult {
       //            speculative prefetch instead (Story 18.5) to warm the cache
       //            for the next view_page call.
 
+      // --- DOM-Diff scope gate ---
       const DIFF_TOOLS = new Set(["click", "type", "fill_form"]);
-      if (!DIFF_TOOLS.has(toolName)) return result;
+      const needsDiff = DIFF_TOOLS.has(toolName);
 
-      // For click: only diff when the element was actually interactive.
-      // type/fill_form always target input elements, so no class check needed.
-      if (toolName === "click") {
+      let skipDiff = !needsDiff;
+      if (needsDiff && toolName === "click") {
+        // For click: only diff when the element was actually interactive.
+        // type/fill_form always target input elements, so no class check needed.
         const cls = (
           result as ToolResponse & { _meta?: { elementClass?: string } }
         )._meta?.elementClass;
-        if (cls !== "clickable" && cls !== "widget-state") return result;
+        if (cls !== "clickable" && cls !== "widget-state") skipDiff = true;
       }
 
-      // --- Synchronous vs. deferred diff ---
-      //
-      // type/fill_form: ALWAYS synchronous (+350ms inline wait).
-      //   The LLM types into a search field and ALWAYS needs to see the
-      //   result (autocomplete suggestions, filtered table rows, validation
-      //   messages). Deferred saves 350ms on the type response but forces
-      //   the LLM to make a follow-up view_page call (~2-3s round-trip)
-      //   just to see what happened. Net effect: deferred is slower, not
-      //   faster. One richer type response beats two lean calls.
-      //
-      // click: Deferred by default (LLM sees "Clicked eX" immediately,
-      //   diff piggybacks on the next tool call). Clicks are often chained
-      //   (click tab → click row → click button) so the 350ms saving per
-      //   click compounds. The LLM doesn't always need the diff before its
-      //   next action. Exception: `wait_for_diff: true` or `runAggregationHook`
-      //   (plan-executor end-of-plan) force the synchronous path via
-      //   `_meta.syncDiff`.
-      const syncDiff = (result as ToolResponse & { _meta?: { syncDiff?: boolean } })._meta?.syncDiff === true;
-      const useSyncPath = syncDiff || toolName === "type" || toolName === "fill_form";
+      if (!skipDiff) {
+        // --- Synchronous vs. deferred diff ---
+        //
+        // type/fill_form: ALWAYS synchronous (+350ms inline wait).
+        //   The LLM types into a search field and ALWAYS needs to see the
+        //   result (autocomplete suggestions, filtered table rows, validation
+        //   messages). Deferred saves 350ms on the type response but forces
+        //   the LLM to make a follow-up view_page call (~2-3s round-trip)
+        //   just to see what happened. Net effect: deferred is slower, not
+        //   faster. One richer type response beats two lean calls.
+        //
+        // click: Deferred by default (LLM sees "Clicked eX" immediately,
+        //   diff piggybacks on the next tool call). Clicks are often chained
+        //   (click tab → click row → click button) so the 350ms saving per
+        //   click compounds. The LLM doesn't always need the diff before its
+        //   next action. Exception: `wait_for_diff: true` or `runAggregationHook`
+        //   (plan-executor end-of-plan) force the synchronous path via
+        //   `_meta.syncDiff`.
+        const syncDiff = (result as ToolResponse & { _meta?: { syncDiff?: boolean } })._meta?.syncDiff === true;
+        const useSyncPath = syncDiff || toolName === "type" || toolName === "fill_form";
 
-      // Stage 1: Snapshot BEFORE (synchronous, 0ms — from current cache).
-      const before = context.a11yTree.getSnapshotMap();
+        // Stage 1: Snapshot BEFORE (synchronous, 0ms — from current cache).
+        const before = context.a11yTree.getSnapshotMap();
 
-      if (useSyncPath) {
-        // --- Synchronous path ---
-        const diffText = await computeDiff(before, context, initialWaitMs, retryWaitMs);
-        if (diffText) {
-          result.content.push({ type: "text", text: diffText });
+        if (useSyncPath) {
+          // --- Synchronous path ---
+          const diffText = await computeDiff(before, context, initialWaitMs, retryWaitMs);
+          if (diffText) {
+            result.content.push({ type: "text", text: diffText });
+          }
+        } else {
+          // --- Deferred path (click default) ---
+          // Schedule a background diff job. The click response returns immediately.
+          void deferredDiffSlot
+            .schedule(async (signal: AbortSignal) => {
+              return computeDiff(before, context, initialWaitMs, retryWaitMs, signal);
+            })
+            .catch((err: unknown) => {
+              // Defense-in-depth: DeferredDiffSlot absorbs errors internally.
+              if (err instanceof Error && err.name === "AbortError") return;
+              debug(
+                "DeferredDiffSlot schedule leaked an error: %s",
+                err instanceof Error ? err.message : String(err),
+              );
+            });
         }
-        return result;
       }
 
-      // --- Deferred path (click default) ---
-      // Schedule a background diff job. The click response returns immediately.
-      void deferredDiffSlot
-        .schedule(async (signal: AbortSignal) => {
-          return computeDiff(before, context, initialWaitMs, retryWaitMs, signal);
-        })
-        .catch((err: unknown) => {
-          // Defense-in-depth: DeferredDiffSlot absorbs errors internally.
-          if (err instanceof Error && err.name === "AbortError") return;
-          debug(
-            "DeferredDiffSlot schedule leaked an error: %s",
-            err instanceof Error ? err.message : String(err),
+      // --- Story 12.1: Pattern Recording (Cortex Phase 1) ---
+      //
+      // Record every successful tool call for the Cortex pattern recorder.
+      // The recorder is a passive observer — it reads the response content
+      // and buffers events internally. It NEVER modifies the tool response.
+      //
+      // URL extraction strategy:
+      //  - For `navigate`: `a11yTree.reset()` runs BEFORE this hook (registry.ts
+      //    line 793-794), so `context.a11yTree.currentUrl` is empty. Instead,
+      //    extract the URL from the navigate response text (the handler writes
+      //    "Navigated to https://..." into the first text block).
+      //  - For all other tools: use `context.a11yTree.currentUrl` as normal.
+      //
+      // Session-scoped: the sessionId from context is passed through so the
+      // recorder maintains separate buffers per session (parallel tabs).
+      try {
+        let url: URL | null = null;
+
+        if (toolName === "navigate") {
+          // Navigate: extract URL from response text (currentUrl is empty after reset)
+          const firstText = result.content.find(
+            (block): block is { type: "text"; text: string } => block.type === "text",
           );
-        });
+          if (firstText) {
+            url = PatternRecorder.extractUrlFromResponse(firstText.text);
+          }
+        } else {
+          // All other tools: use the live currentUrl
+          const currentUrl = context.a11yTree.currentUrl;
+          if (currentUrl) {
+            try {
+              url = new URL(currentUrl);
+            } catch {
+              // Malformed URL — skip recording
+            }
+          }
+        }
+
+        if (url) {
+          const domain = url.hostname;
+          const path = url.pathname;
+
+          // Compute content hash from text content blocks
+          const textContent = result.content
+            .filter((block): block is { type: "text"; text: string } => block.type === "text")
+            .map((block) => block.text)
+            .join("\n");
+          const contentHash = PatternRecorder.computeContentHash(textContent);
+
+          patternRecorder.record(toolName, domain, path, contentHash, context.sessionId);
+        }
+      } catch (recordErr) {
+        // Pattern recording must NEVER disrupt the tool response.
+        debug("[default-on-tool-result] pattern recording threw: %s",
+          recordErr instanceof Error ? recordErr.message : String(recordErr));
+      }
 
       return result;
     } catch (err) {
