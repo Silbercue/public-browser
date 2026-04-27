@@ -317,6 +317,28 @@ Measured on the 35-test benchmark (2026-04-09): Public Browser's `view_page` ave
 
 See [`test-hardest/BENCHMARK-PROTOCOL.md`](test-hardest/BENCHMARK-PROTOCOL.md) for the full protocol, per-test breakdown, and raw JSON runs with `tool_efficiency` blocks.
 
+## Cortex — Self-Learning Pattern Engine
+
+Public Browser includes a lightweight learning layer called **Cortex**. It observes which tool sequences work on different page types and feeds that knowledge back as hints to the LLM agent. No ML model, no training step — just deterministic pattern recording and Markov-chain predictions.
+
+### How it works
+
+1. **Page Classification** — Every page is classified by its accessibility tree into one of 16 functional types: `login`, `signup`, `mfa`, `search_form`, `search_results`, `data_table`, `form_simple`, `form_wizard`, `article`, `navigation`, `dashboard`, `settings`, `media`, `checkout`, `profile`, `error`. The classifier is rule-based (ARIA roles, landmarks, keyword signals) — no domains or URLs are involved.
+
+2. **Pattern Recording** — Successful tool-call sequences (e.g. `navigate → view_page → fill_form → click` on a `login` page) are recorded into a local append-only Merkle log (`~/.public-browser/patterns.jsonl`). Only page type, tool names, a content hash, and a timestamp are stored — no URLs, no page content, no PII.
+
+3. **Markov Predictions** — Recorded patterns are ingested into a first-order Markov table that models `P(next_tool | last_tool, page_type)`. When the agent lands on a page, the Cortex returns the most likely next tools with probabilities. Stale entries decay automatically (0.95/week, removed after 30 days).
+
+4. **Community Markov Table** — A hand-curated transition table (`community-markov.json`) ships with every installation. It contains baseline probabilities for common page types so that new installations benefit from community knowledge immediately, without needing local history. The table is SHA-256 verified at load time and merged with local patterns (local data takes precedence).
+
+### Privacy by design
+
+The Cortex stores and transmits only structural metadata — page types (not domains), tool names (not arguments), and content hashes (not content). A `login` pattern reveals nothing about *which* login page was visited. The telemetry payload is built via explicit field allowlist (no spread operator), preventing accidental leakage of future fields.
+
+### Opt-in telemetry
+
+Telemetry is **disabled by default**. To contribute your anonymised patterns back to the community table, set `PUBLIC_BROWSER_TELEMETRY=1`. Uploads go via HTTPS only; non-HTTPS endpoints are rejected. Each pattern is rate-limited to prevent duplicate uploads.
+
 ## Architecture
 
 ```
@@ -329,6 +351,13 @@ Public Browser (Node.js MCP server, public-browser)
 +-- A11y-tree cache + Selector cache
 +-- Session Manager (OOPIF support for iframes and Shadow DOM)
 +-- Tab State Cache (URL/title/ready across tabs)
++-- Cortex (self-learning pattern engine)
+|   +-- Page Classifier (16 page types from a11y-tree)
+|   +-- Pattern Recorder + Merkle Log (local persistence)
+|   +-- Markov Table (transition predictions)
+|   +-- Community Table (shipped baseline, SHA-256 verified)
+|   +-- Hint Matcher (delivers predictions to tool responses)
+|   +-- Telemetry Upload (opt-in, HTTPS, rate-limited)
 +-- Script API (Python, pip install publicbrowser)
 |   +-- Shared Core via HTTP (:9223) — same tool handlers as MCP
 |   +-- Escape Hatch via WebSocket (:9222) — direct CDP for power users
@@ -353,6 +382,8 @@ Connection priority:
 | `SILBERCUE_CHROME_HEADLESS` | `true` / `false` | `false` | Opt-in headless mode for CI/server environments |
 | `SILBERCUE_CHROME_PROFILE` | path | — | Chrome user profile directory (auto-launch only) |
 | `CHROME_PATH` | path | — | Path to Chrome binary (overrides auto-detection) |
+| `PUBLIC_BROWSER_TELEMETRY` | `1` / `true` | — (disabled) | Opt-in: upload anonymised Cortex patterns to the community endpoint |
+| `PUBLIC_BROWSER_TELEMETRY_ENDPOINT` | URL | `https://cortex.public-browser.dev/v1/patterns` | Override the telemetry collection endpoint (must be HTTPS) |
 
 ## Known Issues
 
@@ -374,7 +405,7 @@ Issues and pull requests welcome at [github.com/Silbercue/public-browser](https:
 
 ## Privacy
 
-Public Browser runs entirely on your machine. All browser automation happens locally via CDP. No telemetry, no remote calls, no data sent to any third party.
+Public Browser runs entirely on your machine. All browser automation happens locally via CDP. The Cortex learning layer stores only structural metadata locally (page types, tool names, content hashes — no URLs, no domains, no page content, no PII). Telemetry is **off by default**. If you opt in via `PUBLIC_BROWSER_TELEMETRY=1`, only the same structural metadata is uploaded via HTTPS — the payload is built from an explicit field allowlist to prevent accidental leakage.
 
 ## Links
 
