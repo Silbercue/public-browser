@@ -109,6 +109,35 @@ export interface LocalStoreOptions {
   dataDir?: string;
 }
 
+/**
+ * Story 12.3: Cortex Hint Types.
+ *
+ * A hint derived from recorded patterns, delivered to the LLM agent
+ * via `_meta.cortex` in navigate/view_page responses.
+ */
+export interface CortexHint {
+  /** Recommended tool call sequence (e.g. ["navigate", "view_page", "click"]). */
+  toolSequence: string[];
+  /** Fraction of patterns that succeeded (0-1). Phase 1: always 1.0. */
+  successRate: number;
+  /** Number of distinct patterns aggregated (Phase 1: local count). */
+  installationCount: number;
+  /** Normalised path pattern that matched (e.g. "/users/:id/profile"). */
+  pathPattern: string;
+  /** Domain the pattern was observed on (e.g. "dashboard.example.com"). */
+  domain: string;
+}
+
+/**
+ * Container for hint-matcher results.
+ */
+export interface HintMatchResult {
+  /** Matched hints (empty array if no match). */
+  hints: CortexHint[];
+  /** Number of patterns that matched (0 if none). */
+  matchCount: number;
+}
+
 /** Minimum number of tools in a sequence to be considered recordable. */
 export const MIN_SEQUENCE_LENGTH = 2;
 

@@ -12,6 +12,8 @@ import type {
   MerkleInclusionProof,
   SignedTreeHead,
   LocalStoreOptions,
+  CortexHint,
+  HintMatchResult,
 } from "./cortex-types.js";
 import {
   MIN_SEQUENCE_LENGTH,
@@ -146,6 +148,68 @@ describe("cortex-types (Story 12.1)", () => {
     it("accepts a custom dataDir", () => {
       const opts: LocalStoreOptions = { dataDir: "/tmp/cortex-test" };
       expect(opts.dataDir).toBe("/tmp/cortex-test");
+    });
+  });
+
+  // ==========================================================================
+  // Story 12.3: Cortex Hint Type Shapes
+  // ==========================================================================
+
+  describe("CortexHint shape (Story 12.3)", () => {
+    it("has all required fields with correct types", () => {
+      const hint: CortexHint = {
+        toolSequence: ["navigate", "view_page", "click", "wait_for"],
+        successRate: 1.0,
+        installationCount: 3,
+        pathPattern: "/users/:id/profile",
+        domain: "dashboard.example.com",
+      };
+
+      expect(hint.toolSequence).toEqual(["navigate", "view_page", "click", "wait_for"]);
+      expect(hint.successRate).toBe(1.0);
+      expect(hint.installationCount).toBe(3);
+      expect(hint.pathPattern).toBe("/users/:id/profile");
+      expect(hint.domain).toBe("dashboard.example.com");
+    });
+
+    it("successRate is between 0 and 1", () => {
+      const hint: CortexHint = {
+        toolSequence: ["navigate", "view_page"],
+        successRate: 0.75,
+        installationCount: 4,
+        pathPattern: "/",
+        domain: "example.com",
+      };
+      expect(hint.successRate).toBeGreaterThanOrEqual(0);
+      expect(hint.successRate).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe("HintMatchResult shape (Story 12.3)", () => {
+    it("has hints array and matchCount", () => {
+      const result: HintMatchResult = {
+        hints: [{
+          toolSequence: ["navigate", "view_page"],
+          successRate: 1.0,
+          installationCount: 1,
+          pathPattern: "/dashboard",
+          domain: "example.com",
+        }],
+        matchCount: 1,
+      };
+
+      expect(result.hints).toHaveLength(1);
+      expect(result.matchCount).toBe(1);
+    });
+
+    it("empty result has empty hints and zero matchCount", () => {
+      const result: HintMatchResult = {
+        hints: [],
+        matchCount: 0,
+      };
+
+      expect(result.hints).toHaveLength(0);
+      expect(result.matchCount).toBe(0);
     });
   });
 

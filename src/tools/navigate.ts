@@ -5,6 +5,8 @@ import { settle } from "../cdp/settle.js";
 import type { SettleResult } from "../cdp/settle.js";
 import { wrapCdpError } from "./error-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
+import { hintMatcher } from "../cortex/hint-matcher.js";
+import { debug } from "../cdp/debug.js";
 
 export const navigateSchema = z.object({
   url: z.string().optional().describe("URL to navigate to (required for goto action)"),
@@ -265,8 +267,28 @@ async function buildSuccessResponse(
 
   toolSequence.record("navigate", undefined, sessionId);
 
+  // Story 12.3: Cortex hint injection — append hint to response if pattern matches.
+  // Wrapped in try/catch: must NEVER break the navigate response.
+  let cortexMeta: Record<string, unknown> | undefined;
+  try {
+    const hintResult = hintMatcher.match(finalUrl);
+    if (hintResult.matchCount > 0) {
+      cortexMeta = { hints: hintResult.hints, matchCount: hintResult.matchCount };
+      const seq = hintResult.hints[0].toolSequence.join(" → ");
+      text += `\nCortex: ${hintResult.matchCount} pattern(s) suggest: [${seq}]`;
+    }
+  } catch (err) {
+    debug("[cortex-hint] navigate error: %s", err instanceof Error ? err.message : String(err));
+  }
+
   return {
     content: [{ type: "text", text }],
-    _meta: { elapsedMs, method, settled: settleResult.settled, settleSignal: settleResult.signal },
+    _meta: {
+      elapsedMs,
+      method,
+      settled: settleResult.settled,
+      settleSignal: settleResult.signal,
+      ...(cortexMeta ? { cortex: cortexMeta } : {}),
+    },
   };
 }

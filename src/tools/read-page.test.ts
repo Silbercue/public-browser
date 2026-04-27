@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readPageSchema, readPageHandler } from "./read-page.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import type { AXNode } from "../cache/a11y-tree.js";
+import { hintMatcher } from "../cortex/hint-matcher.js";
+import type { CortexPattern } from "../cortex/cortex-types.js";
 
 function makeDomSnapshot(elements: Array<{
   backendNodeId: number;
@@ -1066,6 +1068,55 @@ describe("readPageHandler", () => {
       const warningLine = text.split("\n").find(l => l.startsWith("⚠ Truncated"));
       expect(warningLine).toBeDefined();
       expect(warningLine!).not.toMatch(/screenshot/i);
+    });
+  });
+
+  // ===========================================================================
+  // Story 12.3: Cortex hint injection in view_page response (Task 7.4)
+  // ===========================================================================
+
+  describe("Cortex hint injection (Story 12.3)", () => {
+    afterEach(() => {
+      hintMatcher.loadPatterns([]);
+    });
+
+    it("view_page response contains _meta.cortex when pattern exists (AC #1, Task 7.4)", async () => {
+      a11yTree.reset();
+      const pattern: CortexPattern = {
+        domain: "example.com",
+        pathPattern: "/dashboard",
+        toolSequence: ["navigate", "view_page", "click", "wait_for"],
+        outcome: "success",
+        contentHash: "a1b2c3d4e5f6a7b8",
+        timestamp: Date.now(),
+      };
+      hintMatcher.loadPatterns([pattern]);
+
+      const cdp = mockCdpClient(sampleNodes, "https://example.com/dashboard");
+      const result = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+
+      expect(result.isError).toBeUndefined();
+
+      // Check _meta.cortex
+      const cortex = result._meta?.cortex as { hints: unknown[]; matchCount: number } | undefined;
+      expect(cortex).toBeDefined();
+      expect(cortex!.matchCount).toBe(1);
+      expect(cortex!.hints).toHaveLength(1);
+
+      // Check text hint
+      expect(result.content[0].text).toContain("Cortex: 1 pattern(s) suggest: [navigate → view_page → click → wait_for]");
+    });
+
+    it("view_page response has NO _meta.cortex when no pattern exists (AC #2)", async () => {
+      a11yTree.reset();
+      hintMatcher.loadPatterns([]);
+
+      const cdp = mockCdpClient(sampleNodes, "https://nomatch.com/page");
+      const result = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(result._meta?.cortex).toBeUndefined();
+      expect(result.content[0].text).not.toContain("Cortex:");
     });
   });
 });

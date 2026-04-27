@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { navigateHandler, navigateSchema } from "./navigate.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
+import { hintMatcher } from "../cortex/hint-matcher.js";
+import type { CortexPattern } from "../cortex/cortex-types.js";
 
 type EventCallback = (params: unknown, sessionId?: string) => void;
 
@@ -369,5 +371,106 @@ describe("navigateHandler", () => {
     expect(result.content[0].text).toContain("http://localhost:8080/hakuna-matte/");
     expect(result.content[0].text).toContain("refs are stale");
     expect(result._meta?.settled).toBe(true);
+  });
+
+  // ===========================================================================
+  // Story 12.3: Cortex hint injection in navigate response
+  // ===========================================================================
+
+  describe("Cortex hint injection (Story 12.3)", () => {
+    afterEach(() => {
+      // Reset hintMatcher to empty state after each test
+      hintMatcher.loadPatterns([]);
+    });
+
+    it("navigate response contains _meta.cortex when pattern exists (AC #1, Task 7.2)", async () => {
+      const pattern: CortexPattern = {
+        domain: "example.com",
+        pathPattern: "/dashboard",
+        toolSequence: ["navigate", "view_page", "click"],
+        outcome: "success",
+        contentHash: "a1b2c3d4e5f6a7b8",
+        timestamp: Date.now(),
+      };
+      hintMatcher.loadPatterns([pattern]);
+
+      const { cdpClient, emitLifecycle } = createMockCdp({
+        "Page.navigate": { frameId: "f1", loaderId: "l1" },
+      });
+
+      let evalCount = 0;
+      (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "Page.navigate") return { frameId: "f1", loaderId: "l1" };
+        if (method === "Runtime.evaluate") {
+          if (params?.awaitPromise === false) return {};
+          evalCount++;
+          if (evalCount === 1) return { result: { value: "https://example.com/dashboard" } };
+          return { result: { value: "Dashboard" } };
+        }
+        return {};
+      });
+
+      const promise = navigateHandler(
+        { url: "https://example.com/dashboard", action: "goto" },
+        cdpClient,
+        "s1",
+      );
+
+      await vi.advanceTimersByTimeAsync(10);
+      emitLifecycle({ frameId: "f1", loaderId: "l1", name: "networkIdle", timestamp: 1 });
+      await vi.advanceTimersByTimeAsync(500);
+
+      const result = await promise;
+      expect(result.isError).toBeUndefined();
+
+      // Check _meta.cortex
+      const cortex = result._meta?.cortex as { hints: unknown[]; matchCount: number } | undefined;
+      expect(cortex).toBeDefined();
+      expect(cortex!.matchCount).toBe(1);
+      expect(cortex!.hints).toHaveLength(1);
+
+      // Check text hint
+      expect(result.content[0].text).toContain("Cortex: 1 pattern(s) suggest: [navigate → view_page → click]");
+    });
+
+    it("navigate response has NO _meta.cortex when no pattern exists (AC #2, Task 7.3)", async () => {
+      // hintMatcher is empty (no patterns loaded)
+      hintMatcher.loadPatterns([]);
+
+      const { cdpClient, emitLifecycle } = createMockCdp({
+        "Page.navigate": { frameId: "f1", loaderId: "l1" },
+      });
+
+      let evalCount = 0;
+      (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "Page.navigate") return { frameId: "f1", loaderId: "l1" };
+        if (method === "Runtime.evaluate") {
+          if (params?.awaitPromise === false) return {};
+          evalCount++;
+          if (evalCount === 1) return { result: { value: "https://nomatch.com/page" } };
+          return { result: { value: "No Match Page" } };
+        }
+        return {};
+      });
+
+      const promise = navigateHandler(
+        { url: "https://nomatch.com/page", action: "goto" },
+        cdpClient,
+        "s1",
+      );
+
+      await vi.advanceTimersByTimeAsync(10);
+      emitLifecycle({ frameId: "f1", loaderId: "l1", name: "networkIdle", timestamp: 1 });
+      await vi.advanceTimersByTimeAsync(500);
+
+      const result = await promise;
+      expect(result.isError).toBeUndefined();
+
+      // No cortex in _meta
+      expect(result._meta?.cortex).toBeUndefined();
+
+      // No cortex text in response
+      expect(result.content[0].text).not.toContain("Cortex:");
+    });
   });
 });

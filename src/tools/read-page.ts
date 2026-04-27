@@ -5,6 +5,8 @@ import type { ToolResponse } from "../types.js";
 import { a11yTree, RefNotFoundError } from "../cache/a11y-tree.js";
 import { wrapCdpError } from "./error-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
+import { hintMatcher } from "../cortex/hint-matcher.js";
+import { debug } from "../cdp/debug.js";
 
 export const readPageSchema = z.object({
   depth: z.number().optional().default(3).describe("Nesting depth — how many tree levels to display (default: 3). Controls indentation, not visibility. Hidden sections (display: none) require clicking tabs/buttons to reveal."),
@@ -97,6 +99,24 @@ export async function readPageHandler(
     // (evaluate → oops → read_page → click) never triggers the nudge.
     toolSequence.record("view_page", undefined, sessionId);
 
+    // Story 12.3: Cortex hint injection — append hint to response if pattern matches.
+    // URL from a11yTree result (pageUrl is always populated for view_page).
+    // Wrapped in try/catch: must NEVER break the view_page response.
+    let cortexMeta: Record<string, unknown> | undefined;
+    try {
+      const currentUrl = result.pageUrl;
+      if (currentUrl) {
+        const hintResult = hintMatcher.match(currentUrl);
+        if (hintResult.matchCount > 0) {
+          cortexMeta = { hints: hintResult.hints, matchCount: hintResult.matchCount };
+          const seq = hintResult.hints[0].toolSequence.join(" → ");
+          responseText += `\nCortex: ${hintResult.matchCount} pattern(s) suggest: [${seq}]`;
+        }
+      }
+    } catch (err) {
+      debug("[cortex-hint] view_page error: %s", err instanceof Error ? err.message : String(err));
+    }
+
     return {
       content: [{ type: "text", text: responseText }],
       _meta: {
@@ -112,6 +132,7 @@ export async function readPageHandler(
           originalTokens: result.originalTokens,
           downsampleLevel: result.downsampleLevel,
         } : {}),
+        ...(cortexMeta ? { cortex: cortexMeta } : {}),
       },
     };
   } catch (err) {

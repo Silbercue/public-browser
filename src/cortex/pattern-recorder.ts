@@ -204,6 +204,19 @@ export class PatternRecorder {
         );
       });
     }
+
+    // Story 12.3: Refresh the hint-matcher index after a new pattern is emitted.
+    // Dynamic import to break circular dependency (hint-matcher imports
+    // patternRecorder.emittedPatterns; pattern-recorder needs to refresh
+    // hint-matcher). Fire-and-forget — errors are debug-logged.
+    import("./hint-matcher.js")
+      .then((m) => m.hintMatcher.refresh())
+      .catch((err: unknown) => {
+        debug(
+          "[pattern-recorder] hintMatcher refresh failed: %s",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
   }
 
   /**

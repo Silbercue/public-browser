@@ -5,6 +5,7 @@ import { resolveAutoLaunch } from "./cdp/chrome-launcher.js";
 import { ToolRegistry } from "./registry.js";
 import { VERSION } from "./version.js";
 import { ScriptApiServer } from "./transport/script-api-server.js";
+import { hintMatcher } from "./cortex/hint-matcher.js";
 
 /**
  * MCP server bootstrap — lazy-launch architecture.
@@ -121,6 +122,13 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     browserSession,
   );
   registry.registerAll();
+
+  // 4b. Story 12.3: Cortex hint-matcher — load persisted patterns into the
+  //     in-memory index. Fire-and-forget: server start must NOT be blocked
+  //     (NFR19: max 2s for cortex operations). Empty store = no hints.
+  hintMatcher.refreshAsync().catch(() => {
+    /* errors are debug-logged inside refreshAsync */
+  });
 
   // 5. Start the stdio transport. This is the point at which Claude Code
   //    sees us come online — still no Chrome has been launched.
