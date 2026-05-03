@@ -2,7 +2,7 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager, SessionInfo } from "../cdp/session-manager.js";
 import { wrapCdpError } from "../tools/error-utils.js";
 import { CLICKABLE_TAGS, CLICKABLE_ROLES, COMPUTED_STYLES } from "../tools/visual-constants.js";
-import { EMULATED_WIDTH, EMULATED_HEIGHT } from "../cdp/emulation.js";
+import { effectiveWidth, effectiveHeight } from "../cdp/emulation.js";
 import { debug } from "../cdp/debug.js";
 import { prefetchSlot } from "./prefetch-slot.js";
 
@@ -1039,7 +1039,7 @@ export class A11yTreeProcessor {
         visibilityVal !== "hidden" &&
         w >= 1 && h >= 1 &&
         x + w > 0 && y + h > 0 &&
-        x < EMULATED_WIDTH && y < EMULATED_HEIGHT;
+        x < effectiveWidth() && y < effectiveHeight();
 
       const isClickable = this.computeIsClickable(ni, backendNodeId, doc, strings);
 

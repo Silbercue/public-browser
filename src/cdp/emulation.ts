@@ -17,3 +17,17 @@ export const DEVICE_METRICS_OVERRIDE = {
 let _headless = true;
 export function setHeadless(value: boolean): void { _headless = value; }
 export function isHeadless(): boolean { return _headless; }
+
+/**
+ * Effective viewport dimensions. In headless mode these equal the emulated
+ * constants (1280x800). In headed mode they reflect the actual Chrome window
+ * viewport — no forced resize.
+ */
+let _effectiveWidth = EMULATED_WIDTH;
+let _effectiveHeight = EMULATED_HEIGHT;
+export function setEffectiveViewport(w: number, h: number): void {
+  _effectiveWidth = w;
+  _effectiveHeight = h;
+}
+export function effectiveWidth(): number { return _effectiveWidth; }
+export function effectiveHeight(): number { return _effectiveHeight; }

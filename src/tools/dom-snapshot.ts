@@ -4,7 +4,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { wrapCdpError } from "./error-utils.js";
-import { EMULATED_WIDTH, EMULATED_HEIGHT } from "../cdp/emulation.js";
+import { effectiveWidth, effectiveHeight } from "../cdp/emulation.js";
 import { CLICKABLE_TAGS, CLICKABLE_ROLES, COMPUTED_STYLES } from "./visual-constants.js";
 
 // --- Schema ---
@@ -246,7 +246,7 @@ export async function domSnapshotHandler(
 
       const [x, y, w, h] = boundsArr;
       if (w < 1 || h < 1) continue;
-      if (x + w < 0 || y + h < 0 || x > EMULATED_WIDTH || y > EMULATED_HEIGHT) continue;
+      if (x + w < 0 || y + h < 0 || x > effectiveWidth() || y > effectiveHeight()) continue;
 
       // Stage 4: Size Filter (skip for explicitly requested ref subtree root)
       const isSubtreeRoot = subtreeAncestorIndex !== undefined && ni === subtreeAncestorIndex;

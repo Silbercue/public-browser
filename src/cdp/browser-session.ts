@@ -43,6 +43,7 @@ import {
   EMULATED_WIDTH,
   EMULATED_HEIGHT,
   setHeadless,
+  setEffectiveViewport,
 } from "./emulation.js";
 import { injectOverlay, removeOverlay } from "../overlay/session-overlay.js";
 import { debug } from "./debug.js";
@@ -498,18 +499,24 @@ export class BrowserSession implements IBrowserSession {
     }
     if (connection.headless) {
       await cdpClient.send("Emulation.setDeviceMetricsOverride", DEVICE_METRICS_OVERRIDE, sessionId);
+      setEffectiveViewport(EMULATED_WIDTH, EMULATED_HEIGHT);
     } else {
       try {
         const { windowId } = await cdpClient.send<{ windowId: number }>(
           "Browser.getWindowForTarget",
           { targetId: pageTarget.targetId },
         );
-        await cdpClient.send("Browser.setWindowBounds", {
-          windowId,
-          bounds: { width: EMULATED_WIDTH, height: EMULATED_HEIGHT + 85 },
-        });
+        const { bounds } = await cdpClient.send<{ bounds: { width: number; height: number } }>(
+          "Browser.getWindowBounds",
+          { windowId },
+        );
+        // Chrome UI chrome is ~85px — subtract to get the content viewport
+        const vpWidth = bounds.width || EMULATED_WIDTH;
+        const vpHeight = Math.max((bounds.height || EMULATED_HEIGHT + 85) - 85, 600);
+        setEffectiveViewport(vpWidth, vpHeight);
       } catch {
         await cdpClient.send("Emulation.setDeviceMetricsOverride", DEVICE_METRICS_OVERRIDE, sessionId);
+        setEffectiveViewport(EMULATED_WIDTH, EMULATED_HEIGHT);
       }
     }
 

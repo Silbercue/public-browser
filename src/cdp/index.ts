@@ -7,6 +7,9 @@ export {
   DEVICE_SCALE_FACTOR,
   MOBILE,
   DEVICE_METRICS_OVERRIDE,
+  effectiveWidth,
+  effectiveHeight,
+  setEffectiveViewport,
 } from "./emulation.js";
 export {
   ChromeLauncher,

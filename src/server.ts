@@ -76,6 +76,12 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
   // 1. Read environment — no Chrome is touched here.
   const profilePath = process.env.SILBERCUE_CHROME_PROFILE || undefined;
   const headlessEnv = process.env.SILBERCUE_CHROME_HEADLESS === "true";
+  const portEnv = process.env.SILBERCUE_CHROME_PORT;
+  const cdpPort = portEnv ? parseInt(portEnv, 10) : 9222;
+  if (portEnv && (isNaN(cdpPort) || cdpPort < 1 || cdpPort > 65535)) {
+    console.error(`Error: SILBERCUE_CHROME_PORT="${portEnv}" is not a valid port (1-65535).`);
+    process.exit(1);
+  }
   const autoLaunch = attachMode
     ? false
     : resolveAutoLaunch(
@@ -97,6 +103,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     autoLaunch,
     attachMode,
     scriptMode,
+    cdpPort,
   });
 
   // 2b. Attach mode: eagerly validate that Chrome is reachable. Fail fast
@@ -105,11 +112,11 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
   if (attachMode) {
     try {
       await browserSession.ensureReady();
-      console.error("Public Browser --attach: connected to Chrome on port 9222");
+      console.error(`Public Browser --attach: connected to Chrome on port ${cdpPort}`);
     } catch {
       console.error(
         [
-          "Error: --attach failed — Chrome not reachable on port 9222.",
+          `Error: --attach failed — Chrome not reachable on port ${cdpPort}.`,
           "Make sure Chrome is running with remote debugging enabled,",
           "or that another Public Browser instance (e.g. via Claude Code) is active.",
         ].join("\n"),

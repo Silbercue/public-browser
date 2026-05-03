@@ -380,6 +380,7 @@ Connection priority:
 |---|---|---|---|
 | `SILBERCUE_CHROME_AUTO_LAUNCH` | `true` / `false` | `true` | Auto-launch Chrome if no running instance found |
 | `SILBERCUE_CHROME_HEADLESS` | `true` / `false` | `false` | Opt-in headless mode for CI/server environments |
+| `SILBERCUE_CHROME_PORT` | `1`–`65535` | `9222` | CDP debugging port. Non-default values spawn an isolated Chrome instance (separate `--user-data-dir`) that won't conflict with the user's browser |
 | `SILBERCUE_CHROME_PROFILE` | path | — | Chrome user profile directory (auto-launch only) |
 | `CHROME_PATH` | path | — | Path to Chrome binary (overrides auto-detection) |
 | `PUBLIC_BROWSER_TELEMETRY` | `1` / `true` | — (disabled) | Opt-in: upload anonymised Cortex patterns to the community endpoint |

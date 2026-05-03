@@ -44,6 +44,8 @@ export interface LaunchOptions {
   headless?: boolean;
   /** Wenn gesetzt: Chrome nutzt dieses Verzeichnis als user-data-dir statt eines Temp-Verzeichnisses */
   profilePath?: string;
+  /** CDP debugging port for --remote-debugging-port flag (default: 9222) */
+  port?: number;
 }
 
 interface LaunchResult {
@@ -141,7 +143,6 @@ export function findChromePath(): string | null {
 
 const CHROME_FLAGS = [
   "--remote-debugging-pipe",
-  "--remote-debugging-port=9222",
   "--no-first-run",
   "--no-default-browser-check",
   "--disable-default-apps",
@@ -188,7 +189,8 @@ export async function launchChrome(
     userDataDir = tmpDir;
   }
 
-  const flags = [...CHROME_FLAGS, `--user-data-dir=${userDataDir}`];
+  const port = options?.port ?? 9222;
+  const flags = [...CHROME_FLAGS, `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`];
   if (options?.headless !== false) {
     flags.unshift("--headless");
   }
@@ -439,7 +441,7 @@ export class ChromeConnection {
           this._cdpClient = newClient;
         } else {
           // Pipe reconnect: Chrome process is dead, relaunch
-          const result = await launchChrome({ headless: this._headless, profilePath: this._profilePath });
+          const result = await launchChrome({ headless: this._headless, profilePath: this._profilePath, port: this._port });
           this._transport = result.transport;
           this._cdpClient = result.cdpClient;
 
@@ -615,7 +617,7 @@ export class ChromeLauncher {
     }
 
     debug("Launching Chrome...");
-    const result = await launchChrome({ headless: this._headless, profilePath: this._profilePath });
+    const result = await launchChrome({ headless: this._headless, profilePath: this._profilePath, port: this._port });
 
     // Extract tmpDir from the spawn args — only for temp profiles (no profilePath)
     let tmpDir: string | undefined;

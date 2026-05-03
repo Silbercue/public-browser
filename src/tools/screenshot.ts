@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
-import { EMULATED_WIDTH, EMULATED_HEIGHT, isHeadless } from "../cdp/emulation.js";
+import { EMULATED_WIDTH, EMULATED_HEIGHT, isHeadless, effectiveWidth, effectiveHeight } from "../cdp/emulation.js";
 import { wrapCdpError } from "./error-utils.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { CLICKABLE_TAGS, CLICKABLE_ROLES, COMPUTED_STYLES } from "./visual-constants.js";
@@ -111,7 +111,7 @@ function collectSomLabels(
     if (displayVal === "none" || visibilityVal === "hidden") continue;
 
     // Viewport check
-    if (x + w <= 0 || y + h <= 0 || x >= EMULATED_WIDTH || y >= EMULATED_HEIGHT) continue;
+    if (x + w <= 0 || y + h <= 0 || x >= effectiveWidth() || y >= effectiveHeight()) continue;
 
     // Minimum size
     if (w < SOM_MIN_SIZE || h < SOM_MIN_SIZE) continue;
@@ -234,9 +234,9 @@ export async function screenshotHandler(
       clip: {
         x: clipX,
         y: clipY,
-        width: EMULATED_WIDTH,
-        height: EMULATED_HEIGHT,
-        scale: MAX_WIDTH / EMULATED_WIDTH,
+        width: effectiveWidth(),
+        height: effectiveHeight(),
+        scale: MAX_WIDTH / effectiveWidth(),
       },
     };
 
