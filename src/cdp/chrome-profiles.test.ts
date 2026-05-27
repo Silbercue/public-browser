@@ -206,7 +206,10 @@ describe("isChromeRunningWithProfile", () => {
   });
 
   it("returns false when lock file exists but process is dead", () => {
-    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(existsSync).mockImplementation((p) => {
+      if (typeof p === "string" && p.endsWith("SingletonLock")) return true;
+      return false;
+    });
     vi.mocked(lstatSync).mockReturnValue({
       isSymbolicLink: () => true,
     } as ReturnType<typeof lstatSync>);

@@ -13,11 +13,15 @@ export const fileUploadSchema = z.object({
   ref: z
     .string()
     .optional()
-    .describe("A11y-Tree element ref (e.g. 'e8') — preferred over selector"),
+    .describe("A11y-Tree element ref (e.g. 'e8') — preferred when input is visible in view_page"),
   selector: z
     .string()
     .optional()
-    .describe("CSS selector (e.g. 'input[type=file]') — fallback when ref is not available"),
+    .describe(
+      "CSS selector (e.g. 'input[type=file]') — use this for hidden file inputs (display:none, off-screen). " +
+        "Many React/Vue apps render a visible custom button that triggers a hidden <input type=file>; " +
+        "the hidden input is NOT in the a11y-tree, so ref won't find it. Pass the selector instead.",
+    ),
   path: z
     .union([z.string(), z.array(z.string()).min(1)])
     .describe("Absolute file path(s) to upload. String for single file, array for multiple files."),
@@ -172,6 +176,25 @@ export async function fileUploadHandler(
     await cdpClient.send(
       "DOM.setFileInputFiles",
       { files: filePaths, backendNodeId: element.backendNodeId },
+      targetSession,
+    );
+
+    // Step 7b: Re-dispatch input + change on the file input.
+    // Why: DOM.setFileInputFiles fires `change` natively, but in React/Vue/Svelte
+    // apps where a wrapper component listens for re-renders (or where the input
+    // briefly unmounts during file-picker animation), the synthetic-event layer
+    // can miss the native fire. A second explicit dispatch costs ~1 ms and
+    // guarantees the handler runs.
+    await cdpClient.send(
+      "Runtime.callFunctionOn",
+      {
+        objectId: element.objectId,
+        functionDeclaration: `function() {
+          this.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+          this.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        }`,
+        returnByValue: true,
+      },
       targetSession,
     );
 

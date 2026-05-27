@@ -147,40 +147,76 @@ export function resolveProfileSpec(spec: string): ResolvedProfile {
 }
 
 /**
- * Checks whether Chrome is already running with the given user-data-dir
- * by looking for lock files.
+ * Checks whether Chrome is already running with the given user-data-dir.
  *
- * Chrome creates these files to enforce single-instance per user-data-dir:
- * - macOS/Linux: SingletonLock (symlink to hostname-pid)
- * - macOS/Linux: SingletonSocket (Unix socket)
- * - Windows: lockfile
+ * Detection methods (in order):
+ * 1. SingletonLock (Linux: symlink to hostname-pid, with process liveness check)
+ * 2. Process scan (macOS: check for Chrome processes using this data dir)
+ *
+ * macOS note: Chrome on macOS does NOT create SingletonLock — it uses
+ * Launch Services for single-instance enforcement. We fall back to
+ * scanning running processes. DevToolsActivePort is NOT used because
+ * it can be stale after a crash and is also written by PB's symlink-
+ * based profile launcher into the original Chrome directory.
  */
 export function isChromeRunningWithProfile(userDataDir: string): boolean {
+  // Method 1: SingletonLock (Linux)
   const lockPath = join(userDataDir, "SingletonLock");
-
-  if (!existsSync(lockPath)) return false;
-
-  try {
-    const stat = lstatSync(lockPath);
-    // On macOS/Linux, SingletonLock is a symlink to "<hostname>-<pid>"
-    if (stat.isSymbolicLink()) {
-      const target = readlinkSync(lockPath, "utf-8");
-      const pidMatch = target.match(/-(\d+)$/);
-      if (pidMatch) {
-        const pid = parseInt(pidMatch[1], 10);
-        try {
-          // Check if the process is still alive (signal 0 = existence check)
-          process.kill(pid, 0);
+  if (existsSync(lockPath)) {
+    try {
+      const stat = lstatSync(lockPath);
+      if (stat.isSymbolicLink()) {
+        const target = readlinkSync(lockPath, "utf-8");
+        const pidMatch = target.match(/-(\d+)$/);
+        if (pidMatch) {
+          const pid = parseInt(pidMatch[1], 10);
+          try {
+            process.kill(pid, 0);
+            return true;
+          } catch {
+            // Process is dead, stale lock file
+          }
+        } else {
           return true;
-        } catch {
-          // Process is dead, stale lock file
-          return false;
         }
+      } else {
+        // Non-symlink lock file (Windows/unusual setup) — assume running
+        return true;
+      }
+    } catch {
+      // Can't read lock — try next method
+    }
+  }
+
+  // Method 2: Process scan (macOS/Linux)
+  try {
+    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+    const output = execFileSync("ps", ["ax", "-o", "pid,command"], {
+      encoding: "utf-8",
+      timeout: 2000,
+    });
+    const resolvedDir = resolve(userDataDir);
+    const defaultDir = getChromeUserDataDir();
+    const resolvedDefault = defaultDir ? resolve(defaultDir) : null;
+
+    for (const line of output.split("\n")) {
+      if (!line.includes("Google Chrome") || line.includes("Helper")) continue;
+
+      const udMatch = line.match(/--user-data-dir=([^\s]+)/);
+      if (udMatch) {
+        // Chrome with explicit --user-data-dir: only match the real dir,
+        // skip PB's temp wrappers (which live in /tmp/ or $TMPDIR)
+        const processDir = resolve(udMatch[1]);
+        if (processDir === resolvedDir) return true;
+      } else if (resolvedDefault && resolvedDir === resolvedDefault) {
+        // Chrome without --user-data-dir flag → using default profile dir
+        return true;
       }
     }
-    // If we can't determine the PID, assume Chrome is running
-    return true;
   } catch {
-    return false;
+    // ps command failed
   }
+
+  return false;
 }
+

@@ -12,7 +12,10 @@ export const configureSessionSchema = z.object({
     .describe("If true, apply all current auto-promote suggestions as defaults"),
   profile: z.string()
     .optional()
-    .describe("Chrome profile name (e.g. \"Julian\", \"Business\"). Only works BEFORE the first browser interaction. Use `public-browser profiles` to list available profiles."),
+    .describe("Chrome profile name (e.g. \"Julian\", \"Business\"). Use `public-browser profiles` to list available profiles. With restart: true, can switch profiles mid-session."),
+  restart: z.boolean()
+    .optional()
+    .describe("If true, restart Chrome with the new profile even if the browser is already running. Closes all current tabs."),
 });
 
 export type ConfigureSessionParams = z.infer<typeof configureSessionSchema>;
@@ -24,16 +27,15 @@ export async function configureSessionHandler(
 ): Promise<ToolResponse> {
   const start = performance.now();
 
-  // Profile parameter: reject if browser is already running
   if (params.profile !== undefined) {
-    if (browserReady) {
+    if (browserReady && !params.restart) {
       const profiles = discoverProfiles();
       const available = profiles.map((p) => `"${p.name}"`).join(", ");
       return {
         content: [{
           type: "text",
           text: JSON.stringify({
-            error: "Cannot change Chrome profile after browser is already running. Set the profile before the first browser interaction, or restart with --profile or PUBLIC_BROWSER_PROFILE env var.",
+            error: "Cannot change Chrome profile after browser is already running. Use restart: true to restart Chrome with the new profile, or set the profile before the first browser interaction.",
             available_profiles: available,
           }),
         }],
@@ -41,7 +43,23 @@ export async function configureSessionHandler(
         _meta: { elapsedMs: Math.round(performance.now() - start), method: "configure_session" },
       };
     }
+
     sessionDefaults.setDefault("_profile", params.profile);
+
+    if (browserReady && params.restart) {
+      return {
+        content: [{ type: "text", text: JSON.stringify({
+          profile: params.profile,
+          status: "restart_pending",
+          message: `Chrome will restart with profile "${params.profile}". All current tabs will be closed.`,
+        }) }],
+        _meta: {
+          elapsedMs: Math.round(performance.now() - start),
+          method: "configure_session",
+          restartRequired: true,
+        },
+      };
+    }
   }
 
   // H4 fix: Process defaults and autoPromote independently (no early return)
@@ -60,12 +78,16 @@ export async function configureSessionHandler(
   }
 
   // Build response based on what was requested
-  if (params.defaults !== undefined || params.autoPromote) {
+  if (params.defaults !== undefined || params.autoPromote || params.profile !== undefined) {
     const payload: Record<string, unknown> = {
       defaults: sessionDefaults.getAllDefaults(),
     };
     if (applied !== undefined) {
       payload.applied = applied;
+    }
+    if (params.profile !== undefined) {
+      payload.profile = params.profile;
+      payload.status = "profile_set";
     }
     return {
       content: [{ type: "text", text: JSON.stringify(payload) }],

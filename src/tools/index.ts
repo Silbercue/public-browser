@@ -33,3 +33,7 @@ export { configureSessionSchema, configureSessionHandler } from "./configure-ses
 export type { ConfigureSessionParams } from "./configure-session.js";
 export { observeSchema, observeHandler } from "./observe.js";
 export type { ObserveParams } from "./observe.js";
+export { batchEvaluateSchema, batchEvaluateHandler } from "./batch-evaluate.js";
+export type { BatchEvaluateParams } from "./batch-evaluate.js";
+export { setPageDataSchema, setPageDataHandler } from "./set-page-data.js";
+export type { SetPageDataParams } from "./set-page-data.js";

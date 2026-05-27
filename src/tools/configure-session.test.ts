@@ -102,6 +102,60 @@ describe("configureSessionHandler", () => {
     expect(parsed.defaults).toEqual({ timeout: 8000, tab: "tab-xyz" });
   });
 
+  // ── Profile Reconnect (restart: true) ──────────────────────────────
+
+  it("profile + restart:true + browserReady → returns restartRequired flag", async () => {
+    const result = await configureSessionHandler(
+      { profile: "Business", restart: true },
+      sd,
+      /* browserReady */ true,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result._meta?.restartRequired).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.profile).toBe("Business");
+    expect(parsed.status).toBe("restart_pending");
+    expect(sd.getDefault("_profile")).toBe("Business");
+  });
+
+  it("profile + restart:true + browserReady=false → stores profile normally", async () => {
+    const result = await configureSessionHandler(
+      { profile: "Business", restart: true },
+      sd,
+      /* browserReady */ false,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result._meta?.restartRequired).toBeUndefined();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.profile).toBe("Business");
+    expect(parsed.status).toBe("profile_set");
+    expect(sd.getDefault("_profile")).toBe("Business");
+  });
+
+  it("profile + browserReady + NO restart → error (backward compat)", async () => {
+    const result = await configureSessionHandler(
+      { profile: "Julian" },
+      sd,
+      /* browserReady */ true,
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error).toContain("restart: true");
+  });
+
+  it("restart:true without profile → ignored, returns defaults", async () => {
+    const result = await configureSessionHandler(
+      { restart: true },
+      sd,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result._meta?.restartRequired).toBeUndefined();
+  });
+
   it("defaults with unknown keys are accepted (future-proof)", async () => {
     const result = await configureSessionHandler(
       { defaults: { custom_param: "value", another: 42 } },

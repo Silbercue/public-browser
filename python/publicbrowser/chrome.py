@@ -47,6 +47,7 @@ class Chrome:
         *,
         server_path: str | None = None,
         auto_start: bool = True,
+        profile: str | None = None,
     ) -> Chrome:
         """Connect to the Public Browser Script API server.
 
@@ -60,6 +61,9 @@ class Chrome:
                 the server is found via PATH or npx fallback.
             auto_start: Whether to auto-start the server if not running
                 (default: True).
+            profile: Chrome profile name (e.g. "Julian", "Business").
+                When auto-starting, passes --profile to the server.
+                When connecting to a running server, calls /config/profile.
 
         Returns:
             A connected Chrome instance.
@@ -75,12 +79,14 @@ class Chrome:
 
         if not client._is_server_running():
             if auto_start:
-                client.start_server(server_path=server_path)
+                client.start_server(server_path=server_path, profile=profile)
             else:
                 raise ConnectionError(
                     f"Public Browser server not reachable on {host}:{port}. "
                     f"Start it with 'public-browser --script' or set auto_start=True."
                 )
+        elif profile:
+            client.configure_profile(profile)
 
         return cls(client)
 

@@ -92,7 +92,33 @@ class ScriptApiClient:
         except Exception:
             pass
 
-    def start_server(self, server_path: str | None = None) -> None:
+    def configure_profile(self, profile: str) -> dict[str, Any]:
+        """Configure Chrome profile on a running server.
+
+        Calls the /config/profile endpoint. If Chrome is already running,
+        it will be restarted with the new profile.
+
+        Args:
+            profile: Chrome profile name (e.g. "Julian", "Business").
+
+        Returns:
+            Server response dict.
+
+        Raises:
+            RuntimeError: If the server returns an error.
+        """
+        return self._post(
+            "/config/profile",
+            {"profile": profile},
+            timeout=LONG_TIMEOUT,
+        )
+
+    def start_server(
+        self,
+        server_path: str | None = None,
+        *,
+        profile: str | None = None,
+    ) -> None:
         """Start the Public Browser server as a subprocess.
 
         Tries in order:
@@ -102,6 +128,7 @@ class ScriptApiClient:
 
         Args:
             server_path: Explicit path to the server binary.
+            profile: Chrome profile name to launch with.
 
         Raises:
             FileNotFoundError: If no server binary can be found.
@@ -128,6 +155,9 @@ class ScriptApiClient:
                 "'brew install silbercue/tap/public-browser' or "
                 "'npm install -g public-browser', or pass server_path= explicitly."
             )
+
+        if profile:
+            cmd.extend(["--profile", profile])
 
         self._server_proc = subprocess.Popen(
             cmd,

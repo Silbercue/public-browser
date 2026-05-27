@@ -214,7 +214,7 @@ class Page:
             RuntimeError: If the evaluation throws an exception.
         """
         response = self._call_tool(
-            "evaluate", {"expression": expression}, timeout=timeout
+            "evaluate", {"expression": expression, "await_promise": True}, timeout=timeout
         )
         _check_error(response)
         return _parse_evaluate_response(response)

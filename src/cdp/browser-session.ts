@@ -99,6 +99,7 @@ export interface IBrowserSession {
   /** CDP debugging port (default: 9222). Used by Script API for Escape Hatch WebSocket URLs. */
   readonly cdpPort: number;
   shutdown(): Promise<void>;
+  restart(): Promise<void>;
 }
 
 export interface BrowserSessionOptions {
@@ -179,6 +180,8 @@ export class BrowserSession implements IBrowserSession {
   private _relaunchedAfterLoss = false;
   private _readyPromise: Promise<void> | null = null;
   private _shutdownRequested = false;
+  private _profileAttachOnly = false;
+  private _profileAttachName: string | null = null;
 
   constructor(options: BrowserSessionOptions = {}) {
     this._options = options;
@@ -218,11 +221,11 @@ export class BrowserSession implements IBrowserSession {
     const resolved = resolveProfileSpec(profileSpec);
     const chromeRunning = isChromeRunningWithProfile(resolved.userDataDir);
 
+    this._profileAttachOnly = chromeRunning;
+    this._profileAttachName = chromeRunning ? profileSpec : null;
+
     if (chromeRunning) {
-      // Chrome is running with this profile. We can only attach if CDP is available.
-      // Set autoLaunch=false so the launcher tries WebSocket only. If that fails,
-      // the error message from connect() will tell the user what to do.
-      debug("BrowserSession: Chrome running with profile %s — will try CDP attach", profileSpec);
+      debug("BrowserSession: Chrome running with profile %s — will try CDP attach on port %d", profileSpec, this._cdpPort);
     }
 
     const headlessDefault = this.sessionDefaults.getDefault("headless");
@@ -451,6 +454,13 @@ export class BrowserSession implements IBrowserSession {
           err instanceof Error ? err.message : String(err),
         );
       }
+    }
+    if (this._profileAttachOnly && this._profileAttachName) {
+      throw new Error(
+        `Chrome is running with profile "${this._profileAttachName}" but CDP is not reachable on port ${this._cdpPort}. ` +
+        `To use this profile, close Chrome and let Public Browser launch it, or restart Chrome with: ` +
+        `open -a "Google Chrome" --args --remote-debugging-port=${this._cdpPort}`,
+      );
     }
     throw lastErr instanceof Error
       ? lastErr
@@ -794,6 +804,40 @@ export class BrowserSession implements IBrowserSession {
     } catch {
       /* tab may already be closed by user — graceful */
     }
+  }
+
+  // ── Public restart (profile reconnect) ──────────────────────────────
+
+  async restart(): Promise<void> {
+    if (this._shutdownRequested) {
+      throw new Error("BrowserSession has been shut down");
+    }
+
+    if (this._cdpClient && this._sessionId) {
+      try {
+        await removeOverlay(this._cdpClient, this._sessionId);
+      } catch { /* best effort */ }
+    }
+
+    // Close Chrome via CDP before teardown so it actually shuts down
+    // (not just WebSocket disconnect). Without this, an attached Chrome
+    // stays running and restart() reconnects to the old instance.
+    if (this._cdpClient) {
+      try {
+        await this._cdpClient.send("Browser.close");
+      } catch { /* Chrome may already be closing */ }
+    }
+
+    await this._teardownHelpers().catch(() => {});
+    await this._teardownConnectionOnly();
+
+    // Wait for Chrome process to fully exit (SingletonLock release)
+    await sleep(500);
+
+    this._wasEverReady = false;
+    this._readyPromise = null;
+
+    await this.ensureReady();
   }
 
   // ── Public shutdown (graceful SIGINT/SIGTERM) ───────────────────────

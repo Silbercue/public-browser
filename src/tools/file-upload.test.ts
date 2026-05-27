@@ -319,15 +319,15 @@ describe("fileUploadHandler", () => {
     );
     mockResolveElement.mockResolvedValue(mockFileInput());
 
-    // sendFn needs to return different values for different Runtime.callFunctionOn calls
+    // sendFn needs to return different values for different Runtime.callFunctionOn calls.
+    // Order: 1=tagCheck("INPUT|file"), 2=multipleCheck(true), 3=dispatchEvents (no return needed)
     let callFnCount = 0;
     const { cdpClient, sendFn } = createMockCdp({
       "Runtime.callFunctionOn": () => {
         callFnCount++;
-        // First call: tagName check → INPUT|file
         if (callFnCount === 1) return { result: { value: "INPUT|file" } };
-        // Second call: multiple check → true
-        return { result: { value: true } };
+        if (callFnCount === 2) return { result: { value: true } };
+        return { result: { value: undefined } };
       },
     });
 
@@ -364,7 +364,8 @@ describe("fileUploadHandler", () => {
       "Runtime.callFunctionOn": () => {
         callFnCount++;
         if (callFnCount === 1) return { result: { value: "INPUT|file" } };
-        return { result: { value: false } };
+        if (callFnCount === 2) return { result: { value: false } };
+        return { result: { value: undefined } };
       },
     });
 
@@ -501,6 +502,84 @@ describe("fileUploadHandler", () => {
     expect(result.isError).toBe(true);
     expect((result.content[0] as { text: string }).text).toBe(
       "file_upload failed: Something unexpected",
+    );
+  });
+
+  // --- React synthetic-event dispatch tests (FR-047) ---
+
+  it("dispatches input + change events on file input after DOM.setFileInputFiles", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockStatSync.mockReturnValue({ size: 1024 } as ReturnType<typeof statSync>);
+    mockResolveElement.mockResolvedValue(mockFileInput());
+
+    const { cdpClient, sendFn } = createMockCdp();
+
+    const result = await fileUploadHandler(
+      { ref: "e8", path: "/tmp/test.pdf" },
+      cdpClient,
+      "s1",
+    );
+
+    expect(result.isError).toBeUndefined();
+
+    // Find the dispatch call via send() args: the second Runtime.callFunctionOn
+    // (first one is the tagName/type check)
+    const callFnCalls = sendFn.mock.calls.filter(
+      (call: unknown[]) => call[0] === "Runtime.callFunctionOn",
+    );
+    expect(callFnCalls.length).toBeGreaterThanOrEqual(2);
+
+    const dispatchCall = callFnCalls.find((call: unknown[]) => {
+      const params = call[1] as { functionDeclaration: string };
+      return params.functionDeclaration.includes("dispatchEvent");
+    });
+    expect(dispatchCall).toBeDefined();
+
+    const params = dispatchCall![1] as { objectId: string; functionDeclaration: string };
+    expect(params.objectId).toBe("obj-42");
+    expect(params.functionDeclaration).toContain("new Event('input'");
+    expect(params.functionDeclaration).toContain("new Event('change'");
+    expect(params.functionDeclaration).toContain("bubbles: true");
+
+    // Dispatch must happen AFTER DOM.setFileInputFiles, not before
+    const allCalls = sendFn.mock.calls.map((c: unknown[]) => c[0] as string);
+    const setFilesIdx = allCalls.indexOf("DOM.setFileInputFiles");
+    const dispatchIdx = allCalls.findIndex((m: string, i: number) => {
+      if (i <= setFilesIdx || m !== "Runtime.callFunctionOn") return false;
+      const decl = (sendFn.mock.calls[i][1] as { functionDeclaration: string }).functionDeclaration;
+      return decl.includes("dispatchEvent");
+    });
+    expect(setFilesIdx).toBeGreaterThanOrEqual(0);
+    expect(dispatchIdx).toBeGreaterThan(setFilesIdx);
+  });
+
+  it("supports hidden file input via selector (React/Vue pattern)", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockStatSync.mockReturnValue({ size: 300000 } as ReturnType<typeof statSync>);
+    mockResolveElement.mockResolvedValue(
+      mockFileInput({ resolvedVia: "css", role: "", name: "" }),
+    );
+    const { cdpClient, sendFn } = createMockCdp();
+
+    const result = await fileUploadHandler(
+      { selector: 'input[type="file"]', path: "/tmp/scan.png" },
+      cdpClient,
+      "s1",
+    );
+
+    expect(result.isError).toBeUndefined();
+    // Upload happened
+    expect(sendFn).toHaveBeenCalledWith(
+      "DOM.setFileInputFiles",
+      { files: ["/tmp/scan.png"], backendNodeId: 42 },
+      "s1",
+    );
+    // Element resolution went through selector path (no ref-based lookup)
+    expect(mockResolveElement).toHaveBeenCalledWith(
+      cdpClient,
+      "s1",
+      { selector: 'input[type="file"]' },
+      undefined,
     );
   });
 

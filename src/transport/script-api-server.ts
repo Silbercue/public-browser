@@ -248,6 +248,14 @@ export class ScriptApiServer {
       return;
     }
 
+    if (pathname === "/config/profile") {
+      this._readBody(req, (raw) => {
+        const body = this._parseJson(raw, res);
+        if (body !== null) this._handleConfigProfile(body, res);
+      });
+      return;
+    }
+
     // /tool/{name}
     const toolMatch = pathname.match(/^\/tool\/([a-z_]+)$/);
     if (toolMatch) {
@@ -369,6 +377,31 @@ export class ScriptApiServer {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Public Browser --script: tool/${toolName} failed: ${msg}`);
       this._sendJson(res, 500, { error: "tool_execution_failed", message: msg });
+    }
+  }
+
+  // ── Profile Configuration ──────────────────────────────────────────
+
+  private async _handleConfigProfile(body: Record<string, unknown>, res: http.ServerResponse): Promise<void> {
+    const profile = body.profile as string | undefined;
+    if (!profile) {
+      this._sendJson(res, 400, { error: "missing_profile", message: "profile parameter is required" });
+      return;
+    }
+
+    try {
+      this._browserSession.sessionDefaults.setDefault("_profile", profile);
+
+      if (this._browserSession.isReady) {
+        await this._browserSession.restart();
+        this._sendJson(res, 200, { ok: true, restarted: true, profile });
+      } else {
+        this._sendJson(res, 200, { ok: true, profile });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`Public Browser --script: config/profile failed: ${msg}`);
+      this._sendJson(res, 500, { error: "profile_config_failed", message: msg });
     }
   }
 
