@@ -704,7 +704,7 @@ describe("clickHandler", () => {
   });
 
   it("should not auto-scroll when coordinates are within viewport (FR-01)", async () => {
-    const { cdpClient, sendFn } = createMockCdp(coordMock(0, 0, false));
+    const { cdpClient } = createMockCdp(coordMock(0, 0, false));
 
     const result = await clickHandler({ x: 640, y: 400 }, cdpClient, "s1");
 

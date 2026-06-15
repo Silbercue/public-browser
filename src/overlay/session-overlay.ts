@@ -117,7 +117,7 @@ const OVERLAY_REMOVE_SCRIPT = `(() => {
 })()`;
 
 let _scriptIdentifier: string | undefined;
-let _tierLabel = "Public Browser";
+const _tierLabel = "Public Browser";
 // Last tool elapsed time
 let _lastElapsedMs = 0;
 

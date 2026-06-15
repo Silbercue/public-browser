@@ -10,14 +10,12 @@ Tests are structured in groups:
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from publicbrowser.cdp import CdpError
 from publicbrowser.escape_hatch import CdpEscapeHatch
-
 
 # ---------------------------------------------------------------------------
 # Helper: Mock CdpClient
@@ -298,7 +296,10 @@ class TestEventHandler:
         mock_connect.return_value = mock_client
 
         hatch = CdpEscapeHatch("ws://localhost:9222/devtools/page/abc")
-        handler = lambda params: None
+
+        def handler(params):
+            return None
+
         hatch.on("Network.requestWillBeSent", handler)
 
         mock_connect.assert_called_once()

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { existsSync, readFileSync, readlinkSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, platform } from "node:os";

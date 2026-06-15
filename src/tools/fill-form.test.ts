@@ -30,7 +30,6 @@ vi.mock("./error-utils.js", () => ({
 }));
 
 import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
-import { wrapCdpError } from "./error-utils.js";
 const mockResolveElement = vi.mocked(resolveElement);
 const mockBuildRefNotFoundError = vi.mocked(buildRefNotFoundError);
 
@@ -601,7 +600,7 @@ describe("fillFormHandler", () => {
 
   it("continues filling after field not found", async () => {
     let resolveCount = 0;
-    mockResolveElement.mockImplementation(async (_cdp, _sid, target) => {
+    mockResolveElement.mockImplementation(async (_cdp, _sid, _target) => {
       resolveCount++;
       if (resolveCount === 2) {
         throw new RefNotFoundError("Element e99 not found.");

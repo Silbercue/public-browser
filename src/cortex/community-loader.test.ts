@@ -9,8 +9,7 @@
  *  - AC #5: Corrupt JSON → null (graceful degradation)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MarkovTable } from "./markov-table.js";
@@ -48,7 +47,6 @@ describe("community-loader — loadCommunityMarkov", () => {
   // We need to mock fs.readFileSync. The community-loader uses
   // named import from "node:fs", so we mock the module.
   let mockReadFileSync: ReturnType<typeof vi.fn>;
-  let loadCommunityMarkov: () => MarkovTable | null;
 
   const VALID_JSON = JSON.stringify({
     login: {
@@ -75,8 +73,6 @@ describe("community-loader — loadCommunityMarkov", () => {
     },
   });
 
-  const VALID_HASH = createHash("sha256").update(VALID_JSON).digest("hex");
-
   beforeEach(async () => {
     // Reset module mocks
     vi.resetModules();
@@ -90,8 +86,7 @@ describe("community-loader — loadCommunityMarkov", () => {
     }));
 
     // Re-import to pick up mocks. Also override the hash constant.
-    const mod = await import("./community-loader.js");
-    loadCommunityMarkov = mod.loadCommunityMarkov;
+    await import("./community-loader.js");
 
     // We need to override the hash to match our test JSON.
     // Since the hash is a module-level const, we use vi.spyOn workaround:

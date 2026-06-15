@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import type { PhaseResult, PublishOptions, RepoContext } from "./publish.js";
+import type { PublishOptions, RepoContext } from "./publish.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────
 

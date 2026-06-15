@@ -3,7 +3,6 @@ import { readPageSchema, readPageHandler } from "./read-page.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import type { AXNode } from "../cache/a11y-tree.js";
-import { hintMatcher } from "../cortex/hint-matcher.js";
 import { markovTable } from "../cortex/markov-table.js";
 import type { CortexPattern } from "../cortex/cortex-types.js";
 
@@ -858,7 +857,6 @@ describe("readPageHandler", () => {
 
   it("FR-H6: should gracefully handle evaluate failure for hidden detection", async () => {
     a11yTree.reset();
-    let evalCount = 0;
     const cdp = {
       send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
         if (method === "Runtime.evaluate") {

@@ -334,7 +334,7 @@ export async function screenshotHandler(
           }
         }
         // If no labels, fall through to normal screenshot with somElements = 0
-      } catch (somErr) {
+      } catch {
         // H1: SoM pipeline failed — fall through to normal screenshot
         somFailed = true;
         somElements = undefined;

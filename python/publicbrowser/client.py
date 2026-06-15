@@ -26,7 +26,6 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-
 # Default timeouts (seconds)
 DEFAULT_TIMEOUT = 30.0
 LONG_TIMEOUT = 120.0

@@ -12,8 +12,8 @@
  *  - Integration with MarkovTable: real predict() results
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { MarkovTable, markovTable } from "./markov-table.js";
-import type { CortexPattern, CortexHint } from "./cortex-types.js";
+import { markovTable } from "./markov-table.js";
+import type { CortexPattern } from "./cortex-types.js";
 
 /**
  * Helper: Create a minimal CortexPattern for MarkovTable ingestion.

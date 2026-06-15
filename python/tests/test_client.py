@@ -11,19 +11,16 @@ from __future__ import annotations
 
 import json
 import subprocess
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from publicbrowser.client import (
     ScriptApiClient,
-    DEFAULT_TIMEOUT,
-    LONG_TIMEOUT,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helper: Fake HTTP server that mimics Script API responses
@@ -161,7 +158,7 @@ class TestScriptApiClientCallTool:
             (200, {"content": [{"type": "text", "text": "done"}], "isError": False}),
         ]
 
-        result = client.call_tool("click", {"selector": "#btn"}, "TOKEN_X")
+        client.call_tool("click", {"selector": "#btn"}, "TOKEN_X")
 
         path, headers, body = _FakeScriptApiHandler.received_requests[0]
         assert path == "/tool/click"

@@ -9,12 +9,11 @@ from __future__ import annotations
 import pytest
 
 from publicbrowser.page import (
-    _extract_text,
     _check_error,
+    _extract_text,
     _parse_evaluate_response,
     _parse_tool_response,
 )
-
 
 # ---------------------------------------------------------------------------
 # _extract_text Tests
@@ -72,7 +71,7 @@ class TestCheckError:
         }
         _check_error(response)  # Should not raise
 
-    def test_does_not_raise_when_isError_missing(self) -> None:
+    def test_does_not_raise_when_is_error_missing(self) -> None:
         """Does not raise when isError is not present."""
         _check_error({"content": []})  # Should not raise
 

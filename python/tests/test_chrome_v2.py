@@ -9,17 +9,16 @@ Tests are structured in groups:
 from __future__ import annotations
 
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from publicbrowser.chrome import Chrome
 from publicbrowser.client import ScriptApiClient
 from publicbrowser.page import Page
-
 
 # ---------------------------------------------------------------------------
 # Helper: Fake HTTP server that mimics Script API responses
@@ -206,7 +205,7 @@ class TestNewPage:
         chrome = Chrome.connect(host="127.0.0.1", port=port, auto_start=False)
 
         with pytest.raises(ValueError, match="test error"):
-            with chrome.new_page() as page:
+            with chrome.new_page():
                 raise ValueError("test error")
 
         # Verify close_session was still called
@@ -233,7 +232,7 @@ class TestNewPage:
         chrome = Chrome.connect(host="127.0.0.1", port=port, auto_start=False)
 
         # Should not raise despite cleanup failure
-        with chrome.new_page() as page:
+        with chrome.new_page():
             pass
 
         chrome.close()

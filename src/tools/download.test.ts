@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { downloadHandler } from "./download.js";
 import type { DownloadCollector, DownloadInfo } from "../cdp/download-collector.js";
 

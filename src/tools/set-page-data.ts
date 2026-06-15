@@ -437,11 +437,9 @@ export async function setPageDataHandler(
 
     // 5. Append each chunk as base64 — same encoding for all paths;
     // the finalize expression handles the decode.
-    let totalAppended = 0;
     for (let i = 0; i < chunks.length; i++) {
       const chunkB64 = chunks[i].toString("base64");
       await runEvaluate(cdpClient, sessionId, buildAppendExpression(params.key, chunkB64));
-      totalAppended += chunks[i].length;
       if (aborted) throw new FrameInvalidatedError(abortReason);
     }
 

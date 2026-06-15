@@ -21,17 +21,13 @@ from __future__ import annotations
 
 import json
 import shutil
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
 from publicbrowser.chrome import Chrome
-from publicbrowser.client import ScriptApiClient
-from publicbrowser.page import Page
-
 
 # ---------------------------------------------------------------------------
 # Helper: Fake HTTP server that mimics Script API responses
@@ -154,7 +150,7 @@ class TestScriptTabLifecycle:
         chrome = make_chrome(fake_api)
 
         with pytest.raises(RuntimeError, match="simulated crash"):
-            with chrome.new_page() as page:
+            with chrome.new_page():
                 raise RuntimeError("simulated crash in script")
 
         # Verify close_session was still called
@@ -188,7 +184,7 @@ class TestScriptTabLifecycle:
         ]
 
         # Should NOT raise despite cleanup failure
-        with chrome.new_page() as page:
+        with chrome.new_page():
             pass
 
         chrome.close()
@@ -330,7 +326,7 @@ class TestCoexistenceIntegration:
         chrome = Chrome.connect()
         try:
             with pytest.raises(ValueError, match="test exception"):
-                with chrome.new_page() as page:
+                with chrome.new_page():
                     raise ValueError("test exception")
         finally:
             chrome.close()

@@ -354,7 +354,7 @@ describe("A11yTreeProcessor", () => {
       }),
     ];
     const cdp2 = mockCdpClient(nodesB, "https://example.com/page-b#top");
-    const result = await processor.getTree(cdp2, "s1");
+    await processor.getTree(cdp2, "s1");
 
     // Refs reset — new refs assigned
     expect(processor.resolveRef("e2")).toBe(201);
@@ -4291,7 +4291,7 @@ describe("A11yTreeProcessor", () => {
   describe("Name truncation marker (FR-021)", () => {
     function cdpForTruncatedGeneric(opts: { innerText: string; nodes: AXNode[] }) {
       return {
-        send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        send: vi.fn().mockImplementation((method: string, _params?: Record<string, unknown>) => {
           if (method === "Runtime.evaluate") {
             return Promise.resolve({ result: { value: "https://example.com/fr-021" } });
           }

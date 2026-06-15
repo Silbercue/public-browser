@@ -64,8 +64,6 @@ const isMainModule = (() => {
 })();
 
 if (isMainModule) {
-  const command = process.argv[2];
-
   {
     // Top-Level Subcommands (version/status/help).
     // Wenn dispatchTopLevelCli einen Subcommand erkennt, beendet es den

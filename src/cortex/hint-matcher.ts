@@ -69,7 +69,7 @@ export class HintMatcher {
    * @deprecated Use matchByPageType(pageType, lastTool) instead.
    * Kept as a stub for safety — returns EMPTY_RESULT always.
    */
-  match(url: string): HintMatchResult {
+  match(_url: string): HintMatchResult {
     try {
       debug("[hint-matcher] match(url) is deprecated — use matchByPageType(pageType)");
       return EMPTY_RESULT;

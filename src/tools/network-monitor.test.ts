@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { networkMonitorHandler } from "./network-monitor.js";
 import type { NetworkCollector, NetworkRequestEntry } from "../cdp/network-collector.js";
 

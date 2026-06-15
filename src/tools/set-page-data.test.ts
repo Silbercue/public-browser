@@ -10,7 +10,6 @@ import {
   buildAppendExpression,
   buildFinalizeExpression,
   DEFAULT_CHUNK_SIZE,
-  MAX_CHUNK_SIZE,
 } from "./set-page-data.js";
 import type { SetPageDataParams } from "./set-page-data.js";
 

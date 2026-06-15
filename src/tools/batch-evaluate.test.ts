@@ -7,7 +7,7 @@ function createMockCdpClient() {
     send: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
-  } as any;
+  } as unknown as import("../cdp/cdp-client.js").CdpClient;
 }
 
 describe("batchEvaluateHandler", () => {
@@ -43,7 +43,7 @@ describe("batchEvaluateHandler", () => {
 
     // settle() will call Page.lifecycleEvent listener — mock it to resolve quickly
     // Since settle uses cdpClient.on/off for events, we need to trigger them
-    cdpClient.on.mockImplementation((event: string, handler: Function) => {
+    cdpClient.on.mockImplementation((event: string, handler: (params: unknown) => void) => {
       if (event === "Page.lifecycleEvent") {
         setTimeout(() => handler({ frameId: "f1", loaderId: "l1", name: "networkIdle", timestamp: 0 }), 10);
       }
@@ -76,7 +76,7 @@ describe("batchEvaluateHandler", () => {
       .mockResolvedValueOnce({ frameId: "f2", loaderId: "l2" })
       .mockResolvedValueOnce({ result: { type: "string", value: "OK" } });
 
-    cdpClient.on.mockImplementation((event: string, handler: Function) => {
+    cdpClient.on.mockImplementation((event: string, handler: (params: unknown) => void) => {
       if (event === "Page.lifecycleEvent") {
         setTimeout(() => handler({ frameId: "f2", loaderId: "l2", name: "networkIdle", timestamp: 0 }), 10);
       }
@@ -133,7 +133,7 @@ describe("batchEvaluateHandler", () => {
         },
       });
 
-    cdpClient.on.mockImplementation((event: string, handler: Function) => {
+    cdpClient.on.mockImplementation((event: string, handler: (params: unknown) => void) => {
       if (event === "Page.lifecycleEvent") {
         setTimeout(() => handler({ frameId: "f1", loaderId: "l1", name: "networkIdle", timestamp: 0 }), 10);
       }

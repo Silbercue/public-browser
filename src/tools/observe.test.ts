@@ -151,7 +151,7 @@ describe("observeHandler", () => {
 
   it("should error when neither duration nor until provided", async () => {
     const { cdpClient } = createMockCdp();
-    const params = observeSchema.parse({ selector: "#x" } as Partial<ObserveParams> & { selector: string });
+    observeSchema.parse({ selector: "#x" } as Partial<ObserveParams> & { selector: string });
     // Manually remove duration and until (schema defaults don't set them)
     const rawParams = { selector: "#x", collect: "text" as const, interval: 100, timeout: 10000 };
     const result = await observeHandler(rawParams as ObserveParams, cdpClient, SESSION_ID);
@@ -563,7 +563,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
   });
 
   it("click_first with CSS selector that doesn't match — throws error instead of silent fail", async () => {
-    const { cdpClient, sendFn } = createMockCdp({
+    const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
       "DOM.querySelector": { nodeId: 2 },
       "DOM.describeNode": { node: { backendNodeId: 100 } },

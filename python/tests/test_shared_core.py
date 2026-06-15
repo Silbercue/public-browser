@@ -22,16 +22,14 @@ from __future__ import annotations
 import json
 import shutil
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from publicbrowser.chrome import Chrome
 from publicbrowser.client import ScriptApiClient
-from publicbrowser.page import Page
-
 
 # ---------------------------------------------------------------------------
 # Helper: Fake HTTP server with request tracking
@@ -531,7 +529,6 @@ class TestAutoStartVerification:
 
     def test_auto_start_passes_script_flag(self) -> None:
         """Server is started with --script flag."""
-        import subprocess
 
         client = ScriptApiClient("127.0.0.1", 19997)
 
@@ -634,7 +631,7 @@ class TestContextManagerCleanup:
         chrome = _make_chrome(tracking_server)
 
         with pytest.raises(RuntimeError, match="boom"):
-            with chrome.new_page() as page:
+            with chrome.new_page():
                 raise RuntimeError("boom")
 
         chrome.close()

@@ -721,11 +721,9 @@ describe("executePlan — Error Strategies (Story 6.4)", () => {
 describe("executePlan — Combined Features (Story 6.4)", () => {
   it("vars + conditions + continue strategy work together", async () => {
     const callLog: Array<{ name: string; params: Record<string, unknown> }> = [];
-    let callIdx = 0;
     const registry = {
       executeTool: async (name: string, params: Record<string, unknown>) => {
         callLog.push({ name, params });
-        callIdx++;
         if (name === "evaluate") {
           return {
             content: [{ type: "text" as const, text: "Login" }],

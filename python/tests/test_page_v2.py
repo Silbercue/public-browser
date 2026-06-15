@@ -14,8 +14,8 @@ Tests are structured by method:
 from __future__ import annotations
 
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import pytest
@@ -23,7 +23,6 @@ import pytest
 from publicbrowser.client import ScriptApiClient
 from publicbrowser.escape_hatch import CdpEscapeHatch
 from publicbrowser.page import Page
-
 
 # ---------------------------------------------------------------------------
 # Helper: Fake HTTP server for Page tests
@@ -477,7 +476,7 @@ class TestPageDownload:
             }),
         ]
 
-        result = page_with_server.download()
+        page_with_server.download()
 
         path, _, body = _FakeHandler.received_requests[0]
         assert path == "/tool/download"

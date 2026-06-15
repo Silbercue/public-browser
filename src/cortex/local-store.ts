@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile, appendFile, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { debug } from "../cdp/debug.js";
 import type {

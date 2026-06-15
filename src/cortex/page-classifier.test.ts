@@ -14,7 +14,6 @@ import {
   extractFeatures,
   classify,
   classifyPage,
-  type PageType,
   type PageFeatureVector,
 } from "./page-classifier.js";
 import type { AXNode } from "../cache/a11y-tree.js";

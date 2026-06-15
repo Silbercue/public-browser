@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { Socket } from "node:net";
 import type { CdpTransport } from "./transport.js";

@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from publicbrowser.client import ScriptApiClient, DEFAULT_TIMEOUT, LONG_TIMEOUT
+from publicbrowser.client import DEFAULT_TIMEOUT, LONG_TIMEOUT, ScriptApiClient
 from publicbrowser.escape_hatch import CdpEscapeHatch
 
 
@@ -186,7 +186,11 @@ class Page:
         if condition == "network_idle":
             params: dict[str, Any] = {"condition": "network_idle", "timeout": timeout_ms}
         elif condition.startswith("text="):
-            params = {"condition": "element", "selector": f"text/{condition[5:]}", "timeout": timeout_ms}
+            params = {
+                "condition": "element",
+                "selector": f"text/{condition[5:]}",
+                "timeout": timeout_ms,
+            }
         elif condition.startswith(("#", ".", "[")) or condition.startswith("ref:"):
             params = {"condition": "element", "selector": condition, "timeout": timeout_ms}
         else:

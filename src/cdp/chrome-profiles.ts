@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readlinkSync, lstatSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, resolve, isAbsolute } from "node:path";
 import { homedir, platform } from "node:os";
 
@@ -190,7 +191,6 @@ export function isChromeRunningWithProfile(userDataDir: string): boolean {
 
   // Method 2: Process scan (macOS/Linux)
   try {
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
     const output = execFileSync("ps", ["ax", "-o", "pid,command"], {
       encoding: "utf-8",
       timeout: 2000,

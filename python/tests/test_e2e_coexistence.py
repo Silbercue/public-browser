@@ -23,7 +23,6 @@ import pytest
 
 from publicbrowser import Chrome
 
-
 _SKIP_REASON = (
     "E2E test requires a running Public Browser server with --script flag. "
     "Start it and run with: pytest -m integration"
@@ -46,10 +45,9 @@ class TestE2ECoexistence:
             # Script creates a tab, does work, closes it
             with chrome.new_page() as page:
                 page.navigate("about:blank")
-                target_id = page.target_id
 
                 # Do some work
-                result = page.evaluate("document.title = 'Script Tab'")
+                page.evaluate("document.title = 'Script Tab'")
                 title = page.evaluate("document.title")
                 assert title == "Script Tab"
 

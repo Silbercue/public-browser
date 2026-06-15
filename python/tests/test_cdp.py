@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from unittest.mock import patch
 
@@ -19,7 +19,6 @@ import pytest
 
 from publicbrowser.cdp import CdpClient, CdpError
 from tests.conftest import FakeWebSocket
-
 
 # ---------------------------------------------------------------------------
 # Helper: create a CdpClient wired to a FakeWebSocket with active listener
@@ -216,7 +215,9 @@ class TestCdpClientEvents:
         client = await make_client(fake_ws)
 
         received: list[dict[str, Any]] = []
-        handler = lambda params: received.append(params)
+
+        def handler(params):
+            return received.append(params)
 
         client.on("Page.loadEventFired", handler)
         client.off("Page.loadEventFired", handler)

@@ -663,7 +663,7 @@ describe("ChromeConnection.reconnect", () => {
     // Second reconnect should immediately return false (already reconnecting)
     const p2 = conn.reconnect();
 
-    const [result1, result2] = await Promise.all([p1, p2]);
+    const [, result2] = await Promise.all([p1, p2]);
 
     // One attempt ran (and failed), the other was rejected
     expect(result2).toBe(false);

@@ -463,10 +463,8 @@ describe("waitForHandler — js timeout diagnostics", () => {
   });
 
   it("should show 'element not found' diagnostic when querySelector target does not exist", async () => {
-    let callCount = 0;
     const { cdpClient } = createMockCdp({});
     (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (_method: string, params: Record<string, unknown>) => {
-      callCount++;
       // Polling calls return false (expression never met)
       if (params?.expression && typeof params.expression === "string" && params.expression.includes(".async-result")) {
         return { result: { value: false } };
@@ -523,7 +521,7 @@ describe("waitForHandler — js timeout diagnostics", () => {
   // --- FR-H7: Element timeout diagnostics ---
 
   it("FR-H7: should add diagnostic when element CSS selector not found in DOM", async () => {
-    const { cdpClient, sendFn } = createMockCdp({
+    const { cdpClient } = createMockCdp({
       "Runtime.evaluate": { result: { value: { exists: false, hidden: false, tag: "" } } },
     });
 

@@ -10,7 +10,7 @@
  *  - Edge Cases und Error Handling
  *  - JSON-Groesse < 50KB (AC #3)
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { MarkovTable } from "./markov-table.js";
 import type { CortexPattern, MarkovTransition, MarkovTableJSON } from "./cortex-types.js";
 import {

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { navigateHandler, navigateSchema } from "./navigate.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
-import { hintMatcher } from "../cortex/hint-matcher.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { markovTable } from "../cortex/markov-table.js";
 import type { CortexPattern } from "../cortex/cortex-types.js";

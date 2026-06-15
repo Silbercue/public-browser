@@ -31,6 +31,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Lint
+        run: npm run lint
+
       - name: Test
         run: npm test
 
@@ -58,6 +61,10 @@ jobs:
       - name: Install dependencies
         working-directory: python
         run: python -m pip install -e ".[dev]"
+
+      - name: Lint
+        working-directory: python
+        run: ruff check .
 
       - name: Test
         working-directory: python

@@ -289,7 +289,6 @@ describe("CDP Coexistence — MCP tab URL stability", () => {
     const session = buildScriptModeSession(["mcp-tab-1"]);
 
     // MCP tab is tracked, external operations don't affect it
-    const mcpTabUrl = "https://mcp-dashboard.example.com";
 
     // Phase 1: Verify MCP tab is visible
     expect(session.isOwnedTarget("mcp-tab-1")).toBe(true);

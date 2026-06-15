@@ -230,14 +230,6 @@ export type SnapshotMap = Map<number, string>;  // refNum → "role\0name"
 
 type ElementClass = "interactive" | "content" | "container";
 
-const CONTAINER_ROLES = new Set([
-  "generic", "group", "region", "list", "listbox",
-  "navigation", "complementary", "main", "banner",
-  "contentinfo", "form", "search", "toolbar", "tablist",
-  "menu", "menubar", "tree", "grid", "table",
-  "rowgroup", "row", "treegrid",
-]);
-
 const CONTENT_ROLES = new Set([
   "heading", "paragraph", "text", "StaticText", "img",
   "figure", "blockquote", "code", "listitem", "cell",
@@ -734,7 +726,7 @@ export class A11yTreeProcessor {
       );
       const scrollableIds: string[] = JSON.parse(scrollResult.result.value || "[]");
       for (const id of scrollableIds) {
-        for (const [backendNodeId, info] of this.nodeInfoMap) {
+        for (const [, info] of this.nodeInfoMap) {
           if (info.htmlId === id) {
             info.isScrollable = true;
             break;
@@ -2099,7 +2091,6 @@ export class A11yTreeProcessor {
     }
 
     let implicitMainRef: number | undefined;
-    let implicitMainIndent = -1;
     let implicitMainRefLocalMax: number | undefined; // deepest ref within implicit main
     if (!hasExplicitMain) {
       // Find the shallowest non-separator line and use its indent as the "root level"
@@ -2132,7 +2123,6 @@ export class A11yTreeProcessor {
         candidates.sort((a, b) => (b.end - b.start) - (a.end - a.start));
         if (candidates.length > 0 && (candidates[0].end - candidates[0].start) >= 3) {
           implicitMainRef = candidates[0].ref;
-          implicitMainIndent = childIndent;
         }
       }
     }

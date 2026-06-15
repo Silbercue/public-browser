@@ -1472,7 +1472,7 @@ describe("ToolRegistry", () => {
 
   it("read_page via executeTool has estimated_tokens as positive number", async () => {
     const mockCdpClient = {
-      send: vi.fn().mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      send: vi.fn().mockImplementation(async (method: string, _params?: Record<string, unknown>) => {
         if (method === "Accessibility.getFullAXTree") {
           return { nodes: [{ nodeId: "1", role: { value: "rootWebArea" }, name: { value: "Test" }, properties: [], childIds: [] }] };
         }

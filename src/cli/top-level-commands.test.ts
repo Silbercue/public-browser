@@ -5,7 +5,7 @@
  * Strategie: process.exit + console.log werden gemockt, sodass jeder
  * Subcommand vollstaendig durchlaufen kann ohne den Test-Runner zu killen.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import {
   dispatchTopLevelCli,
