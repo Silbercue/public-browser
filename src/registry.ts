@@ -2,7 +2,6 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CdpClient } from "./cdp/cdp-client.js";
 import type { SessionManager } from "./cdp/session-manager.js";
 import type { DialogHandler } from "./cdp/dialog-handler.js";
-import type { DownloadCollector } from "./cdp/download-collector.js";
 import type { ConsoleCollector } from "./cdp/console-collector.js";
 import type { NetworkCollector } from "./cdp/network-collector.js";
 import type { IBrowserSession } from "./cdp/browser-session.js";
@@ -59,6 +58,8 @@ import { dragSchema, dragHandler } from "./tools/drag.js";
 import type { DragParams } from "./tools/drag.js";
 import { downloadSchema, downloadHandler } from "./tools/download.js";
 import type { DownloadParams } from "./tools/download.js";
+import { batchEvaluateSchema, batchEvaluateHandler } from "./tools/batch-evaluate.js";
+import type { BatchEvaluateParams } from "./tools/batch-evaluate.js";
 import { updateOverlayStatus, getToolLabel, setLastElapsed, showClickIndicator } from "./overlay/session-overlay.js";
 import { PlanStateStore } from "./plan/plan-state-store.js";
 import { z } from "zod";
@@ -152,6 +153,7 @@ export const ALL_FREE_TOOL_NAMES: readonly string[] = [
   // 10. Meta
   "configure_session",
   "run_plan",
+  "batch_evaluate",
   // 11. Binary transfer (Story 22.4)
   "set_page_data",
   // 12. Evaluate (last resort)
@@ -1781,6 +1783,21 @@ export class ToolRegistry implements ToolRegistryPublic {
       }, "run_plan"),
     );
 
+    maybeRegisterFreeMCPTool(
+      "batch_evaluate",
+      "Visit multiple URLs sequentially and evaluate the same JavaScript expression on each page. Use for controlled batch checks across known pages when view_page/run_plan would be too chatty. Not for normal page reading, clicking, or form work.",
+      {
+        urls: batchEvaluateSchema.shape.urls,
+        evaluate_per_page: batchEvaluateSchema.shape.evaluate_per_page,
+        settle_ms: batchEvaluateSchema.shape.settle_ms,
+        timeout_per_page_ms: batchEvaluateSchema.shape.timeout_per_page_ms,
+        continue_on_error: batchEvaluateSchema.shape.continue_on_error,
+      },
+      wrap(async (params) => {
+        return batchEvaluateHandler(params as unknown as BatchEvaluateParams, this.cdpClient, this.sessionId);
+      }, "batch_evaluate"),
+    );
+
     // Story 22.4: set_page_data — write large payloads (>1 MB) into the page,
     // bypassing the CDP 1 MB-per-message limit via server-side chunking.
     maybeRegisterFreeMCPTool(
@@ -1977,6 +1994,9 @@ export class ToolRegistry implements ToolRegistryPublic {
     });
     this._handlers.set("set_page_data", async (params, sessionIdOverride?) => {
       return setPageDataHandler(params as unknown as SetPageDataParams, this.cdpClient, sessionIdOverride ?? this.sessionId);
+    });
+    this._handlers.set("batch_evaluate", async (params, sessionIdOverride?) => {
+      return batchEvaluateHandler(params as unknown as BatchEvaluateParams, this.cdpClient, sessionIdOverride ?? this.sessionId);
     });
     if (this._browserSession.sessionDefaults) {
       this._handlers.set("configure_session", async (params) => {

@@ -118,6 +118,20 @@ class TestChromeConnect:
             mock_start.assert_called_once_with(server_path="/custom/server")
             chrome.close()
 
+    def test_connect_passes_profile_when_auto_starting(self) -> None:
+        """Chrome.connect(profile=...) passes the profile to start_server."""
+        with patch.object(ScriptApiClient, "_is_server_running", return_value=False), \
+             patch.object(ScriptApiClient, "start_server") as mock_start:
+            chrome = Chrome.connect(
+                host="127.0.0.1", port=19998,
+                profile="Business"
+            )
+            mock_start.assert_called_once_with(
+                server_path=None,
+                profile="Business",
+            )
+            chrome.close()
+
     def test_connect_skips_auto_start_when_server_running(self, fake_api: tuple) -> None:
         """Chrome.connect() does not start a server if one is already running."""
         port, server = fake_api

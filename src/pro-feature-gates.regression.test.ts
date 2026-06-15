@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { ToolRegistry } from "./registry.js";
+import { ALL_FREE_TOOL_NAMES, ToolRegistry } from "./registry.js";
 import { registerProHooks } from "./hooks/pro-hooks.js";
 import { runPlanHandler } from "./tools/run-plan.js";
 import type { RunPlanParams } from "./tools/run-plan.js";
@@ -129,8 +129,7 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
           (call: unknown[]) => call[0] as string,
         );
         expect(registeredNames).not.toContain("inspect_element");
-        // Full-Set exakt 25 Tools (10 Default + 12 Extended + drag aus Story 18.6, download aus Story 22.2, set_page_data aus Story 22.4).
-        expect(registeredNames.length).toBe(25);
+        expect(registeredNames.length).toBe(ALL_FREE_TOOL_NAMES.length);
         // Explizit die drei Collector-gated Tools — die Regression-Gefahr
         // lebt hier, siehe Story 18.3 Review H1/H2.
         expect(registeredNames).toContain("handle_dialog");
@@ -138,6 +137,7 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
         expect(registeredNames).toContain("network_monitor");
         // Story 18.6: drag ist im Full-Set, nicht im Default-Set.
         expect(registeredNames).toContain("drag");
+        expect(registeredNames).toContain("batch_evaluate");
       } finally {
         delete process.env.SILBERCUE_CHROME_FULL_TOOLS;
       }

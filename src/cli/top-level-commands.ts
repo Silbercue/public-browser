@@ -14,18 +14,13 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "node:url";
 import { discoverProfiles, getChromeUserDataDir } from "../cdp/chrome-profiles.js";
+import { ALL_FREE_TOOL_NAMES } from "../registry.js";
 
 /**
- * Anzahl Tools die der MCP-Server registriert.
- *
- * WICHTIG: Diese Konstante MUSS aktuell gehalten werden, wenn Tools im
- * Registry hinzugefuegt oder entfernt werden. Quelle der Wahrheit ist der
- * smoke-test (`test-hardest/smoke-test.mjs`) — bei Aenderungen muss die
- * Zahl hier nachgezogen werden.
- *
- * Aktuelle Zaehlung: 25 Tools (inkl. dom_snapshot, switch_tab, virtual_desk, drag, download, batch_evaluate, set_page_data).
+ * Anzahl Free-Tools, die der MCP-Server im Full-Tools-Modus registriert.
+ * Quelle der Wahrheit ist `ALL_FREE_TOOL_NAMES` in der Registry.
  */
-export const FREE_TIER_TOOL_COUNT = 25;
+export const FREE_TIER_TOOL_COUNT = ALL_FREE_TOOL_NAMES.length;
 
 /** Liste der bekannten Subcommands fuer Dispatch + Help. */
 const KNOWN_SUBCOMMANDS = [

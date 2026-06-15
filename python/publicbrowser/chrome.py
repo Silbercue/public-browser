@@ -79,7 +79,10 @@ class Chrome:
 
         if not client._is_server_running():
             if auto_start:
-                client.start_server(server_path=server_path, profile=profile)
+                if profile is None:
+                    client.start_server(server_path=server_path)
+                else:
+                    client.start_server(server_path=server_path, profile=profile)
             else:
                 raise ConnectionError(
                     f"Public Browser server not reachable on {host}:{port}. "

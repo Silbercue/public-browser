@@ -4,11 +4,13 @@ Python client for Public Browser automation. Scripts use the same tool implement
 
 ## Installation
 
+The Python package is not currently published on PyPI. From the repository root, install the local package:
+
 ```bash
-pip install publicbrowser
+python -m pip install ./python
 ```
 
-That's it. No manual Chrome launch needed — `Chrome.connect()` starts everything automatically.
+If you are already in this `python/` directory, use `python -m pip install .` instead. No manual Chrome launch is needed — `Chrome.connect()` starts everything automatically via a local `public-browser` binary or the `npx` fallback.
 
 Dependencies: `websockets` (for the Escape Hatch / `CdpClient` low-level access). The main Shared Core API uses `urllib` (built-in).
 
@@ -187,7 +189,7 @@ claude mcp add --scope user public-browser npx -y public-browser@latest -- --scr
 
 ## Legacy: Single-File Alternative
 
-For quick prototyping, you can copy `silbercuechrome.py` into your project. This uses the v1 code path (direct CDP via WebSocket) and does **not** benefit from server-side improvements. Use `pip install publicbrowser` for the full Shared Core experience.
+For quick prototyping, you can copy `silbercuechrome.py` into your project. This uses the v1 code path (direct CDP via WebSocket) and does **not** benefit from server-side improvements. Use the local `publicbrowser` package for the full Shared Core experience.
 
 ## License
 

@@ -111,7 +111,7 @@ describe("startServer integration (Story 12.4 — C1)", () => {
     const captured: { instructions?: string } = {};
 
     vi.doMock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
-      McpServer: vi.fn().mockImplementation((_info: unknown, opts: { instructions?: string }) => {
+      McpServer: vi.fn(function McpServerMock(_info: unknown, opts: { instructions?: string }) {
         captured.instructions = opts?.instructions;
         return {
           connect: vi.fn().mockResolvedValue(undefined),
@@ -121,14 +121,18 @@ describe("startServer integration (Story 12.4 — C1)", () => {
     }));
 
     vi.doMock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
-      StdioServerTransport: vi.fn().mockImplementation(() => ({})),
+      StdioServerTransport: vi.fn(function StdioServerTransportMock() {
+        return {};
+      }),
     }));
 
     vi.doMock("./cdp/browser-session.js", () => ({
-      BrowserSession: vi.fn().mockImplementation(() => ({
-        ensureReady: vi.fn().mockResolvedValue(undefined),
-        shutdown: vi.fn().mockResolvedValue(undefined),
-      })),
+      BrowserSession: vi.fn(function BrowserSessionMock() {
+        return {
+          ensureReady: vi.fn().mockResolvedValue(undefined),
+          shutdown: vi.fn().mockResolvedValue(undefined),
+        };
+      }),
     }));
 
     vi.doMock("./cdp/chrome-launcher.js", () => ({
@@ -136,9 +140,11 @@ describe("startServer integration (Story 12.4 — C1)", () => {
     }));
 
     vi.doMock("./registry.js", () => ({
-      ToolRegistry: vi.fn().mockImplementation(() => ({
-        registerAll: vi.fn(),
-      })),
+      ToolRegistry: vi.fn(function ToolRegistryMock() {
+        return {
+          registerAll: vi.fn(),
+        };
+      }),
     }));
 
     vi.doMock("./transport/script-api-server.js", () => ({

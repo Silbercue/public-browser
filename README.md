@@ -2,7 +2,7 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/Silbercue/public-browser)](https://github.com/Silbercue/public-browser/releases)
 [![npm version](https://img.shields.io/npm/v/public-browser)](https://www.npmjs.com/package/public-browser)
-[![23 tools](https://img.shields.io/badge/Tools-23-brightgreen)](https://github.com/Silbercue/public-browser#tool-overview)
+[![25 tools](https://img.shields.io/badge/Tools-25-brightgreen)](https://github.com/Silbercue/public-browser#tool-overview)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
@@ -133,13 +133,15 @@ A second way to use Public Browser — deterministic browser automation from Pyt
 
 ### Installation
 
+The Python package is not currently published on PyPI. From a source checkout, install the local package:
+
 ```bash
-pip install publicbrowser
+python -m pip install ./python
 ```
 
-That's it. `Chrome.connect()` auto-starts the Public Browser server as a subprocess — no manual Chrome launch or port setup needed.
+`Chrome.connect()` auto-starts the Public Browser server as a subprocess via a local `public-browser` binary or the `npx` fallback — no manual Chrome launch or port setup needed.
 
-> **Legacy single-file alternative:** For quick prototyping you can copy [`python/publicbrowser.py`](python/publicbrowser.py) into your project. This uses v1 direct CDP and does not benefit from server-side improvements — use `pip install` for the full Shared Core experience.
+> **Legacy single-file alternative:** For quick prototyping you can copy [`python/silbercuechrome.py`](python/silbercuechrome.py) into your project. This uses v1 direct CDP and does not benefit from server-side improvements — use the local `publicbrowser` package for the full Shared Core experience.
 
 ### How it works
 
@@ -289,8 +291,9 @@ See [`python/README.md`](python/README.md) for the full API reference and advanc
 | **Scripting** | |
 | `run_plan` | Multi-step batch execution with variables, conditions, `saveAs`, error strategies, suspend/resume. |
 | `configure_session` | View/set session defaults (tab, timeout) and accept auto-promote suggestions |
+| `batch_evaluate` | Visit multiple URLs sequentially and run the same JavaScript expression on each page. |
+| `set_page_data` | Write large payloads to `window.__pb_data[key]` via server-side chunking for data that is too large for a single CDP message. |
 | `evaluate` | Execute JS in page context. Anti-pattern scanner warns on `querySelector`/`.click()`. |
-| `inspect_element` | CSS debugging: computed styles, matching rules with source file, inherited values — one call replaces 4+ evaluate roundtrips. |
 
 ## Benchmarks
 
@@ -389,10 +392,10 @@ Public Browser (Node.js MCP server, public-browser)
 |   +-- Community Table (shipped baseline, SHA-256 verified)
 |   +-- Hint Matcher (delivers predictions to tool responses)
 |   +-- Telemetry Upload (opt-in, HTTPS, rate-limited)
-+-- Script API (Python, pip install publicbrowser)
++-- Script API (Python, source install from ./python)
 |   +-- Shared Core via HTTP (:9223) — same tool handlers as MCP
 |   +-- Escape Hatch via WebSocket (:9222) — direct CDP for power users
-+-- 23 tools
++-- 25 tools
     Reading - Interaction - Navigation - Scripting - Observation
 ```
 
@@ -416,16 +419,6 @@ Connection priority:
 | `CHROME_PATH` | path | — | Path to Chrome binary (overrides auto-detection) |
 | `PUBLIC_BROWSER_TELEMETRY` | `1` / `true` | — (disabled) | Opt-in: upload anonymised Cortex patterns to the community endpoint |
 | `PUBLIC_BROWSER_TELEMETRY_ENDPOINT` | URL | `https://cortex.public-browser.dev/v1/patterns` | Override the telemetry collection endpoint (must be HTTPS) |
-
-## Known Issues
-
-### BUG-003: WebSocket `Sec-WebSocket-Accept` Mismatch (Node 22 + Chrome 146)
-
-When connecting to an already-running Chrome via `--remote-debugging-port=9222` (WebSocket transport), Node 22's undici 6.21.1 produces a different `Sec-WebSocket-Accept` hash than Chrome 146 expects. This is a confirmed bug in Node 22's native WebSocket implementation.
-
-**Workaround:** The Accept validation is skipped — safe because the connection is to a localhost CDP endpoint. The workaround is already active in the shipped code.
-
-**Auto-Launch is NOT affected.** The default mode (auto-launch) uses `--remote-debugging-pipe` which bypasses WebSocket entirely. You only hit this if you manually start Chrome with `--remote-debugging-port` and connect via `--attach`.
 
 ## License
 

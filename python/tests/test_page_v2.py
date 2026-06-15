@@ -350,6 +350,21 @@ class TestPageEvaluate:
         assert path == "/tool/evaluate"
         assert json.loads(body) == {"expression": "21 * 2"}
 
+    def test_evaluate_can_await_promise(self, page_with_server: Page) -> None:
+        """evaluate(await_promise=True) sends await_promise opt-in."""
+        _FakeHandler.responses = [
+            (200, {"content": [{"type": "text", "text": "42"}], "isError": False}),
+        ]
+
+        page_with_server.evaluate("Promise.resolve(42)", await_promise=True)
+
+        path, _, body = _FakeHandler.received_requests[0]
+        assert path == "/tool/evaluate"
+        assert json.loads(body) == {
+            "expression": "Promise.resolve(42)",
+            "await_promise": True,
+        }
+
     def test_evaluate_returns_number(self, page_with_server: Page) -> None:
         """evaluate() returns parsed number."""
         _FakeHandler.responses = [

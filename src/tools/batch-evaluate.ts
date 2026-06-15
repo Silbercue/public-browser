@@ -3,7 +3,6 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { ToolResponse } from "../types.js";
 import { settle } from "../cdp/settle.js";
 import { wrapInIIFE } from "./evaluate.js";
-import { wrapCdpError } from "./error-utils.js";
 
 export const batchEvaluateSchema = z.object({
   urls: z.array(z.string()).describe("Array of URLs to visit and evaluate sequentially"),

@@ -1,7 +1,7 @@
 {
   "name": "public-browser",
   "version": "2.6.0",
-  "description": "Public Browser MCP Server \u2014 Chrome browser automation via CDP",
+  "description": "Public Browser MCP Server - Chrome browser automation via CDP",
   "type": "module",
   "files": [
     "build/",
@@ -17,7 +17,6 @@
   "exports": {
     ".": "./build/index.js",
     "./hooks": "./build/hooks/index.js",
-    "./license/license-status.js": "./build/license/license-status.js",
     "./types.js": "./build/types.js",
     "./registry.js": "./build/registry.js",
     "./plan/plan-executor.js": "./build/plan/plan-executor.js",
@@ -33,8 +32,10 @@
     "./cdp/session-manager.js": "./build/cdp/session-manager.js"
   },
   "scripts": {
-    "build": "tsc && chmod +x build/index.js && cp src/cortex/community-markov.json build/cortex/community-markov.json",
+    "clean": "node -e \"require('node:fs').rmSync('build',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc && chmod +x build/index.js && cp src/cortex/community-markov.json build/cortex/community-markov.json",
     "test": "vitest run",
+    "pack:check": "node scripts/check-pack.mjs",
     "token-count": "node scripts/token-count.mjs",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -54,10 +55,10 @@
     "@types/node": "^22",
     "eslint": "^9",
     "prettier": "^3",
-    "tsx": "^4.21.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.7",
     "typescript-eslint": "^8",
-    "vitest": "^3"
+    "vitest": "^4.1.9"
   },
   "repository": {
     "type": "git",

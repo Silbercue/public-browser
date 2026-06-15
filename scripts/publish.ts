@@ -313,31 +313,51 @@ export function phase4_versionTag(
   ctx: RepoContext,
   opts: PublishOptions,
 ): PhaseResult {
-  // Check if tag already exists locally
-  const existingTag = runOrNull("git", ["tag", "-l", ctx.tag], ctx.freeRepo);
+  log(`  Checking local tag ${ctx.tag} does not exist...`);
+  let existingLocalTag: string;
+  try {
+    existingLocalTag = run("git", ["tag", "-l", ctx.tag], ctx.freeRepo);
+  } catch (err) {
+    return {
+      success: false,
+      message: `Local tag check failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 
-  if (existingTag && existingTag !== "") {
-    log(`  Tag ${ctx.tag} already exists — replacing`);
-    if (!opts.dryRun) {
-      // Delete local tag
-      runOrNull("git", ["tag", "-d", ctx.tag], ctx.freeRepo);
-      // Delete remote tag (may not exist)
-      runOrNull(
-        "git",
-        ["push", CONFIG.REMOTE, `:refs/tags/${ctx.tag}`],
-        ctx.freeRepo,
-      );
-    } else {
-      log(`  [DRY-RUN] Would delete existing tag ${ctx.tag}`);
-    }
+  if (existingLocalTag !== "") {
+    return {
+      success: false,
+      message: `Tag ${ctx.tag} already exists locally. Release tags are immutable; bump package.json version before publishing.`,
+    };
+  }
+
+  log(`  Checking remote tag ${ctx.tag} on ${CONFIG.REMOTE} does not exist...`);
+  let existingRemoteTag: string;
+  try {
+    existingRemoteTag = run(
+      "git",
+      ["ls-remote", "--tags", CONFIG.REMOTE, ctx.tag],
+      ctx.freeRepo,
+    );
+  } catch (err) {
+    return {
+      success: false,
+      message: `Remote tag check failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (existingRemoteTag !== "") {
+    return {
+      success: false,
+      message: `Tag ${ctx.tag} already exists on ${CONFIG.REMOTE}. Release tags are immutable; bump package.json version before publishing.`,
+    };
   }
 
   if (opts.dryRun) {
-    log(
-      `  [DRY-RUN] Would create annotated tag ${ctx.tag}`,
-    );
+    log(`  [DRY-RUN] Tag ${ctx.tag} is available locally and on ${CONFIG.REMOTE}`);
+    log(`  [DRY-RUN] Would create annotated tag ${ctx.tag}`);
     log(`  [DRY-RUN] Would push tag ${ctx.tag} to ${CONFIG.REMOTE}`);
-    return { success: true, message: `Tag ${ctx.tag} set` };
+    return { success: true, message: `Tag ${ctx.tag} available (dry-run)` };
   }
 
   // Create annotated tag
@@ -375,6 +395,43 @@ export function phase5_publishAndRelease(
   ctx: RepoContext,
   opts: PublishOptions,
 ): PhaseResult {
+  if (!opts.skipGithub) {
+    if (opts.dryRun) {
+      log(`  [DRY-RUN] Would check GitHub release ${ctx.tag} does not already exist`);
+    } else {
+      log(`  Checking GitHub release ${ctx.tag} does not already exist...`);
+    }
+
+    const existingRelease = runOrNull(
+      "gh",
+      [
+        "release",
+        "view",
+        ctx.tag,
+        "--repo",
+        CONFIG.GITHUB_REPO_FREE,
+        "--json",
+        "tagName",
+        "-q",
+        ".tagName",
+      ],
+      ctx.freeRepo,
+    );
+
+    if (existingRelease !== null && existingRelease !== "") {
+      return {
+        success: false,
+        message: `GitHub release ${ctx.tag} already exists. Releases are immutable; bump package.json version before publishing.`,
+      };
+    }
+
+    if (opts.dryRun) {
+      log(`  [DRY-RUN] GitHub release check found no existing ${ctx.tag}`);
+    } else {
+      log(`  GitHub release ${ctx.tag} is available`);
+    }
+  }
+
   // 5.1 npm publish
   if (!opts.skipNpm) {
     if (opts.dryRun) {
@@ -418,36 +475,9 @@ export function phase5_publishAndRelease(
   // 5.2 GitHub Release
   if (!opts.skipGithub) {
     if (opts.dryRun) {
-      log(`  [DRY-RUN] Would create GitHub release ${ctx.tag}`);
+      log(`  [DRY-RUN] Would create GitHub release ${ctx.tag} with generated notes`);
     } else {
       log("  Creating GitHub release...");
-
-      // Check if release already exists
-      const existingRelease = runOrNull(
-        "gh",
-        ["release", "view", ctx.tag, "--repo", CONFIG.GITHUB_REPO_FREE],
-        ctx.freeRepo,
-      );
-
-      if (existingRelease !== null) {
-        log(`  Release ${ctx.tag} already exists — deleting for re-create`);
-        try {
-          run(
-            "gh",
-            [
-              "release",
-              "delete",
-              ctx.tag,
-              "-y",
-              "--repo",
-              CONFIG.GITHUB_REPO_FREE,
-            ],
-            ctx.freeRepo,
-          );
-        } catch {
-          // Ignore delete errors — release might be partially created
-        }
-      }
 
       try {
         run(

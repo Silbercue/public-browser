@@ -199,12 +199,19 @@ class Page:
                 raise TimeoutError(text)
             raise RuntimeError(text)
 
-    def evaluate(self, expression: str, *, timeout: float = DEFAULT_TIMEOUT) -> Any:
+    def evaluate(
+        self,
+        expression: str,
+        *,
+        timeout: float = DEFAULT_TIMEOUT,
+        await_promise: bool = False,
+    ) -> Any:
         """Evaluate JavaScript in the page context.
 
         Args:
             expression: JavaScript expression to evaluate.
             timeout: Timeout for the evaluation.
+            await_promise: If True, await the result if it is a Promise.
 
         Returns:
             The evaluated value. Attempts to parse JSON from the server
@@ -213,9 +220,11 @@ class Page:
         Raises:
             RuntimeError: If the evaluation throws an exception.
         """
-        response = self._call_tool(
-            "evaluate", {"expression": expression, "await_promise": True}, timeout=timeout
-        )
+        params: dict[str, Any] = {"expression": expression}
+        if await_promise:
+            params["await_promise"] = True
+
+        response = self._call_tool("evaluate", params, timeout=timeout)
         _check_error(response)
         return _parse_evaluate_response(response)
 
