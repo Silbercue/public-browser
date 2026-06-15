@@ -1,6 +1,6 @@
 {
   "name": "public-browser",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Public Browser MCP Server - Chrome browser automation via CDP",
   "type": "module",
   "files": [
