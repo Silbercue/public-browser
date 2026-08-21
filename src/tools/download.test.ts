@@ -15,6 +15,7 @@ function createMockCollector(opts: {
   consumeFn: ReturnType<typeof vi.fn>;
   getAllFn: ReturnType<typeof vi.fn>;
   waitFn: ReturnType<typeof vi.fn>;
+  waitForStartFn: ReturnType<typeof vi.fn>;
 } {
   const completed = opts.completed ?? [];
   const allDownloads = opts.allDownloads ?? completed;
@@ -31,12 +32,18 @@ function createMockCollector(opts: {
     },
   );
 
+  // Nothing pending and nothing buffered: the handler asks the collector to
+  // wait for a download to start before reporting "none". The stub answers
+  // "nothing started" immediately so the existing expectations still hold.
+  const waitForStartFn = vi.fn<[number], Promise<boolean>>().mockResolvedValue(false);
+
   const collector = {
     pendingCount: opts.pending ?? 0,
     completedCount: completed.length,
     consumeCompleted: consumeFn,
     getAllDownloads: getAllFn,
     waitForCompletion: waitFn,
+    waitForStart: waitForStartFn,
     init: vi.fn(),
     detach: vi.fn(),
     reinit: vi.fn(),
@@ -44,7 +51,7 @@ function createMockCollector(opts: {
     downloadPath: "/tmp/sc-dl-mock",
   } as unknown as DownloadCollector;
 
-  return { collector, consumeFn, getAllFn, waitFn };
+  return { collector, consumeFn, getAllFn, waitFn, waitForStartFn };
 }
 
 const SAMPLE_DOWNLOADS: DownloadInfo[] = [
@@ -213,5 +220,77 @@ describe("downloadHandler", () => {
     expect(result._meta).toBeDefined();
     expect(result._meta?.method).toBe("download");
     expect(typeof result._meta?.elapsedMs).toBe("number");
+  });
+});
+
+describe("downloadHandler — settle window", () => {
+  it("waits for a download to start before reporting 'none'", async () => {
+    // Regression: a `download` call right after the click that triggers the
+    // download used to report "No downloads" while the file was on its way.
+    const { collector, waitForStartFn } = createMockCollector({ pending: 0 });
+
+    await downloadHandler({ action: "status", timeout: 30_000, settle: 750 }, collector);
+
+    expect(waitForStartFn).toHaveBeenCalledWith(750);
+  });
+
+  it("defaults the grace window to 250ms — short enough not to bottleneck a poll loop", async () => {
+    const { collector, waitForStartFn } = createMockCollector({ pending: 0 });
+
+    await downloadHandler(
+      { action: "status", timeout: 30_000 } as unknown as Parameters<typeof downloadHandler>[0],
+      collector,
+    );
+
+    expect(waitForStartFn).toHaveBeenCalledWith(250);
+  });
+
+  it("skips the grace window when a download is already pending", async () => {
+    const { collector, waitForStartFn } = createMockCollector({ pending: 1 });
+
+    await downloadHandler({ action: "status", timeout: 100, settle: 1500 }, collector);
+
+    expect(waitForStartFn).not.toHaveBeenCalled();
+  });
+
+  it("skips the grace window when results are already buffered", async () => {
+    const { collector, waitForStartFn } = createMockCollector({
+      pending: 0,
+      completed: [SAMPLE_DOWNLOADS[0]],
+    });
+
+    await downloadHandler({ action: "status", timeout: 100, settle: 1500 }, collector);
+
+    expect(waitForStartFn).not.toHaveBeenCalled();
+  });
+
+  it('does not wait for action "list"', async () => {
+    const { collector, waitForStartFn } = createMockCollector({ pending: 0 });
+
+    await downloadHandler({ action: "list", timeout: 100, settle: 1500 }, collector);
+
+    expect(waitForStartFn).not.toHaveBeenCalled();
+  });
+
+  it("reports the pending download the grace window revealed", async () => {
+    // waitForStart resolves true and the collector now has a pending entry —
+    // the handler must fall through to waitForCompletion, not the quick exit.
+    const { collector, waitForStartFn, waitFn } = createMockCollector({
+      pending: 0,
+      waitResult: [SAMPLE_DOWNLOADS[0]],
+    });
+    waitForStartFn.mockImplementation(async () => {
+      (collector as unknown as { pendingCount: number }).pendingCount = 1;
+      return true;
+    });
+
+    const result = await downloadHandler(
+      { action: "status", timeout: 5_000, settle: 1500 },
+      collector,
+    );
+
+    expect(waitFn).toHaveBeenCalled();
+    const payload = JSON.parse(result.content[0].text as string) as { downloads: unknown[] };
+    expect(payload.downloads).toHaveLength(1);
   });
 });

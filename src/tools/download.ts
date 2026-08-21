@@ -5,23 +5,40 @@ import type { ToolResponse } from "../types.js";
 export const downloadSchema = z.object({
   action: z.enum(["status", "list"])
     .default("status")
-    .describe("status: check/wait for pending downloads, list: show all session downloads"),
+    .describe(
+      "status: check/wait for pending downloads (waits briefly for one to start, "
+      + "then until it finishes). list: full session history, returns immediately "
+      + "and never waits — use it for polling loops.",
+    ),
   timeout: z.number()
     .optional()
     .default(30_000)
     .describe("Max wait time in ms for pending downloads (default: 30000)"),
+  settle: z.number()
+    .optional()
+    .default(250)
+    .describe(
+      "Grace window in ms to wait for a download to START before reporting "
+      + "'no downloads' (default: 250). Chrome fires downloadWillBegin a few ms "
+      + "after the click that triggers it. Set 0 for an instant check, or use "
+      + "action: 'list' which never waits.",
+    ),
 });
 
 export type DownloadParams = z.infer<typeof downloadSchema>;
 
 function formatDownload(d: DownloadInfo): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     filename: d.suggestedFilename,
     path: d.path,
     size: d.size,
     sizeKb: Math.ceil(d.size / 1024),
     url: d.url,
   };
+  // Only present when the session runs with downloadHash enabled — keeping it
+  // conditional avoids a `"sha256": null` field in every default response.
+  if (d.sha256) out.sha256 = d.sha256;
+  return out;
 }
 
 export async function downloadHandler(
@@ -47,6 +64,19 @@ export async function downloadHandler(
   }
 
   // --- action: "status" (default) ---
+  // Grace window first: a download triggered by the click right before this
+  // call may not have produced Browser.downloadWillBegin yet. Without it the
+  // first status call reports "no downloads" for a file that arrives moments
+  // later, and the caller has to invent a retry delay.
+  //
+  // Kept short on purpose — it is a per-call floor for anyone polling in a
+  // loop, and Chrome's willBegin lands in tens of milliseconds. `settle: 0`
+  // and `action: "list"` are the wait-free paths.
+  const settle = params.settle ?? 250;
+  if (downloadCollector.pendingCount === 0 && downloadCollector.completedCount === 0) {
+    await downloadCollector.waitForStart(settle);
+  }
+
   const pending = downloadCollector.pendingCount;
   const alreadyCompleted = downloadCollector.consumeCompleted();
 

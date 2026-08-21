@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { BrowserSession } from "./cdp/browser-session.js";
@@ -10,6 +11,17 @@ import { ScriptApiServer } from "./transport/script-api-server.js";
 import { hintMatcher } from "./cortex/hint-matcher.js";
 import { loadCommunityMarkov } from "./cortex/community-loader.js";
 import { markovTable } from "./cortex/markov-table.js";
+import {
+  ConfigError,
+  resolveCdpHost,
+  resolveCdpPort,
+  resolveDownloadDir,
+  resolveDownloadHash,
+  resolveDownloadNaming,
+  resolveHeadless,
+  resolveScriptPort,
+} from "./config.js";
+import type { DownloadNaming } from "./config.js";
 
 /**
  * MCP server bootstrap — lazy-launch architecture.
@@ -71,6 +83,42 @@ export interface StartServerOptions {
   script?: boolean;
   /** Chrome profile name (e.g. "Julian") or raw path. Resolved at startup. */
   profile?: string;
+  /**
+   * Raw Chrome `--user-data-dir` (`--user-data-dir <path>`). Created if
+   * missing — a fresh per-agent directory is the normal case, and the
+   * launcher refuses a path that does not exist. `profile` wins if both are
+   * set, because a named profile already implies its own directory.
+   */
+  userDataDir?: string;
+  /**
+   * CDP port this instance owns (default: `SILBERCUE_CHROME_PORT`, else 9222).
+   * Multi-instance operation: give every Public Browser its own port so the
+   * instances never fight over the same Chrome.
+   */
+  cdpPort?: number;
+  /** CDP host (default: `SILBERCUE_CHROME_HOST`, else 127.0.0.1). */
+  cdpHost?: string;
+  /**
+   * Script API port (default: `SILBERCUE_SCRIPT_PORT`, else 9223).
+   * Only used together with `script: true`.
+   */
+  scriptPort?: number;
+  /** Headless mode (default: `SILBERCUE_CHROME_HEADLESS`). */
+  headless?: boolean;
+  /**
+   * Disable the `navigator.webdriver` masking (`--no-stealth`).
+   * Default: `SILBERCUE_STEALTH` / `PUBLIC_BROWSER_STEALTH`, else enabled.
+   */
+  stealth?: boolean;
+  /** Download target directory (default: `PUBLIC_BROWSER_DOWNLOAD_DIR`, else a temp dir). */
+  downloadDir?: string;
+  /** Compute SHA-256 for completed downloads (default: `PUBLIC_BROWSER_DOWNLOAD_HASH`). */
+  downloadHash?: boolean;
+  /**
+   * File naming inside the download directory: `"guid"` (default) or
+   * `"suggested"`. Default: `PUBLIC_BROWSER_DOWNLOAD_NAMING`.
+   */
+  downloadNaming?: string;
 }
 
 export async function startServer(options?: StartServerOptions): Promise<void> {
@@ -78,12 +126,28 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
   const scriptMode = options?.script ?? false;
 
   // 1. Read environment — no Chrome is touched here.
-  const headlessEnv = process.env.SILBERCUE_CHROME_HEADLESS === "true";
-  const portEnv = process.env.SILBERCUE_CHROME_PORT;
-  const cdpPort = portEnv ? parseInt(portEnv, 10) : 9222;
-  if (portEnv && (isNaN(cdpPort) || cdpPort < 1 || cdpPort > 65535)) {
-    console.error(`Error: SILBERCUE_CHROME_PORT="${portEnv}" is not a valid port (1-65535).`);
+  //    Every setting follows the same precedence: explicit option (CLI or
+  //    library call) > canonical env > alias env > default. See config.ts.
+  const env = process.env as Record<string, string | undefined>;
+  let headlessEnv: boolean;
+  let cdpPort: number;
+  let cdpHost: string;
+  let scriptPort: number;
+  let downloadDir: string | undefined;
+  let downloadHash: boolean;
+  let downloadNaming: DownloadNaming;
+  try {
+    headlessEnv = resolveHeadless(env, options?.headless);
+    cdpPort = resolveCdpPort(env, options?.cdpPort);
+    cdpHost = resolveCdpHost(env, options?.cdpHost);
+    scriptPort = resolveScriptPort(env, options?.scriptPort);
+    downloadDir = resolveDownloadDir(env, options?.downloadDir);
+    downloadHash = resolveDownloadHash(env, options?.downloadHash);
+    downloadNaming = resolveDownloadNaming(env, options?.downloadNaming);
+  } catch (err) {
+    console.error(`Error: ${err instanceof ConfigError ? err.message : String(err)}`);
     process.exit(1);
+    return;
   }
 
   // 1b. Profile resolution: CLI --profile > PUBLIC_BROWSER_PROFILE > SILBERCUE_CHROME_PROFILE
@@ -120,6 +184,21 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
       console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     }
+  } else if (options?.userDataDir) {
+    // Raw --user-data-dir: Chrome owns the layout, we only point at it and
+    // make sure it exists. No profile lookup, no lock-file attach heuristic —
+    // this is the "give this agent its own throwaway Chrome" path.
+    try {
+      mkdirSync(options.userDataDir, { recursive: true });
+      profilePath = options.userDataDir;
+      console.error(`Public Browser using user-data-dir: ${options.userDataDir}`);
+    } catch (err) {
+      console.error(
+        `Error: cannot create --user-data-dir "${options.userDataDir}": `
+        + `${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   }
 
   const effectiveAttach = attachMode || forceAttach;
@@ -140,6 +219,11 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     attachMode: effectiveAttach,
     scriptMode,
     cdpPort,
+    cdpHost,
+    stealth: options?.stealth,
+    downloadDir,
+    downloadHash,
+    downloadNaming,
   });
 
   // 2b. Attach mode: eagerly validate that Chrome is reachable. Fail fast
@@ -163,7 +247,19 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
 
   // 2c. Script mode: log to stderr for operator visibility.
   if (scriptMode) {
-    console.error("Public Browser --script: external CDP clients expected, tab ownership tracking enabled");
+    console.error(
+      `Public Browser --script: external CDP clients expected on ${cdpHost}:${cdpPort}, `
+      + `Script API on port ${scriptPort}, tab ownership tracking enabled`,
+    );
+  }
+
+  // 2d. Multi-instance visibility: state which Chrome and which stealth mode
+  //     this instance runs with, so operators can tell two instances apart
+  //     in a shared log stream.
+  if (!browserSession.stealth) {
+    console.error(
+      `Public Browser --no-stealth: navigator.webdriver stays true (CDP ${cdpHost}:${cdpPort})`,
+    );
   }
 
   // 3. Story 12.4: Load cortex patterns BEFORE McpServer construction so
@@ -217,6 +313,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     scriptApiServer = new ScriptApiServer({
       registry,
       browserSession,
+      port: scriptPort,
     });
     try {
       await scriptApiServer.start();

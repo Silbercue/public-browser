@@ -33,6 +33,7 @@ import { DialogHandler } from "./dialog-handler.js";
 import { ConsoleCollector } from "./console-collector.js";
 import { NetworkCollector } from "./network-collector.js";
 import { DownloadCollector } from "./download-collector.js";
+import type { DownloadNaming } from "../config.js";
 import { DomWatcher } from "./dom-watcher.js";
 import type { CdpClient } from "./cdp-client.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
@@ -48,6 +49,7 @@ import {
 } from "./emulation.js";
 import { injectOverlay, removeOverlay } from "../overlay/session-overlay.js";
 import { debug } from "./debug.js";
+import { applyWebdriverMask, resolveStealth, setStealthEnabled } from "./stealth.js";
 
 interface TargetInfo {
   targetId: string;
@@ -98,6 +100,8 @@ export interface IBrowserSession {
   untrackOwnedTarget(targetId: string): void;
   /** CDP debugging port (default: 9222). Used by Script API for Escape Hatch WebSocket URLs. */
   readonly cdpPort: number;
+  /** CDP host (default: "127.0.0.1"). Used by Script API for Escape Hatch WebSocket URLs. */
+  readonly cdpHost: string;
   shutdown(): Promise<void>;
   restart(): Promise<void>;
 }
@@ -127,6 +131,39 @@ export interface BrowserSessionOptions {
    * and exposed via `cdpPort` for the Script API Escape Hatch.
    */
   cdpPort?: number;
+  /**
+   * CDP host (default: "127.0.0.1"). Only relevant for attach/WebSocket
+   * connections — auto-launched Chrome always binds to loopback.
+   */
+  cdpHost?: string;
+  /**
+   * Stealth mode. When `false`, the `navigator.webdriver` masking is skipped
+   * everywhere (attach, navigate, tab switch) and Chrome is launched WITHOUT
+   * `--disable-blink-features=AutomationControlled`, so `navigator.webdriver`
+   * stays `true` with its native getter intact.
+   *
+   * Default: resolved from `SILBERCUE_STEALTH` / `PUBLIC_BROWSER_STEALTH`,
+   * falling back to `true` (masking on, historical behaviour).
+   */
+  stealth?: boolean;
+  /**
+   * Directory downloads are written to. When omitted, a per-session temp
+   * directory is created (and removed on shutdown). When set, the directory
+   * is created if missing and NEVER deleted — it belongs to the caller
+   * (quarantine dir, shared volume, ...).
+   */
+  downloadDir?: string;
+  /**
+   * Compute a SHA-256 hash for every completed download and expose it as
+   * `DownloadInfo.sha256`. Default: false (hashing reads the whole file).
+   */
+  downloadHash?: boolean;
+  /**
+   * How finished downloads are named on disk: `"guid"` (default, Chrome's
+   * `allowAndName` output) or `"suggested"` (renamed to the server-supplied
+   * filename). Default: `PUBLIC_BROWSER_DOWNLOAD_NAMING`, else `"guid"`.
+   */
+  downloadNaming?: DownloadNaming;
   /** Retry timings in milliseconds — exposed for tests; see class-level doc. */
   retryTimings?: {
     establishedDelays?: number[]; // delays before attempts 2..N for established sessions
@@ -146,6 +183,11 @@ export class BrowserSession implements IBrowserSession {
   private readonly _attachMode: boolean;
   private readonly _scriptMode: boolean;
   private readonly _cdpPort: number;
+  private readonly _cdpHost: string;
+  private readonly _stealth: boolean;
+  private readonly _downloadDir: string | undefined;
+  private readonly _downloadHash: boolean;
+  private readonly _downloadNaming: DownloadNaming;
 
   /**
    * Story 9.1: Set of target IDs that were created by the MCP session.
@@ -188,6 +230,17 @@ export class BrowserSession implements IBrowserSession {
     this._attachMode = options.attachMode ?? false;
     this._scriptMode = options.scriptMode ?? false;
     this._cdpPort = options.cdpPort ?? 9222;
+    this._cdpHost = options.cdpHost ?? "127.0.0.1";
+    // Stealth is resolved once per session and pushed into the module-level
+    // runtime flag that navigate/switch-tab read (see cdp/stealth.ts).
+    this._stealth = resolveStealth(
+      globalThis.process.env as Record<string, string | undefined>,
+      options.stealth,
+    );
+    setStealthEnabled(this._stealth);
+    this._downloadDir = options.downloadDir;
+    this._downloadHash = options.downloadHash ?? false;
+    this._downloadNaming = options.downloadNaming ?? "guid";
     this._launcher = new ChromeLauncher({
       profilePath: options.profilePath,
       profileDirectory: options.profileDirectory,
@@ -195,6 +248,8 @@ export class BrowserSession implements IBrowserSession {
       headless: options.headless ?? false,
       autoLaunch: options.autoLaunch ?? true,
       port: this._cdpPort,
+      host: this._cdpHost,
+      stealth: this._stealth,
       // Disable the legacy background reconnect loop — BrowserSession runs
       // its own smart-retry policy on demand inside `ensureReady()` and two
       // parallel recovery paths would race against each other.
@@ -240,6 +295,8 @@ export class BrowserSession implements IBrowserSession {
       headless,
       autoLaunch: chromeRunning ? false : (this._options.autoLaunch ?? true),
       port: this._cdpPort,
+      host: this._cdpHost,
+      stealth: this._stealth,
       autoReconnect: false,
     });
 
@@ -326,6 +383,25 @@ export class BrowserSession implements IBrowserSession {
   /** Story 9.9: CDP debugging port for Escape Hatch WebSocket URLs. */
   get cdpPort(): number {
     return this._cdpPort;
+  }
+
+  /** CDP host for Escape Hatch WebSocket URLs. */
+  get cdpHost(): string {
+    return this._cdpHost;
+  }
+
+  /** Whether `navigator.webdriver` masking is active for this session. */
+  get stealth(): boolean {
+    return this._stealth;
+  }
+
+  /**
+   * Directory downloads land in. Only known once the DownloadCollector has
+   * been wired (first `ensureReady()`); before that it reflects the
+   * configured value, or `undefined` when a temp dir will be used.
+   */
+  get downloadDir(): string | undefined {
+    return this._downloadCollector?.downloadPath ?? this._downloadDir;
   }
 
   /**
@@ -544,15 +620,9 @@ export class BrowserSession implements IBrowserSession {
     // FR-025: Mask navigator.webdriver for WebSocket-attached Chrome (auto-launch
     // uses --disable-blink-features=AutomationControlled, but WS-attached Chrome
     // doesn't have that flag). Defense-in-depth: both layers together.
-    await cdpClient.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
-    }, sessionId);
-    // FR-025: Also apply immediately to current document (addScriptToEvaluateOnNewDocument
-    // only covers future navigations and may not fire reliably in WebSocket mode).
-    await cdpClient.send("Runtime.evaluate", {
-      expression: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
-      awaitPromise: false,
-    }, sessionId);
+    // Opt-out via --no-stealth / SILBERCUE_STEALTH=0 — then this is a no-op and
+    // navigator.webdriver keeps its native getter (see cdp/stealth.ts).
+    await applyWebdriverMask(cdpClient, sessionId);
     // BUG-015: keep renderer alive when occluded (macOS)
     if (!connection.headless) {
       await cdpClient.send("Emulation.setFocusEmulationEnabled", { enabled: true }, sessionId);
@@ -652,7 +722,11 @@ export class BrowserSession implements IBrowserSession {
     // active before ensureReady() returns — otherwise the first download
     // after connect could be missed.
     if (!this._downloadCollector) {
-      this._downloadCollector = new DownloadCollector(cdpClient);
+      this._downloadCollector = new DownloadCollector(cdpClient, {
+        downloadDir: this._downloadDir,
+        hash: this._downloadHash,
+        naming: this._downloadNaming,
+      });
       await this._downloadCollector.init();
     } else {
       await this._downloadCollector.reinit(cdpClient);

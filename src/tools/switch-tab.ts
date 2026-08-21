@@ -7,6 +7,7 @@ import { settle } from "../cdp/settle.js";
 import { DEVICE_METRICS_OVERRIDE, isHeadless } from "../cdp/emulation.js";
 import { wrapCdpError } from "./error-utils.js";
 import { injectOverlay } from "../overlay/session-overlay.js";
+import { applyWebdriverMask } from "../cdp/stealth.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 
 export const switchTabSchema = z.object({
@@ -128,15 +129,8 @@ async function activateSession(
   await cdpClient.send("DOM.enable", {}, newSessionId);
   await cdpClient.send("Accessibility.enable", {}, newSessionId);
   // FR-025: Mask navigator.webdriver on tab switch (per-target registration).
-  await cdpClient.send("Page.addScriptToEvaluateOnNewDocument", {
-    source: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
-  }, newSessionId);
-  // FR-025: Apply immediately to current document in case addScriptToEvaluateOnNewDocument
-  // doesn't fire reliably (observed in WebSocket reconnect scenarios).
-  await cdpClient.send("Runtime.evaluate", {
-    expression: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
-    awaitPromise: false,
-  }, newSessionId);
+  // No-op when stealth is disabled (--no-stealth / SILBERCUE_STEALTH=0).
+  await applyWebdriverMask(cdpClient, newSessionId);
   // BUG-015 fix: Keep renderer alive when window is occluded on macOS (per-tab).
   if (!isHeadless()) {
     await cdpClient.send("Emulation.setFocusEmulationEnabled", { enabled: true }, newSessionId);

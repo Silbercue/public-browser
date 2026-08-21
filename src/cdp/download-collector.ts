@@ -1,6 +1,16 @@
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, extname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import type { DownloadNaming } from "../config.js";
 import type { CdpClient } from "./cdp-client.js";
 import { debug } from "./debug.js";
 
@@ -8,9 +18,85 @@ import { debug } from "./debug.js";
 
 export interface DownloadInfo {
   path: string;              // absolute path to the downloaded file
-  suggestedFilename: string; // filename suggested by the server
+  /**
+   * The download's filename. With `naming: "guid"` this is the raw server
+   * suggestion (the file on disk carries the GUID); with `naming: "suggested"`
+   * it is the sanitised name the file actually has, so `join(dir, filename)`
+   * always equals `path`.
+   */
+  suggestedFilename: string;
   size: number;              // file size in bytes
   url: string;               // download URL
+  /**
+   * SHA-256 of the downloaded file, lowercase hex. Only present when the
+   * session was created with `downloadHash: true` (or
+   * `PUBLIC_BROWSER_DOWNLOAD_HASH=1`) and the file could be read.
+   */
+  sha256?: string;
+}
+
+export interface DownloadCollectorOptions {
+  /**
+   * Target directory for downloads (e.g. a per-agent quarantine dir).
+   * Created recursively when missing. A caller-supplied directory is NEVER
+   * deleted by `cleanup()` — only auto-created temp dirs are.
+   * When omitted, a `sc-dl-*` temp directory is used (previous behaviour).
+   */
+  downloadDir?: string;
+  /** Compute SHA-256 for each completed download (default: false). */
+  hash?: boolean;
+  /**
+   * How the finished file is named on disk. `"guid"` (default) keeps
+   * Chrome's `allowAndName` output — the file is called after the download
+   * GUID. `"suggested"` renames it to the sanitised server-suggested
+   * filename, which is what a caller inspecting the directory expects.
+   */
+  naming?: DownloadNaming;
+}
+
+/**
+ * Reduce a server-supplied filename to something safe to create inside the
+ * download directory: basename only (no traversal), no path separators, no
+ * control characters, never empty, never a bare `.`/`..`, length-capped so
+ * the rename cannot fail on `ENAMETOOLONG`.
+ *
+ * Exported for tests — the input comes straight off the wire, so the rules
+ * are part of the contract rather than an implementation detail.
+ */
+export function sanitizeDownloadFilename(suggested: string): string {
+  // `basename` on the POSIX and the Windows separator: a server may send
+  // either, and Node's basename only strips the platform's own.
+  const flat = suggested.replace(/[\\/]+/g, "/");
+  let name = basename(flat)
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/^[.\s]+/, "")
+    .trim();
+
+  if (name === "" || name === "." || name === "..") return "download";
+
+  if (name.length > 200) {
+    const ext = extname(name).slice(0, 32);
+    name = name.slice(0, 200 - ext.length) + ext;
+  }
+  return name;
+}
+
+/**
+ * First free path for `name` inside `dir`: `report.pdf`, then `report-1.pdf`,
+ * `report-2.pdf`, ... Falls back to the GUID-suffixed name after 1000 tries
+ * so a pathological directory can never spin here.
+ */
+function uniquePath(dir: string, name: string, guid: string): string {
+  const direct = join(dir, name);
+  if (!existsSync(direct)) return direct;
+
+  const ext = extname(name);
+  const stem = ext ? name.slice(0, -ext.length) : name;
+  for (let n = 1; n <= 1000; n++) {
+    const candidate = join(dir, `${stem}-${n}${ext}`);
+    if (!existsSync(candidate)) return candidate;
+  }
+  return join(dir, `${stem}-${guid}${ext}`);
 }
 
 interface PendingDownload {
@@ -40,14 +126,33 @@ export class DownloadCollector {
   private _completed: DownloadInfo[] = [];
   private _history: DownloadInfo[] = [];
   private _downloadPath: string;
+  /** True when we created a temp dir ourselves and may delete it on cleanup. */
+  private readonly _ownsDownloadPath: boolean;
+  private readonly _hash: boolean;
+  private readonly _naming: DownloadNaming;
   private _initialized = false;
   private _willBeginCallback: ((params: unknown) => void) | null = null;
   private _progressCallback: ((params: unknown) => void) | null = null;
 
-  constructor(cdpClient: CdpClient) {
+  constructor(cdpClient: CdpClient, options: DownloadCollectorOptions = {}) {
     this._cdpClient = cdpClient;
-    this._downloadPath = mkdtempSync(join(tmpdir(), "sc-dl-"));
-    debug("DownloadCollector: temp dir created at %s", this._downloadPath);
+    this._hash = options.hash ?? false;
+    this._naming = options.naming ?? "guid";
+
+    if (options.downloadDir) {
+      // Chrome requires an absolute path for Browser.setDownloadBehavior.
+      const dir = isAbsolute(options.downloadDir)
+        ? options.downloadDir
+        : resolvePath(options.downloadDir);
+      mkdirSync(dir, { recursive: true });
+      this._downloadPath = dir;
+      this._ownsDownloadPath = false;
+      debug("DownloadCollector: using configured dir %s", dir);
+    } else {
+      this._downloadPath = mkdtempSync(join(tmpdir(), "sc-dl-"));
+      this._ownsDownloadPath = true;
+      debug("DownloadCollector: temp dir created at %s", this._downloadPath);
+    }
   }
 
   /**
@@ -179,10 +284,16 @@ export class DownloadCollector {
   }
 
   /**
-   * Delete all files in the download directory. Called on session shutdown.
+   * Delete the auto-created temp download directory. Called on session
+   * shutdown. A caller-supplied `downloadDir` is left untouched — it is the
+   * integrator's quarantine directory, not ours to erase.
    */
   cleanup(): void {
     this._history = [];
+    if (!this._ownsDownloadPath) {
+      debug("DownloadCollector: keeping configured dir %s", this._downloadPath);
+      return;
+    }
     try {
       rmSync(this._downloadPath, { recursive: true, force: true });
       debug("DownloadCollector: cleaned up %s", this._downloadPath);
@@ -194,6 +305,43 @@ export class DownloadCollector {
   /** Expose downloadPath for tests. */
   get downloadPath(): string {
     return this._downloadPath;
+  }
+
+  /** Naming scheme for finished files inside the download directory. */
+  get naming(): DownloadNaming {
+    return this._naming;
+  }
+
+  /**
+   * Resolve once a download has *started* (or one already completed), i.e.
+   * as soon as there is anything for `download` to report.
+   *
+   * Chrome fires `Browser.downloadWillBegin` some milliseconds after the
+   * click that triggers it. Without this grace window the first
+   * `download` call after a click reports "no downloads" while the file is
+   * already on its way — the caller then has to guess a retry delay.
+   */
+  waitForStart(timeoutMs: number): Promise<boolean> {
+    if (this._pending.size > 0 || this._completed.length > 0) {
+      return Promise.resolve(true);
+    }
+    if (timeoutMs <= 0) return Promise.resolve(false);
+
+    return new Promise<boolean>((resolve) => {
+      let resolved = false;
+      const settle = (started: boolean) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
+        clearInterval(interval);
+        resolve(started);
+      };
+
+      const timer = setTimeout(() => settle(false), timeoutMs);
+      const interval = setInterval(() => {
+        if (this._pending.size > 0 || this._completed.length > 0) settle(true);
+      }, 50);
+    });
   }
 
   // --- Internal ---
@@ -271,16 +419,62 @@ export class DownloadCollector {
       }
     }
 
+    // Chrome's `allowAndName` writes the file under its GUID. With
+    // naming: "suggested" we move it to the real name once it is complete —
+    // renaming earlier would race the still-open write handle.
+    let finalPath = filePath;
+    // The reported filename must name the file that actually exists: after a
+    // rename that is the sanitised (and possibly de-duplicated) name, not the
+    // raw server suggestion. A caller joining `filename` onto the download
+    // directory has to arrive at `path`.
+    let reportedFilename = pending.suggestedFilename;
+    if (this._naming === "suggested") {
+      const safe = sanitizeDownloadFilename(pending.suggestedFilename);
+      const target = uniquePath(this._downloadPath, safe, guid);
+      try {
+        renameSync(filePath, target);
+        finalPath = target;
+        reportedFilename = basename(target);
+      } catch (err) {
+        // Keep the GUID path rather than losing the download: the file is
+        // still there and the raw server name still describes it.
+        debug("DownloadCollector: rename %s -> %s failed (%s)", filePath, target, String(err));
+      }
+    }
+
     const info: DownloadInfo = {
-      path: filePath,
-      suggestedFilename: pending.suggestedFilename,
+      path: finalPath,
+      suggestedFilename: reportedFilename,
       size,
       url: pending.url,
     };
+
+    if (this._hash) {
+      const digest = await sha256File(finalPath);
+      if (digest) info.sha256 = digest;
+    }
 
     this._completed.push(info);
     this._history.push(info);
     this._pending.delete(guid);
     debug("DownloadCollector: download completed guid=%s size=%d", guid, size);
   }
+}
+
+/**
+ * Stream a file through SHA-256. Returns lowercase hex, or `null` when the
+ * file cannot be read — hashing is a convenience, never a hard failure.
+ */
+async function sha256File(filePath: string): Promise<string | null> {
+  return new Promise<string | null>((resolvePromise) => {
+    try {
+      const hash = createHash("sha256");
+      const stream = createReadStream(filePath);
+      stream.on("data", (chunk: Buffer | string) => hash.update(chunk));
+      stream.on("end", () => resolvePromise(hash.digest("hex")));
+      stream.on("error", () => resolvePromise(null));
+    } catch {
+      resolvePromise(null);
+    }
+  });
 }

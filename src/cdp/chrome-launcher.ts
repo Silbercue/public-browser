@@ -19,6 +19,12 @@ import type { ConnectionStatus, TransportType } from "../types.js";
 export interface ChromeConnectionOptions {
   /** Port for WebSocket discovery (default: 9222) */
   port?: number;
+  /**
+   * Host for CDP discovery (default: "127.0.0.1"). Set this (or `cdpUrl`)
+   * when attaching to a Chrome that is not on the loopback interface, e.g. a
+   * container. Auto-launch always spawns on localhost regardless.
+   */
+  host?: string;
   /** Auto-launch Chrome if no running instance found (default: true) */
   autoLaunch?: boolean;
   /** Launch Chrome in headless mode (default: false — browser is visible by default) */
@@ -42,6 +48,12 @@ export interface ChromeConnectionOptions {
    *   smart-retry policy.
    */
   autoReconnect?: boolean;
+  /**
+   * Stealth mode (default: true). When false, the launcher omits
+   * `--disable-blink-features=AutomationControlled` so `navigator.webdriver`
+   * keeps its native getter and stays `true`. See `cdp/stealth.ts`.
+   */
+  stealth?: boolean;
 }
 
 export interface LaunchOptions {
@@ -54,6 +66,11 @@ export interface LaunchOptions {
   isRealProfile?: boolean;
   /** CDP debugging port for --remote-debugging-port flag (default: 9222) */
   port?: number;
+  /**
+   * Stealth mode (default: true). When false, the
+   * `--disable-blink-features=AutomationControlled` flag is omitted.
+   */
+  stealth?: boolean;
 }
 
 interface LaunchResult {
@@ -89,6 +106,75 @@ export function resolveAutoLaunch(
   }
   // Invalid env value (e.g. "foo", "bar") → safe default: no auto-launch
   return false;
+}
+
+// ── CDP URL parsing ───────────────────────────────────────────────────
+
+export interface CdpEndpoint {
+  host: string;
+  port: number;
+}
+
+export const DEFAULT_CDP_HOST = "127.0.0.1";
+export const DEFAULT_CDP_PORT = 9222;
+
+/**
+ * Parse a CDP endpoint string into host + port.
+ * Pure function — no side effects, fully testable.
+ *
+ * Accepts `http://host:port`, `ws://host:port`, `host:port` and a bare port
+ * (`"9333"`). Throws on anything that yields no usable port, so a typo in a
+ * `createSession({ cdpUrl })` call fails loudly instead of silently
+ * attaching to the default browser on 9222.
+ */
+export function parseCdpUrl(input: string): CdpEndpoint {
+  const raw = input.trim();
+  if (raw === "") throw new Error("cdpUrl is empty");
+
+  // Bare port: "9333"
+  if (/^\d+$/.test(raw)) {
+    const port = Number(raw);
+    if (port < 1 || port > 65535) throw new Error(`Invalid CDP port: ${raw}`);
+    return { host: DEFAULT_CDP_HOST, port };
+  }
+
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    throw new Error(`Invalid cdpUrl: ${input}`);
+  }
+
+  const port = url.port ? Number(url.port) : DEFAULT_CDP_PORT;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid CDP port in cdpUrl: ${input}`);
+  }
+  // `URL` wraps IPv6 literals in brackets; node:http wants them bare.
+  const host = url.hostname.replace(/^\[|\]$/g, "") || DEFAULT_CDP_HOST;
+  return { host, port };
+}
+
+function isLoopback(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+/**
+ * Chrome reports `webSocketDebuggerUrl` with the host it was told to bind to
+ * — usually `localhost`. When we discovered it through a different host
+ * (container IP, LAN address), rewrite the URL so the WebSocket actually
+ * reaches the same Chrome instead of our own loopback.
+ */
+function rewriteWsHost(wsUrl: string, host: string): string {
+  if (isLoopback(host)) return wsUrl;
+  try {
+    const parsed = new URL(wsUrl);
+    if (!isLoopback(parsed.hostname)) return wsUrl;
+    parsed.hostname = host.includes(":") ? `[${host}]` : host;
+    return parsed.toString();
+  } catch {
+    return wsUrl;
+  }
 }
 
 // ── Chrome Path Detection (Task 1) ────────────────────────────────────
@@ -159,8 +245,14 @@ const CHROME_FLAGS_CORE = [
   "--disable-renderer-backgrounding",
   "--enable-features=CDPScreenshotNewSurface",
   "--mute-audio",
-  "--disable-blink-features=AutomationControlled",
 ];
+
+/**
+ * Stealth-only flag. Hides the `AutomationControlled` blink feature, which is
+ * what makes `navigator.webdriver` report `true` in a CDP-driven Chrome.
+ * Omitted when stealth is disabled so the browser stays honestly identifiable.
+ */
+const CHROME_FLAG_STEALTH = "--disable-blink-features=AutomationControlled";
 
 const CHROME_FLAGS_ISOLATED = [
   "--disable-extensions",
@@ -263,9 +355,13 @@ export async function launchChrome(
   }
 
   const port = options?.port ?? 9222;
+  const stealth = options?.stealth ?? true;
+  const coreFlags = stealth
+    ? [...CHROME_FLAGS_CORE, CHROME_FLAG_STEALTH]
+    : [...CHROME_FLAGS_CORE];
   const baseFlags = isRealProfile
-    ? [...CHROME_FLAGS_CORE]
-    : [...CHROME_FLAGS_CORE, ...CHROME_FLAGS_ISOLATED];
+    ? coreFlags
+    : [...coreFlags, ...CHROME_FLAGS_ISOLATED];
 
   // Real profiles: WebSocket only (Chrome rejects --remote-debugging-pipe
   // with the default user-data-dir). Temp profiles: pipe for lower latency.
@@ -340,6 +436,7 @@ interface VersionResponse {
 async function fetchJsonVersion(
   port: number,
   timeoutMs = 500,
+  host: string = DEFAULT_CDP_HOST,
 ): Promise<VersionResponse> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -353,7 +450,7 @@ async function fetchJsonVersion(
 
     const req = httpRequest(
       {
-        hostname: "127.0.0.1",
+        hostname: host,
         port,
         path: "/json/version",
         method: "GET",
@@ -409,8 +506,18 @@ async function fetchJsonVersion(
 
 // ── ChromeConnection (Task 4 + Task 6) ────────────────────────────────
 
+/** SIGTERM → SIGKILL grace period for a Chrome we launched ourselves. */
+export const KILL_GRACE_MS = 5000;
+/** Extra budget after SIGKILL before `close()` stops waiting for the reap. */
+export const KILL_HARD_TIMEOUT_MS = 2000;
+
 export class ChromeConnection {
   public status: ConnectionStatus = "connected";
+  /**
+   * How long Chrome gets between SIGTERM and SIGKILL. Writable so tests can
+   * shorten it; nothing in production changes it.
+   */
+  public killGraceMs = KILL_GRACE_MS;
 
   private _exitHandler: (() => void) | null = null;
   private _closed = false;
@@ -426,6 +533,8 @@ export class ChromeConnection {
   private readonly _port: number;
   private readonly _profilePath: string | undefined;
   private readonly _autoReconnect: boolean;
+  private readonly _stealth: boolean;
+  private readonly _host: string;
 
   constructor(
     cdpClient: CdpClient,
@@ -438,6 +547,8 @@ export class ChromeConnection {
     headless?: boolean,
     profilePath?: string,
     autoReconnect?: boolean,
+    stealth?: boolean,
+    host?: string,
   ) {
     this._cdpClient = cdpClient;
     this._transport = transport;
@@ -449,6 +560,8 @@ export class ChromeConnection {
     // Default to true for legacy callers (chrome-launcher.test.ts still
     // exercises the background-retry path). BrowserSession passes `false`.
     this._autoReconnect = autoReconnect ?? true;
+    this._stealth = stealth ?? true;
+    this._host = host ?? DEFAULT_CDP_HOST;
 
     // C1 fix: Passive status tracking via CdpClient.onClose —
     // detects unexpected transport close (WebSocket drop, pipe break)
@@ -528,11 +641,11 @@ export class ChromeConnection {
         if (this.transportType === "websocket") {
           // WebSocket reconnect: Chrome is still running, reconnect to same port
           // B1: fetchJsonVersion uses 500ms default, WebSocket connect 2s
-          const versionInfo = await fetchJsonVersion(this._port);
+          const versionInfo = await fetchJsonVersion(this._port, 500, this._host);
           if (!versionInfo.webSocketDebuggerUrl) {
             throw new Error("Missing webSocketDebuggerUrl");
           }
-          const wsUrl = versionInfo.webSocketDebuggerUrl as string;
+          const wsUrl = rewriteWsHost(versionInfo.webSocketDebuggerUrl as string, this._host);
           const newTransport = await WebSocketTransport.connect(wsUrl, { timeoutMs: 2000 });
           const newClient = new CdpClient(newTransport);
           await newClient.send("Browser.getVersion");
@@ -541,7 +654,7 @@ export class ChromeConnection {
           this._cdpClient = newClient;
         } else {
           // Pipe reconnect: Chrome process is dead, relaunch
-          const result = await launchChrome({ headless: this._headless, profilePath: this._profilePath, port: this._port });
+          const result = await launchChrome({ headless: this._headless, profilePath: this._profilePath, port: this._port, stealth: this._stealth });
           this._transport = result.transport;
           this._cdpClient = result.cdpClient;
 
@@ -594,6 +707,16 @@ export class ChromeConnection {
     return false;
   }
 
+  /**
+   * Tear the connection down and, when we launched Chrome ourselves, wait for
+   * that process to actually be gone before resolving.
+   *
+   * Waiting matters for anyone who reuses the port or the user-data-dir right
+   * after closing: a resolved `close()` that only *asked* Chrome to exit means
+   * the next launch races a still-running instance holding the profile lock.
+   * The wait is bounded — SIGKILL after `killGraceMs`, give up after
+   * `KILL_HARD_TIMEOUT_MS` — so shutdown can be slow but never hangs.
+   */
   async close(): Promise<void> {
     if (this._closed) return;
     this._closed = true;
@@ -606,28 +729,60 @@ export class ChromeConnection {
     // Close CDP client (which closes the transport)
     await this._cdpClient.close();
 
-    // Terminate child process if we launched it
-    if (this._childProcess && !this._childProcess.killed) {
-      if (globalThis.process.platform === "win32") {
-        // H3 fix: On Windows, kill() sends taskkill — no SIGTERM/SIGKILL distinction
-        this._childProcess.kill();
-      } else {
-        // POSIX: SIGTERM first, force SIGKILL after 5s
-        this._childProcess.kill("SIGTERM");
-        const forceTimer = setTimeout(() => {
-          if (!this._childProcess!.killed) {
-            this._childProcess!.kill("SIGKILL");
-          }
-        }, 5000);
-        forceTimer.unref();
-        this._childProcess.once("exit", () => clearTimeout(forceTimer));
-      }
-    }
+    // Terminate child process if we launched it — and wait for it to die.
+    await this._terminateChildProcess();
 
-    // Clean up tmp user-data-dir
+    // Clean up tmp user-data-dir. Only correct after the wait above: Chrome
+    // rewrites the profile on exit and would recreate what we just removed.
     if (this._tmpDir) {
       await rm(this._tmpDir, { recursive: true, force: true }).catch(() => {});
     }
+  }
+
+  /**
+   * SIGTERM, escalate to SIGKILL, resolve once the process is reaped.
+   * Resolves immediately when we never launched Chrome (attach mode) or when
+   * it is already gone.
+   */
+  private _terminateChildProcess(): Promise<void> {
+    const child = this._childProcess;
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(forceTimer);
+        clearTimeout(hardTimer);
+        child.off("exit", finish);
+        resolve();
+      };
+
+      child.once("exit", finish);
+
+      if (globalThis.process.platform === "win32") {
+        // H3 fix: On Windows, kill() sends taskkill — no SIGTERM/SIGKILL distinction
+        child.kill();
+      } else {
+        child.kill("SIGTERM");
+      }
+
+      const forceTimer = setTimeout(() => {
+        if (!settled) child.kill("SIGKILL");
+      }, this.killGraceMs);
+      forceTimer.unref();
+
+      // Last resort: a process stuck in uninterruptible sleep cannot be
+      // reaped at all. Resolving is better than never returning from close().
+      const hardTimer = setTimeout(() => {
+        debug("ChromeConnection: child did not exit, giving up on the wait");
+        finish();
+      }, this.killGraceMs + KILL_HARD_TIMEOUT_MS);
+      hardTimer.unref();
+    });
   }
 
   /** Register onClose callback on a CdpClient to trigger reconnect on unexpected disconnect.
@@ -679,15 +834,19 @@ export class ChromeLauncher {
   private readonly _profileDirectory: string | undefined;
   private readonly _isRealProfile: boolean;
   private readonly _autoReconnect: boolean;
+  private readonly _stealth: boolean;
+  private readonly _host: string;
 
   constructor(options?: ChromeConnectionOptions) {
     this._port = options?.port ?? 9222;
+    this._host = options?.host ?? DEFAULT_CDP_HOST;
     this._autoLaunch = options?.autoLaunch ?? true;
     this._headless = options?.headless ?? false;
     this._profilePath = options?.profilePath;
     this._profileDirectory = options?.profileDirectory;
     this._isRealProfile = options?.isRealProfile ?? false;
     this._autoReconnect = options?.autoReconnect ?? true;
+    this._stealth = options?.stealth ?? true;
   }
 
   /**
@@ -699,13 +858,13 @@ export class ChromeLauncher {
    * (statt eine frische zu launchen und damit die User-Session zu verlieren).
    */
   async connectToExistingChrome(): Promise<ChromeConnection> {
-    debug("Trying WebSocket-only on port %d...", this._port);
+    debug("Trying WebSocket-only on %s:%d...", this._host, this._port);
     return this._connectViaWebSocket(this._port);
   }
 
   async connect(): Promise<ChromeConnection> {
     // 1. Try WebSocket to existing Chrome
-    debug("Trying WebSocket on port %d...", this._port);
+    debug("Trying WebSocket on %s:%d...", this._host, this._port);
     let wsError: Error | undefined;
     try {
       return await this._connectViaWebSocket(this._port);
@@ -727,6 +886,7 @@ export class ChromeLauncher {
       profileDirectory: this._profileDirectory,
       isRealProfile: this._isRealProfile,
       port: this._port,
+      stealth: this._stealth,
     });
 
     // Extract tmpDir from the spawn args — only for temp profiles (no profilePath)
@@ -749,6 +909,8 @@ export class ChromeLauncher {
       this._headless,
       this._profilePath,
       this._autoReconnect,
+      this._stealth,
+      this._host,
     );
 
     debug("Connected via pipe");
@@ -758,7 +920,7 @@ export class ChromeLauncher {
   private async _connectViaWebSocket(
     port: number,
   ): Promise<ChromeConnection> {
-    const versionInfo = await fetchJsonVersion(port);
+    const versionInfo = await fetchJsonVersion(port, 500, this._host);
 
     if (!versionInfo.webSocketDebuggerUrl) {
       throw new Error(
@@ -766,7 +928,7 @@ export class ChromeLauncher {
       );
     }
 
-    const wsUrl = versionInfo.webSocketDebuggerUrl as string;
+    const wsUrl = rewriteWsHost(versionInfo.webSocketDebuggerUrl as string, this._host);
     const transport = await WebSocketTransport.connect(wsUrl, {
       timeoutMs: 5000,
     });
@@ -799,6 +961,8 @@ export class ChromeLauncher {
       detectedHeadless,
       undefined, // profilePath ignored for WebSocket path
       this._autoReconnect,
+      this._stealth,
+      this._host,
     );
   }
 }

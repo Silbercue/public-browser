@@ -299,7 +299,8 @@ export class ScriptApiServer {
 
       // 5. Build CDP WebSocket URL for Escape Hatch (Story 9.9).
       const cdpPort = this._browserSession.cdpPort;
-      const cdpWsUrl = `ws://localhost:${cdpPort}/devtools/page/${targetId}`;
+      const cdpHost = this._browserSession.cdpHost ?? "localhost";
+      const cdpWsUrl = `ws://${cdpHost}:${cdpPort}/devtools/page/${targetId}`;
 
       this._sendJson(res, 200, {
         session_token: session.sessionToken,

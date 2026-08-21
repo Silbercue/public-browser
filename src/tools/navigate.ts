@@ -8,6 +8,7 @@ import { toolSequence } from "../telemetry/tool-sequence.js";
 import { hintMatcher } from "../cortex/hint-matcher.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { debug } from "../cdp/debug.js";
+import { applyWebdriverMask } from "../cdp/stealth.js";
 
 export const navigateSchema = z.object({
   url: z.string().optional().describe("URL to navigate to (required for goto action)"),
@@ -219,15 +220,8 @@ async function buildSuccessResponse(
 ): Promise<ToolResponse> {
   // FR-025: Mask navigator.webdriver after page load — Chrome re-applies the
   // native getter on every new document, so we override it post-navigation.
-  // NOTE: This only works reliably for auto-launched Chrome (which uses
-  // --disable-blink-features=AutomationControlled). For WebSocket-attached
-  // Chrome, the user must start Chrome with this flag manually.
-  try {
-    await cdpClient.send("Runtime.evaluate", {
-      expression: "Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true});",
-      awaitPromise: false,
-    }, sessionId);
-  } catch { /* non-critical */ }
+  // No-op when stealth is disabled (--no-stealth / SILBERCUE_STEALTH=0).
+  await applyWebdriverMask(cdpClient, sessionId, { newDocument: false });
 
   let finalUrl = "unknown";
   let title = "";

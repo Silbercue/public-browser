@@ -1,5 +1,112 @@
 # Changelog
 
+## [2.8.0] - 2026-08-21
+
+### Multi-instance operation without a per-instance process
+
+- **`createSession()` — Public Browser as a Node library.** Run one or more
+  fully isolated sessions inside a host process instead of spawning
+  `npx public-browser` per Chrome (~1 s vs. 4–6 s per instance):
+
+  ```ts
+  import { createSession } from "public-browser";
+  const s = await createSession({ cdpUrl: "http://127.0.0.1:9333", userDataDir: "/var/agents/a1" });
+  await s.callTool("navigate", { url: "https://example.com" });
+  ```
+
+  `callTool(name, params)` takes the same tool names and parameters as the MCP
+  tools and routes through the identical handlers. Each session runs in its own
+  worker thread by default, so element refs, selector cache, viewport state and
+  the cortex matcher are per-session rather than per-process. `isolation:
+  "inline"` skips the thread for single-session hosts.
+- **`isolation: "process"`** runs each session in its own OS process — separate
+  heap, separate file descriptors, separate crash domain — for integrators whose
+  trust boundary has to be a process boundary. A worker thread shares both with
+  the host and was never one. `session.pid` reports the child's pid; closing the
+  session (or losing the host) shuts Chrome down with it.
+- **Public Browser environment variables no longer leak into a session.** Every
+  `SILBERCUE_*` / `PUBLIC_BROWSER_*` configuration variable has an explicit
+  `createSession()` option, so a host-level value — typically meant for the
+  host's own Chrome — is stripped rather than silently overriding the session.
+  Previously only the port and profile variables were stripped, and a host
+  `SILBERCUE_CHROME_HOST` redirected a session created with an explicit
+  `cdpPort` to a foreign machine. Use `env` to set one back deliberately.
+- **A session no longer inherits the host environment by default.** It starts
+  from `ESSENTIAL_ENV_VARS` — `PATH`, `HOME`, the temp dir, `CHROME_PATH`,
+  locale/timezone, the Linux display variables, the Windows process basics — and
+  nothing else. An orchestrator holding cloud credentials, API keys and tokens
+  should not hand them to a browser session just because the two share a process
+  tree. Widen it with `inheritEnv`: an array adds the names you list
+  (`["HTTPS_PROXY", "NO_PROXY"]` is the common one), `true` restores full
+  inheritance. Proxy variables are deliberately not essential — a proxy URL can
+  carry credentials, so it is allowlisted on purpose rather than inherited by
+  accident.
+- **Per-instance cortex store** via `cortexDir` / `PUBLIC_BROWSER_CORTEX_DIR`,
+  and a per-instance environment via the `env` option.
+- **New CLI flags** for running several instances side by side: `--port`
+  (alias `--cdp-port`), `--host`, `--script-port`, `--headless`,
+  `--user-data-dir`, `--download-dir`, `--download-hash`, `--download-naming`,
+  `--stealth` / `--no-stealth`.
+  `--attach`, `SILBERCUE_CHROME_PORT` and `SILBERCUE_SCRIPT_PORT` are now
+  documented as part of the stable public contract, with
+  `PUBLIC_BROWSER_CHROME_PORT` / `PUBLIC_BROWSER_SCRIPT_PORT` /
+  `PUBLIC_BROWSER_CHROME_HOST` as aliases.
+- **`--user-data-dir <path>`** points an instance at a raw Chrome user-data
+  directory (created if missing) instead of a named profile — the throwaway
+  per-agent Chrome case, previously reachable only through the library.
+- An invalid port or download-naming mode in a flag or environment variable now
+  fails with a named error instead of silently falling back to a default.
+- `--help` now lists the `PUBLIC_BROWSER_*` aliases next to their canonical
+  `SILBERCUE_*` names; they were documented only in the README.
+
+### Opt-out of the `navigator.webdriver` masking
+
+- **`--no-stealth` / `SILBERCUE_STEALTH=0` / `createSession({ stealth: false })`.**
+  With stealth off, no masking script is injected on attach, after navigation
+  or on tab switch, and Chrome launches without
+  `--disable-blink-features=AutomationControlled`. `navigator.webdriver` stays
+  `true` with its native getter (`[native code]`) — permanently, with no
+  post-correction needed by the client. For integrations that must be
+  transparently identifiable as automation.
+
+### Configurable download directory
+
+- **`--download-dir` / `PUBLIC_BROWSER_DOWNLOAD_DIR` / `downloadDir`** — point
+  downloads at a quarantine directory of your own. It is created if missing and
+  never deleted by Public Browser; only auto-created temp directories are
+  cleaned up on shutdown.
+- **`--download-hash` / `PUBLIC_BROWSER_DOWNLOAD_HASH` / `downloadHash`** adds a
+  `sha256` to every completed download, reported by the `download` tool
+  alongside path and size.
+- **`--download-naming suggested` / `PUBLIC_BROWSER_DOWNLOAD_NAMING` /
+  `downloadNaming`** renames each finished download from Chrome's internal GUID
+  to the server-supplied filename. The name is sanitised first (basename only,
+  no control characters, never hidden, length-capped) and a collision gets a
+  `-1`, `-2`, ... suffix instead of overwriting. The reported `filename` is the
+  name the file actually has, so `join(downloadDir, filename)` always equals
+  `path`. A failed rename keeps the GUID path and the raw server name, so a
+  download is never lost to a naming problem. Default stays `guid`.
+
+### Fixed
+
+- **`download` no longer reports "no downloads" for a file that is on its way.**
+  Chrome fires `downloadWillBegin` a few milliseconds after the click that
+  triggers it, so the first `download` call after a click could miss it and the
+  caller had to invent a retry delay. `action: "status"` now waits up to 250 ms
+  for a download to start — measured at ~200 ms for a click-triggered download,
+  and short enough not to become the floor of a polling loop. Tune it per call
+  with the new `settle` parameter (`0` for an instant check, higher for a slow
+  server). `action: "list"` returns the session history immediately and never
+  waits, for either a start or a completion — that is the wait-free path for
+  polling.
+- **`close()` now returns only once Chrome has actually exited.** It used to
+  send SIGTERM and resolve immediately, so a caller reusing the port or the
+  user-data-dir raced a process that had merely been asked to quit. The wait is
+  bounded: SIGKILL after 5 s, give up after another 2 s, and the temp
+  user-data-dir is removed only afterwards — Chrome rewrites its profile on
+  exit and used to recreate what had just been deleted.
+
+
 ## [2.0.0] - 2026-04-26
 
 ### Everything is Free

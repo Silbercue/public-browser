@@ -261,6 +261,213 @@ claude mcp add --scope user public-browser npx -y public-browser@latest -- --scr
 
 See [`python/README.md`](python/README.md) for the full API reference and advanced examples.
 
+## Node Library API (multiple instances in one process)
+
+The MCP server and the Python Script API both drive exactly **one** Chrome per
+process. When you need several browsers at once — say a read-only research
+browser and a separate action browser per agent — spawning one
+`npx public-browser` per instance costs 4–6 s of start-up each. `createSession()`
+runs the same session inside your own Node process instead:
+
+```ts
+import { createSession } from "public-browser";
+
+const research = await createSession({
+  cdpUrl: "http://127.0.0.1:9333",          // or cdpPort: 9333
+  userDataDir: "/var/agents/a1/research",   // created if missing
+  headless: true,
+  stealth: false,                            // stay identifiable — see below
+  downloadDir: "/var/agents/a1/quarantine",  // never deleted by us
+  downloadHash: true,                        // adds sha256 to every download
+  downloadNaming: "suggested",               // real filenames, not GUIDs
+  cortexDir: "/var/agents/a1/cortex",        // per-instance pattern store
+  inheritEnv: ["HTTPS_PROXY"],               // opt in — see Environment below
+});
+
+const action = await createSession({ cdpPort: 9334, userDataDir: "/var/agents/a1/action" });
+
+await research.callTool("navigate", { url: "https://example.com" });
+const page = await research.callTool("view_page", {});
+
+await research.close();
+await action.close();
+```
+
+`callTool(name, params)` takes the same tool names and parameters as the MCP
+tools (`navigate`, `view_page`, `click`, `type`, `fill_form`, `run_plan`,
+`download`, ...) and routes through the identical handlers (Shared Core).
+
+**Isolation.** Each session runs in its own worker thread by default, so the
+module-level caches (element refs, selector cache, viewport state, stealth flag,
+cortex matcher) exist once *per session* rather than once per process — two
+sessions can never hand each other stale element refs.
+
+Measured on macOS with `isolation: "process"` (a worker thread saves ~40 ms):
+**~0.9 s** to a session that launched its own headless Chrome, **~0.2 s** to the
+first tool response when attaching to a Chrome that is already running, and
+**~1.25 s** from `createSession()` to having a real page navigated and read.
+
+A thread is not a security boundary: same process memory, same file
+descriptors. `isolation: "process"` forks one OS process per session instead —
+separate heap, separate descriptors, separate crash domain — for integrators
+whose trust model draws the line there. `isolation: "inline"` skips isolation
+altogether and is only correct when the thread runs exactly one session.
+
+| `isolation` | Boundary | Startup | Use when |
+|---|---|---|---|
+| `"worker"` (default) | thread — private module caches | ~1 s | several sessions in one trusted process |
+| `"process"` | OS process — private memory + descriptors | ~1 s | the sessions must not share a process with the host |
+| `"inline"` | none — the calling thread | fastest | exactly one session per thread |
+
+**Environment.** A session does **not** start from the host environment. It
+starts from a documented minimum and you widen it deliberately — an
+orchestrator holding cloud credentials, API keys and tokens should not hand
+them to a browser session just because the two share a process tree.
+
+What a session always gets is `ESSENTIAL_ENV_VARS`: `PATH`, `HOME`, the temp
+dir, `CHROME_PATH`, locale/timezone, the Linux display variables and the
+Windows process basics. Everything else is opt-in:
+
+```ts
+// PATH/HOME/CHROME_PATH plus the proxy — and nothing else from the host.
+await createSession({ inheritEnv: ["HTTPS_PROXY", "NO_PROXY"] });
+
+// Full inheritance, the pre-2.8 behaviour.
+await createSession({ inheritEnv: true });
+```
+
+Proxy variables are deliberately *not* essential: a proxy URL can carry
+credentials, so it is allowlisted on purpose rather than inherited by accident.
+
+On top of that, a session never inherits Public Browser's own `SILBERCUE_*` /
+`PUBLIC_BROWSER_*` configuration variables — in any `inheritEnv` mode. Each of
+them has an option here, and a host-level variable, usually set for the *host's*
+own Chrome, silently redirecting a configured session is a bug, not a feature:
+with `SILBERCUE_CHROME_HOST=10.9.9.9` in the orchestrator's environment, a
+session created with `cdpPort: 9450` still talks to `127.0.0.1:9450`. Use `env`
+to set one back deliberately.
+
+**Shutdown.** `close()` resolves only once Chrome is actually gone — SIGTERM,
+SIGKILL after 5 s — so the port and the user-data-dir are free for the next
+launch instead of racing a process that was merely asked to exit.
+
+**One session per Chrome.** Some CDP settings are browser-wide rather than
+per-session, `Browser.setDownloadBehavior` among them: two sessions attached to
+the *same* Chrome share one download directory, and whichever connected last
+wins. Give each session its own Chrome (its own port and user-data-dir) when
+`downloadDir` matters.
+
+| Option | Default | Description |
+|---|---|---|
+| `cdpUrl` | — | `http://host:port`, `host:port` or a bare port. Wins over `cdpPort`/`cdpHost` |
+| `cdpPort` / `cdpHost` | `9222` / `127.0.0.1` | CDP endpoint this session drives |
+| `userDataDir` | — | Chrome `--user-data-dir` for auto-launch. One directory per instance |
+| `profile` | — | Named Chrome profile instead of a raw directory |
+| `headless` | `false` | Launch Chrome headless |
+| `stealth` | `true` | `false` disables all `navigator.webdriver` masking |
+| `attach` | `false` | Never auto-launch; attach to a running Chrome and fail fast if there is none |
+| `downloadDir` | temp dir | Where downloads land. A directory you supply is never deleted |
+| `downloadHash` | `false` | Report `sha256` for every completed download |
+| `downloadNaming` | `"guid"` | `"suggested"` renames finished files to the server-supplied name |
+| `cortexDir` | `~/.public-browser/cortex` | Per-instance cortex store |
+| `inheritEnv` | `false` | Essentials only. Array = essentials + allowlist, `true` = whole host env |
+| `env` | — | Extra environment variables for the session, applied last |
+| `isolation` | `"worker"` | `"process"` for an OS-process boundary, `"inline"` for none |
+| `eager` | `false` | Launch/attach during `createSession()` instead of on the first call |
+| `startupTimeoutMs` | `30000` | Budget for the session thread/process to report ready |
+
+### Multiple instances via the CLI
+
+The same thing without a Node host — one process per Chrome, each on its own port:
+
+```bash
+public-browser --port 9333 --profile research --download-dir /q/research
+public-browser --port 9334 --profile action   --download-dir /q/action
+```
+
+`--profile <name>` uses one of your real Chrome profiles. For a throwaway
+per-agent Chrome, point at a raw directory instead — it is created if missing:
+
+```bash
+public-browser --port 9335 --user-data-dir /var/agents/a3/chrome
+```
+
+`--attach` connects to an already-running Chrome on the configured port instead
+of launching one. `SILBERCUE_CHROME_PORT` and `SILBERCUE_SCRIPT_PORT` are the
+environment equivalents of `--port` and `--script-port` and are part of the
+stable public contract.
+
+## Identifiable automation (`--no-stealth`)
+
+By default Public Browser masks `navigator.webdriver` (it reports `undefined`)
+and launches Chrome with `--disable-blink-features=AutomationControlled`. That
+is the right default for consumer automation, but the wrong one when your
+integration must be transparently identifiable as a bot — compliance-driven
+crawling, internal agent fleets, or sites whose terms require honest signalling.
+
+Turn the masking off completely:
+
+```bash
+public-browser --no-stealth
+# or
+SILBERCUE_STEALTH=0 npx public-browser
+```
+
+```ts
+await createSession({ stealth: false });
+```
+
+With stealth off, `navigator.webdriver` stays `true` **and** keeps its native
+getter (`Object.getOwnPropertyDescriptor(Navigator.prototype, "webdriver").get`
+still reports `[native code]`) — permanently, across navigations and tab
+switches, with no post-correction needed on your side. No masking script is
+injected at any point and the launch flag is omitted.
+
+## Downloads
+
+Downloads land in a per-session temp directory that is removed on shutdown.
+Point them at a directory of your own — a quarantine dir, a shared volume — with
+`--download-dir` / `PUBLIC_BROWSER_DOWNLOAD_DIR` / `downloadDir`. A directory you
+supply is created if missing and **never** deleted by Public Browser.
+
+With `--download-hash` (or `downloadHash: true`) every completed download also
+carries a `sha256`, so the `download` tool returns path, size and digest:
+
+```json
+{"filename":"report.pdf","path":"/q/research/A1B2...","size":48213,"sizeKb":48,
+ "url":"https://example.com/report.pdf","sha256":"9f86d081884c7d659a2f..."}
+```
+
+**Filenames.** Chrome writes downloads under their internal GUID, so the file on
+disk is called `A1B2...` and only the `filename` field carries the real name.
+That is fine when you read the JSON, and useless when something else has to walk
+the directory. `--download-naming suggested` (or `downloadNaming: "suggested"`,
+`PUBLIC_BROWSER_DOWNLOAD_NAMING=suggested`) renames each finished file to the
+server-supplied name:
+
+```json
+{"filename":"report.pdf","path":"/q/research/report.pdf","size":48213,"sizeKb":48,
+ "url":"https://example.com/report.pdf","sha256":"9f86d081884c7d659a2f..."}
+```
+
+The name is sanitised before it touches the disk — basename only, no control
+characters, never hidden, length-capped — and a collision gets a `-1`, `-2`, ...
+suffix rather than overwriting an existing file. `filename` always reports the
+name the file actually has, so `join(downloadDir, filename)` equals `path`. If
+the rename fails, the GUID path and the raw server name are kept and reported;
+a download is never lost to a naming problem.
+
+**Timing.** `action: "status"` waits up to 250 ms for a download to *start*
+before reporting that there is none, because Chrome fires `downloadWillBegin` a
+few milliseconds after the click that triggers it — without the window, the
+first call after a click misses a file that is already on its way. Adjust it per
+call with `settle` (`{"action":"status","settle":0}` for an instant check,
+`5000` for a slow server). Once a download has started, `status` waits for it to
+finish, bounded by `timeout`.
+
+**For polling loops use `action: "list"`** — it returns the full session history
+immediately and never waits, for either a start or a completion.
+
 ## Tool Overview
 
 | Tool | Description |
@@ -414,11 +621,23 @@ Connection priority:
 |---|---|---|---|
 | `SILBERCUE_CHROME_AUTO_LAUNCH` | `true` / `false` | `true` | Auto-launch Chrome if no running instance found |
 | `SILBERCUE_CHROME_HEADLESS` | `true` / `false` | `false` | Opt-in headless mode for CI/server environments |
-| `SILBERCUE_CHROME_PORT` | `1`–`65535` | `9222` | CDP debugging port. Non-default values spawn an isolated Chrome instance (separate `--user-data-dir`) that won't conflict with the user's browser |
-| `SILBERCUE_CHROME_PROFILE` | path | — | Chrome user profile directory (auto-launch only) |
+| `SILBERCUE_CHROME_PORT` | `1`–`65535` | `9222` | CDP debugging port. Non-default values spawn an isolated Chrome instance (separate `--user-data-dir`) that won't conflict with the user's browser. Alias: `PUBLIC_BROWSER_CHROME_PORT` |
+| `SILBERCUE_CHROME_HOST` | host | `127.0.0.1` | CDP host. Alias: `PUBLIC_BROWSER_CHROME_HOST` |
+| `SILBERCUE_SCRIPT_PORT` | `1`–`65535` | `9223` | Script API port (needs `--script`). Alias: `PUBLIC_BROWSER_SCRIPT_PORT` |
+| `SILBERCUE_STEALTH` | `0` / `1` | `1` | `0` disables the `navigator.webdriver` masking. Alias: `PUBLIC_BROWSER_STEALTH` |
+| `PUBLIC_BROWSER_DOWNLOAD_DIR` | path | — (temp dir) | Directory downloads are written to. Created if missing, never deleted |
+| `PUBLIC_BROWSER_DOWNLOAD_HASH` | `1` / `true` | — (off) | Report a `sha256` for every completed download |
+| `PUBLIC_BROWSER_DOWNLOAD_NAMING` | `guid` / `suggested` | `guid` | `suggested` renames finished downloads to the server-supplied filename |
+| `PUBLIC_BROWSER_CORTEX_DIR` | path | `~/.public-browser/cortex` | Per-instance cortex pattern store |
+| `SILBERCUE_CHROME_PROFILE` | path | — | Chrome user profile directory (auto-launch only). Alias: `PUBLIC_BROWSER_PROFILE` (profile *name*) |
 | `CHROME_PATH` | path | — | Path to Chrome binary (overrides auto-detection) |
 | `PUBLIC_BROWSER_TELEMETRY` | `1` / `true` | — (disabled) | Opt-in: upload anonymised Cortex patterns to the community endpoint |
 | `PUBLIC_BROWSER_TELEMETRY_ENDPOINT` | URL | `https://cortex.public-browser.dev/v1/patterns` | Override the telemetry collection endpoint (must be HTTPS) |
+
+Invalid values fail loudly: an unparseable port or naming mode aborts startup
+with a named error instead of silently falling back to 9222. Sessions created
+through the Node library ignore every variable in this table except
+`CHROME_PATH` and the telemetry pair — see [Node Library API](#node-library-api-multiple-instances-in-one-process).
 
 ## License
 

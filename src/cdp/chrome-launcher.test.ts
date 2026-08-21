@@ -1547,3 +1547,95 @@ describe("AutoLaunch connection strategy", () => {
     await connection.close();
   }, 15_000);
 });
+
+// ── close() waits for Chrome to actually exit ──────────────────────────
+
+describe("ChromeConnection.close — waits for the launched Chrome to die", () => {
+  async function makeConn(): Promise<{ conn: ChromeConnection; child: ChildProcess }> {
+    const transport = {
+      send: vi.fn(() => true),
+      onMessage: vi.fn(),
+      onError: vi.fn(),
+      onClose: vi.fn(),
+      close: vi.fn(async () => {}),
+      connected: true,
+    };
+    const cdpClient = new (await import("./cdp-client.js")).CdpClient(transport);
+    const child = new EventEmitter() as ChildProcess;
+    // A real ChildProcess reports null for both while it is running.
+    (child as { exitCode: number | null }).exitCode = null;
+    (child as { signalCode: NodeJS.Signals | null }).signalCode = null;
+    child.killed = false;
+    child.kill = vi.fn(() => true);
+
+    const conn = new ChromeConnection(cdpClient, transport, "pipe", child, "/tmp/pb-conn-test");
+    conn.killGraceMs = 60;
+    return { conn, child };
+  }
+
+  it("does not resolve until the child has exited", async () => {
+    const { conn, child } = await makeConn();
+
+    let resolved = false;
+    const closing = conn.close().then(() => { resolved = true; });
+
+    await new Promise((r) => setTimeout(r, 30));
+    expect(resolved).toBe(false);
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+
+    child.emit("exit", 0, null);
+    await closing;
+    expect(resolved).toBe(true);
+  });
+
+  it("escalates to SIGKILL after the grace period", async () => {
+    const { conn, child } = await makeConn();
+
+    const closing = conn.close();
+    await new Promise((r) => setTimeout(r, 120));
+
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    child.emit("exit", null, "SIGKILL");
+    await closing;
+  });
+
+  it("gives up rather than hanging when the child never exits", async () => {
+    const { conn } = await makeConn();
+
+    // Never emits "exit" — close() must still return, bounded by
+    // killGraceMs + KILL_HARD_TIMEOUT_MS.
+    await expect(conn.close()).resolves.toBeUndefined();
+  }, 15_000);
+
+  it("removes the temp user-data-dir only after the child is gone", async () => {
+    const { rm } = await import("node:fs/promises");
+    vi.mocked(rm).mockClear();
+    const { conn, child } = await makeConn();
+
+    const closing = conn.close();
+    await new Promise((r) => setTimeout(r, 30));
+    // Chrome rewrites its profile on exit — removing it earlier is a race.
+    expect(rm).not.toHaveBeenCalled();
+
+    child.emit("exit", 0, null);
+    await closing;
+    expect(rm).toHaveBeenCalledWith("/tmp/pb-conn-test", { recursive: true, force: true });
+  });
+
+  it("returns immediately in attach mode (no child of ours)", async () => {
+    const transport = {
+      send: vi.fn(() => true),
+      onMessage: vi.fn(),
+      onError: vi.fn(),
+      onClose: vi.fn(),
+      close: vi.fn(async () => {}),
+      connected: true,
+    };
+    const cdpClient = new (await import("./cdp-client.js")).CdpClient(transport);
+    const conn = new ChromeConnection(cdpClient, transport, "websocket", undefined, undefined);
+
+    const start = Date.now();
+    await conn.close();
+    expect(Date.now() - start).toBeLessThan(50);
+  });
+});

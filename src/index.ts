@@ -4,10 +4,24 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { startServer } from "./server.js";
 import { dispatchTopLevelCli } from "./cli/top-level-commands.js";
+import { parseCliArgs } from "./cli/parse-args.js";
 
 export { startServer } from "./server.js";
 export type { StartServerOptions } from "./server.js";
 export { dispatchTopLevelCli } from "./cli/top-level-commands.js";
+export { parseCliArgs } from "./cli/parse-args.js";
+export type { ParsedCliArgs } from "./cli/parse-args.js";
+
+// Library API (multi-instance): run one or more fully isolated Public
+// Browser sessions inside a host Node process — no `npx` spawn per instance.
+export { createSession } from "./lib/create-session.js";
+export type {
+  CreateSessionOptions,
+  PublicBrowserSession,
+  SessionIsolation,
+} from "./lib/create-session.js";
+export { buildSessionEnv, ESSENTIAL_ENV_VARS } from "./lib/session-env.js";
+export type { InheritEnv } from "./lib/session-env.js";
 
 // SEA-Detection (Phase 3b): In einem Single-Executable-Application-Bundle
 // liefert esbuild fuer `import.meta.url` ein leeres Objekt, wodurch
@@ -69,28 +83,31 @@ if (isMainModule) {
     // Wenn dispatchTopLevelCli einen Subcommand erkennt, beendet es den
     // Prozess via process.exit(). Sonst → false zurueck → Server starten.
     //
-    const attach = process.argv.includes("--attach");
-    const script = process.argv.includes("--script");
+    const cli = parseCliArgs(process.argv);
 
-    // --profile <name>: extract the value following the flag
-    let profile: string | undefined;
-    const profileIdx = process.argv.indexOf("--profile");
-    if (profileIdx !== -1 && profileIdx + 1 < process.argv.length) {
-      profile = process.argv[profileIdx + 1];
+    if (cli.errors.length > 0) {
+      for (const message of cli.errors) console.error(`Error: ${message}`);
+      console.error("Run `public-browser help` for the full flag list.");
+      process.exit(1);
     }
 
-    // Filter flags (and --profile's value) from argv before dispatch
-    const flagsToFilter = new Set(["--attach", "--script", "--profile"]);
-    const filteredArgv = process.argv.filter((arg, idx) => {
-      if (flagsToFilter.has(arg)) return false;
-      if (idx > 0 && process.argv[idx - 1] === "--profile") return false;
-      return true;
-    });
-
-    dispatchTopLevelCli(filteredArgv, import.meta.url)
+    dispatchTopLevelCli(cli.rest, import.meta.url)
       .then((handled) => {
         if (handled) return;
-        return startServer({ attach, script, profile });
+        return startServer({
+          attach: cli.attach,
+          script: cli.script,
+          profile: cli.profile,
+          userDataDir: cli.userDataDir,
+          cdpPort: cli.cdpPort,
+          cdpHost: cli.cdpHost,
+          scriptPort: cli.scriptPort,
+          stealth: cli.stealth,
+          downloadDir: cli.downloadDir,
+          downloadHash: cli.downloadHash,
+          downloadNaming: cli.downloadNaming,
+          headless: cli.headless,
+        });
       })
       .catch((err) => {
         console.error("Fatal:", err);
