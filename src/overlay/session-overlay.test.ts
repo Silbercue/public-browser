@@ -11,6 +11,8 @@ import { OVERLAY_SCRIPT } from "./session-overlay.js";
 interface FakeElement {
   tag: string;
   id: string;
+  attributes: Record<string, string>;
+  setAttribute: (name: string, value: string) => void;
   style: Record<string, string>;
   innerHTML: string;
   content: { cloneNode: () => object };
@@ -35,6 +37,10 @@ function fakeDom(opts: { hasRoot: boolean }) {
       const el: FakeElement = {
         tag,
         id: "",
+        attributes: {},
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        },
         style: {},
         innerHTML: "",
         content: { cloneNode: () => ({}) },
@@ -122,6 +128,15 @@ describe("session overlay script — on a built page", () => {
 
     expect(dom.root.appendChild).toHaveBeenCalledTimes(1);
     expect(dom.document.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it("hides the host from the accessibility tree", () => {
+    // view_page reads the AX tree; with filter "all" the status bar showed
+    // up as page content ("Public Browser", the cortex page-type flash).
+    const dom = fakeDom({ hasRoot: true });
+    dom.run();
+
+    expect(dom.hosts()[0].attributes["aria-hidden"]).toBe("true");
   });
 
   it("is a no-op when the overlay is already on the page", () => {

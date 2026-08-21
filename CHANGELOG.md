@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.9.1] - 2026-08-22
+
+### Fixed
+
+- **The session overlay no longer shows up in `view_page`.** The status bar
+  is a real DOM node, so `view_page({ filter: "all" })` listed it as page
+  content — `"Public Browser"` and the cortex page-type flash as static text,
+  three of fourteen nodes on a small page. The overlay host and the click
+  indicator now carry `aria-hidden="true"`, which keeps them out of the
+  accessibility tree that `view_page` reads. Reported by an integrator.
+
+### Changed
+
+- README: the `view_page` row of the tool table spells out both `filter`
+  values and what each returns.
+
 ## [2.9.0] - 2026-08-22
 
 ### Fixed

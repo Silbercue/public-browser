@@ -105,6 +105,9 @@ function buildOverlayScript(): string {
   var host = document.createElement('div');
   host.id = '${OVERLAY_ID}';
   host.style.cssText = 'position:fixed;bottom:0;left:0;right:0;height:0;z-index:2147483647;pointer-events:none;';
+  // Keep the overlay out of the accessibility tree: view_page reads that
+  // tree, and an agent must not see its own status bar as page content.
+  host.setAttribute('aria-hidden', 'true');
   var sr = host.attachShadow({ mode: 'open' });
   var t = document.createElement('template');
   t.innerHTML = \`${escaped}\`;
@@ -249,7 +252,9 @@ export async function removeOverlay(cdpClient: CdpClient, sessionId: string): Pr
  */
 export async function showClickIndicator(cdpClient: CdpClient, sessionId: string, x: number, y: number): Promise<void> {
   const script = `(() => {
+  if (!document.documentElement) return;
   var d = document.createElement('div');
+  d.setAttribute('aria-hidden', 'true');
   d.style.cssText = 'position:fixed;left:${Math.round(x) - 6}px;top:${Math.round(y) - 6}px;width:12px;height:12px;border-radius:50%;background:#000;border:1px solid rgba(200,200,200,0.5);pointer-events:none;z-index:2147483646;opacity:0.8;transition:opacity 0.8s ease-out;';
   document.documentElement.appendChild(d);
   requestAnimationFrame(function() { d.style.opacity = '0'; });

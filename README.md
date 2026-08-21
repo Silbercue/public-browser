@@ -510,7 +510,7 @@ immediately and never waits, for either a start or a completion.
 | Tool | Description |
 |---|---|
 | **Reading & Observation** | |
-| `view_page` | A11y-tree with stable `e`-refs — primary way to understand the page. Filter by `interactive` (default) or `all`. 5.4x more compact than Playwright's `browser_snapshot`. |
+| `view_page` | A11y-tree with stable `e`-refs — primary way to understand the page. `filter: "interactive"` (default) returns the elements an agent can act on; `filter: "all"` adds headings, paragraphs and other static text. 5.4x more compact than Playwright's `browser_snapshot`. |
 | `capture_image` | WebP screenshot, max 800px, <100KB. For visual verification only — refs come from `view_page`. |
 | `console_logs` | Browser console output with level/pattern filters |
 | `network_monitor` | Start/stop/query network requests with filtering |
