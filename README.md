@@ -302,10 +302,18 @@ module-level caches (element refs, selector cache, viewport state, stealth flag,
 cortex matcher) exist once *per session* rather than once per process — two
 sessions can never hand each other stale element refs.
 
-Measured on macOS with `isolation: "process"` (a worker thread saves ~40 ms):
-**~0.9 s** to a session that launched its own headless Chrome, **~0.2 s** to the
-first tool response when attaching to a Chrome that is already running, and
-**~1.25 s** from `createSession()` to having a real page navigated and read.
+Measured on macOS with `isolation: "process"`, attaching to a Chrome started
+outside Public Browser (a worker thread saves ~40 ms):
+
+| | Median |
+|---|---|
+| `createSession()` launches its own headless Chrome | ~0.9 s |
+| `attach` to a running Chrome, up to the first tool response | ~0.7 s |
+| ...through to a real page navigated and read | ~1.8 s |
+
+Most of the attach cost is Chrome starting a renderer for the tab Public
+Browser opens for itself — an attached session never takes over tabs that
+belong to someone else.
 
 A thread is not a security boundary: same process memory, same file
 descriptors. `isolation: "process"` forks one OS process per session instead —
@@ -318,6 +326,29 @@ altogether and is only correct when the thread runs exactly one session.
 | `"worker"` (default) | thread — private module caches | ~1 s | several sessions in one trusted process |
 | `"process"` | OS process — private memory + descriptors | ~1 s | the sessions must not share a process with the host |
 | `"inline"` | none — the calling thread | fastest | exactly one session per thread |
+
+**No listening CDP port (`transport: "pipe"`).** By default Chrome is launched
+with `--remote-debugging-port`, which is what makes `--attach`, the Script API
+and reconnect-after-crash possible — and which also means every other process
+on the machine can drive that browser. For a session holding real logins that
+is a way around any permission check you perform yourself.
+
+```ts
+const action = await createSession({
+  transport: "pipe",                      // no --remote-debugging-port at all
+  userDataDir: "/var/agents/a1/action",
+  headless: true,
+});
+```
+
+CDP then travels over the child's stdio pipe, which only Public Browser holds:
+`lsof` shows nothing listening and a second process finds no way in. The price
+is everything the port paid for — no reconnect after a Chrome crash, no second
+client, no `attach`, and no named `profile` (Chrome rejects the pipe with a
+real user profile). Both contradictions fail at `createSession()` rather than
+at the first tool call. `session.transport` reports which mode is in use, and
+`session.cdpPort` is `undefined` — there is no port, and reporting the default
+would name whatever Chrome the user has open on 9222.
 
 **Environment.** A session does **not** start from the host environment. It
 starts from a documented minimum and you widen it deliberately — an
@@ -354,13 +385,18 @@ launch instead of racing a process that was merely asked to exit.
 **One session per Chrome.** Some CDP settings are browser-wide rather than
 per-session, `Browser.setDownloadBehavior` among them: two sessions attached to
 the *same* Chrome share one download directory, and whichever connected last
-wins. Give each session its own Chrome (its own port and user-data-dir) when
-`downloadDir` matters.
+wins.
+
+This fails silently and it corrupts the record: the losing session keeps
+reporting paths under *its* `downloadDir`, but the file was written to the
+other one. `path` then points at nothing, with no error to notice. Give each
+session its own Chrome — its own port (or `transport: "pipe"`) and its own
+user-data-dir — whenever `downloadDir` matters.
 
 | Option | Default | Description |
 |---|---|---|
 | `cdpUrl` | — | `http://host:port`, `host:port` or a bare port. Wins over `cdpPort`/`cdpHost` |
-| `cdpPort` / `cdpHost` | `9222` / `127.0.0.1` | CDP endpoint this session drives |
+| `cdpPort` / `cdpHost` | `9222` / `127.0.0.1` | CDP endpoint this session drives. `session.cdpPort` is `undefined` with `transport: "pipe"` |
 | `userDataDir` | — | Chrome `--user-data-dir` for auto-launch. One directory per instance |
 | `profile` | — | Named Chrome profile instead of a raw directory |
 | `headless` | `false` | Launch Chrome headless |
@@ -370,6 +406,7 @@ wins. Give each session its own Chrome (its own port and user-data-dir) when
 | `downloadHash` | `false` | Report `sha256` for every completed download |
 | `downloadNaming` | `"guid"` | `"suggested"` renames finished files to the server-supplied name |
 | `cortexDir` | `~/.public-browser/cortex` | Per-instance cortex store |
+| `transport` | `"port"` | `"pipe"` launches Chrome with no listening CDP port (no attach/reconnect/profile) |
 | `inheritEnv` | `false` | Essentials only. Array = essentials + allowlist, `true` = whole host env |
 | `env` | — | Extra environment variables for the session, applied last |
 | `isolation` | `"worker"` | `"process"` for an OS-process boundary, `"inline"` for none |
@@ -478,7 +515,7 @@ immediately and never waits, for either a start or a completion.
 | `console_logs` | Browser console output with level/pattern filters |
 | `network_monitor` | Start/stop/query network requests with filtering |
 | `observe` | Watch DOM changes: `collect` (buffer over time) or `until` (wait for condition, then auto-click) |
-| `wait_for` | Wait for element visible, network idle, or JS expression true |
+| `wait_for` | Wait for element visible, page **text**, **URL**, network idle, or JS expression. `assert: true` checks once and fails with a typed `code` instead of waiting |
 | `tab_status` | Active tab's cached URL/title/ready/errors (0ms) |
 | `virtual_desk` | Lists all tabs with stable IDs. Call first in every session. |
 | `dom_snapshot` | Bounding boxes, computed styles, paint order. For spatial questions `view_page` cannot answer. |

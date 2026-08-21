@@ -43,6 +43,7 @@ function readyInfo(core: SessionCore): WorkerReadyInfo {
     cdpHost: core.cdpHost,
     stealth: core.stealth,
     downloadDir: core.downloadDir,
+    transport: core.transport,
   };
 }
 

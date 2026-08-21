@@ -79,13 +79,15 @@ function createMockCdp(sendResponses: Record<string, unknown>): MockCdpSetup {
 // --- Schema Tests (Task 7.2) ---
 
 describe("waitForSchema", () => {
-  it("should have timeout default of 10000", () => {
+  it("leaves timeout unset in the schema — the default depends on `assert`", () => {
+    // 10000 for a wait, 0 for an assertion — resolved in the handler, which
+    // is the only place that knows which of the two this call is.
     const result = waitForSchema.parse({ condition: "network_idle" });
-    expect(result.timeout).toBe(10000);
+    expect(result.timeout).toBeUndefined();
   });
 
-  it("should accept all 3 conditions", () => {
-    for (const condition of ["element", "network_idle", "js"]) {
+  it("should accept all conditions", () => {
+    for (const condition of ["element", "text", "url", "network_idle", "js"]) {
       const result = waitForSchema.parse({ condition });
       expect(result.condition).toBe(condition);
     }
@@ -611,5 +613,320 @@ describe("waitForHandler — js timeout diagnostics", () => {
     expect(result.content[0].text).toContain("Last evaluation returned: false");
     // No Debug line
     expect(result.content[0].text).not.toContain("Debug:");
+  });
+});
+
+// ── FR-8: text / url conditions and the assert mode ────────────────────
+
+/** A CDP mock whose Runtime.evaluate answers differently on each call. */
+function evaluateSequence(values: unknown[]): MockCdpSetup {
+  let i = 0;
+  return createMockCdp({
+    "Runtime.evaluate": () => {
+      const value = values[Math.min(i, values.length - 1)];
+      i++;
+      return { result: { value } };
+    },
+  });
+}
+
+describe("wait_for — condition 'text'", () => {
+  it("resolves as soon as the text appears", async () => {
+    // false, false, then true — the poll loop must keep going until it holds.
+    const { cdpClient } = evaluateSequence([false, false, true]);
+
+    const res = await waitForHandler(
+      { condition: "text", text: "Bestellung bestätigt", timeout: 5000, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res.isError).toBeUndefined();
+    expect(res._meta?.condition).toBe("text");
+    expect(res.content[0].text).toContain("Bestellung bestätigt");
+  });
+
+  it("passes the needle through JSON.stringify so quotes cannot break out", async () => {
+    const { cdpClient, sendFn } = evaluateSequence([true]);
+
+    await waitForHandler(
+      { condition: "text", text: 'He said "stop"\n', timeout: 0, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    const expression = sendFn.mock.calls[0][1].expression as string;
+    expect(expression).toContain(String.raw`"He said \"stop\"\n"`);
+    // The raw needle must never appear unescaped in the source we send.
+    expect(expression).not.toContain('He said "stop"\n');
+  });
+
+  it("reports the actual page text on timeout", async () => {
+    let call = 0;
+    const { cdpClient } = createMockCdp({
+      "Runtime.evaluate": () => {
+        call++;
+        // Last call is the diagnostic, which asks for innerText itself.
+        return { result: { value: call > 1 ? "Warenkorb ist leer" : false } };
+      },
+    });
+
+    const res = await waitForHandler(
+      { condition: "text", text: "Bestellung bestätigt", timeout: 0, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res.isError).toBe(true);
+    expect(res._meta?.code).toBe("timeout");
+    expect(res.content[0].text).toContain("Warenkorb ist leer");
+  });
+
+  it("requires the text parameter", async () => {
+    const { cdpClient } = createMockCdp({});
+    const res = await waitForHandler(
+      { condition: "text", timeout: 1000, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+    expect(res.isError).toBe(true);
+    expect(res._meta?.code).toBe("invalid_params");
+    expect(res.content[0].text).toContain("requires a 'text' parameter");
+  });
+});
+
+describe("wait_for — condition 'url'", () => {
+  it("matches a substring of the URL", async () => {
+    const { cdpClient, sendFn } = evaluateSequence([true]);
+
+    const res = await waitForHandler(
+      { condition: "url", url: "/checkout/success", timeout: 0, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res.isError).toBeUndefined();
+    expect(sendFn.mock.calls[0][1].expression).toContain("location.href.includes");
+  });
+
+  it("shows the current URL when it does not match", async () => {
+    let call = 0;
+    const { cdpClient } = createMockCdp({
+      "Runtime.evaluate": () => {
+        call++;
+        return { result: { value: call > 1 ? "https://shop.example/cart" : false } };
+      },
+    });
+
+    const res = await waitForHandler(
+      { condition: "url", url: "/checkout/success", timeout: 0, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain("https://shop.example/cart");
+  });
+
+  it("requires the url parameter", async () => {
+    const { cdpClient } = createMockCdp({});
+    const res = await waitForHandler(
+      { condition: "url", timeout: 1000, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+    expect(res._meta?.code).toBe("invalid_params");
+  });
+});
+
+describe("wait_for — assert mode", () => {
+  it("checks once and succeeds without waiting", async () => {
+    const { cdpClient, sendFn } = evaluateSequence([true]);
+
+    const res = await waitForHandler(
+      { condition: "text", text: "Willkommen", assert: true } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0].text).toContain("Assertion held");
+    // One evaluate — an assertion does not poll.
+    expect(sendFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails with code 'assertion_failed', not 'timeout'", async () => {
+    const { cdpClient } = evaluateSequence([false, ""]);
+
+    const res = await waitForHandler(
+      { condition: "text", text: "Willkommen", assert: true } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res.isError).toBe(true);
+    expect(res._meta?.code).toBe("assertion_failed");
+    expect(res.content[0].text).toContain("Assertion failed");
+    expect(res.content[0].text).not.toContain("Timeout after");
+  });
+
+  it("distinguishes the two codes for the same unmet condition", async () => {
+    const asAssert = await waitForHandler(
+      { condition: "url", url: "/done", assert: true } as WaitForParams,
+      evaluateSequence([false, ""]).cdpClient,
+      "s1",
+    );
+    const asWait = await waitForHandler(
+      { condition: "url", url: "/done", timeout: 0, assert: false } as WaitForParams,
+      evaluateSequence([false, ""]).cdpClient,
+      "s1",
+    );
+
+    expect(asAssert._meta?.code).toBe("assertion_failed");
+    expect(asWait._meta?.code).toBe("timeout");
+  });
+
+  it("still waits when an explicit timeout is given alongside assert", async () => {
+    // assert only changes the DEFAULT timeout; an explicit one wins.
+    const { cdpClient, sendFn } = evaluateSequence([false, false, true]);
+
+    const res = await waitForHandler(
+      { condition: "text", text: "später", assert: true, timeout: 3000 } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res.isError).toBeUndefined();
+    expect(sendFn.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("tags element assertions too", async () => {
+    vi.mocked(a11yTree.resolveRefFull).mockReturnValue(undefined as never);
+    const { cdpClient } = createMockCdp({
+      "DOM.getDocument": { root: { nodeId: 1 } },
+      "DOM.querySelector": { nodeId: 0 },
+    });
+
+    const res = await waitForHandler(
+      { condition: "element", selector: "#missing", assert: true } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res.isError).toBe(true);
+    expect(res._meta?.code).toBe("assertion_failed");
+  });
+});
+
+describe("wait_for — schema", () => {
+  it("accepts the new conditions", () => {
+    expect(waitForSchema.shape.condition.options).toEqual([
+      "element",
+      "text",
+      "url",
+      "network_idle",
+      "js",
+    ]);
+  });
+
+  it("defaults assert to false and leaves timeout unset", () => {
+    const parsed = waitForSchema.parse({ condition: "text", text: "x" });
+    expect(parsed.assert).toBe(false);
+    expect(parsed.timeout).toBeUndefined();
+  });
+});
+
+// ── CDP failures while polling: "not yet" vs "the session is gone" ──────
+
+describe("wait_for — CDP failures while polling", () => {
+  const FATAL = new Error("CDP error -32001: Session with given id not found.");
+  const TRANSIENT = new Error("CDP error -32000: Cannot find context with specified id");
+
+  function failing(err: Error) {
+    return createMockCdp({
+      "Runtime.evaluate": () => {
+        throw err;
+      },
+    });
+  }
+
+  /** First poll throws `err`, every later one reports the condition as met. */
+  function recovering(err: Error) {
+    let calls = 0;
+    return createMockCdp({
+      "Runtime.evaluate": () => {
+        calls += 1;
+        if (calls === 1) throw err;
+        return { result: { value: true } };
+      },
+    });
+  }
+
+  const conditions: Array<[string, Partial<WaitForParams>]> = [
+    ["text", { condition: "text", text: "ready" }],
+    ["url", { condition: "url", url: "/done" }],
+    ["element (CSS)", { condition: "element", selector: "#ok" }],
+    ["js", { condition: "js", expression: "window.ready === true" }],
+  ];
+
+  for (const [label, params] of conditions) {
+    it(`${label}: reports code 'cdp_error', not 'timeout', when the session is gone`, async () => {
+      // A script without an LLM branches on this: a condition that never held
+      // and a dead browser need different recoveries.
+      const { cdpClient } = failing(FATAL);
+      const start = performance.now();
+
+      const res = await waitForHandler(
+        { ...params, timeout: 2000, assert: false } as WaitForParams,
+        cdpClient,
+        "s1",
+      );
+
+      expect(res.isError).toBe(true);
+      expect(res._meta?.code).toBe("cdp_error");
+      expect(res.content[0].text).toContain("Session with given id not found");
+      // It gave up immediately instead of polling the corpse for 2 s.
+      expect(performance.now() - start).toBeLessThan(1000);
+    });
+
+    it(`${label}: keeps polling through a context torn down by navigation`, async () => {
+      const { cdpClient } = recovering(TRANSIENT);
+
+      const res = await waitForHandler(
+        { ...params, timeout: 2000, assert: false } as WaitForParams,
+        cdpClient,
+        "s1",
+      );
+
+      expect(res.isError).toBeUndefined();
+      expect(res._meta?.code).toBeUndefined();
+    });
+  }
+
+  it("treats a dropped transport as 'cdp_error' too", async () => {
+    const { cdpClient } = failing(new Error("Transport closed unexpectedly"));
+
+    const res = await waitForHandler(
+      { condition: "text", text: "x", timeout: 2000, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res._meta?.code).toBe("cdp_error");
+    expect(res.content[0].text).toContain("CDP connection lost");
+  });
+
+  it("still reports 'timeout' when the page simply never says it", async () => {
+    const { cdpClient } = createMockCdp({
+      "Runtime.evaluate": { result: { value: false } },
+    });
+
+    const res = await waitForHandler(
+      { condition: "text", text: "never", timeout: 300, assert: false } as WaitForParams,
+      cdpClient,
+      "s1",
+    );
+
+    expect(res._meta?.code).toBe("timeout");
   });
 });

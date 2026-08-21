@@ -1639,3 +1639,80 @@ describe("ChromeConnection.close — waits for the launched Chrome to die", () =
     expect(Date.now() - start).toBeLessThan(50);
   });
 });
+
+// ── FR-3: transport "pipe" — no listening CDP port ─────────────────────
+
+describe('launchChrome — transport "pipe"', () => {
+  it("omits --remote-debugging-port entirely", async () => {
+    process.env.CHROME_PATH = "/bin/sh";
+    const mockChild = createMockChildProcess();
+    vi.mocked(spawn).mockReturnValue(mockChild as never);
+
+    const launchPromise = launchChrome({ headless: true, port: 9333, transport: "pipe" });
+    await new Promise((r) => setTimeout(r, 10));
+    simulateCdpResponse(mockChild, 1, { product: "Chrome/136.0" });
+    const result = await launchPromise;
+
+    const args = vi.mocked(spawn).mock.calls[0][1] as string[];
+    // This is the whole point: nothing listens, so nothing else can attach.
+    expect(args.some((a) => a.startsWith("--remote-debugging-port"))).toBe(false);
+    expect(args).toContain("--remote-debugging-pipe");
+    expect(result.transportType).toBe("pipe");
+
+    await result.cdpClient.close();
+  });
+
+  it('keeps the port with the default transport (regression guard)', async () => {
+    process.env.CHROME_PATH = "/bin/sh";
+    const mockChild = createMockChildProcess();
+    vi.mocked(spawn).mockReturnValue(mockChild as never);
+
+    const launchPromise = launchChrome({ headless: true, port: 9333 });
+    await new Promise((r) => setTimeout(r, 10));
+    simulateCdpResponse(mockChild, 1, { product: "Chrome/136.0" });
+    const result = await launchPromise;
+
+    const args = vi.mocked(spawn).mock.calls[0][1] as string[];
+    expect(args).toContain("--remote-debugging-port=9333");
+
+    await result.cdpClient.close();
+  });
+
+  it("refuses a real profile — Chrome rejects the pipe with one", async () => {
+    process.env.CHROME_PATH = "/bin/sh";
+    await expect(
+      launchChrome({
+        transport: "pipe",
+        isRealProfile: true,
+        profilePath: "/tmp",
+        profileDirectory: "Default",
+      }),
+    ).rejects.toThrow(/cannot be used with a real Chrome profile/);
+  });
+});
+
+describe('ChromeLauncher — transport "pipe"', () => {
+  it("does not probe the port before launching", async () => {
+    process.env.CHROME_PATH = "/bin/sh";
+    const mockChild = createMockChildProcess();
+    vi.mocked(spawn).mockReturnValue(mockChild as never);
+
+    const launcher = new ChromeLauncher({ transport: "pipe", port: 9333, headless: true });
+    const connectPromise = launcher.connect();
+    await new Promise((r) => setTimeout(r, 10));
+    simulateCdpResponse(mockChild, 1, { product: "Chrome/136.0" });
+    const connection = await connectPromise;
+
+    // Straight to spawn: probing would either burn a timeout or, worse,
+    // attach us to a browser that happens to own that port.
+    expect(vi.mocked(spawn)).toHaveBeenCalled();
+    expect(connection.transportType).toBe("pipe");
+
+    await connection.close();
+  });
+
+  it("cannot attach — there is no endpoint to attach to", async () => {
+    const launcher = new ChromeLauncher({ transport: "pipe", port: 9333, autoLaunch: false });
+    await expect(launcher.connect()).rejects.toThrow(/cannot attach to an existing Chrome/);
+  });
+});

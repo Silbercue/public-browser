@@ -3,27 +3,48 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { ToolResponse } from "../types.js";
 import { settle } from "../cdp/settle.js";
 import { a11yTree } from "../cache/a11y-tree.js";
-import { wrapCdpError } from "./error-utils.js";
+import { isFatalCdpError, wrapCdpError } from "./error-utils.js";
 
 // --- Schema (Task 1) ---
 
 export const waitForSchema = z.object({
   condition: z
-    .enum(["element", "network_idle", "js"])
-    .describe("What to wait for: element visibility, network idle, or JS expression returning true"),
+    .enum(["element", "text", "url", "network_idle", "js"])
+    .describe(
+      "What to wait for: element visibility, visible page text, the URL, "
+      + "network idle, or a JS expression returning true",
+    ),
   selector: z
     .string()
     .optional()
     .describe("CSS selector or element ref (e.g. 'e5') — required when condition is 'element'"),
+  text: z
+    .string()
+    .optional()
+    .describe(
+      "Substring of the page's visible text — required when condition is 'text'. "
+      + "Case-sensitive; matches document.body.innerText, i.e. what a reader sees.",
+    ),
+  url: z
+    .string()
+    .optional()
+    .describe("Substring of the page URL — required when condition is 'url'"),
   expression: z
     .string()
     .optional()
     .describe("JavaScript expression that should evaluate to true — required when condition is 'js'"),
+  assert: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Assert instead of wait: check the condition once and fail if it does not hold "
+      + "(default timeout becomes 0). Failures carry _meta.code = 'assertion_failed'.",
+    ),
   timeout: z
     .number()
     .optional()
-    .default(10000)
-    .describe("Maximum wait time in milliseconds (default: 10000)"),
+    .describe("Maximum wait time in milliseconds (default: 10000, or 0 when assert is true)"),
 });
 
 export type WaitForParams = z.infer<typeof waitForSchema>;
@@ -109,9 +130,10 @@ async function waitForElement(
       if (found) {
         return { found: true, elapsedMs: Math.round(performance.now() - start) };
       }
-    } catch {
-      // CDP error during polling (e.g. element removed) — swallow and continue
-      // Transport errors will propagate from the outer try/catch in the handler
+    } catch (err) {
+      // A node that vanished or a context torn down by navigation: retry.
+      // A dead session or transport: stop, the handler reports `cdp_error`.
+      if (isFatalCdpError(err)) throw err;
     }
 
     const remaining = deadline - performance.now();
@@ -158,6 +180,104 @@ async function waitForNetworkIdle(
   };
 }
 
+// --- Text condition ---
+
+/**
+ * Poll for a substring of the page's visible text.
+ *
+ * `innerText` rather than the accessibility tree on purpose: this answers
+ * "has the page said X yet", and a reader sees rendered text regardless of
+ * whether it carries an accessibility role. Text inside a shadow root or a
+ * cross-origin iframe is not part of `document.body.innerText` and will not
+ * match — use `condition: "element"` for those.
+ */
+async function waitForText(
+  cdpClient: CdpClient,
+  sessionId: string,
+  needle: string,
+  timeout: number,
+): Promise<WaitResult> {
+  // JSON.stringify escapes quotes, newlines and unicode for us — the needle
+  // is caller data and must never be spliced into source unescaped.
+  const expression = `(document.body?.innerText ?? "").includes(${JSON.stringify(needle)})`;
+  return pollForTruthy(cdpClient, sessionId, expression, timeout);
+}
+
+// --- URL condition ---
+
+async function waitForUrl(
+  cdpClient: CdpClient,
+  sessionId: string,
+  needle: string,
+  timeout: number,
+): Promise<WaitResult> {
+  const expression = `location.href.includes(${JSON.stringify(needle)})`;
+  return pollForTruthy(cdpClient, sessionId, expression, timeout);
+}
+
+/**
+ * Shared poll loop for the boolean conditions. Checks once before the first
+ * sleep, so `timeout: 0` is a plain "is it true right now" — which is what
+ * `assert` needs.
+ */
+async function pollForTruthy(
+  cdpClient: CdpClient,
+  sessionId: string,
+  expression: string,
+  timeout: number,
+): Promise<WaitResult> {
+  const start = performance.now();
+  const deadline = start + timeout;
+
+  for (;;) {
+    try {
+      const result = await cdpClient.send<{
+        result: { value: unknown };
+        exceptionDetails?: unknown;
+      }>("Runtime.evaluate", { expression, returnByValue: true }, sessionId);
+
+      if (!result.exceptionDetails && result.result.value === true) {
+        return { found: true, elapsedMs: Math.round(performance.now() - start) };
+      }
+    } catch (err) {
+      // Navigation can tear the execution context down mid-poll — retry.
+      // A dead session or transport is a different outcome, not a "not yet".
+      if (isFatalCdpError(err)) throw err;
+    }
+
+    if (performance.now() >= deadline) {
+      return { found: false, elapsedMs: Math.round(performance.now() - start) };
+    }
+    await delay(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - performance.now())));
+  }
+}
+
+/**
+ * On a failed text/url condition, report what the page actually holds.
+ * Truncated hard — this is a hint, not a page dump.
+ */
+async function currentValueDiagnostic(
+  cdpClient: CdpClient,
+  sessionId: string,
+  isText: boolean,
+): Promise<string> {
+  try {
+    const expression = isText
+      ? `(document.body?.innerText ?? "").replace(/\\s+/g, " ").trim().slice(0, 300)`
+      : "location.href";
+    const result = await cdpClient.send<{ result: { value: unknown } }>(
+      "Runtime.evaluate",
+      { expression, returnByValue: true },
+      sessionId,
+    );
+    const value = String(result.result.value ?? "");
+    if (value === "") return isText ? " The page has no visible text." : "";
+    return isText ? `\nPage text starts: ${value}` : `\nCurrent URL: ${value}`;
+  } catch {
+    return "";
+  }
+}
+
 // --- JS condition (Task 4) ---
 
 interface JsWaitResult {
@@ -198,8 +318,9 @@ async function waitForJs(
         }
       }
       // Exception in expression — swallow and keep polling
-    } catch {
-      // CDP error — swallow and keep polling
+    } catch (err) {
+      // CDP error — keep polling unless the session itself is gone.
+      if (isFatalCdpError(err)) throw err;
     }
 
     const remaining = deadline - performance.now();
@@ -316,31 +437,30 @@ export async function waitForHandler(
   sessionId?: string,
 ): Promise<ToolResponse> {
   const start = performance.now();
+  const asserting = params.assert ?? false;
+  // Assertions check the here-and-now; waits get the historical 10 s budget.
+  const timeout = params.timeout ?? (asserting ? 0 : 10_000);
 
   // Validation (Task 1.4)
-  if (params.condition === "element" && (!params.selector || params.selector.trim() === "")) {
+  const required: Partial<Record<WaitForParams["condition"], [string, string | undefined]>> = {
+    element: ["selector", params.selector],
+    text: ["text", params.text],
+    url: ["url", params.url],
+    js: ["expression", params.expression],
+  };
+  const missing = required[params.condition];
+  if (missing && (!missing[1] || missing[1].trim() === "")) {
+    const hint = params.condition === "element" ? " (CSS selector or ref like 'e5')" : "";
+    const article = /^[aeiou]/.test(missing[0]) ? "an" : "a";
     return {
       content: [
         {
           type: "text",
-          text: "wait_for condition 'element' requires a 'selector' parameter (CSS selector or ref like 'e5')",
+          text: `wait_for condition '${params.condition}' requires ${article} '${missing[0]}' parameter${hint}`,
         },
       ],
       isError: true,
-      _meta: { elapsedMs: 0, method: "wait_for" },
-    };
-  }
-
-  if (params.condition === "js" && (!params.expression || params.expression.trim() === "")) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "wait_for condition 'js' requires an 'expression' parameter",
-        },
-      ],
-      isError: true,
-      _meta: { elapsedMs: 0, method: "wait_for" },
+      _meta: { elapsedMs: 0, method: "wait_for", code: "invalid_params" },
     };
   }
 
@@ -351,7 +471,7 @@ export async function waitForHandler(
           cdpClient,
           sessionId!,
           params.selector!,
-          params.timeout,
+          timeout,
         );
         if (result.found) {
           return {
@@ -371,16 +491,23 @@ export async function waitForHandler(
           content: [
             {
               type: "text",
-              text: `Timeout after ${params.timeout}ms waiting for element '${params.selector}' to become visible${diagnostic}`,
+              text: asserting
+                ? `Assertion failed: element '${params.selector}' is not visible${diagnostic}`
+                : `Timeout after ${timeout}ms waiting for element '${params.selector}' to become visible${diagnostic}`,
             },
           ],
           isError: true,
-          _meta: { elapsedMs: result.elapsedMs, method: "wait_for", condition: "element" },
+          _meta: {
+            elapsedMs: result.elapsedMs,
+            method: "wait_for",
+            condition: "element",
+            code: asserting ? "assertion_failed" : "timeout",
+          },
         };
       }
 
       case "network_idle": {
-        const result = await waitForNetworkIdle(cdpClient, sessionId!, params.timeout);
+        const result = await waitForNetworkIdle(cdpClient, sessionId!, timeout);
         if (result.settled) {
           return {
             content: [
@@ -401,7 +528,7 @@ export async function waitForHandler(
           content: [
             {
               type: "text",
-              text: `Timeout after ${params.timeout}ms waiting for network idle (signal: ${result.signal})`,
+              text: `Timeout after ${timeout}ms waiting for network idle (signal: ${result.signal})`,
             },
           ],
           isError: true,
@@ -410,6 +537,51 @@ export async function waitForHandler(
             method: "wait_for",
             condition: "network_idle",
             settleSignal: result.signal,
+            code: asserting ? "assertion_failed" : "timeout",
+          },
+        };
+      }
+
+      case "text":
+      case "url": {
+        const isText = params.condition === "text";
+        const needle = (isText ? params.text : params.url)!;
+        const result = isText
+          ? await waitForText(cdpClient, sessionId!, needle, timeout)
+          : await waitForUrl(cdpClient, sessionId!, needle, timeout);
+
+        if (result.found) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: asserting
+                  ? `Assertion held: ${params.condition} contains ${JSON.stringify(needle)}`
+                  : `Condition '${params.condition}' met after ${result.elapsedMs}ms — ${JSON.stringify(needle)}`,
+              },
+            ],
+            _meta: { elapsedMs: result.elapsedMs, method: "wait_for", condition: params.condition },
+          };
+        }
+
+        // Show what IS there — a caller comparing the expected substring
+        // against the actual page can usually see the mismatch immediately.
+        const actual = await currentValueDiagnostic(cdpClient, sessionId!, isText);
+        return {
+          content: [
+            {
+              type: "text",
+              text: asserting
+                ? `Assertion failed: ${params.condition} does not contain ${JSON.stringify(needle)}.${actual}`
+                : `Timeout after ${timeout}ms waiting for ${params.condition} to contain ${JSON.stringify(needle)}.${actual}`,
+            },
+          ],
+          isError: true,
+          _meta: {
+            elapsedMs: result.elapsedMs,
+            method: "wait_for",
+            condition: params.condition,
+            code: asserting ? "assertion_failed" : "timeout",
           },
         };
       }
@@ -419,7 +591,7 @@ export async function waitForHandler(
           cdpClient,
           sessionId!,
           params.expression!,
-          params.timeout,
+          timeout,
         );
         if (result.met) {
           return {
@@ -440,11 +612,18 @@ export async function waitForHandler(
           content: [
             {
               type: "text",
-              text: `Timeout after ${params.timeout}ms waiting for JS expression to return true. Last evaluation returned: ${JSON.stringify(result.lastValue)}${diagnostic}`,
+              text: asserting
+                ? `Assertion failed: JS expression did not return true. Last evaluation returned: ${JSON.stringify(result.lastValue)}${diagnostic}`
+                : `Timeout after ${timeout}ms waiting for JS expression to return true. Last evaluation returned: ${JSON.stringify(result.lastValue)}${diagnostic}`,
             },
           ],
           isError: true,
-          _meta: { elapsedMs: result.elapsedMs, method: "wait_for", condition: "js" },
+          _meta: {
+            elapsedMs: result.elapsedMs,
+            method: "wait_for",
+            condition: "js",
+            code: asserting ? "assertion_failed" : "timeout",
+          },
         };
       }
     }
@@ -453,7 +632,7 @@ export async function waitForHandler(
     return {
       content: [{ type: "text", text: wrapCdpError(err, "wait_for") }],
       isError: true,
-      _meta: { elapsedMs, method: "wait_for" },
+      _meta: { elapsedMs, method: "wait_for", code: "cdp_error" },
     };
   }
 }

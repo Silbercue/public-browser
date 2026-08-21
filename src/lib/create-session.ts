@@ -18,6 +18,7 @@
  *   downloadDir: "/var/agents/a1/quarantine",
  *   downloadHash: true,                    // DownloadInfo.sha256
  *   downloadNaming: "suggested",           // real filenames, not GUIDs
+ *   transport: "pipe",                     // no CDP port for anyone else
  *   cortexDir: "/var/agents/a1/cortex",    // per-instance pattern store
  *   inheritEnv: ["HTTPS_PROXY"],           // opt in to what the session needs
  * });
@@ -110,12 +111,21 @@ export interface PublicBrowserSession {
   readonly isolation: SessionIsolation;
   /** OS process id of the session — only set for `isolation: "process"`. */
   readonly pid: number | undefined;
-  /** CDP port this session drives. */
-  readonly cdpPort: number;
+  /**
+   * CDP port this session drives. `undefined` with `transport: "pipe"` —
+   * there is no listening port, and the default would name the user's own
+   * Chrome on 9222.
+   */
+  readonly cdpPort: number | undefined;
   /** CDP host this session drives. */
   readonly cdpHost: string;
   /** Whether `navigator.webdriver` masking is active. `false` = honest bot. */
   readonly stealth: boolean;
+  /**
+   * CDP transport in use. `"pipe"` means no port is listening, so no other
+   * local process can attach to this browser.
+   */
+  readonly transport: "port" | "pipe";
   /** Directory downloads land in (temp dir when none was configured). */
   readonly downloadDir: string | undefined;
   /** True until `close()` completes or the session dies. */
@@ -211,6 +221,7 @@ async function createInlineSession(
     cdpPort: core.cdpPort,
     cdpHost: core.cdpHost,
     stealth: core.stealth,
+    transport: core.transport,
     get downloadDir() {
       return core.downloadDir;
     },
@@ -387,6 +398,7 @@ async function createChannelSession(
     cdpPort: info.cdpPort,
     cdpHost: info.cdpHost,
     stealth: info.stealth,
+    transport: info.transport,
     downloadDir: info.downloadDir,
     get isAlive() {
       return alive;

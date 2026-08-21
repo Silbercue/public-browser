@@ -1,5 +1,98 @@
 # Changelog
 
+## [2.9.0] - 2026-08-22
+
+### Fixed
+
+- **The page overlay no longer throws on every page load.** The overlay script
+  is registered via `Page.addScriptToEvaluateOnNewDocument`, which runs before
+  the parser has produced `<html>` — `document.documentElement` is still `null`
+  there, and `appendChild` on it threw `TypeError: Cannot read properties of
+  null` into the page console on every navigation, in every configuration.
+  `tab_status` then reported that error back as `Errors (1)`, as if the page
+  had produced it. The host now waits for `DOMContentLoaded` when the root does
+  not exist yet, and a marker keeps the second evaluation from creating a
+  second one.
+- **`wait_for` reports `cdp_error` when the session is gone, not `timeout`.**
+  The poll loops behind `element`, `text`, `url` and `js` swallowed every CDP
+  failure and kept polling until the deadline, so a dead transport or a closed
+  session surfaced as "the condition never held". A script without an LLM needs
+  the difference: a condition that never became true and a browser that is not
+  there any more call for different recoveries. Failures that only mean "could
+  not check right now" — an execution context torn down by navigation, a node
+  that vanished — are still retried. Verified live: a Chrome killed mid-wait
+  now returns `cdp_error` after ~1 s instead of `timeout` after 15.
+- **`tab_status` and `switch_tab` show the page title after a navigation.** The
+  tab-state cache is prefilled on `Page.frameNavigated`, which fires before
+  `<title>` is parsed, so it held an empty title — and served it as a cache
+  hit for the next 30 s. The cache now reads `document.title` (the navigation
+  entry's title lags behind it), refreshes an empty one on
+  `Page.domContentEventFired`, and never serves an empty title from cache.
+- **`transport: "pipe"` with an unknown profile name reports the pipe conflict**
+  rather than "profile not found". The transport check now runs before the
+  profile is resolved, so the caller hears about the contradiction that
+  renaming the profile would not fix.
+- **`close()` no longer takes 30 seconds for an attached session.** Shutdown
+  removed the page overlay *after* closing the tab it lives in, so it addressed
+  a target that was already gone — Chrome never answers, and the CDP client sat
+  out its full 30 s timeout. Reproduced at 30006 ms with an attached,
+  `eager: true` session closed before its first tool call; now 3 ms. The
+  overlay is removed first, and every CDP command on the cleanup path is
+  bounded at 2 s rather than 30.
+- **An attached session no longer terminates a Chrome it did not start.**
+  Closing the last remaining page target takes the whole browser down with it.
+  Shutdown now checks for another page target first and keeps its own tab when
+  there is none — an `about:blank` left behind beats killing somebody else's
+  browser. The kept tab is navigated to `about:blank` first, through a session
+  attached to that exact target: left as it was, it would show whatever the
+  automation last opened, which after a login is an authenticated page in a
+  browser nobody controls any more.
+- **`settle` is reachable over MCP.** The `download` tool documented it as a
+  per-call parameter, but the registered schema only exposed `action` and
+  `timeout`, so no MCP client could set it. Reported by an integrator.
+
+### Added
+
+- **`transport: "pipe"` — a Chrome with no listening CDP port.** Public Browser
+  already spoke CDP over the stdio pipe for temp profiles, but always passed
+  `--remote-debugging-port` as well, leaving an endpoint every local process
+  could drive. `createSession({ transport: "pipe" })` omits the flag entirely:
+  nothing listens, and the pipe belongs to Public Browser alone. The port paid
+  for reconnect-after-crash, `attach`, the Script API and named profiles, so
+  none of those are available in pipe mode; `attach` and `profile` are rejected
+  at `createSession()` instead of failing later. `session.transport` reports the
+  mode in use.
+- **`wait_for` understands page text and the URL.** `condition: "text"` matches
+  a substring of `document.body.innerText`, `condition: "url"` a substring of
+  the address — the two most common waits, which previously forced callers into
+  `condition: "js"` and therefore into writing code. Failures show what the page
+  actually holds.
+- **`wait_for({ assert: true })` checks once instead of waiting**, and reports
+  `_meta.code = "assertion_failed"`. Deliberately a mode rather than a new
+  `assert` tool: every additional tool widens the tool list that each agent
+  pays for in context on every session.
+- **Typed failure codes on `wait_for`** — `_meta.code` is one of `timeout`,
+  `assertion_failed`, `invalid_params`, `cdp_error`, so a script can branch on
+  the outcome instead of parsing prose.
+
+### Changed
+
+- **`session.cdpPort` is `undefined` with `transport: "pipe"`.** It reported
+  the resolved default — `9222`, the port of whatever Chrome the user has
+  open — for a session whose whole point is that nothing listens. The type is
+  now `number | undefined` on `SessionCore`, `PublicBrowserSession` and
+  `WorkerReadyInfo`; callers on `"port"` transport see no change.
+- Documented attach timings corrected against a Chrome started outside Public
+  Browser: ~0.7 s to the first tool response and ~1.8 s to a navigated and read
+  page, rather than the ~0.2 s / ~1.25 s measured against a Public Browser-owned
+  Chrome with a warm renderer. Most of it is Chrome starting a renderer for the
+  tab an attached session opens for itself.
+- The README now states what the browser-wide download directory actually
+  costs: with two sessions on one Chrome the losing session keeps reporting
+  paths under its own `downloadDir` while the file lands in the other — a
+  silently wrong `path`, not just a shared folder.
+
+
 ## [2.8.0] - 2026-08-21
 
 ### Multi-instance operation without a per-instance process

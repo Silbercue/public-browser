@@ -16,6 +16,23 @@ import type { ConnectionStatus, TransportType } from "../types.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
+/**
+ * How Public Browser reaches the Chrome it launches itself.
+ *
+ * `"port"` (default, historical) passes `--remote-debugging-port`. Convenient
+ * — `--attach`, the Script API and reconnect-after-crash all need it — but the
+ * endpoint is reachable by every other process on the machine. For a browser
+ * holding real logins that is a way around any permission check the
+ * integrator performs.
+ *
+ * `"pipe"` omits the flag: CDP travels over the child's stdio pipe, which
+ * only the parent process holds. Nothing listens, so nothing else can attach.
+ * The cost is everything that needed the port: no reconnect after a Chrome
+ * crash, no second client, no `attach`. Chrome also rejects the pipe with a
+ * real user profile, so `"pipe"` requires a temp or raw user-data-dir.
+ */
+export type CdpTransportMode = "port" | "pipe";
+
 export interface ChromeConnectionOptions {
   /** Port for WebSocket discovery (default: 9222) */
   port?: number;
@@ -54,6 +71,8 @@ export interface ChromeConnectionOptions {
    * keeps its native getter and stays `true`. See `cdp/stealth.ts`.
    */
   stealth?: boolean;
+  /** CDP transport for a self-launched Chrome. See `CdpTransportMode`. */
+  transport?: CdpTransportMode;
 }
 
 export interface LaunchOptions {
@@ -71,6 +90,12 @@ export interface LaunchOptions {
    * `--disable-blink-features=AutomationControlled` flag is omitted.
    */
   stealth?: boolean;
+  /**
+   * `"port"` (default) opens a CDP endpoint on `--remote-debugging-port`.
+   * `"pipe"` omits that flag entirely and speaks CDP only over the stdio
+   * pipe — see `CdpTransportMode`.
+   */
+  transport?: CdpTransportMode;
 }
 
 interface LaunchResult {
@@ -303,6 +328,18 @@ export async function launchChrome(
   let userDataDir: string;
   let tmpDir: string | undefined;
   const isRealProfile = options?.isRealProfile ?? false;
+  const transport: CdpTransportMode = options?.transport ?? "port";
+
+  // Checked before any filesystem work: this is a contradiction in the
+  // configuration, and reporting it as a missing profile directory would send
+  // the caller looking in the wrong place.
+  if (transport === "pipe" && isRealProfile) {
+    throw new Error(
+      'transport: "pipe" cannot be used with a real Chrome profile — Chrome rejects '
+      + "--remote-debugging-pipe with the default user-data-dir. Use a raw userDataDir "
+      + 'or transport: "port".',
+    );
+  }
 
   if (isRealProfile && options?.profilePath && options?.profileDirectory) {
     // Real profile: Chrome rejects --remote-debugging-port on the default
@@ -369,7 +406,14 @@ export async function launchChrome(
     baseFlags.unshift("--remote-debugging-pipe");
   }
 
-  const flags = [...baseFlags, `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`];
+  // transport: "pipe" omits the port flag, so nothing listens on the machine.
+  // The pipe carries CDP either way — the port was only ever the *additional*
+  // door, for reconnect, --attach and the Script API.
+  const flags = [
+    ...baseFlags,
+    ...(transport === "pipe" ? [] : [`--remote-debugging-port=${port}`]),
+    `--user-data-dir=${userDataDir}`,
+  ];
 
   if (options?.profileDirectory) {
     flags.push(`--profile-directory=${options.profileDirectory}`);
@@ -833,6 +877,7 @@ export class ChromeLauncher {
   private readonly _profilePath: string | undefined;
   private readonly _profileDirectory: string | undefined;
   private readonly _isRealProfile: boolean;
+  private readonly _transport: CdpTransportMode;
   private readonly _autoReconnect: boolean;
   private readonly _stealth: boolean;
   private readonly _host: string;
@@ -845,6 +890,7 @@ export class ChromeLauncher {
     this._profilePath = options?.profilePath;
     this._profileDirectory = options?.profileDirectory;
     this._isRealProfile = options?.isRealProfile ?? false;
+    this._transport = options?.transport ?? "port";
     this._autoReconnect = options?.autoReconnect ?? true;
     this._stealth = options?.stealth ?? true;
   }
@@ -863,23 +909,36 @@ export class ChromeLauncher {
   }
 
   async connect(): Promise<ChromeConnection> {
-    // 1. Try WebSocket to existing Chrome
-    debug("Trying WebSocket on %s:%d...", this._host, this._port);
+    // transport: "pipe" — there is no endpoint to discover, by design. Skip
+    // straight to launching our own Chrome; probing a port here would either
+    // waste a timeout or, worse, attach us to somebody else's browser.
     let wsError: Error | undefined;
-    try {
-      return await this._connectViaWebSocket(this._port);
-    } catch (err) {
-      wsError = err instanceof Error ? err : new Error(String(err));
-      debug("WebSocket failed: %s", wsError.message);
+    if (this._transport === "pipe") {
+      if (!this._autoLaunch) {
+        throw new Error(
+          'transport: "pipe" cannot attach to an existing Chrome — the pipe belongs to '
+          + "the process that spawned it. Launch Chrome through Public Browser, or use "
+          + 'transport: "port".',
+        );
+      }
+    } else {
+      // 1. Try WebSocket to existing Chrome
+      debug("Trying WebSocket on %s:%d...", this._host, this._port);
+      try {
+        return await this._connectViaWebSocket(this._port);
+      } catch (err) {
+        wsError = err instanceof Error ? err : new Error(String(err));
+        debug("WebSocket failed: %s", wsError.message);
+      }
+
+      // 2. Auto-launch if enabled
+      // C2 fix: preserve original error for better diagnostics
+      if (!this._autoLaunch) {
+        throw wsError!;
+      }
     }
 
-    // 2. Auto-launch if enabled
-    // C2 fix: preserve original error for better diagnostics
-    if (!this._autoLaunch) {
-      throw wsError!;
-    }
-
-    debug("Launching Chrome...");
+    debug("Launching Chrome (transport: %s)...", this._transport);
     const result = await launchChrome({
       headless: this._headless,
       profilePath: this._profilePath,
@@ -887,6 +946,7 @@ export class ChromeLauncher {
       isRealProfile: this._isRealProfile,
       port: this._port,
       stealth: this._stealth,
+      transport: this._transport,
     });
 
     // Extract tmpDir from the spawn args — only for temp profiles (no profilePath)
@@ -908,12 +968,15 @@ export class ChromeLauncher {
       this._port,
       this._headless,
       this._profilePath,
-      this._autoReconnect,
+      // A pipe cannot be re-opened: the reconnect path rediscovers Chrome over
+      // the port, and with transport "pipe" there is none. A lost pipe means a
+      // lost session — surfacing that beats retrying against nothing.
+      this._transport === "pipe" ? false : this._autoReconnect,
       this._stealth,
       this._host,
     );
 
-    debug("Connected via pipe");
+    debug("Connected via %s", result.transportType);
     return connection;
   }
 

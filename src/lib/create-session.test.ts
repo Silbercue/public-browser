@@ -337,3 +337,62 @@ describe("createSession — inline isolation and the host environment", () => {
     }
   });
 });
+
+describe("createSession — transport", () => {
+  it('rejects transport "pipe" together with attach', async () => {
+    // A pipe belongs to the process that spawned Chrome; attaching to one is
+    // not a hard case, it is a contradiction — so it fails at the call, not
+    // minutes later inside the launcher.
+    await expect(
+      createSession({ isolation: "inline", transport: "pipe", attach: true }),
+    ).rejects.toThrow(/cannot be combined with attach/);
+  });
+
+  it('rejects transport "pipe" together with a named profile', async () => {
+    await expect(
+      createSession({ isolation: "inline", transport: "pipe", profile: "Default" }),
+    ).rejects.toThrow(/cannot be combined with a named profile/);
+  });
+
+  it('names the pipe conflict even when the profile does not exist', async () => {
+    // The transport check runs before profile resolution: a caller who
+    // combined the two should hear about the contradiction, not chase a
+    // "profile not found" that fixing the name would not resolve.
+    await expect(
+      createSession({
+        isolation: "inline",
+        transport: "pipe",
+        profile: "no-such-profile-8f3a1c",
+      }),
+    ).rejects.toThrow(/cannot be combined with a named profile/);
+  });
+
+  it('reports cdpPort as undefined with transport "pipe"', async () => {
+    // Nothing listens over a pipe. The resolved default (9222) would name the
+    // user's own Chrome — exactly the browser a pipe session is kept away from.
+    const session = await createSession({
+      isolation: "inline",
+      transport: "pipe",
+      userDataDir: tempDir("pb-pipe-port-"),
+    });
+    openSessions.push(session);
+    expect(session.transport).toBe("pipe");
+    expect(session.cdpPort).toBeUndefined();
+  });
+
+  it('defaults to "port" and reports it', async () => {
+    const session = await createSession({ isolation: "inline", cdpUrl: "9333" });
+    openSessions.push(session);
+    expect(session.transport).toBe("port");
+  });
+
+  it('reports "pipe" when asked for it', async () => {
+    const session = await createSession({
+      isolation: "inline",
+      transport: "pipe",
+      userDataDir: tempDir("pb-pipe-"),
+    });
+    openSessions.push(session);
+    expect(session.transport).toBe("pipe");
+  });
+});

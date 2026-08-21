@@ -4,7 +4,17 @@ import { TabStateCache } from "../cache/tab-state-cache.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 
 function createMockCdp(sendResponses?: Record<string, unknown>): CdpClient {
-  const sendFn = vi.fn(async (method: string) => {
+  const sendFn = vi.fn(async (method: string, params?: { expression?: string }) => {
+    // `document.title` is read separately from `document.readyState`; route it
+    // to its own key so a test can answer the two evaluates differently.
+    // Default: no title — the state a freshly committed navigation is in.
+    if (method === "Runtime.evaluate" && params?.expression === "document.title") {
+      if (sendResponses && "document.title" in sendResponses) {
+        const val = sendResponses["document.title"];
+        return typeof val === "function" ? val() : val;
+      }
+      return { result: { value: "" } };
+    }
     if (sendResponses && method in sendResponses) {
       const val = sendResponses[method];
       if (typeof val === "function") return val();
@@ -197,5 +207,28 @@ describe("tabStatusHandler", () => {
     expect(result._meta!.method).toBe("tab_status");
     expect(typeof result._meta!.elapsedMs).toBe("number");
     expect(result._meta!.elapsedMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("tabStatusHandler — title after navigation", () => {
+  it("shows the page title even when the cache was prefilled before <title> was parsed", async () => {
+    // The frameNavigated prefill caches an empty title; tab_status must not
+    // echo that for the next 30 s.
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("tab1");
+    cache.set("tab1", { url: "https://example.com", title: "", domReady: true, loadingState: "ready" });
+
+    const cdp = createMockCdp({
+      "Page.getNavigationHistory": {
+        currentIndex: 0,
+        entries: [{ url: "https://example.com", title: "" }],
+      },
+      "Runtime.evaluate": { result: { value: "complete" } },
+      "document.title": { result: { value: "Example Domain" } },
+    });
+
+    const result = await tabStatusHandler({}, cdp, "s1", cache);
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("Title: Example Domain");
   });
 });

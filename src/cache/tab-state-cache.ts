@@ -142,9 +142,23 @@ export class TabStateCache {
 
     const onDomContentEventFired: EventCallback = () => {
       if (this._activeTargetId) {
-        const existing = this._cache.get(this._activeTargetId);
+        const targetId = this._activeTargetId;
+        const existing = this._cache.get(targetId);
         if (existing) {
           existing.domReady = true;
+          // The frameNavigated prefill ran at commit time, before <title>
+          // was parsed, so the entry most likely carries an empty title.
+          // Now that the DOM is built the real one is a cheap read away.
+          if (existing.title === "") {
+            this._fetchTitle(cdpClient, sessionId)
+              .then((title) => {
+                const entry = this._cache.get(targetId);
+                if (entry && title !== "") entry.title = title;
+              })
+              .catch(() => {
+                /* refresh is best-effort */
+              });
+          }
         }
       }
     };
@@ -188,7 +202,11 @@ export class TabStateCache {
     sessionId?: string,
   ): Promise<{ state: TabState; cacheHit: boolean }> {
     const cached = this.get(targetId);
-    if (cached) {
+    // An empty title is the one value we cannot tell apart from "not known
+    // yet" — the prefill on Page.frameNavigated runs before <title> exists.
+    // Re-reading costs two round-trips, and only on pages that still report
+    // none (about:blank, or a title that was set by script after load).
+    if (cached && cached.title !== "") {
       return { state: cached, cacheHit: true };
     }
 
@@ -197,21 +215,36 @@ export class TabStateCache {
     return { state, cacheHit: false };
   }
 
+  private async _fetchTitle(cdpClient: CdpClient, sessionId?: string): Promise<string> {
+    const result = await cdpClient.send<RuntimeEvalResult>(
+      "Runtime.evaluate",
+      { expression: "document.title", returnByValue: true },
+      sessionId,
+    );
+    const value = result.result?.value;
+    return typeof value === "string" ? value : "";
+  }
+
   private async _fetchFromCdp(
     cdpClient: CdpClient,
     targetId: string,
     sessionId?: string,
   ): Promise<TabState> {
-    const [navHistory, readyState] = await Promise.all([
+    const [navHistory, readyState, docTitle] = await Promise.all([
       cdpClient.send<NavigationHistory>("Page.getNavigationHistory", {}, sessionId),
       cdpClient.send<RuntimeEvalResult>(
         "Runtime.evaluate",
         { expression: "document.readyState", returnByValue: true },
         sessionId,
       ),
+      this._fetchTitle(cdpClient, sessionId).catch(() => ""),
     ]);
 
     const currentEntry = navHistory.entries[navHistory.currentIndex];
+    // `document.title` is what the page shows right now; the navigation
+    // entry's title lags behind it (empty until Chrome commits the title to
+    // history) and serves only as a fallback.
+    const title = docTitle !== "" ? docTitle : currentEntry.title;
 
     // Merge console errors: existing (stale) cache entry + pending (buffered) errors
     const existingErrors = this._cache.get(targetId)?.consoleErrors ?? [];
@@ -227,7 +260,7 @@ export class TabStateCache {
 
     return {
       url: currentEntry.url,
-      title: currentEntry.title,
+      title,
       domReady:
         readyState.result.value === "interactive" ||
         readyState.result.value === "complete",

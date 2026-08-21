@@ -18,10 +18,13 @@ export interface WorkerInitData {
 
 /** Facts about the live session, reported once the worker is up. */
 export interface WorkerReadyInfo {
-  cdpPort: number;
+  /** `undefined` with `transport: "pipe"` — no port is listening. */
+  cdpPort: number | undefined;
   cdpHost: string;
   stealth: boolean;
   downloadDir?: string;
+  /** `"pipe"` means no CDP port is listening for this session. */
+  transport: "port" | "pipe";
 }
 
 export type HostToWorkerMessage =

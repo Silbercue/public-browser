@@ -13,7 +13,17 @@ interface MockCdpSetup {
 function createMockCdp(sendResponses?: Record<string, unknown>): MockCdpSetup {
   const listeners = new Map<string, Set<{ callback: EventCallback; sessionId?: string }>>();
 
-  const sendFn = vi.fn(async (method: string) => {
+  const sendFn = vi.fn(async (method: string, params?: { expression?: string }) => {
+    // `document.title` is read separately from `document.readyState`; route it
+    // to its own key so a test can answer the two evaluates differently.
+    // Default: no title — the state a freshly committed navigation is in.
+    if (method === "Runtime.evaluate" && params?.expression === "document.title") {
+      if (sendResponses && "document.title" in sendResponses) {
+        const val = sendResponses["document.title"];
+        return typeof val === "function" ? val() : val;
+      }
+      return { result: { value: "" } };
+    }
     if (sendResponses && method in sendResponses) {
       const val = sendResponses[method];
       if (typeof val === "function") return val();
@@ -349,7 +359,8 @@ describe("TabStateCache — getOrFetch", () => {
     expect(result.state.title).toBe("Fresh Page");
     expect(result.state.domReady).toBe(true);
     expect(result.state.loadingState).toBe("ready");
-    expect(mock.sendFn).toHaveBeenCalledTimes(2);
+    // History, readyState and document.title — issued in parallel, one round trip.
+    expect(mock.sendFn).toHaveBeenCalledTimes(3);
   });
 
   it("getOrFetch fetches from CDP when TTL expired", async () => {
@@ -492,5 +503,105 @@ describe("TabStateCache — activeTargetId", () => {
     const cache = new TabStateCache();
     cache.setActiveTarget("target-42");
     expect(cache.activeTargetId).toBe("target-42");
+  });
+});
+
+// ── Title: the prefill runs before <title> is parsed ───────────────────
+
+describe("TabStateCache — title", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("prefers document.title over the navigation entry", async () => {
+    // Chrome commits the title to the history entry late; document.title is
+    // what the page shows now.
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    const mock = createMockCdp({
+      "Page.getNavigationHistory": {
+        currentIndex: 0,
+        entries: [{ url: "https://example.com", title: "" }],
+      },
+      "Runtime.evaluate": { result: { value: "complete" } },
+      "document.title": { result: { value: "Example Domain" } },
+    });
+
+    const { state } = await cache.getOrFetch(mock.cdpClient, "t1", "s1");
+    expect(state.title).toBe("Example Domain");
+  });
+
+  it("falls back to the navigation entry when document.title is empty", async () => {
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    const mock = createMockCdp({
+      "Page.getNavigationHistory": {
+        currentIndex: 0,
+        entries: [{ url: "https://example.com", title: "From History" }],
+      },
+      "Runtime.evaluate": { result: { value: "complete" } },
+    });
+
+    const { state } = await cache.getOrFetch(mock.cdpClient, "t1", "s1");
+    expect(state.title).toBe("From History");
+  });
+
+  it("re-reads a cached entry whose title is empty instead of serving it", async () => {
+    // Regression: tab_status returned `Title:` (empty) for 30 s after a
+    // navigate, because the frameNavigated prefill cached "" before <title>
+    // existed and every later call was a cache hit.
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.set("t1", { url: "https://example.com", title: "", domReady: true, loadingState: "ready" });
+    const mock = createMockCdp({
+      "Page.getNavigationHistory": {
+        currentIndex: 0,
+        entries: [{ url: "https://example.com", title: "" }],
+      },
+      "Runtime.evaluate": { result: { value: "complete" } },
+      "document.title": { result: { value: "Example Domain" } },
+    });
+
+    const result = await cache.getOrFetch(mock.cdpClient, "t1", "s1");
+    expect(result.cacheHit).toBe(false);
+    expect(result.state.title).toBe("Example Domain");
+    // And the corrected entry is what the cache holds from now on.
+    expect(cache.get("t1")?.title).toBe("Example Domain");
+  });
+
+  it("still serves a cached entry with a known title without touching CDP", async () => {
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.set("t1", { url: "https://example.com", title: "Known", domReady: true, loadingState: "ready" });
+    const mock = createMockCdp();
+
+    const result = await cache.getOrFetch(mock.cdpClient, "t1", "s1");
+    expect(result.cacheHit).toBe(true);
+    expect(mock.sendFn).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an empty title on Page.domContentEventFired", async () => {
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("t1");
+    cache.set("t1", { url: "https://example.com", title: "", domReady: false, loadingState: "loading" });
+    const mock = createMockCdp({
+      "document.title": { result: { value: "Example Domain" } },
+    });
+    cache.attachToClient(mock.cdpClient, "s1");
+
+    mock.emit("Page.domContentEventFired", { timestamp: 1 });
+    await tick();
+
+    expect(cache.get("t1")?.domReady).toBe(true);
+    expect(cache.get("t1")?.title).toBe("Example Domain");
+    cache.detachFromClient();
+  });
+
+  it("does not re-read the title on Page.domContentEventFired when one is known", async () => {
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("t1");
+    cache.set("t1", { url: "https://example.com", title: "Known", domReady: false, loadingState: "loading" });
+    const mock = createMockCdp();
+    cache.attachToClient(mock.cdpClient, "s1");
+
+    mock.emit("Page.domContentEventFired", { timestamp: 1 });
+    await tick();
+
+    expect(mock.sendFn).not.toHaveBeenCalled();
+    cache.detachFromClient();
   });
 });

@@ -21,6 +21,7 @@ import { mkdirSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { BrowserSession } from "../cdp/browser-session.js";
 import { parseCdpUrl } from "../cdp/chrome-launcher.js";
+import type { CdpTransportMode } from "../cdp/chrome-launcher.js";
 import { resolveProfileSpec } from "../cdp/chrome-profiles.js";
 import { resolveStealth } from "../cdp/stealth.js";
 import { ToolRegistry } from "../registry.js";
@@ -83,14 +84,24 @@ export interface SessionCoreOptions {
    * `PUBLIC_BROWSER_DOWNLOAD_NAMING`, else `"guid"`.
    */
   downloadNaming?: DownloadNaming;
+  /**
+   * How this session reaches the Chrome it launches. `"port"` (default) opens
+   * `--remote-debugging-port`; `"pipe"` omits it, so no other local process
+   * can attach to a browser that may hold real logins. `"pipe"` rules out
+   * reconnect-after-crash, `attach`, the Script API and named profiles.
+   */
+  transport?: CdpTransportMode;
 }
 
 export interface SessionCore {
   readonly browserSession: BrowserSession;
   readonly registry: ToolRegistry;
-  readonly cdpPort: number;
+  /** CDP port this session drives; `undefined` with `transport: "pipe"` — nothing listens. */
+  readonly cdpPort: number | undefined;
   readonly cdpHost: string;
   readonly stealth: boolean;
+  /** CDP transport in use — `"pipe"` means no port is listening. */
+  readonly transport: CdpTransportMode;
   readonly downloadDir: string | undefined;
   /** Execute a tool through the shared dispatch path. Lazily launches Chrome. */
   callTool(
@@ -126,6 +137,30 @@ export function createSessionCore(
     cdpHost = resolveCdpHost(env, options.cdpHost);
   }
 
+  const attach = options.attach ?? false;
+  const transport = options.transport ?? "port";
+
+  // Fail here rather than at the first tool call: both combinations are
+  // contradictions, not edge cases, and the launcher's error would surface
+  // minutes later with no obvious link to the option that caused it. This
+  // runs before the profile is resolved on purpose — with an unknown profile
+  // name the caller should hear that pipe and profile do not mix, not that
+  // the profile does not exist.
+  if (transport === "pipe") {
+    if (attach) {
+      throw new Error(
+        'createSession: transport "pipe" cannot be combined with attach — a pipe belongs '
+        + "to the process that spawned Chrome, so there is nothing to attach to.",
+      );
+    }
+    if (options.profile) {
+      throw new Error(
+        'createSession: transport "pipe" cannot be combined with a named profile — Chrome '
+        + "rejects --remote-debugging-pipe with a real user profile. Use userDataDir instead.",
+      );
+    }
+  }
+
   // --- profile / user-data-dir ---
   let profilePath: string | undefined;
   let profileDirectory: string | undefined;
@@ -143,7 +178,6 @@ export function createSessionCore(
     profilePath = options.userDataDir;
   }
 
-  const attach = options.attach ?? false;
   const browserSession = new BrowserSession({
     profilePath,
     profileDirectory,
@@ -163,6 +197,7 @@ export function createSessionCore(
     downloadDir: resolveDownloadDir(env, options.downloadDir),
     downloadHash: resolveDownloadHash(env, options.downloadHash),
     downloadNaming: resolveDownloadNaming(env, options.downloadNaming),
+    transport,
   });
 
   // The registry needs an McpServer to register tool schemas against, but the
@@ -175,9 +210,12 @@ export function createSessionCore(
   return {
     browserSession,
     registry,
-    cdpPort,
+    // Over a pipe nothing listens anywhere. Reporting the resolved default
+    // (9222) would point at whatever Chrome the user has open on that port.
+    cdpPort: transport === "pipe" ? undefined : cdpPort,
     cdpHost,
     stealth: browserSession.stealth,
+    transport,
     get downloadDir() {
       return browserSession.downloadDir;
     },

@@ -120,11 +120,14 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "wait_for",
-      "Wait for a condition: element visible, network idle, or JS expression true",
+      expect.stringMatching(/^Wait for a condition: element visible, page text present/),
       expect.objectContaining({
         condition: expect.anything(),
         selector: expect.anything(),
+        text: expect.anything(),
+        url: expect.anything(),
         expression: expect.anything(),
+        assert: expect.anything(),
         timeout: expect.anything(),
       }),
       expect.any(Function),
@@ -250,6 +253,35 @@ describe("ToolRegistry", () => {
     expect(result).toBeDefined();
     expect(result.isError).toBeFalsy();
     expect(result.content[0]).toHaveProperty("text", "42");
+  });
+
+  // --- MCP schema completeness: a documented parameter must be reachable ---
+
+  it("exposes every download parameter over MCP, including settle", () => {
+    // Regression: `settle` was documented as a per-call parameter but missing
+    // from the registered schema, so no MCP client could ever set it.
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+    const registry = new ToolRegistry(mockServer, { send: vi.fn() } as never, "session-1", {} as never);
+    registry.registerAll();
+
+    const call = toolFn.mock.calls.find((c) => c[0] === "download");
+    expect(call, "download tool must be registered").toBeDefined();
+    expect(Object.keys(call![2])).toEqual(
+      expect.arrayContaining(["action", "timeout", "settle"]),
+    );
+  });
+
+  it("exposes the wait_for text/url/assert parameters over MCP", () => {
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+    const registry = new ToolRegistry(mockServer, { send: vi.fn() } as never, "session-1", {} as never);
+    registry.registerAll();
+
+    const call = toolFn.mock.calls.find((c) => c[0] === "wait_for");
+    expect(Object.keys(call![2])).toEqual(
+      expect.arrayContaining(["condition", "selector", "text", "url", "expression", "assert", "timeout"]),
+    );
   });
 
   // --- FR-022: press_key and scroll are dispatched via executeTool (run_plan path) ---

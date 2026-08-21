@@ -34,6 +34,7 @@ import { ConsoleCollector } from "./console-collector.js";
 import { NetworkCollector } from "./network-collector.js";
 import { DownloadCollector } from "./download-collector.js";
 import type { DownloadNaming } from "../config.js";
+import type { CdpTransportMode } from "./chrome-launcher.js";
 import { DomWatcher } from "./dom-watcher.js";
 import type { CdpClient } from "./cdp-client.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
@@ -164,6 +165,13 @@ export interface BrowserSessionOptions {
    * filename). Default: `PUBLIC_BROWSER_DOWNLOAD_NAMING`, else `"guid"`.
    */
   downloadNaming?: DownloadNaming;
+  /**
+   * CDP transport for a self-launched Chrome. `"pipe"` omits
+   * `--remote-debugging-port`, so no other process can reach the browser —
+   * at the price of reconnect, `--attach` and the Script API. Default:
+   * `"port"`. See `cdp/chrome-launcher.ts`.
+   */
+  transport?: CdpTransportMode;
   /** Retry timings in milliseconds — exposed for tests; see class-level doc. */
   retryTimings?: {
     establishedDelays?: number[]; // delays before attempts 2..N for established sessions
@@ -173,6 +181,40 @@ export interface BrowserSessionOptions {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Budget for a single CDP command during shutdown or re-attach.
+ *
+ * These calls are cleanup, not work: if Chrome does not answer, giving up is
+ * strictly better than blocking. The concrete failure this bounds:
+ * `Target.closeTarget` on our own tab, when it is the LAST tab, makes Chrome
+ * exit — and a Chrome that exits never sends the response. The CDP client
+ * then waits out its full 30 s timeout, so `close()` took 30 s for an
+ * attached session that was closed before any tool call had opened a second
+ * tab. Reported by an integrator, reproduced at 30006 ms.
+ */
+const CLEANUP_CDP_TIMEOUT_MS = 2000;
+
+/**
+ * Resolve `promise`, or give up after `ms`. Never rejects — the caller is in
+ * a cleanup path where there is nothing left to handle.
+ */
+async function bestEffort(promise: Promise<unknown>, ms: number, what: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          debug("BrowserSession: %s did not answer within %dms — continuing", what, ms);
+          resolve();
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export class BrowserSession implements IBrowserSession {
@@ -188,6 +230,7 @@ export class BrowserSession implements IBrowserSession {
   private readonly _downloadDir: string | undefined;
   private readonly _downloadHash: boolean;
   private readonly _downloadNaming: DownloadNaming;
+  private readonly _transport: CdpTransportMode;
 
   /**
    * Story 9.1: Set of target IDs that were created by the MCP session.
@@ -241,6 +284,7 @@ export class BrowserSession implements IBrowserSession {
     this._downloadDir = options.downloadDir;
     this._downloadHash = options.downloadHash ?? false;
     this._downloadNaming = options.downloadNaming ?? "guid";
+    this._transport = options.transport ?? "port";
     this._launcher = new ChromeLauncher({
       profilePath: options.profilePath,
       profileDirectory: options.profileDirectory,
@@ -250,6 +294,7 @@ export class BrowserSession implements IBrowserSession {
       port: this._cdpPort,
       host: this._cdpHost,
       stealth: this._stealth,
+      transport: this._transport,
       // Disable the legacy background reconnect loop — BrowserSession runs
       // its own smart-retry policy on demand inside `ensureReady()` and two
       // parallel recovery paths would race against each other.
@@ -297,6 +342,10 @@ export class BrowserSession implements IBrowserSession {
       port: this._cdpPort,
       host: this._cdpHost,
       stealth: this._stealth,
+      // A named profile is a real Chrome profile, and Chrome rejects
+      // --remote-debugging-pipe with those. configure_session switching to a
+      // profile therefore falls back to the port transport.
+      transport: resolved.isRealProfile ? "port" : this._transport,
       autoReconnect: false,
     });
 
@@ -571,11 +620,11 @@ export class BrowserSession implements IBrowserSession {
       if (this._ownedTabTargetId) {
         const staleTabId = this._ownedTabTargetId;
         this._ownedTabTargetId = null;
-        try {
-          await cdpClient.send("Target.closeTarget", { targetId: staleTabId });
-        } catch {
-          /* tab may already be closed — graceful */
-        }
+        await bestEffort(
+          cdpClient.send("Target.closeTarget", { targetId: staleTabId }),
+          CLEANUP_CDP_TIMEOUT_MS,
+          "Target.closeTarget (stale tab)",
+        );
       }
       const { targetId } = await cdpClient.send<{ targetId: string }>(
         "Target.createTarget",
@@ -873,11 +922,69 @@ export class BrowserSession implements IBrowserSession {
     if (!this._ownedTabTargetId || !this._cdpClient) return;
     const targetId = this._ownedTabTargetId;
     this._ownedTabTargetId = null;
-    try {
-      await this._cdpClient.send("Target.closeTarget", { targetId });
-    } catch {
-      /* tab may already be closed by user — graceful */
+
+    // Closing the LAST page target takes Chrome down with it — and in attach
+    // mode that Chrome belongs to someone else. Leaving an about:blank tab
+    // behind is the lesser evil compared to terminating a browser we did not
+    // start. It also avoids waiting on a response an exiting Chrome never
+    // sends, which is what made close() take 30 s.
+    if (!(await this._hasOtherPageTargets(targetId))) {
+      debug("BrowserSession: keeping owned tab %s — it is the last page target", targetId);
+      // The tab stays, but not with whatever it was showing: in an automation
+      // that just logged in somewhere, "whatever" is an authenticated page
+      // left open in a browser we no longer control. Blank it first.
+      await this._blankOwnedTab(targetId);
+      return;
     }
+
+    await bestEffort(
+      this._cdpClient.send("Target.closeTarget", { targetId }),
+      CLEANUP_CDP_TIMEOUT_MS,
+      "Target.closeTarget",
+    );
+  }
+
+  /**
+   * Navigate the owned tab to about:blank through a session attached to that
+   * exact target. `this._sessionId` is not safe here: after a switch_tab it
+   * may belong to a foreign tab, and blanking somebody else's page would be
+   * worse than leaving ours as it is.
+   */
+  private async _blankOwnedTab(targetId: string): Promise<void> {
+    if (!this._cdpClient) return;
+    const client = this._cdpClient;
+    await bestEffort(
+      client
+        .send<{ sessionId: string }>("Target.attachToTarget", { targetId, flatten: true })
+        .then(({ sessionId }) => client.send("Page.navigate", { url: "about:blank" }, sessionId)),
+      CLEANUP_CDP_TIMEOUT_MS,
+      "Page.navigate(about:blank)",
+    );
+  }
+
+  /**
+   * Whether Chrome has a page target other than `exceptTargetId`.
+   *
+   * Conservative on failure: if the browser does not answer in time we report
+   * `false`, so the caller keeps its tab instead of risking a browser-wide
+   * shutdown on a guess.
+   */
+  private async _hasOtherPageTargets(exceptTargetId: string): Promise<boolean> {
+    if (!this._cdpClient) return false;
+    let result: { targetInfos?: TargetInfo[] } | undefined;
+    await bestEffort(
+      this._cdpClient
+        .send<{ targetInfos: TargetInfo[] }>("Target.getTargets")
+        .then((r) => {
+          result = r;
+        }),
+      CLEANUP_CDP_TIMEOUT_MS,
+      "Target.getTargets",
+    );
+    if (!result?.targetInfos) return false;
+    return result.targetInfos.some(
+      (t) => t.type === "page" && t.targetId !== exceptTargetId,
+    );
   }
 
   // ── Public restart (profile reconnect) ──────────────────────────────
@@ -920,6 +1027,18 @@ export class BrowserSession implements IBrowserSession {
     if (this._shutdownRequested) return;
     this._shutdownRequested = true;
 
+    // Order matters: the overlay lives IN the tab, so it has to go before the
+    // tab does. Removing it afterwards addresses a session whose target is
+    // already gone — Chrome never answers, and shutdown ate the full CDP
+    // timeout waiting for it.
+    if (this._cdpClient && this._sessionId) {
+      await bestEffort(
+        removeOverlay(this._cdpClient, this._sessionId),
+        CLEANUP_CDP_TIMEOUT_MS,
+        "removeOverlay",
+      );
+    }
+
     // Attach-mode: close our owned tab before tearing down.
     if (this._attachMode) {
       await this._closeOwnedTabAsync();
@@ -930,11 +1049,6 @@ export class BrowserSession implements IBrowserSession {
       }
     }
 
-    if (this._cdpClient && this._sessionId) {
-      try {
-        await removeOverlay(this._cdpClient, this._sessionId);
-      } catch { /* best effort */ }
-    }
     await this._teardownHelpers();
     await this._teardownConnectionOnly();
   }

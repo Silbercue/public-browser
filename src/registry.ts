@@ -1514,11 +1514,14 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 5. Timing (wait_for/observe) ---
     maybeRegisterFreeMCPTool(
       "wait_for",
-      "Wait for a condition: element visible, network idle, or JS expression true",
+      "Wait for a condition: element visible, page text present, URL match, network idle, or JS expression true. Prefer condition:'text' over a JS expression for \"has the page said X yet\". Set assert:true to check once and fail instead of waiting.",
       {
         condition: waitForSchema.shape.condition,
         selector: waitForSchema.shape.selector,
+        text: waitForSchema.shape.text,
+        url: waitForSchema.shape.url,
         expression: waitForSchema.shape.expression,
+        assert: waitForSchema.shape.assert,
         timeout: waitForSchema.shape.timeout,
       },
       wrap(async (params) => {
@@ -1704,10 +1707,11 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Story 22.2: download — check download status or list session downloads
     maybeRegisterFreeMCPTool(
       "download",
-      "Check status of file downloads or list all downloaded files in this session. Downloads happen automatically when you click download links or navigate to files (PDFs, CSVs, etc.) — you do NOT need to call this tool to trigger downloads. Use this tool to:\n- Wait for a large download to finish: download()\n- List all downloaded files: download({ action: \"list\" })",
+      "Check status of file downloads or list all downloaded files in this session. Downloads happen automatically when you click download links or navigate to files (PDFs, CSVs, etc.) — you do NOT need to call this tool to trigger downloads. Use this tool to:\n- Wait for a large download to finish: download()\n- List all downloaded files, without waiting: download({ action: \"list\" })",
       {
         action: downloadSchema.shape.action,
         timeout: downloadSchema.shape.timeout,
+        settle: downloadSchema.shape.settle,
       },
       wrap(async (params) => {
         const collector = this._browserSession.downloadCollector;

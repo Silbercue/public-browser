@@ -5,6 +5,8 @@ const LOGO_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAMKADAAQAAAABAAAAMAAAAADbN2wMAAADOElEQVRYCe1Xv0/qUBQWxOcPjFGJiiEMDBIdQAdC1BD4AzRENhcdWYG4MjCZGDZGVzaYddJIICESoy7CJkZNSICYoFHkh8L7YpM+Hu3tpbbd2oHcfuf0fB+n5557OjSkXmoG1AyoGRCVAY1GMzc3p9VqRT0l4Cw1ULfb3d3dnZycFOAQZZIqCGROp9Pj8YhiFXCWQZDBYPB6vQIcokwyCJqYmHA4HHq9XhQxyZkiiFqtcMC1srJis9lIHKJwiqCpqSmfz6fT6UhBR0ZGIGh0dHRra4vkIwqnCHp7ezOZTPF4HIXCG/fPzwXTzs7O+Pg4r4/MoNFovL+/Pzs7W1pa4oaG0NvbW2z+ZrO5urrKdVAE2d/fB+Xd3Z3b7e4jWFxczOfzsOIKh8N9VqVu0fcymQwoX19fDw4O0J1ZJovFgvz96Onmcrnp6WnWpOxie3v7/f0dxJ1OJxqNzszMMHzLy8vPz8+MIDhsbm4qq4ONjq10cnLCEOP39PTUarXCirqpVqssHggE2EcUX6CAPj8/WW68qY2NjbW1NexEFjw/Px8eHoYUdIqxsTFlNaF0YrEYy41FuVxOJBKNRoMFoRhdG6fbxcUF3qyyghDdbre/vLyw9NwFKuzy8rJSqcDUarX29vZcLhdaq1wHC88/PDw85OogIUjYx8fHw8PDwsICTyxZIIQulUokBbx4oVAgNXquJMrRwX0Ar+Po6IiLCyDFYrFWqwk4SDXNzs7e3NzwJoMXDIVCUimpz/v9ftQvL30f+P39jX1HDSjVAQc7Wk4fN+/t4+MjMjo4n+gaYkK32230w0FostnsgJ5MtF8KwiG6vr4+iCB0yK+vr0E8JQkym83z8/NUGnTRq6srqpsMDqihSCTCWzS94PX1tYyfbBTdOA2Oj4976blrnHSUKPKaMU8nk0muDhYJBoNiGX9Z1AwNjs9UKkWiRAfCnEmyknBJghAUIywpNMZ+DJMkKwmXJAhjpMAxjmkJoxKJmIRLEoSxEPufFBqCRHUgJg7xk5RE04tjhnx6esLeRhX34lgjeel0GkXWh1Nv/33QUF25DhCENoMhmlcQaqher3OfUhE1A2oG1Az8l4G/PP2PrT2y2dMAAAAASUVORK5CYII=";
 
 const OVERLAY_ID = "__sc_session_overlay__";
+/** Window property set while the host waits for <html> to exist. */
+const OVERLAY_PENDING_FLAG = "__sc_session_overlay_pending__";
 
 function buildOverlayScript(): string {
   // Static template — safe for shadow DOM injection, no user input.
@@ -91,8 +93,14 @@ function buildOverlayScript(): string {
 
   const escaped = tmpl.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
 
+  // Runs twice per document: once from addScriptToEvaluateOnNewDocument —
+  // before the parser has produced <html>, so document.documentElement is
+  // still null — and once via Runtime.evaluate on an already built page. The
+  // early run parks the host until DOMContentLoaded; the flag keeps the late
+  // run (and the self-healing re-inject) from creating a second one.
   return `(() => {
   if (document.getElementById('${OVERLAY_ID}')) return;
+  if (window.${OVERLAY_PENDING_FLAG}) return;
   var LOGO = 'data:image/png;base64,` + LOGO_BASE64 + `';
   var host = document.createElement('div');
   host.id = '${OVERLAY_ID}';
@@ -105,11 +113,22 @@ function buildOverlayScript(): string {
   if (logo) {
     logo.style.backgroundImage = 'url(' + LOGO + ')';
   }
-  document.documentElement.appendChild(host);
+  var attach = function () {
+    var root = document.documentElement;
+    if (!root) return false;
+    root.appendChild(host);
+    window.${OVERLAY_PENDING_FLAG} = false;
+    return true;
+  };
+  if (!attach()) {
+    window.${OVERLAY_PENDING_FLAG} = true;
+    document.addEventListener('DOMContentLoaded', attach, { once: true });
+  }
 })()`;
 }
 
-const OVERLAY_SCRIPT = buildOverlayScript();
+/** Exported for tests only — the injected page script, verbatim. */
+export const OVERLAY_SCRIPT = buildOverlayScript();
 
 const OVERLAY_REMOVE_SCRIPT = `(() => {
   var el = document.getElementById('${OVERLAY_ID}');

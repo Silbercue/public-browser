@@ -300,6 +300,13 @@ describe("BrowserSession — tab switching", () => {
  */
 function buildAttachSession(opts: {
   connectSequence?: Array<"ok" | "fail">;
+  /**
+   * Page targets besides our own that Target.getTargets reports. Defaults to
+   * one foreign tab — the normal attach case, where Chrome belongs to
+   * somebody else and already has something open. Pass `[]` for the "our tab
+   * is the only one left" case.
+   */
+  otherPageTargets?: Array<{ targetId: string; type: string }>;
 }) {
   const connectOutcomes = [...(opts.connectSequence ?? ["ok"])];
   const sendCalls: Array<{ method: string; params?: unknown }> = [];
@@ -346,7 +353,10 @@ function buildAttachSession(opts: {
         return { success: true };
       }
       if (method === "Target.getTargets") {
-        return { targetInfos: [] };
+        const others = opts.otherPageTargets ?? [{ targetId: "foreign-tab-1", type: "page" }];
+        return {
+          targetInfos: [{ targetId: "owned-tab-123", type: "page" }, ...others],
+        };
       }
       if (method === "Target.attachToTarget") {
         return { sessionId: "attach-session-1" };
@@ -509,5 +519,102 @@ describe("BrowserSession — scriptMode ownership tracking", () => {
     expect(session.isOwnedTarget("tab-a")).toBe(true);
     expect(session.isOwnedTarget("tab-b")).toBe(false);
     expect(session.isOwnedTarget("tab-c")).toBe(true);
+  });
+});
+
+// ── shutdown(): bounded, ordered, and never fatal to a foreign Chrome ───
+
+describe("BrowserSession — shutdown in attach mode", () => {
+  it("keeps the owned tab when it is the last page target", async () => {
+    // Closing the last tab takes Chrome down with it — and in attach mode
+    // that Chrome belongs to someone else. Leaving an about:blank behind is
+    // the lesser evil.
+    const { session, fakeCdpClient } = buildAttachSession({ otherPageTargets: [] });
+    await session.ensureReady();
+
+    await session.shutdown();
+
+    const closeCalls = fakeCdpClient.send.mock.calls.filter(
+      (c: unknown[]) => c[0] === "Target.closeTarget",
+    );
+    expect(closeCalls.length).toBe(0);
+  });
+
+  it("blanks the kept tab instead of leaving its last page open", async () => {
+    // Regression: the tab that stays behind showed its last URL — in an
+    // automation that just logged in, an authenticated page in a browser we
+    // no longer control.
+    const { session, fakeCdpClient } = buildAttachSession({ otherPageTargets: [] });
+    await session.ensureReady();
+
+    await session.shutdown();
+
+    const calls = fakeCdpClient.send.mock.calls as unknown[][];
+    const navigate = calls.find((c) => c[0] === "Page.navigate");
+    expect(navigate?.[1]).toEqual({ url: "about:blank" });
+    // Addressed through a session attached to OUR target — `_sessionId` may
+    // point at a foreign tab after a switch_tab.
+    const attach = calls.find((c) => c[0] === "Target.attachToTarget");
+    expect(attach?.[1]).toEqual({ targetId: "owned-tab-123", flatten: true });
+    expect(navigate?.[2]).toBe("attach-session-1");
+  });
+
+  it("does not blank a tab it is about to close", async () => {
+    const { session, fakeCdpClient } = buildAttachSession({});
+    await session.ensureReady();
+
+    await session.shutdown();
+
+    const methods = fakeCdpClient.send.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(methods).toContain("Target.closeTarget");
+    expect(methods).not.toContain("Page.navigate");
+  });
+
+  it("removes the overlay before closing the tab, not after", async () => {
+    // Regression (30 s hang): the overlay lives IN the tab. Removing it after
+    // the tab is gone addresses a dead target, Chrome never answers, and
+    // shutdown burned the full CDP timeout waiting.
+    const { session, fakeCdpClient } = buildAttachSession({});
+    await session.ensureReady();
+
+    await session.shutdown();
+
+    const methods = fakeCdpClient.send.mock.calls.map((c: unknown[]) => c[0] as string);
+    const overlayIdx = methods.findIndex((m) => m.startsWith("Overlay."));
+    const closeIdx = methods.indexOf("Target.closeTarget");
+    if (overlayIdx !== -1 && closeIdx !== -1) {
+      expect(overlayIdx).toBeLessThan(closeIdx);
+    }
+    // Whatever the overlay implementation sends, the tab close must happen.
+    expect(closeIdx).toBeGreaterThan(-1);
+  });
+
+  it("does not hang when Chrome stops answering mid-shutdown", async () => {
+    // The real failure: a Chrome that is exiting never sends the response,
+    // and the CDP client's own timeout is 30 s.
+    const { session, fakeCdpClient } = buildAttachSession({});
+    await session.ensureReady();
+
+    fakeCdpClient.send.mockImplementation(
+      () => new Promise(() => {}) as Promise<unknown>, // never settles
+    );
+
+    const start = Date.now();
+    await session.shutdown();
+    const elapsed = Date.now() - start;
+
+    // Bounded by CLEANUP_CDP_TIMEOUT_MS per call, not by the 30 s CDP timeout.
+    expect(elapsed).toBeLessThan(15_000);
+  }, 20_000);
+
+  it("still clears the owned tab id when the tab is kept", async () => {
+    const { session } = buildAttachSession({ otherPageTargets: [] });
+    await session.ensureReady();
+
+    await session.shutdown();
+
+    expect(
+      (session as unknown as { _ownedTabTargetId: string | null })._ownedTabTargetId,
+    ).toBeNull();
   });
 });
