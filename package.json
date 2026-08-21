@@ -1,6 +1,6 @@
 {
   "name": "public-browser",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "Public Browser MCP Server - Chrome browser automation via CDP",
   "type": "module",
   "files": [
@@ -17,6 +17,12 @@
   "exports": {
     ".": "./build/index.js",
     "./hooks": "./build/hooks/index.js",
+    "./lib": "./build/lib/create-session.js",
+    "./lib/create-session.js": "./build/lib/create-session.js",
+    "./lib/session-core.js": "./build/lib/session-core.js",
+    "./lib/session-env.js": "./build/lib/session-env.js",
+    "./config.js": "./build/config.js",
+    "./cdp/stealth.js": "./build/cdp/stealth.js",
     "./types.js": "./build/types.js",
     "./registry.js": "./build/registry.js",
     "./plan/plan-executor.js": "./build/plan/plan-executor.js",
