@@ -11,6 +11,7 @@ import { ScriptApiServer } from "./transport/script-api-server.js";
 import { hintMatcher } from "./cortex/hint-matcher.js";
 import { loadCommunityMarkov } from "./cortex/community-loader.js";
 import { markovTable } from "./cortex/markov-table.js";
+import { frictionRecorder } from "./telemetry/friction-recorder.js";
 import {
   ConfigError,
   resolveCdpHost,
@@ -290,6 +291,10 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     },
   );
 
+  // 3c. Friction-Session-Tracking (opt-in, dev-only): No-op ohne
+  //     SILBERCUE_CHROME_FRICTION_LOG. Siehe docs/friction-session-tracking-plan.md.
+  await frictionRecorder.init();
+
   // 4. Create the ToolRegistry — it reads cdpClient/sessionId lazily from
   //    BrowserSession via getters, so no connection is required here.
   const registry = new ToolRegistry(
@@ -341,6 +346,13 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     }
     try {
       await server.close();
+    } catch {
+      /* best effort */
+    }
+    try {
+      // Friction-Session-Tracking (opt-in, dev-only): finaler Flush mit
+      // endedAt. No-op ohne SILBERCUE_CHROME_FRICTION_LOG.
+      await frictionRecorder.shutdown();
     } catch {
       /* best effort */
     }

@@ -617,6 +617,10 @@ The Cortex stores and transmits only structural metadata — page types (not dom
 
 Telemetry is **disabled by default**. To contribute your anonymised patterns back to the community table, set `PUBLIC_BROWSER_TELEMETRY=1`. Uploads go via HTTPS only; non-HTTPS endpoints are rejected. Each pattern is rate-limited to prevent duplicate uploads.
 
+### Local friction log (developer opt-in)
+
+For development of Public Browser itself there is a second, fully local opt-in: `SILBERCUE_CHROME_FRICTION_LOG=1` makes the server count tool calls, tool errors and detected fallback spirals per run in `~/.silbercue-chrome/friction-queue.json`. It records counters, timestamps and the working directory — never page content, URLs or user input — and nothing ever leaves the machine. Without the variable the code path is not entered at all: no file, no counters, no hints.
+
 ## Architecture
 
 ```

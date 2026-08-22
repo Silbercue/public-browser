@@ -10,6 +10,7 @@ import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
 import { prefetchSlot } from "./cache/prefetch-slot.js";
 import { deferredDiffSlot } from "./cache/deferred-diff-slot.js";
 import { toolSequence } from "./telemetry/tool-sequence.js";
+import { frictionRecorder } from "./telemetry/friction-recorder.js";
 
 describe("ToolRegistry", () => {
   // Story 9.5: Reset Pro hooks between tests
@@ -1214,6 +1215,35 @@ describe("ToolRegistry", () => {
       const text = (result.content[0] as { text: string }).text;
       expect(text).not.toContain("public-browser license activate");
       expect(text).not.toContain("Pro");
+    }
+  });
+
+  it("Friction-Session-Tracking: virtual_desk haengt den Hinweis-Block an, wenn buildHintBlock() einen liefert", async () => {
+    const toolFn = vi.fn();
+    const mockServer = { tool: toolFn } as never;
+
+    const mockCdpClient = {
+      send: vi.fn().mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") {
+          return { targetInfos: [] };
+        }
+        return {};
+      }),
+    } as never;
+    const registry = new ToolRegistry(
+      mockServer, mockCdpClient, "session-1", {} as never,
+    );
+    registry.registerAll();
+
+    const buildHintSpy = vi
+      .spyOn(frictionRecorder, "buildHintBlock")
+      .mockResolvedValue("── friction-tracking ──\nHINT-BLOCK-TEXT");
+    try {
+      const result = await registry.executeTool("virtual_desk", {});
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain("HINT-BLOCK-TEXT");
+    } finally {
+      buildHintSpy.mockRestore();
     }
   });
 

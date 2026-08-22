@@ -69,6 +69,7 @@ import { createDefaultOnToolResult, drainPendingDiff } from "./hooks/default-on-
 import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
 import { prefetchSlot } from "./cache/prefetch-slot.js";
 import { deferredDiffSlot } from "./cache/deferred-diff-slot.js";
+import { frictionRecorder } from "./telemetry/friction-recorder.js";
 import { debug } from "./cdp/debug.js";
 
 /**
@@ -787,6 +788,11 @@ export class ToolRegistry implements ToolRegistryPublic {
     name: string,
     skipHook = false,
   ): Promise<void> {
+    // Friction-Session-Tracking (opt-in, dev-only): zaehlt jeden Tool-Call
+    // und Tool-Fehler, bevor irgendein Guard frueh zurueckkehrt. No-op ohne
+    // SILBERCUE_CHROME_FRICTION_LOG — der Recorder wirft nie (AC 1/5).
+    frictionRecorder.recordToolResult(result.isError === true);
+
     // FR-007: Navigate invalidates all refs — reset immediately so next
     // tool gets clear stale-error even if no hook is registered.
     //
@@ -946,6 +952,24 @@ export class ToolRegistry implements ToolRegistryPublic {
     } else {
       this._fr029HintShown.clear();
     }
+  }
+
+  /**
+   * Friction-Session-Tracking (opt-in, dev-only): haengt bei Bedarf einmal
+   * pro Serverprozess einen Hinweis-Block an die `virtual_desk`-Antwort an
+   * (siehe `FrictionRecorder.buildHintBlock()`). No-op ohne
+   * `SILBERCUE_CHROME_FRICTION_LOG` oder ohne `bmad-frictioneer` auf dieser
+   * Maschine — der Recorder entscheidet, nicht die Registry.
+   */
+  private async _appendFrictionHint(result: ToolResponse): Promise<ToolResponse> {
+    if (result.isError) return result;
+    const hint = await frictionRecorder.buildHintBlock();
+    if (!hint) return result;
+    const first = result.content[0];
+    if (first?.type === "text") {
+      first.text += `\n\n${hint}`;
+    }
+    return result;
   }
 
   /**
@@ -1304,7 +1328,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       {},
       wrap(async (params) => {
         this._contextChecked = true;
-        return virtualDeskHandler(
+        const result = await virtualDeskHandler(
           params as unknown as VirtualDeskParams,
           this.cdpClient,
           this.sessionId,
@@ -1312,6 +1336,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           undefined /* connectionStatus removed in lazy-launch refactor */,
           tabFilter,
         );
+        return this._appendFrictionHint(result);
       }, "virtual_desk"),
     );
 
@@ -1902,7 +1927,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       );
     });
     this._handlers.set("virtual_desk", async (params, sessionIdOverride?) => {
-      return virtualDeskHandler(
+      const result = await virtualDeskHandler(
         params as unknown as VirtualDeskParams,
         this.cdpClient,
         sessionIdOverride ?? this.sessionId,
@@ -1910,6 +1935,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         undefined /* connectionStatus removed in lazy-launch refactor */,
         tabFilter,
       );
+      return this._appendFrictionHint(result);
     });
     this._handlers.set("dom_snapshot", async (params, sessionIdOverride?) => {
       return domSnapshotHandler(params as unknown as DomSnapshotParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);

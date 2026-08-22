@@ -131,6 +131,14 @@ export class ToolSequenceTracker {
   private bySession = new Map<string, ToolEvent[]>();
 
   /**
+   * Friction-Session-Tracking (opt-in, dev-only): optionaler Callback, den
+   * der `FrictionRecorder` beim exakten Uebergang auf Tier 3 andockt (siehe
+   * `evaluateStreakResponse()`). Keine Tier-Logik wird dupliziert — der
+   * Tracker entscheidet allein, wann er feuert.
+   */
+  onSpiral?: () => void;
+
+  /**
    * Record a tool call for a specific session. Successful happy-path
    * tools implicitly reset the evaluate streak by virtue of being
    * recorded between evaluate events — the
@@ -262,6 +270,9 @@ export class ToolSequenceTracker {
 
     // Tier 3 — isError + result preservation. Anti-fatigue via "STOP".
     if (streak >= EVALUATE_STREAK_TIER3_THRESHOLD) {
+      // Friction-Session-Tracking: nur beim EXAKTEN Erreichen der Schwelle
+      // feuern, sonst zaehlt eine einzige Spirale mehrfach (Streak 8, 9, 10, ...).
+      if (streak === EVALUATE_STREAK_TIER3_THRESHOLD) this.onSpiral?.();
       return {
         tier: 3,
         streak,

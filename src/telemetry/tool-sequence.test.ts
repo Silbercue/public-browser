@@ -605,3 +605,54 @@ describe("ToolSequenceTracker FR-045 3-Tier escalation", () => {
     expect(tracker.evaluateStreakResponse().tier).toBe(3);
   });
 });
+
+// ===========================================================================
+// Friction-Session-Tracking (opt-in, dev-only): onSpiral-Callback
+// ===========================================================================
+//
+// Der `FrictionRecorder` dockt sich per `onSpiral` an, um Fallback-Spiralen
+// mitzuzaehlen. Die Tier-Logik selbst bleibt unveraendert — der Callback
+// darf nur GENAU beim Uebergang auf Tier 3 feuern, damit eine einzelne
+// Spirale nicht mehrfach gezaehlt wird, auch wenn der Streak (8, 9, 10, ...)
+// weiterlaeuft.
+describe("ToolSequenceTracker onSpiral (Friction-Session-Tracking)", () => {
+  it("fires exactly once at the exact Tier-3 transition (streak 8), not again for streak 9-11", () => {
+    const tracker = new ToolSequenceTracker();
+    const onSpiral = vi.fn();
+    tracker.onSpiral = onSpiral;
+    const qs = new Set([FLAG_QUERY_SELECTOR]);
+
+    for (let i = 1; i <= 11; i++) {
+      tracker.record("evaluate", qs);
+      tracker.evaluateStreakResponse();
+    }
+
+    expect(onSpiral).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire below Tier 3", () => {
+    const tracker = new ToolSequenceTracker();
+    const onSpiral = vi.fn();
+    tracker.onSpiral = onSpiral;
+    const qs = new Set([FLAG_QUERY_SELECTOR]);
+
+    for (let i = 1; i <= 7; i++) {
+      tracker.record("evaluate", qs);
+      tracker.evaluateStreakResponse();
+    }
+
+    expect(onSpiral).not.toHaveBeenCalled();
+  });
+
+  it("is optional — Tier 3 is reached without a registered callback without throwing", () => {
+    const tracker = new ToolSequenceTracker();
+    const qs = new Set([FLAG_QUERY_SELECTOR]);
+
+    expect(() => {
+      for (let i = 1; i <= 8; i++) {
+        tracker.record("evaluate", qs);
+        tracker.evaluateStreakResponse();
+      }
+    }).not.toThrow();
+  });
+});
