@@ -38,10 +38,10 @@ import { toolSequence, type ToolSequenceTracker } from "./tool-sequence.js";
 
 const QUEUE_FILE = "friction-queue.json";
 
-/** Ab hier throttelt der Recorder Zwischen-Flushes (Serverstart + Shutdown sind Ausnahmen). */
+/** Ab hier throttelt der Recorder Zwischen-Flushes (erster Tool-Call + Shutdown sind Ausnahmen). */
 const FLUSH_THROTTLE_MS = 10_000;
 
-/** Queue klein halten: aeltere Eintraege werden beim Start geprunt. */
+/** Queue klein halten: bei jedem Flush geprunt, Leereintraege zuerst. */
 const MAX_QUEUE_ENTRIES = 50;
 
 /** Schwellen fuer den virtual_desk-Hinweis (Summe ueber alle Eintraege seit lastFrictioneerRun). */
@@ -281,7 +281,7 @@ export class FrictionRecorder {
 
   /**
    * Throttled Flush: schreibt fruehestens alle `FLUSH_THROTTLE_MS`, ausser
-   * `force` (Serverstart, Shutdown). Serialisiert ueber `_writeQueue`, damit
+   * `force` (erster Tool-Call, Shutdown). Serialisiert ueber `_writeQueue`, damit
    * parallele Aufrufe (z.B. mehrere Tool-Ergebnisse kurz hintereinander)
    * sich nicht gegenseitig ueberschreiben.
    */

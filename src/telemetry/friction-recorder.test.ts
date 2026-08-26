@@ -387,6 +387,23 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
       recorder.recordToolResult(true);
       await expect(recorder.shutdown()).resolves.toBeUndefined();
     });
+
+    it("schreibt atomar: rename() vom .tmp-Pfad auf <dataDir>/friction-queue.json", async () => {
+      process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
+
+      const recorder = new FrictionRecorder({ dataDir: "/fake" });
+      await recorder.init();
+      recorder.recordToolResult(false);
+      await flushPending();
+
+      const [tmpPfad, zielPfad] = mockRename.mock.calls[0] as [string, string];
+      // Ziel ist die echte Queue-Datei, nicht irgendein anderer Name.
+      expect(zielPfad).toBe("/fake/friction-queue.json");
+      // Geschrieben wurde vorher unter einem eindeutigen .tmp-Namen daneben.
+      expect(tmpPfad).toMatch(/^\/fake\/friction-queue\.json\.[0-9a-f]+\.tmp$/);
+      // Und der Inhalt ging in genau diese .tmp-Datei, nicht direkt ins Ziel.
+      expect(mockWriteFile).toHaveBeenCalledWith(tmpPfad, expect.any(String), "utf-8");
+    });
   });
 
   // =========================================================================
@@ -514,7 +531,7 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
         tracker.evaluateStreakResponse();
       }
 
-      recorder.recordToolResult(false); // ohne Nutzung wird gar nichts geschrieben
+      recorder.recordToolResult(false); // erzeugt die Nutzung — ab hier wird geschrieben
       await recorder.shutdown();
       const entry = lastWrittenQueue().sessions[0];
       expect(entry.spirals).toBe(1);
