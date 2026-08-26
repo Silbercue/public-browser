@@ -623,5 +623,43 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
       expect(written.sessions.some((s) => s.pid === 3000)).toBe(false);
       expect(written.sessions.some((s) => s.pid === 3001)).toBe(true);
     });
+
+    it("wirft bei grossem Ueberhang erst alle Leereintraege und dann die aeltesten benutzten weg", async () => {
+      process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
+
+      // 54 Alt-Eintraege, davon 3 leer (pid 4010-4012). Mit dem eigenen Eintrag
+      // sind es 55 -> 5 zu viel. Die 3 Leereintraege decken den Ueberhang NICHT,
+      // also muessen danach noch die 2 aeltesten benutzten fallen.
+      const alt = Array.from({ length: 54 }, (_, i) => ({
+        startedAt: new Date(Date.UTC(2026, 7, 1, 0, i)).toISOString(),
+        cwd: "/some/project",
+        pid: 4000 + i,
+        projectDir: "/some/project",
+        sessionIds: [],
+        toolCalls: i >= 10 && i <= 12 ? 0 : 5,
+        toolErrors: 0,
+        spirals: 0,
+      }));
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({ lastFrictioneerRun: "2026-07-01T00:00:00.000Z", sessions: alt }),
+      );
+
+      const recorder = new FrictionRecorder({ dataDir: "/fake" });
+      await recorder.init();
+      recorder.recordToolResult(false);
+      await flushPending();
+
+      const written = lastWrittenQueue();
+      const pids = written.sessions.map((s) => s.pid);
+      expect(pids).toHaveLength(50);
+
+      // Erst alle drei Leereintraege raus — der benutzte Nachbar daneben bleibt.
+      expect(pids).toContain(4013);
+      expect(pids.filter((pid) => pid === 4010 || pid === 4011 || pid === 4012)).toEqual([]);
+
+      // Danach die zwei aeltesten benutzten — der drittaelteste bleibt.
+      expect(pids).toContain(4002);
+      expect(pids.filter((pid) => pid === 4000 || pid === 4001)).toEqual([]);
+    });
   });
 });

@@ -122,6 +122,11 @@ export class FrictionRecorder {
       spirals: 0,
     };
 
+    // Das Throttle-Fenster laeuft ab dem Serverstart. Damit ist der erste
+    // Schreibvorgang wirklich der forcierte Flush aus `recordToolResult()` —
+    // ohne dieses `force` wuerde er verworfen.
+    this._lastFlushAt = Date.now();
+
     this.attachTo(toolSequence);
   }
 
