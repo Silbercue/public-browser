@@ -56,6 +56,11 @@ function lastWrittenQueue(): { lastFrictioneerRun: string; sessions: Array<Recor
   return JSON.parse(last[1] as string);
 }
 
+/** Wartet die verkettete, nicht awaitbare Flush-Promise ab (`void this._flush(...)`). */
+async function flushPending(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 /** Macht `stat()` fuer den bmad-frictioneer-Command-File "vorhanden". */
 function mockFrictioneerFilePresent(): void {
   mockStat.mockImplementation(async (p: unknown) => {
@@ -137,12 +142,12 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
   // und Spiralen erhoehen die Zaehler.
   // =========================================================================
   describe("AC 2 — mit Flag: Queue-Datei entsteht, Zaehler erhoehen sich", () => {
-    it("schreibt beim init() sofort einen Eintrag und zaehlt bis zum finalen Flush", async () => {
+    it("schreibt ab dem ersten Tool-Call und zaehlt bis zum finalen Flush", async () => {
       process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
       const recorder = new FrictionRecorder({ dataDir: "/fake/.silbercue-chrome" });
 
       await recorder.init();
-      expect(mockWriteFile).toHaveBeenCalledTimes(1); // sofortiger Flush, kein Throttle
+      expect(mockWriteFile).not.toHaveBeenCalled(); // erst der erste Tool-Call schreibt
 
       recorder.recordToolResult(false); // toolCalls=1
       recorder.recordToolResult(true); // toolCalls=2, toolErrors=1
@@ -166,6 +171,8 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
       process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
       const recorder = new FrictionRecorder({ dataDir: "/fake/.silbercue-chrome" });
       await recorder.init();
+      recorder.recordToolResult(false); // erster, forcierter Flush
+      await flushPending();
       mockWriteFile.mockClear();
 
       recorder.recordToolResult(true);
@@ -334,6 +341,8 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
       await expect(recorder.init()).resolves.toBeUndefined();
+      recorder.recordToolResult(false);
+      await flushPending();
 
       const written = lastWrittenQueue();
       expect(written.sessions).toHaveLength(1);
@@ -346,6 +355,8 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
       await expect(recorder.init()).resolves.toBeUndefined();
+      recorder.recordToolResult(false);
+      await flushPending();
 
       const written = lastWrittenQueue();
       expect(written.sessions).toHaveLength(1); // nur der eigene, frisch angelegte Eintrag
@@ -357,6 +368,8 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
       await expect(recorder.init()).resolves.toBeUndefined();
+      recorder.recordToolResult(false);
+      await flushPending();
 
       const written = lastWrittenQueue();
       expect(Array.isArray(written.sessions)).toBe(true);
@@ -388,6 +401,8 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
       await recorder.init();
+      recorder.recordToolResult(false);
+      await flushPending();
 
       const entry = lastWrittenQueue().sessions[0];
       expect(entry.sessionIds).toEqual(["f65dfbdc-9a0d-4735-85dd-eed6c615b9ad"]);
@@ -399,6 +414,8 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
       await recorder.init();
+      recorder.recordToolResult(false);
+      await flushPending();
 
       const entry = lastWrittenQueue().sessions[0];
       expect(entry.sessionIds).toEqual([]);
@@ -432,7 +449,9 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
       });
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
-      await recorder.init(); // init() flusht sofort -> prueft bereits die .jsonl-Ordner
+      await recorder.init();
+      recorder.recordToolResult(false); // der erste Tool-Call flusht -> prueft dabei die .jsonl-Ordner
+      await flushPending();
 
       const entry = lastWrittenQueue().sessions[0];
       expect(entry.sessionIds).toEqual([
@@ -456,6 +475,8 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
       await recorder.init();
+      recorder.recordToolResult(false);
+      await flushPending();
 
       const entry = lastWrittenQueue().sessions[0];
       expect(entry.sessionIds).toEqual(["known-session-cccc-cccc-cccc-cccccccccccc"]);
@@ -467,6 +488,8 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
       await expect(recorder.init()).resolves.toBeUndefined();
+      recorder.recordToolResult(false);
+      await flushPending();
 
       const entry = lastWrittenQueue().sessions[0];
       expect(entry.sessionIds).toEqual([]);
@@ -491,9 +514,114 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
         tracker.evaluateStreakResponse();
       }
 
+      recorder.recordToolResult(false); // ohne Nutzung wird gar nichts geschrieben
       await recorder.shutdown();
       const entry = lastWrittenQueue().sessions[0];
       expect(entry.spirals).toBe(1);
+    });
+  });
+  // =========================================================================
+  // Aenderung 1 — Eintrag erst bei erster Nutzung, nicht schon beim init().
+  // =========================================================================
+  describe("Aenderung 1 — Eintrag erst bei erster Nutzung", () => {
+    it("schreibt beim init() noch nichts", async () => {
+      process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
+      const recorder = new FrictionRecorder({ dataDir: "/fake" });
+
+      await recorder.init();
+      await flushPending();
+
+      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(mockRename).not.toHaveBeenCalled();
+    });
+
+    it("flusht beim ERSTEN recordToolResult() sofort, trotz Throttle", async () => {
+      process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
+      const recorder = new FrictionRecorder({ dataDir: "/fake" });
+      await recorder.init();
+
+      recorder.recordToolResult(false);
+      await flushPending();
+
+      expect(mockWriteFile).toHaveBeenCalledTimes(1);
+      const entry = lastWrittenQueue().sessions[0];
+      expect(entry.toolCalls).toBe(1);
+    });
+
+    it("schreibt beim shutdown() nichts, wenn nie ein Tool-Call kam", async () => {
+      process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
+      const recorder = new FrictionRecorder({ dataDir: "/fake" });
+      await recorder.init();
+
+      await recorder.shutdown();
+      await flushPending();
+
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // Aenderung 2 — beim Pruning fliegen Leereintraege zuerst.
+  // =========================================================================
+  describe("Aenderung 2 — Leereintraege beim Pruning zuerst", () => {
+    it("verwirft den aeltesten LEEREN Eintrag, nicht den aeltesten benutzten", async () => {
+      process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
+
+      // 50 Alt-Eintraege: der aelteste ist benutzt (wertvoll), die restlichen 49 leer.
+      const alt = Array.from({ length: 50 }, (_, i) => ({
+        startedAt: new Date(Date.UTC(2026, 7, 1, 0, i)).toISOString(),
+        cwd: "/some/project",
+        pid: 2000 + i,
+        projectDir: "/some/project",
+        sessionIds: [],
+        toolCalls: i === 0 ? 79 : 0,
+        toolErrors: i === 0 ? 12 : 0,
+        spirals: 0,
+      }));
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({ lastFrictioneerRun: "2026-07-01T00:00:00.000Z", sessions: alt }),
+      );
+
+      const recorder = new FrictionRecorder({ dataDir: "/fake" });
+      await recorder.init();
+      recorder.recordToolResult(false); // 51 Eintraege -> genau einer muss fallen
+      await flushPending();
+
+      const written = lastWrittenQueue();
+      expect(written.sessions).toHaveLength(50);
+      // Der benutzte Alt-Eintrag (pid 2000) hat ueberlebt.
+      expect(written.sessions.some((s) => s.pid === 2000)).toBe(true);
+      // Gefallen ist der aelteste LEERE (pid 2001).
+      expect(written.sessions.some((s) => s.pid === 2001)).toBe(false);
+    });
+
+    it("faellt auf die Alters-Regel zurueck, wenn kein Eintrag leer ist", async () => {
+      process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
+
+      const alt = Array.from({ length: 50 }, (_, i) => ({
+        startedAt: new Date(Date.UTC(2026, 7, 1, 0, i)).toISOString(),
+        cwd: "/some/project",
+        pid: 3000 + i,
+        projectDir: "/some/project",
+        sessionIds: [],
+        toolCalls: 5,
+        toolErrors: 0,
+        spirals: 0,
+      }));
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({ lastFrictioneerRun: "2026-07-01T00:00:00.000Z", sessions: alt }),
+      );
+
+      const recorder = new FrictionRecorder({ dataDir: "/fake" });
+      await recorder.init();
+      recorder.recordToolResult(false);
+      await flushPending();
+
+      const written = lastWrittenQueue();
+      expect(written.sessions).toHaveLength(50);
+      // Ohne Leereintraege faellt der aelteste ueberhaupt (pid 3000).
+      expect(written.sessions.some((s) => s.pid === 3000)).toBe(false);
+      expect(written.sessions.some((s) => s.pid === 3001)).toBe(true);
     });
   });
 });

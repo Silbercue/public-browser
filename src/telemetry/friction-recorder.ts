@@ -21,6 +21,14 @@
  * Flush wird deshalb die juengste `.jsonl`-Datei unter
  * `~/.claude/projects/<slug>/` geprueft und ihre UUID nachgetragen, falls
  * noch nicht bekannt.
+ *
+ * Zwei Leitplanken gegen Muell in der Queue: Ein Eintrag entsteht erst, wenn
+ * der Serverprozess wirklich benutzt wurde — `init()` legt ihn nur im
+ * Speicher an, geschrieben wird er beim ersten `recordToolResult()`. Und
+ * wenn die Queue ueber `MAX_QUEUE_ENTRIES` waechst, fliegen zuerst
+ * Eintraege ohne einen einzigen Tool-Call raus (aelteste zuerst), erst
+ * danach Eintraege mit Nutzung — sonst verdraengen viele leere Starts genau
+ * den einen Eintrag, der Reibung dokumentiert.
  */
 import { mkdir, readFile, writeFile, rename, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -82,6 +90,8 @@ export class FrictionRecorder {
   private _entry: FrictionSessionEntry | null = null;
   private _lastFlushAt = 0;
   private _hintShown = false;
+  /** Erst mit dem ersten Tool-Call wird der Eintrag ueberhaupt geschrieben (Leereintraege vermeiden). */
+  private _used = false;
   /** H4-Muster (local-store.ts): serialisiert Schreibzugriffe auf die Queue-Datei. */
   private _writeQueue: Promise<void> = Promise.resolve();
 
@@ -91,9 +101,9 @@ export class FrictionRecorder {
 
   /**
    * Beim Serverstart aufrufen. Ohne Flag ein No-op (kein fs-Zugriff). Mit
-   * Flag: legt den eigenen Queue-Eintrag an und flusht sofort, damit
-   * `virtual_desk`-Aufrufer nicht auf den ersten Throttle-Zyklus warten
-   * muessen (AC 2).
+   * Flag: legt den eigenen Queue-Eintrag NUR im Speicher an und haengt sich
+   * an den ToolSequenceTracker. Geschrieben wird nichts — das uebernimmt
+   * der erste `recordToolResult()`.
    */
   async init(): Promise<void> {
     this._enabled = isFrictionLogEnabled();
@@ -113,22 +123,28 @@ export class FrictionRecorder {
     };
 
     this.attachTo(toolSequence);
-    await this._flush(/* force */ true);
   }
 
-  /** Zaehlt einen Tool-Call (immer) und einen Tool-Fehler (wenn `isError`). No-op ohne Flag. */
+  /**
+   * Zaehlt einen Tool-Call (immer) und einen Tool-Fehler (wenn `isError`).
+   * Der erste Aufruf schreibt den Eintrag zum ersten Mal — vorher existiert
+   * er nur im Speicher, damit ein Serverprozess ohne Nutzung keinen
+   * Leereintrag in der Queue hinterlaesst. No-op ohne Flag.
+   */
   recordToolResult(isError: boolean): void {
     if (!this._enabled || !this._entry) return;
     this._entry.toolCalls++;
     if (isError) this._entry.toolErrors++;
-    void this._flush(false);
+    const first = !this._used;
+    this._used = true;
+    void this._flush(first);
   }
 
   /** Zaehlt eine Fallback-Spirale (Uebergang auf Tier 3 im ToolSequenceTracker). No-op ohne Flag. */
   recordSpiral(): void {
     if (!this._enabled || !this._entry) return;
     this._entry.spirals++;
-    void this._flush(false);
+    if (this._used) void this._flush(false);
   }
 
   /**
@@ -183,9 +199,9 @@ export class FrictionRecorder {
     ].join("\n");
   }
 
-  /** Finaler Flush (setzt `endedAt`) beim Server-Shutdown. Wirft nie (best effort). */
+  /** Finaler Flush (setzt `endedAt`) beim Server-Shutdown. Ohne Nutzung ein No-op. Wirft nie. */
   async shutdown(): Promise<void> {
-    if (!this._enabled || !this._entry) return;
+    if (!this._enabled || !this._entry || !this._used) return;
     try {
       this._entry.endedAt = new Date().toISOString();
       await this._flush(/* force */ true);
@@ -265,7 +281,7 @@ export class FrictionRecorder {
    * sich nicht gegenseitig ueberschreiben.
    */
   private async _flush(force: boolean): Promise<void> {
-    if (!this._entry) return;
+    if (!this._entry || !this._used) return;
     const now = Date.now();
     if (!force && now - this._lastFlushAt < FLUSH_THROTTLE_MS) return;
     this._lastFlushAt = now;
@@ -294,10 +310,16 @@ export class FrictionRecorder {
       else sessions.push(this._entry!);
 
       if (sessions.length > MAX_QUEUE_ENTRIES) {
-        sessions = sessions
-          .slice()
-          .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))
-          .slice(sessions.length - MAX_QUEUE_ENTRIES);
+        const nachAlter = (a: FrictionSessionEntry, b: FrictionSessionEntry) =>
+          Date.parse(a.startedAt) - Date.parse(b.startedAt);
+        const leer = sessions.filter((s) => (s.toolCalls ?? 0) === 0).sort(nachAlter);
+        const benutzt = sessions.filter((s) => (s.toolCalls ?? 0) > 0).sort(nachAlter);
+
+        let zuviel = sessions.length - MAX_QUEUE_ENTRIES;
+        const leerWeg = Math.min(zuviel, leer.length);
+        zuviel -= leerWeg;
+
+        sessions = [...leer.slice(leerWeg), ...benutzt].sort(nachAlter).slice(zuviel);
       }
 
       await this._writeQueueSafe({ lastFrictioneerRun: queue.lastFrictioneerRun, sessions });
