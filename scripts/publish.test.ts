@@ -298,6 +298,57 @@ describe("phase1_checkRepoStatus", () => {
     expect(() => phase1_checkRepoStatus(FREE_REPO)).toThrow(/private/);
   });
 
+  it("fails when server.json version lags behind package.json", () => {
+    setupMock([
+      { match: ["git", "--version"], result: "git version 2.40" },
+      { match: ["npm", "whoami"], result: "julian" },
+      { match: ["gh", "auth", "status"], result: "Logged in" },
+    ]);
+
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) =>
+      String(p).endsWith("server.json")
+        ? JSON.stringify({
+            version: "0.0.9",
+            packages: [{ version: "0.0.9" }],
+          })
+        : JSON.stringify({ version: "0.1.0" }),
+    );
+
+    const result = phase1_checkRepoStatus(FREE_REPO);
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("server.json is out of sync");
+    expect(result.message).toContain("packages[0].version = 0.0.9");
+  });
+
+  it("passes when server.json matches package.json", () => {
+    setupMock([
+      { match: ["git", "--version"], result: "git version 2.40" },
+      { match: ["npm", "whoami"], result: "julian" },
+      { match: ["gh", "auth", "status"], result: "Logged in" },
+      { match: ["git", "status", "--porcelain"], result: "" },
+      { match: ["git", "rev-parse", "--abbrev-ref"], result: BRANCH },
+      {
+        match: ["git", "remote", "get-url"],
+        result: "git@github.com:foo/bar.git",
+      },
+    ]);
+
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) =>
+      String(p).endsWith("server.json")
+        ? JSON.stringify({
+            version: "0.1.0",
+            packages: [{ version: "0.1.0" }],
+          })
+        : JSON.stringify({ version: "0.1.0" }),
+    );
+
+    const result = phase1_checkRepoStatus(FREE_REPO);
+    expect(result.success).toBe(true);
+    expect(result.context!.version).toBe("0.1.0");
+  });
+
   it("fails when repo has no configured remote", () => {
     setupMockWithErrors([
       { match: ["git", "--version"], result: "git version 2.40" },

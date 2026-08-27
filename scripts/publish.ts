@@ -155,6 +155,35 @@ export function phase1_checkRepoStatus(
   const freePkg = JSON.parse(readFileSync(freePkgPath, "utf-8"));
   const freeVersion: string = freePkg.version;
 
+  // 4b. Keep server.json (MCP registry manifest) in sync with the release version.
+  // mcp-publisher verifies the declared version against npm, so a stale server.json
+  // silently points the registry at a version that was never published.
+  const serverJsonPath = resolve(freeRepo, "server.json");
+  if (existsSync(serverJsonPath)) {
+    const serverJson = JSON.parse(readFileSync(serverJsonPath, "utf-8"));
+    const declared: Array<[string, unknown]> = [
+      ["version", serverJson.version],
+      ...(Array.isArray(serverJson.packages)
+        ? serverJson.packages.map(
+            (p: { version?: unknown }, i: number) =>
+              [`packages[${i}].version`, p?.version] as [string, unknown],
+          )
+        : []),
+    ];
+    const stale = declared.filter(
+      ([, v]) => v !== undefined && v !== freeVersion,
+    );
+    if (stale.length > 0) {
+      return {
+        success: false,
+        message:
+          `server.json is out of sync with package.json (${freeVersion}):\n` +
+          stale.map(([f, v]) => `  ${f} = ${String(v)}`).join("\n") +
+          `\nUpdate server.json to ${freeVersion} and commit before publishing.`,
+      };
+    }
+  }
+
   // 5. Check repo git status
   const freeStatus = run("git", ["status", "--porcelain"], freeRepo);
   if (freeStatus !== "") {
