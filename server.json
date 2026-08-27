@@ -8,6 +8,22 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/Silbercue/public-browser#readme",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/logo-400.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "400x400"
+      ]
+    },
+    {
+      "src": "https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/logo.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "1200x1200"
+      ]
+    }
+  ],
   "version": "2.10.1",
   "packages": [
     {
