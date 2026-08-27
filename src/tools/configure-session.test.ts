@@ -119,6 +119,40 @@ describe("configureSessionHandler", () => {
     expect(sd.getDefault("_profile")).toBe("Business");
   });
 
+  // BUG-019: the handler could only ever record the intent. Nothing consumed
+  // the restartRequired flag, so restart: true answered "restart_pending" and
+  // then no restart happened. The caller now passes the actual restart.
+  it("profile + restart:true + a restart fn → performs the restart and says so", async () => {
+    const calls: string[] = [];
+    const result = await configureSessionHandler(
+      { profile: "Business", restart: true },
+      sd,
+      /* browserReady */ true,
+      async () => { calls.push("restart"); },
+    );
+
+    expect(calls).toEqual(["restart"]);
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.status).toBe("restarted");
+    // The profile has to be stored BEFORE the restart, otherwise the relaunch
+    // comes up on the old profile.
+    expect(sd.getDefault("_profile")).toBe("Business");
+  });
+
+  it("a failing restart surfaces as an error instead of a success message", async () => {
+    const result = await configureSessionHandler(
+      { profile: "Business", restart: true },
+      sd,
+      /* browserReady */ true,
+      async () => { throw new Error("Chrome refused to close"); },
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error).toContain("Chrome refused to close");
+  });
+
   it("profile + restart:true + browserReady=false → stores profile normally", async () => {
     const result = await configureSessionHandler(
       { profile: "Business", restart: true },

@@ -1773,6 +1773,10 @@ export class ToolRegistry implements ToolRegistryPublic {
             params as unknown as ConfigureSessionParams,
             this._browserSession.sessionDefaults!,
             this._browserSession.isReady,
+            // Closes the running Chrome and relaunches on the new profile.
+            // ensureReady() returns early while the connection is alive, so
+            // without this an alive session would never pick the profile up.
+            () => this._browserSession.restart(),
           );
         },
       );

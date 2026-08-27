@@ -24,6 +24,13 @@ export async function configureSessionHandler(
   params: ConfigureSessionParams,
   sessionDefaults: SessionDefaults,
   browserReady?: boolean,
+  /**
+   * Performs the actual browser restart. The handler has no access to the
+   * session, so without this it could only ever record the intent — which is
+   * how restart: true came to answer "restart_pending" while nothing restarted
+   * (BUG-019). Optional so the Script API and unit tests can leave it out.
+   */
+  restartBrowser?: () => Promise<void>,
 ): Promise<ToolResponse> {
   const start = performance.now();
 
@@ -47,6 +54,35 @@ export async function configureSessionHandler(
     sessionDefaults.setDefault("_profile", params.profile);
 
     if (browserReady && params.restart) {
+      // The profile is already stored above — the relaunch inside restartBrowser()
+      // reads it back, so the order here matters.
+      if (restartBrowser) {
+        try {
+          await restartBrowser();
+        } catch (err) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: `Could not restart Chrome with profile "${params.profile}": ${err instanceof Error ? err.message : String(err)}`,
+            }) }],
+            isError: true,
+            _meta: { elapsedMs: Math.round(performance.now() - start), method: "configure_session" },
+          };
+        }
+        return {
+          content: [{ type: "text", text: JSON.stringify({
+            profile: params.profile,
+            status: "restarted",
+            message: `Chrome restarted with profile "${params.profile}". All previous tabs were closed.`,
+          }) }],
+          _meta: {
+            elapsedMs: Math.round(performance.now() - start),
+            method: "configure_session",
+            restartRequired: true,
+          },
+        };
+      }
+
+      // No restart hook wired in (Script API, tests): report the intent only.
       return {
         content: [{ type: "text", text: JSON.stringify({
           profile: params.profile,
