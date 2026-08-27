@@ -25,7 +25,7 @@ Public Browser fixes this. It talks directly to Chrome via CDP (same protocol Pl
 
 | What you get | Playwright MCP | Browser MCP | claude-in-chrome | browser-use | **Public Browser** |
 |---|---|---|---|---|---|
-| Benchmark pass rate (31 scorable tests, LLM-driven) | 29/31 (563s) | **6/31, aborted** | (24-test data only) | 21/31 (1.870s) | **30/31 (598s)** |
+| Benchmark pass rate (31 scorable tests, LLM-driven) | 29/31 (563s) | **6/31, aborted** | (24-test suite only) | 21/31 (1870s) | **30/31 (598s)** |
 | Avg Tool-Response (Tokens est.) | 362 | — | — | — | **201 (1.8x smaller)** |
 | P95 Tool-Response (Chars) | 8.068 | — | — | — | **2.328 (3.5x smaller)** |
 | `view_page` avg (Chars) | 6.084 (`browser_snapshot`) | — | — | — | **1.124 (5.4x smaller)** |
@@ -550,6 +550,24 @@ immediately and never waits, for either a start or a completion.
 
 Measured on `https://mcp-test.second-truth.com` against the **35-test version of the suite (April 2026)** — 5 levels (Basics, Intermediate, Advanced, Hardest, Community Pain Points). Four of the 35 tests are runner-only and are excluded from every score, so all pass rates below are out of **31 scorable tests**. The live suite has since grown to 42 tests in 6 levels; the numbers here are not re-measured against it, and cross-server comparisons are only valid within the same suite version. Each run is independent, values on the benchmark page are randomized per page-load, all runs started in a fresh Claude Code session out of `/tmp` (no project context bias), and **all metrics measured post-hoc from the session JSONL** via [`test-hardest/measure-tool-calls.sh`](.claude/skills/benchmarkTest/measure-tool-calls.sh) — no self-reporting, no MCP-side instrumentation, just counting `tool_use` blocks and `tool_result` char lengths.
 
+### Head-to-Head (24-test suite, April 2026 — historical suite version)
+
+All rows LLM-driven by Claude Opus 4.6 on the same test page, one recorded run each. Public Browser ran
+2026-04-05, the other servers 2026-04-02. This is the older 24-test version of the suite — do not compare
+these rows against the 31-scorable-test numbers below.
+
+| MCP Server | Tests Passed | Duration | Tool Calls | Speed vs PB |
+|---|---:|---:|---:|---|
+| **Public Browser** | **24/24** | **350s** | **71** | -- |
+| Playwright MCP | 24/24 | 570s | 138 | 1.6x slower |
+| browser-use skill | 24/24 | 725s | 117 | 2.1x slower |
+| claude-in-chrome | 24/24 | 772s | 193 | 2.2x slower |
+| browser-use | 16/24 | 1813s | 124 | 5.2x slower |
+
+Public Browser needed **71 tool calls where Playwright MCP needed 138** — roughly half the roundtrips for the
+same 24 passes. Raw data: `test-hardest/benchmark-*.json` (Public Browser row:
+`benchmark-silbercuechrome_mcp-llm-2026-04-05.json`, `type: llm-driven`).
+
 ### Pass Rate + Duration (31 scorable tests, LLM-driven)
 
 Every row is one recorded run; the run id is named so each number is traceable to a single entry in
@@ -561,7 +579,7 @@ Every row is one recorded run; the run id is named so each number is traceable t
 | Playwright MCP | 29/31 (94%) | 563s | Run 2 |
 | Playwright CLI | 28/31 (90%) | 376s | Run 1 |
 | Chrome DevTools MCP (Google) | 27/31 (87%) | 535s | Run 2 |
-| browser-use | 21/31 (68%) | 1.870s | Run 5 |
+| browser-use | 21/31 (68%) | 1870s | Run 5 |
 | Browser MCP (browsermcp) | 6/31 (19%) | 294s, aborted | Run 1 |
 | claude-in-chrome | 24-test data only, not re-benched | — | — |
 
