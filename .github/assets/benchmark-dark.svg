@@ -1,32 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="392" viewBox="0 0 880 392" role="img" aria-label="Response size per tool call: Public Browser versus Playwright MCP across three metrics, lower is better.">
-<rect width="880" height="392" fill="#1a1a19"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="404" viewBox="0 0 880 404" role="img" aria-label="Public Browser versus Playwright MCP. Each bar is Public Browser's share of Playwright MCP's cost, lower is better. Tool calls to pass 24 tests: 71 of 138, 49% fewer. Page snapshot: 1,124 of 6,084 chars, 5.4 times smaller. P95 tool response: 2,328 of 8,068 chars, 3.5 times smaller. Average tool response: 201 of 362 tokens, 1.8 times smaller.">
+<rect width="880" height="404" fill="#141413"/>
 <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
-<text x="24" y="34" font-size="17" font-weight="600" fill="#ffffff">Response size per tool call &#8212; lower is better</text>
-<text x="24" y="56" font-size="12.5" fill="#c3c2b7">Same benchmark suite, same LLM driving both sides. Measured from session logs, not self-reported.</text>
-<rect x="24" y="80" width="11" height="11" rx="2.5" fill="#7a7972"/>
-<text x="42" y="90" font-size="12.5" fill="#c3c2b7">Playwright MCP</text>
-<rect x="164" y="80" width="11" height="11" rx="2.5" fill="#3987e5"/>
-<text x="182" y="90" font-size="12.5" font-weight="600" fill="#ffffff">Public Browser</text>
-<text x="24" y="131" font-size="13.5" font-weight="600" fill="#ffffff">Page snapshot</text>
-<text x="24" y="149" font-size="11.5" fill="#c3c2b7">view_page vs browser_snapshot · chars</text>
-<path d="M300 118 H716 A4 4 0 0 1 720 122 V132 A4 4 0 0 1 716 136 H300 Z" fill="#7a7972"/>
-<text x="730" y="131" font-size="12.5" fill="#c3c2b7">6,084</text>
-<path d="M300 142 H374 A4 4 0 0 1 378 146 V156 A4 4 0 0 1 374 160 H300 Z" fill="#3987e5"/>
-<text x="388" y="155" font-size="12.5" font-weight="600" fill="#ffffff">1,124</text>
-<text x="856" y="155" font-size="12.5" font-weight="600" text-anchor="end" fill="#3987e5">5.4× smaller</text>
-<text x="24" y="215" font-size="13.5" font-weight="600" fill="#ffffff">P95 tool response</text>
-<text x="24" y="233" font-size="11.5" fill="#c3c2b7">chars, 95th percentile</text>
-<path d="M300 202 H716 A4 4 0 0 1 720 206 V216 A4 4 0 0 1 716 220 H300 Z" fill="#7a7972"/>
-<text x="730" y="215" font-size="12.5" fill="#c3c2b7">8,068</text>
-<path d="M300 226 H417 A4 4 0 0 1 421 230 V240 A4 4 0 0 1 417 244 H300 Z" fill="#3987e5"/>
-<text x="431" y="239" font-size="12.5" font-weight="600" fill="#ffffff">2,328</text>
-<text x="856" y="239" font-size="12.5" font-weight="600" text-anchor="end" fill="#3987e5">3.5× smaller</text>
-<text x="24" y="299" font-size="13.5" font-weight="600" fill="#ffffff">Avg tool response</text>
-<text x="24" y="317" font-size="11.5" fill="#c3c2b7">tokens (est.), mean of all calls</text>
-<path d="M300 286 H716 A4 4 0 0 1 720 290 V300 A4 4 0 0 1 716 304 H300 Z" fill="#7a7972"/>
-<text x="730" y="299" font-size="12.5" fill="#c3c2b7">362</text>
-<path d="M300 310 H529 A4 4 0 0 1 533 314 V324 A4 4 0 0 1 529 328 H300 Z" fill="#3987e5"/>
-<text x="543" y="323" font-size="12.5" font-weight="600" fill="#ffffff">201</text>
-<text x="856" y="323" font-size="12.5" font-weight="600" text-anchor="end" fill="#3987e5">1.8× smaller</text>
-<text x="24" y="378" font-size="11" fill="#c3c2b7">Public Browser Run 5 vs Playwright MCP Run 2. Each metric has its own scale. Protocol: test-hardest/BENCHMARK-PROTOCOL.md</text>
-</g></svg>
+<text x="24" y="34" font-size="18" font-weight="600" fill="#ffffff">Fewer roundtrips, smaller responses</text>
+<text x="24" y="57" font-size="12.5" fill="#c3c2b7">Full track = Playwright MCP. The filled bar is what Public Browser needed for the same result.</text>
+<text x="24" y="75" font-size="12.5" fill="#c3c2b7">Same test page, same LLM driving both sides. Measured from session logs, not self-reported.</text>
+<text x="24" y="96" font-size="11" fill="#8a8980">Tool calls: 24-test suite, one run per server. Response sizes: 31-test suite, Public Browser Run 5 vs Playwright MCP Run 2.</text>
+<text x="24" y="125" font-size="14" font-weight="600" fill="#ffffff">Tool calls</text>
+<text x="24" y="143" font-size="11.5" fill="#8a8980">to pass all 24 tests</text>
+<rect x="230" y="114" width="424" height="24" rx="6" fill="#302f2c"/>
+<rect x="233" y="117" width="215.1" height="18" rx="4" fill="#3987e5"/>
+<text x="244" y="131.0" font-size="13" font-weight="700" fill="#ffffff">71</text>
+<text x="668" y="131.0" font-size="12.5" fill="#8a8980">138</text>
+<text x="856" y="131.0" font-size="13" font-weight="700" text-anchor="end" fill="#3987e5">49% fewer</text>
+<text x="24" y="187" font-size="14" font-weight="600" fill="#ffffff">Page snapshot</text>
+<text x="24" y="205" font-size="11.5" fill="#8a8980">view_page vs browser_snapshot</text>
+<rect x="230" y="176" width="424" height="24" rx="6" fill="#302f2c"/>
+<rect x="233" y="179" width="77.2" height="18" rx="4" fill="#3987e5"/>
+<text x="319.2" y="193.0" font-size="13" font-weight="700" fill="#ffffff">1,124 chars</text>
+<text x="668" y="193.0" font-size="12.5" fill="#8a8980">6,084 chars</text>
+<text x="856" y="193.0" font-size="13" font-weight="700" text-anchor="end" fill="#3987e5">5.4× smaller</text>
+<text x="24" y="249" font-size="14" font-weight="600" fill="#ffffff">P95 tool response</text>
+<text x="24" y="267" font-size="11.5" fill="#8a8980">95th percentile of all calls</text>
+<rect x="230" y="238" width="424" height="24" rx="6" fill="#302f2c"/>
+<rect x="233" y="241" width="120.6" height="18" rx="4" fill="#3987e5"/>
+<text x="362.6" y="255.0" font-size="13" font-weight="700" fill="#ffffff">2,328 chars</text>
+<text x="668" y="255.0" font-size="12.5" fill="#8a8980">8,068 chars</text>
+<text x="856" y="255.0" font-size="13" font-weight="700" text-anchor="end" fill="#3987e5">3.5× smaller</text>
+<text x="24" y="311" font-size="14" font-weight="600" fill="#ffffff">Avg tool response</text>
+<text x="24" y="329" font-size="11.5" fill="#8a8980">mean of all calls</text>
+<rect x="230" y="300" width="424" height="24" rx="6" fill="#302f2c"/>
+<rect x="233" y="303" width="232.1" height="18" rx="4" fill="#3987e5"/>
+<text x="244" y="317.0" font-size="13" font-weight="700" fill="#ffffff">201 tokens</text>
+<text x="668" y="317.0" font-size="12.5" fill="#8a8980">362 tokens</text>
+<text x="856" y="317.0" font-size="13" font-weight="700" text-anchor="end" fill="#3987e5">1.8× smaller</text>
+<text x="24" y="368" font-size="11" fill="#8a8980">Pass rate is a tie (30/31 each) and Playwright MCP&#8217;s best recorded run is faster. Raw JSON and protocol: test-hardest/BENCHMARK-PROTOCOL.md</text>
+</g>
+</svg>

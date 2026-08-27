@@ -1,4 +1,4 @@
-# Public Browser
+# <img src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/logo-400.png" width="30" alt=""> Public Browser
 
 [![GitHub Release](https://img.shields.io/github/v/release/Silbercue/public-browser)](https://github.com/Silbercue/public-browser/releases)
 [![npm version](https://img.shields.io/npm/v/public-browser)](https://www.npmjs.com/package/public-browser)
@@ -6,11 +6,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab ready — 2300+ TypeScript tests, 237 Python tests.
+The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab ready — 2,310 TypeScript tests, 237 Python tests.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-dark.svg">
-  <img alt="Response size per tool call, lower is better. Page snapshot: Playwright MCP 6,084 chars vs Public Browser 1,124 (5.4x smaller). P95 tool response: 8,068 vs 2,328 chars (3.5x smaller). Average tool response: 362 vs 201 tokens (1.8x smaller)." src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-light.svg" width="880">
+  <img alt="Public Browser versus Playwright MCP, lower is better. Each bar is what Public Browser needed where the full track is Playwright MCP. Tool calls to pass all 24 tests: 71 of 138, 49% fewer. Page snapshot: 1,124 of 6,084 chars, 5.4x smaller. P95 tool response: 2,328 of 8,068 chars, 3.5x smaller. Average tool response: 201 of 362 tokens, 1.8x smaller. Pass rate is a tie at 30 of 31 each." src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-light.svg" width="880">
 </picture>
 
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
@@ -722,6 +722,10 @@ Issues and pull requests welcome at [github.com/Silbercue/public-browser](https:
 ## Privacy
 
 Public Browser runs entirely on your machine. All browser automation happens locally via CDP. The Cortex learning layer stores only structural metadata locally (page types, tool names, content hashes — no URLs, no domains, no page content, no PII). Telemetry is **off by default**. If you opt in via `PUBLIC_BROWSER_TELEMETRY=1`, only the same structural metadata is uploaded via HTTPS — the payload is built from an explicit field allowlist to prevent accidental leakage.
+
+## Related
+
+Building for iOS too? [SilbercueSwift](https://github.com/silbercue/SilbercueSwift) is the same idea for the iOS Simulator.
 
 ## Links
 
