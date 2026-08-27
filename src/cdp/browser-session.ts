@@ -267,6 +267,8 @@ export class BrowserSession implements IBrowserSession {
   private _shutdownRequested = false;
   private _profileAttachOnly = false;
   private _profileAttachName: string | null = null;
+  /** Profile spec the current launcher was built for; null until one is set. */
+  private _appliedProfileSpec: string | null = null;
 
   constructor(options: BrowserSessionOptions = {}) {
     this._options = options;
@@ -311,12 +313,26 @@ export class BrowserSession implements IBrowserSession {
   }
 
   /**
-   * If configure_session set a profile before the first launch,
-   * recreate the launcher with resolved profile settings.
+   * If configure_session set a profile, recreate the launcher with resolved
+   * profile settings.
+   *
+   * Idempotent on purpose: this runs before every launch decision, and
+   * rebuilding the launcher on each one would throw away the child-process
+   * handle the reconnect path depends on.
+   *
+   * @returns true when the launcher was rebuilt for a profile different from
+   * the one already in use. The caller must then skip reconnecting to the
+   * running Chrome — it still holds the previous profile (BUG-019).
    */
-  private _applyDeferredProfile(): void {
-    const profileSpec = this.sessionDefaults.getDefault("_profile") as string | undefined;
-    if (!profileSpec) return;
+  private _applyDeferredProfile(): boolean {
+    const profileSpec =
+      (this.sessionDefaults.getDefault("_profile") as string | undefined) ?? null;
+
+    // Unchanged (including "never set") — keep the current launcher.
+    // Note: clearing a profile back to null is not honoured here; configure_session
+    // has no way to express it, and rebuilding for a null spec would drop the
+    // running Chrome for no gain.
+    if (profileSpec === this._appliedProfileSpec || !profileSpec) return false;
 
     const resolved = resolveProfileSpec(profileSpec);
     const chromeRunning = isChromeRunningWithProfile(resolved.userDataDir);
@@ -349,6 +365,8 @@ export class BrowserSession implements IBrowserSession {
       autoReconnect: false,
     });
 
+    this._appliedProfileSpec = profileSpec;
+
     debug(
       "BrowserSession: deferred profile applied — %s → %s/%s (chromeRunning=%s)",
       profileSpec,
@@ -356,6 +374,7 @@ export class BrowserSession implements IBrowserSession {
       resolved.profileDirectory,
       chromeRunning,
     );
+    return true;
   }
 
   // ── Public getters ──────────────────────────────────────────────────
@@ -514,10 +533,17 @@ export class BrowserSession implements IBrowserSession {
   }
 
   private async _doEnsureReady(): Promise<void> {
+    // A profile from configure_session has to be resolved BEFORE any launch or
+    // reconnect decision. Reconnecting to the still-running Chrome would land
+    // the caller in the previous profile, and the last-ditch relaunch below
+    // would use the pre-profile launcher — that was BUG-019.
+    const profileChanged = this._applyDeferredProfile();
+
     // Policy branch A — established session: try to reconnect to the SAME
     // Chrome (WebSocket-only, no auto-launch) so the user's tabs, cookies
-    // and extensions survive a brief transport hiccup.
-    if (this._wasEverReady) {
+    // and extensions survive a brief transport hiccup. Skipped when the
+    // profile changed: that Chrome is the wrong one by definition.
+    if (this._wasEverReady && !profileChanged) {
       // Clean up stale wiring before re-attempting — the old CdpClient
       // events and child-process references are dead by this point.
       await this._teardownConnectionOnly().catch(() => {});
@@ -544,6 +570,14 @@ export class BrowserSession implements IBrowserSession {
       // All WebSocket-only attempts failed — the previous Chrome is really
       // gone. Silently launch a fresh one as a last-ditch recovery and set
       // the notice flag so the LLM finds out via the next tool response.
+      //
+      // Except when the caller asked for a specific profile that we can only
+      // attach to: a browser without their logged-in session is not a
+      // substitute for it, so this has to fail loudly instead of handing back
+      // a throwaway profile that looks like success.
+      if (this._profileAttachOnly && this._profileAttachName) {
+        throw new Error(this._profileUnreachableMessage(this._profileAttachName));
+      }
       debug("BrowserSession: all reconnects failed, launching fresh Chrome");
       await this._teardownHelpers().catch(() => {});
       const connection = await this._launcher.connect();
@@ -551,9 +585,6 @@ export class BrowserSession implements IBrowserSession {
       this._relaunchedAfterLoss = true;
       return;
     }
-
-    // Profile from configure_session: if set before first launch, recreate launcher
-    this._applyDeferredProfile();
 
     // Policy branch B — fresh session: full connect (WebSocket first, then
     // auto-launch) with a single retry for flaky startup conditions. If
@@ -581,15 +612,24 @@ export class BrowserSession implements IBrowserSession {
       }
     }
     if (this._profileAttachOnly && this._profileAttachName) {
-      throw new Error(
-        `Chrome is running with profile "${this._profileAttachName}" but CDP is not reachable on port ${this._cdpPort}. ` +
-        `To use this profile, close Chrome and let Public Browser launch it, or restart Chrome with: ` +
-        `open -a "Google Chrome" --args --remote-debugging-port=${this._cdpPort}`,
-      );
+      throw new Error(this._profileUnreachableMessage(this._profileAttachName));
     }
     throw lastErr instanceof Error
       ? lastErr
       : new Error(`BrowserSession launch failed: ${String(lastErr)}`);
+  }
+
+  /**
+   * Both failure paths that give up on an attach-only profile say the same
+   * thing, so they say it from one place.
+   */
+  private _profileUnreachableMessage(profileName: string): string {
+    return (
+      `Chrome is running with profile "${profileName}" but CDP is not reachable on port ${this._cdpPort}. ` +
+      `Public Browser will not fall back to a throwaway profile here, because it would not carry your logins. ` +
+      `To use this profile, close Chrome and let Public Browser launch it, or restart Chrome with: ` +
+      `open -a "Google Chrome" --args --remote-debugging-port=${this._cdpPort}`
+    );
   }
 
   // ── Connection wiring ───────────────────────────────────────────────

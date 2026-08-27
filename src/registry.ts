@@ -1763,6 +1763,10 @@ export class ToolRegistry implements ToolRegistryPublic {
           defaults: configureSessionSchema.shape.defaults,
           autoPromote: configureSessionSchema.shape.autoPromote,
           profile: configureSessionSchema.shape.profile,
+          // The handler's error for a mid-session profile change tells the
+          // caller to use restart: true. Leaving it out of the exposed schema
+          // made that advice impossible to follow (BUG-019).
+          restart: configureSessionSchema.shape.restart,
         },
         async (params) => {
           return configureSessionHandler(

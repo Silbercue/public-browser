@@ -618,3 +618,82 @@ describe("BrowserSession — shutdown in attach mode", () => {
     ).toBeNull();
   });
 });
+
+// BUG-019: a profile set via configure_session was only honoured on the
+// fresh-session branch. Once a session had connected at least once,
+// _doEnsureReady() took the reconnect branch, which never applied the
+// profile and — after all reconnects failed — relaunched with the ORIGINAL
+// launcher. The user got a throwaway profile and a "silently launched a
+// fresh browser" notice, while configure_session had already reported
+// "profile_set".
+describe("BrowserSession — deferred profile (BUG-019)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** Replace _applyDeferredProfile with a counting stub so the test never
+   *  builds a real ChromeLauncher or touches the on-disk Chrome profiles. */
+  function stubProfileApply(session: BrowserSession, changed: boolean) {
+    const calls = { count: 0 };
+    (session as unknown as { _applyDeferredProfile: () => boolean })._applyDeferredProfile =
+      () => {
+        calls.count++;
+        return changed;
+      };
+    return calls;
+  }
+
+  /** Drop the live connection without touching _wasEverReady. */
+  function loseConnection(session: BrowserSession) {
+    const s = session as unknown as { _connection: unknown; _cdpClient: unknown };
+    s._connection = null;
+    s._cdpClient = null;
+  }
+
+  it("applies the profile on re-entry, not just on the first launch", async () => {
+    const { session } = buildSession({
+      connectSequence: ["ok", "ok"],
+      reconnectSequence: ["fail", "fail", "fail"],
+    });
+    await session.ensureReady();
+    expect(session.wasEverReady).toBe(true);
+
+    const calls = stubProfileApply(session, false);
+    loseConnection(session);
+    await session.ensureReady();
+
+    expect(calls.count).toBe(1);
+  });
+
+  it("skips the reconnect branch when the profile changed", async () => {
+    const { session, reconnectCalls, connectCalls } = buildSession({
+      connectSequence: ["ok", "ok"],
+      reconnectSequence: ["ok"],
+    });
+    await session.ensureReady();
+    const connectsAfterFirst = connectCalls.count;
+
+    // configure_session picked a different profile after the first launch.
+    stubProfileApply(session, true);
+    loseConnection(session);
+    await session.ensureReady();
+
+    // Reconnecting to the OLD Chrome would land us in the old profile.
+    expect(reconnectCalls.count).toBe(0);
+    expect(connectCalls.count).toBe(connectsAfterFirst + 1);
+  });
+
+  it("still reconnects normally when the profile did not change", async () => {
+    const { session, reconnectCalls } = buildSession({
+      connectSequence: ["ok"],
+      reconnectSequence: ["ok"],
+    });
+    await session.ensureReady();
+
+    stubProfileApply(session, false);
+    loseConnection(session);
+    await session.ensureReady();
+
+    expect(reconnectCalls.count).toBe(1);
+  });
+});
