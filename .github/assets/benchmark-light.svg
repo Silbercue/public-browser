@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="392" viewBox="0 0 880 392" role="img" aria-label="Response size per tool call: Public Browser versus Playwright MCP across three metrics, lower is better.">
+<rect width="880" height="392" fill="#fcfcfb"/>
+<g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+<text x="24" y="34" font-size="17" font-weight="600" fill="#0b0b0b">Response size per tool call &#8212; lower is better</text>
+<text x="24" y="56" font-size="12.5" fill="#52514e">35-test benchmark, same LLM and same page. Measured from session logs, not self-reported.</text>
+<rect x="24" y="80" width="11" height="11" rx="2.5" fill="#8d8c85"/>
+<text x="42" y="90" font-size="12.5" fill="#52514e">Playwright MCP</text>
+<rect x="164" y="80" width="11" height="11" rx="2.5" fill="#2a78d6"/>
+<text x="182" y="90" font-size="12.5" font-weight="600" fill="#0b0b0b">Public Browser</text>
+<text x="24" y="131" font-size="13.5" font-weight="600" fill="#0b0b0b">Page snapshot</text>
+<text x="24" y="149" font-size="11.5" fill="#52514e">view_page vs browser_snapshot · chars</text>
+<path d="M300 118 H716 A4 4 0 0 1 720 122 V132 A4 4 0 0 1 716 136 H300 Z" fill="#8d8c85"/>
+<text x="730" y="131" font-size="12.5" fill="#52514e">6,084</text>
+<path d="M300 142 H374 A4 4 0 0 1 378 146 V156 A4 4 0 0 1 374 160 H300 Z" fill="#2a78d6"/>
+<text x="388" y="155" font-size="12.5" font-weight="600" fill="#0b0b0b">1,124</text>
+<text x="856" y="155" font-size="12.5" font-weight="600" text-anchor="end" fill="#2a78d6">5.4× smaller</text>
+<text x="24" y="215" font-size="13.5" font-weight="600" fill="#0b0b0b">P95 tool response</text>
+<text x="24" y="233" font-size="11.5" fill="#52514e">chars, 95th percentile</text>
+<path d="M300 202 H716 A4 4 0 0 1 720 206 V216 A4 4 0 0 1 716 220 H300 Z" fill="#8d8c85"/>
+<text x="730" y="215" font-size="12.5" fill="#52514e">8,068</text>
+<path d="M300 226 H417 A4 4 0 0 1 421 230 V240 A4 4 0 0 1 417 244 H300 Z" fill="#2a78d6"/>
+<text x="431" y="239" font-size="12.5" font-weight="600" fill="#0b0b0b">2,328</text>
+<text x="856" y="239" font-size="12.5" font-weight="600" text-anchor="end" fill="#2a78d6">3.5× smaller</text>
+<text x="24" y="299" font-size="13.5" font-weight="600" fill="#0b0b0b">Avg tool response</text>
+<text x="24" y="317" font-size="11.5" fill="#52514e">tokens (est.), mean of all calls</text>
+<path d="M300 286 H716 A4 4 0 0 1 720 290 V300 A4 4 0 0 1 716 304 H300 Z" fill="#8d8c85"/>
+<text x="730" y="299" font-size="12.5" fill="#52514e">362</text>
+<path d="M300 310 H529 A4 4 0 0 1 533 314 V324 A4 4 0 0 1 529 328 H300 Z" fill="#2a78d6"/>
+<text x="543" y="323" font-size="12.5" font-weight="600" fill="#0b0b0b">201</text>
+<text x="856" y="323" font-size="12.5" font-weight="600" text-anchor="end" fill="#2a78d6">1.8× smaller</text>
+<text x="24" y="378" font-size="11" fill="#52514e">Each metric has its own scale. Full protocol and raw runs: test-hardest/BENCHMARK-PROTOCOL.md</text>
+</g></svg>

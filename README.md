@@ -8,6 +8,11 @@
 
 The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab ready — 1670+ TypeScript tests, 235+ Python tests.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-dark.svg">
+  <img alt="Response size per tool call, lower is better. Page snapshot: Playwright MCP 6,084 chars vs Public Browser 1,124 (5.4x smaller). P95 tool response: 8,068 vs 2,328 chars (3.5x smaller). Average tool response: 362 vs 201 tokens (1.8x smaller)." src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-light.svg" width="880">
+</picture>
+
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
 
 > **Looking for an alternative to Playwright MCP, Browser MCP, or claude-in-chrome?** Public Browser talks to Chrome directly via the DevTools Protocol — no Playwright dependency, no Chrome extension bridge, no single-tab limit. One command to install, zero config. [See benchmark comparison below](#benchmarks).
