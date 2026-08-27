@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab ready — 1670+ TypeScript tests, 235+ Python tests.
+The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab ready — 2300+ TypeScript tests, 237 Python tests.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-dark.svg">
@@ -27,8 +27,8 @@ Public Browser fixes this. It talks directly to Chrome via CDP (same protocol Pl
 |---|---|---|---|---|---|
 | Benchmark pass rate (31 scorable tests, LLM-driven) | 29/31 (563s) | **6/31, aborted** | (24-test suite only) | 21/31 (1870s) | **30/31 (598s)** |
 | Avg Tool-Response (Tokens est.) | 362 | — | — | — | **201 (1.8x smaller)** |
-| P95 Tool-Response (Chars) | 8.068 | — | — | — | **2.328 (3.5x smaller)** |
-| `view_page` avg (Chars) | 6.084 (`browser_snapshot`) | — | — | — | **1.124 (5.4x smaller)** |
+| P95 Tool-Response (Chars) | 8,068 | — | — | — | **2,328 (3.5x smaller)** |
+| `view_page` avg (Chars) | 6,084 (`browser_snapshot`) | — | — | — | **1,124 (5.4x smaller)** |
 | Multi-tab support | Yes | **No (single tab)** | Yes | Partial | **Yes** |
 | Connection | New browser | Extension bridge | Extension | Subprocess | **Direct CDP (pipe or WebSocket)** |
 | Ref system | Playwright refs | Playwright refs | CSS selectors | Screenshots | **A11y-tree refs (stable across DOM changes)** |
@@ -173,7 +173,7 @@ Tool Handler                             |
 Chrome <------------ CDP --------------->
 ```
 
-Your script sends HTTP requests to the Public Browser server on port 9223. The server executes the exact same tool handlers that the MCP server uses — one codebase, one test suite (1670+ tests), two access paths.
+Your script sends HTTP requests to the Public Browser server on port 9223. The server executes the exact same tool handlers that the MCP server uses — one codebase, one test suite (2300+ tests), two access paths.
 
 ### Auto-Start
 
@@ -583,6 +583,12 @@ Every row is one recorded run; the run id is named so each number is traceable t
 | Browser MCP (browsermcp) | 6/31 (19%) | 294s, aborted | Run 1 |
 | claude-in-chrome | 24-test data only, not re-benched | — | — |
 
+Servers with several recorded runs, so you can see the spread rather than only the row above: **Playwright MCP**
+ranges 29–30/31 across four runs, its best being 30/31 in 449s (Run 3); **Chrome DevTools MCP** ranges 27–29/31,
+its best 29/31 in 518s (Run 1). Run 2 is quoted for both because that is the run the tool-efficiency analysis below
+instruments end to end. On pass rate this field is effectively a tie — the durable difference is response size, and
+that holds across every Playwright run measured (avg 1,216–1,467 chars in Runs 2–4).
+
 ### Tool-Efficiency (the fair metric)
 
 We measure each tool call's response char length directly, group by tool name, estimate tokens via `chars/4`. Why this metric: session-level token deltas are dominated by LLM overhead (system prompt + CLAUDE.md + conversation history = ~80-90% of the budget) and only show 5-15% differences between MCPs — untrustworthy for comparing browser servers. Tool-response size is the part the MCP server actually controls.
@@ -592,29 +598,31 @@ Public Browser Run 5 vs Playwright MCP Run 2 — the same two runs as the pass-r
 | Metric | Public Browser | Playwright MCP | Difference |
 |---|---:|---:|---:|
 | Tool calls (MCP-only) | 151 | 121 | +25% (PB uses more, smaller calls) |
-| Avg Response size | **807 Chars** | 1.448 Chars | **PB 1.8x smaller** |
+| Avg Response size | **807 Chars** | 1,448 Chars | **PB 1.8x smaller** |
 | Avg Response tokens est. | **201** | 362 | **PB 1.8x smaller** |
-| P95 Response | **2.328 Chars** | 8.068 Chars | **PB 3.5x smaller** |
+| P95 Response | **2,328 Chars** | 8,068 Chars | **PB 3.5x smaller** |
 | Total response content | **128k Chars** | 175k Chars | **PB 27% less** |
 
 ### Per-Tool Breakdown (where the difference comes from)
 
 | Tool | Public Browser Avg | Playwright MCP Avg | Verdict |
 |---|---:|---:|---|
-| `view_page` / `browser_snapshot` | **1.124 Chars** (21 calls) | 6.084 Chars (8 calls) | **PB 5.4x more compact per call** |
-| `evaluate` / `browser_evaluate` | **510 Chars** (33 calls) | 2.155 Chars (47 calls) | **PB 4.2x more compact per call** |
+| `view_page`¹ / `browser_snapshot` | **1,124 Chars** (21 calls) | 6,084 Chars (8 calls) | **PB 5.4x more compact per call** |
+| `evaluate` / `browser_evaluate` | **510 Chars** (33 calls) | 2,155 Chars (47 calls) | **PB 4.2x more compact per call** |
 | `type` / `browser_type` | **88 Chars** (13 calls) | 147 Chars (13 calls) | PB 1.7x more compact |
-| `click` / `browser_click` | 1.278 Chars (63 calls) | **463 Chars** (44 calls) | Playwright 2.8x leaner — but see trade-off below |
+| `click` / `browser_click` | 1,278 Chars (63 calls) | **463 Chars** (44 calls) | Playwright 2.8x leaner — but see trade-off below |
+
+¹ recorded as `read_page` in the April 2026 runs; the tool was renamed to `view_page` afterwards.
 
 ### The Ambient-Context trade-off
 
 > **Ambient Context — Claude sees DOM changes for free, no extra `view_page` needed**
 
-Public Browser's `click` is 2.8x larger than Playwright's because every click response embeds the DOM diff (NEW/REMOVED/CHANGED lines). Playwright returns a bare confirmation, forcing the LLM to follow up with a `browser_snapshot` or `browser_evaluate` to see what happened. Over a full benchmark run, this cascade costs Playwright MCP **47 extra `browser_evaluate` calls** averaging 2.155 chars each. Public Browser delivers the diff inline. Net result: PB's click+read_page+evaluate total is **120k chars vs Playwright MCP's 170k** — 30% less response content overall.
+Public Browser's `click` is 2.8x larger than Playwright's because every click response embeds the DOM diff (NEW/REMOVED/CHANGED lines). Playwright returns a bare confirmation, forcing the LLM to follow up with a `browser_snapshot` or `browser_evaluate` to see what happened. Over a full benchmark run, Playwright MCP spends **47 `browser_evaluate` calls** averaging 2,155 chars against Public Browser's 33 at 510 chars. Public Browser delivers the diff inline. Net result: PB's click+read_page+evaluate total is **120k chars vs Playwright MCP's 170k** — 30% less response content overall.
 
 > **`view_page` is 5.4x more compact than Playwright MCP's `browser_snapshot`**
 
-Measured on the 35-test benchmark (2026-04-09): Public Browser's `view_page` averages **1.124 chars per call** vs Playwright MCP's `browser_snapshot` at **6.084 chars**. Same page, same test suite, same LLM driver. The a11y-tree compression + Ambient Context pipeline means we only send what the agent actually needs — smaller responses, less context pressure, cheaper runs.
+Measured on the 35-test benchmark (2026-04-09): Public Browser's `view_page` averages **1,124 chars per call** vs Playwright MCP's `browser_snapshot` at **6,084 chars**. Same page, same test suite, same LLM driver. The a11y-tree compression + Ambient Context pipeline means we only send what the agent actually needs — smaller responses, less context pressure, cheaper runs.
 
 See [`test-hardest/BENCHMARK-PROTOCOL.md`](test-hardest/BENCHMARK-PROTOCOL.md) for the full protocol, per-test breakdown, and raw JSON runs with `tool_efficiency` blocks.
 
