@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Silbercue/public-browser",
+  "title": "Public Browser",
+  "description": "The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab — a Playwright MCP alternative for Claude Code and Cursor.",
+  "repository": {
+    "url": "https://github.com/Silbercue/public-browser",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/Silbercue/public-browser#readme",
+  "version": "2.10.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "public-browser",
+      "version": "2.10.1",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
