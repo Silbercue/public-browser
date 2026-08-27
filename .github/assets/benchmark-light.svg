@@ -2,7 +2,7 @@
 <rect width="880" height="392" fill="#fcfcfb"/>
 <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
 <text x="24" y="34" font-size="17" font-weight="600" fill="#0b0b0b">Response size per tool call &#8212; lower is better</text>
-<text x="24" y="56" font-size="12.5" fill="#52514e">35-test benchmark, same LLM and same page. Measured from session logs, not self-reported.</text>
+<text x="24" y="56" font-size="12.5" fill="#52514e">Same benchmark suite, same LLM driving both sides. Measured from session logs, not self-reported.</text>
 <rect x="24" y="80" width="11" height="11" rx="2.5" fill="#8d8c85"/>
 <text x="42" y="90" font-size="12.5" fill="#52514e">Playwright MCP</text>
 <rect x="164" y="80" width="11" height="11" rx="2.5" fill="#2a78d6"/>
@@ -28,5 +28,5 @@
 <path d="M300 310 H529 A4 4 0 0 1 533 314 V324 A4 4 0 0 1 529 328 H300 Z" fill="#2a78d6"/>
 <text x="543" y="323" font-size="12.5" font-weight="600" fill="#0b0b0b">201</text>
 <text x="856" y="323" font-size="12.5" font-weight="600" text-anchor="end" fill="#2a78d6">1.8× smaller</text>
-<text x="24" y="378" font-size="11" fill="#52514e">Each metric has its own scale. Full protocol and raw runs: test-hardest/BENCHMARK-PROTOCOL.md</text>
+<text x="24" y="378" font-size="11" fill="#52514e">Public Browser Run 5 vs Playwright MCP Run 2. Each metric has its own scale. Protocol: test-hardest/BENCHMARK-PROTOCOL.md</text>
 </g></svg>
