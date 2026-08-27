@@ -627,8 +627,9 @@ export class BrowserSession implements IBrowserSession {
     return (
       `Chrome is running with profile "${profileName}" but CDP is not reachable on port ${this._cdpPort}. ` +
       `Public Browser will not fall back to a throwaway profile here, because it would not carry your logins. ` +
-      `To use this profile, close Chrome and let Public Browser launch it, or restart Chrome with: ` +
-      `open -a "Google Chrome" --args --remote-debugging-port=${this._cdpPort}`
+      `Quit Chrome completely and retry — Public Browser will then launch it itself with this profile. ` +
+      `Restarting Chrome by hand with --remote-debugging-port does NOT work: since Chrome 136 the switch ` +
+      `is ignored on the default data directory, which is exactly where your profiles live.`
     );
   }
 
