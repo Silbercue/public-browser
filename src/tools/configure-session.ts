@@ -20,6 +20,13 @@ export const configureSessionSchema = z.object({
 
 export type ConfigureSessionParams = z.infer<typeof configureSessionSchema>;
 
+/**
+ * Top-Level-Parameter des Schemas. Aus dem Schema abgeleitet statt hartcodiert,
+ * damit kuenftige Parameter automatisch mitgeprueft werden.
+ */
+const RESERVED_TOP_LEVEL_KEYS = Object.keys(configureSessionSchema.shape)
+  .filter((key) => key !== "defaults");
+
 export async function configureSessionHandler(
   params: ConfigureSessionParams,
   sessionDefaults: SessionDefaults,
@@ -34,6 +41,40 @@ export async function configureSessionHandler(
 ): Promise<ToolResponse> {
   const start = performance.now();
 
+  // FR-049: `restart` & Co. sind Top-Level-Parameter. Landen sie in `defaults`,
+  // fielen sie frueher stillschweigend durch (und wurden sogar als Muell-Default
+  // gecacht) — die Antwort war byteweise dieselbe wie beim Versuch davor.
+  if (params.defaults) {
+    const misplaced = RESERVED_TOP_LEVEL_KEYS.filter(
+      (key) => Object.prototype.hasOwnProperty.call(params.defaults, key),
+    );
+    if (misplaced.length > 0) {
+      const list = misplaced.join(", ");
+      const verb = misplaced.length === 1
+        ? "is a top-level parameter, not a session default"
+        : "are top-level parameters, not session defaults";
+      // Das Beispiel wird aus dem echten Call gebaut — fehlplatzierte Keys mit ihren
+      // Werten, das Profil mit seinem echten Namen. Ein fest verdrahtetes
+      // `restart: true` waere bei anderen Keys ein falscher Rat (FR-049).
+      const defaultsObj = params.defaults as Record<string, unknown>;
+      const exampleParts = misplaced.map((key) => `${key}: ${JSON.stringify(defaultsObj[key]) ?? "undefined"}`);
+      if (params.profile !== undefined) {
+        exampleParts.unshift(`profile: ${JSON.stringify(params.profile)}`);
+      }
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: `${list} ${verb}. Call configure_session({${exampleParts.join(", ")}}) — ${list} belongs next to \`defaults\`, not inside it; keys inside defaults are per-tool parameter defaults (tab, timeout, headless, ...). Nothing was changed.`,
+            misplaced_keys: misplaced,
+          }),
+        }],
+        isError: true,
+        _meta: { elapsedMs: Math.round(performance.now() - start), method: "configure_session" },
+      };
+    }
+  }
+
   if (params.profile !== undefined) {
     if (browserReady && !params.restart) {
       const profiles = discoverProfiles();
@@ -42,7 +83,7 @@ export async function configureSessionHandler(
         content: [{
           type: "text",
           text: JSON.stringify({
-            error: "Cannot change Chrome profile after browser is already running. Use restart: true to restart Chrome with the new profile, or set the profile before the first browser interaction.",
+            error: `Cannot change Chrome profile after browser is already running. Call configure_session({profile: "${params.profile}", restart: true}) to restart Chrome with that profile (restart is a top-level parameter, not a key inside defaults), or set the profile before the first browser interaction.`,
             available_profiles: available,
           }),
         }],

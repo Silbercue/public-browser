@@ -200,4 +200,107 @@ describe("configureSessionHandler", () => {
     const parsed = JSON.parse((result.content[0] as { text: string }).text);
     expect(parsed.defaults).toEqual({ custom_param: "value", another: 42 });
   });
+
+  // ── FR-049: Top-Level-Parameter faelschlich in `defaults` verschachtelt ──
+
+  it("profile + defaults:{restart} bei laufendem Browser → eigener Fehler, nicht der Profil-Text", async () => {
+    const result = await configureSessionHandler(
+      { profile: "Julian", defaults: { restart: true } },
+      sd,
+      /* browserReady */ true,
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error).toContain("restart");
+    expect(parsed.error).toContain("top-level parameter");
+    // Der echte Profilname, nicht ein Platzhalter — die gezeigte Form muss absetzbar sein.
+    expect(parsed.error).toContain("configure_session({profile: \"Julian\", restart: true})");
+    expect(parsed.error).not.toContain("\"...\"");
+    expect(parsed.error).not.toContain("Cannot change Chrome profile");
+  });
+
+  it("defaults:{restart} ohne profile → derselbe Fehler, und nichts landet im Cache", async () => {
+    const result = await configureSessionHandler(
+      { defaults: { restart: true, tab: "tab-abc" } },
+      sd,
+      /* browserReady */ false,
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error).toContain("top-level parameter");
+    // Abgelehnter Call darf nichts schreiben — auch nicht die legitimen Keys daneben.
+    expect(sd.getAllDefaults()).toEqual({});
+  });
+
+  it("mehrere fehlplatzierte Keys werden alle genannt", async () => {
+    const result = await configureSessionHandler(
+      { defaults: { restart: true, autoPromote: true } },
+      sd,
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error).toContain("restart");
+    expect(parsed.error).toContain("autoPromote");
+    // Beispiel ohne profile-Teil, wenn kein Profil im Call stand.
+    // Reihenfolge folgt dem Schema, nicht dem Call — beide Keys mit ihren echten Werten.
+    expect(parsed.error).toContain("configure_session({autoPromote: true, restart: true})");
+    expect(parsed.error).not.toContain("profile:");
+  });
+
+  it("fehlplatziertes autoPromote → Beispiel zeigt autoPromote, nicht restart", async () => {
+    const result = await configureSessionHandler(
+      { defaults: { autoPromote: true } },
+      sd,
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error).toContain("configure_session({autoPromote: true})");
+    // Positive Gegenprobe oben: der Fehler nennt das Beispiel ueberhaupt.
+    // Negativ: kein Rat, der Chrome neu startet.
+    expect(parsed.error).not.toContain("restart");
+  });
+
+  it("profile + defaults:{headless} bleibt erlaubt (frictioneer-Workflow)", async () => {
+    const result = await configureSessionHandler(
+      { profile: "Julian", defaults: { headless: true } },
+      sd,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.defaults).toEqual({ _profile: "Julian", headless: true });
+    expect(parsed.profile).toBe("Julian");
+  });
+
+  it("profile + restart:true bei laufendem Browser bleibt der Restart-Pfad", async () => {
+    const calls: string[] = [];
+    const result = await configureSessionHandler(
+      { profile: "Julian", restart: true },
+      sd,
+      /* browserReady */ true,
+      async () => { calls.push("restart"); },
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(calls).toEqual(["restart"]);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.status).toBe("restarted");
+  });
+
+  it("Profil-Fehler bei laufendem Browser zeigt die vollstaendige Aufrufform", async () => {
+    const result = await configureSessionHandler(
+      { profile: "Julian" },
+      sd,
+      /* browserReady */ true,
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.error).toContain("configure_session({profile: \"Julian\", restart: true})");
+    expect(parsed.available_profiles).toBeDefined();
+  });
 });
