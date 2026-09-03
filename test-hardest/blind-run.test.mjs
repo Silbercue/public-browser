@@ -1,14 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ALL_TESTS, EXCLUDED, SCORABLE, PARTICIPANTS, score, mcpOnly, mqs,
+  ALL_TESTS, EXCLUDED, SCORABLE, SUITE_URL, PARTICIPANTS, score, mcpOnly, mqs,
   nextRunNumber, renderPrompt, compareTable, verifyRunJson,
   mcpCallsFromJsonl, percentile, validateExport,
+  runParticipant, registerParticipant, probeServerInfo, cortexPatternCount,
 } from './blind-run.mjs';
 
 // --- Fixture-Session (A1.1/A1.6): 2 MCP-Calls + 1 verweigerter Bash-Call ---
@@ -91,10 +92,11 @@ test('nextRunNumber: continues per slug, ignores other slugs and prefixes', () =
   assert.equal(nextRunNumber(files, 'public-browser'), 1);
 });
 
-test('renderPrompt substitutes both placeholders and appends smoke suffix only in smoke mode', () => {
-  const t = 'Testing {{MCP_NAME}}. Save to {{EXPORT_PATH}}. Again {{MCP_NAME}}.';
+test('renderPrompt substitutes all placeholders and appends smoke suffix only in smoke mode', () => {
+  const t = 'Testing {{MCP_NAME}}. Save to {{EXPORT_PATH}}. Open {{SUITE_URL}}. Again {{MCP_NAME}}.';
   const full = renderPrompt(t, { mcpName: 'Playwright MCP', exportPath: '/tmp/x/run-export.json', smoke: false });
-  assert.equal(full, 'Testing Playwright MCP. Save to /tmp/x/run-export.json. Again Playwright MCP.');
+  assert.equal(full, `Testing Playwright MCP. Save to /tmp/x/run-export.json. Open ${SUITE_URL}. Again Playwright MCP.`);
+  assert.ok(!full.includes('{{SUITE_URL}}'));
   const smoke = renderPrompt(t, { mcpName: 'X', exportPath: '/p', smoke: true });
   assert.match(smoke, /SMOKE MODE/); assert.match(smoke, /T1\.1 and T1\.2/); assert.match(smoke, /echo probe/);
 });
@@ -104,9 +106,11 @@ test('PARTICIPANTS: four slugs, pinned versions, env is a function', () => {
   assert.equal(PARTICIPANTS['public-browser'].version, '2.10.1');
   assert.ok(PARTICIPANTS['playwright-mcp'].args.join(' ').includes('@playwright/mcp@0.0.80'));
   assert.ok(PARTICIPANTS['chrome-devtools-mcp'].args.join(' ').includes('chrome-devtools-mcp@1.8.0'));
-  const env = PARTICIPANTS['public-browser'].env('/tmp/bench-x');
+  const rundir = mkdtempSync(join(tmpdir(), 'blind-run-env-'));
+  const env = PARTICIPANTS['public-browser'].env(rundir);
   assert.equal(env.PUBLIC_BROWSER_TELEMETRY, '0'); assert.equal(env.PUBLIC_BROWSER_CHROME_PORT, '9333');
-  assert.ok(env.PUBLIC_BROWSER_CORTEX_DIR.startsWith('/'));
+  assert.equal(env.PUBLIC_BROWSER_CORTEX_DIR, join(rundir, 'cortex'));
+  assert.ok(existsSync(env.PUBLIC_BROWSER_CORTEX_DIR), 'cortex dir angelegt');
 });
 
 // A1.5
@@ -216,7 +220,9 @@ test('mcpCallsFromJsonl: only MCP calls, with chars and ms per call', () => {
   assert.deepEqual(calls.map((c) => c.name), ['mcp__playwright__browser_navigate', 'mcp__playwright__browser_click']);
   assert.equal(calls[0].chars, 10);
   assert.equal(calls[0].ms, 1500);
-  assert.equal(calls[1].chars, 5);          // "abc" + "de" aus den text-Teilen
+  // chars folgt measure-tool-calls.sh (`.content | tostring | length`): der Array-Inhalt
+  // zaehlt als kompaktes JSON, nicht nur die text-Teile.
+  assert.equal(calls[1].chars, 58);
   assert.equal(calls[1].ms, 250);
   assert.equal(calls[0].tool_use_id, 'tu1');
 });
@@ -279,4 +285,146 @@ test('measure-tool-calls.sh counts all three fixture calls, denied Bash included
   assert.equal(m.summary.tool_calls_total, 3);
   assert.ok(m.by_tool.some((t) => t.name === 'Bash'), 'Bash im by_tool');
   assert.equal(m.by_tool.find((t) => t.name === 'mcp__playwright__browser_navigate').total_ms, 1500);
+  // Gegenprobe zur chars-Definition oben: das Skript zaehlt denselben Array-Inhalt als 58 Chars.
+  assert.equal(m.by_tool.find((t) => t.name === 'mcp__playwright__browser_click').total_chars, 58);
+});
+
+// --- A2.14: Pipeline-Tests gegen Fake-Claude und Fake-MCP ---
+const HERE_T = dirname(fileURLToPath(import.meta.url));
+const FIXT = join(HERE_T, 'fixtures', 'blind-run');
+let fakeRegistered = false;
+
+function registerFakes() {
+  if (fakeRegistered) return;
+  const base = {
+    display: 'Fake MCP', package: 'fake-mcp', command: process.execPath, args: [join(FIXT, 'fake-mcp.mjs')],
+    env: (_rundir) => ({}), snapshotTool: 'view_page', profile_isolation: 'none (fake)',
+  };
+  registerParticipant('fake', { ...base, name: 'fake', version: '9.9.9' });
+  registerParticipant('fake-mismatch', { ...base, name: 'fake', version: '1.0.0' });
+  fakeRegistered = true;
+}
+
+function pipeEnv(mode) {
+  registerFakes();
+  const tmp = mkdtempSync(join(tmpdir(), 'blind-run-pipe-'));
+  const home = join(tmp, 'home');
+  mkdirSync(join(home, '.claude', 'projects'), { recursive: true });
+  const results = join(tmp, 'results');
+  mkdirSync(results, { recursive: true });
+  return {
+    tmp,
+    rundir: (n = 'run') => join(tmp, n),
+    deps: {
+      claude: { file: process.execPath, argsPrefix: [join(FIXT, 'fake-claude.mjs')] },
+      chromeBin: process.execPath,
+      measureDir: HERE_T,
+      resultsDir: results,
+      projectsDir: join(home, '.claude', 'projects'),
+      suiteFetch: async () => ALL_TESTS.join(' '),
+      envOverrides: { HOME: home, FAKE_CLAUDE_MODE: mode },
+    },
+  };
+}
+
+const statusOf = (rundir) => JSON.parse(readFileSync(join(rundir, 'status.json'), 'utf8'));
+
+test('probeServerInfo: reads serverInfo and instructions from the fake MCP server', async () => {
+  registerFakes();
+  const info = await probeServerInfo(PARTICIPANTS['fake'], {}, undefined, 20_000);
+  assert.equal(info.name, 'fake');
+  assert.equal(info.version, '9.9.9');
+  assert.match(info.instructions, /Cortex: 93 patterns loaded/);
+  assert.equal(cortexPatternCount(info.instructions), 93);
+  assert.equal(cortexPatternCount('no cortex line here'), null);   // Gegenprobe
+});
+
+test('the real prompt template renders without any placeholder left', () => {
+  const tpl = readFileSync(join(HERE_T, 'blind-prompt.md'), 'utf8');
+  const rendered = renderPrompt(tpl, { mcpName: 'Public Browser', exportPath: '/tmp/x/run-export.json', smoke: false });
+  assert.ok(tpl.includes('{{'), 'Vorlage enthaelt ueberhaupt Platzhalter');   // Gegenprobe
+  assert.ok(!rendered.includes('{{'), `Platzhalter uebrig: ${rendered.match(/\{\{[A-Z_]+\}\}/g)}`);
+  assert.ok(rendered.includes(SUITE_URL));
+});
+
+test('pipeline: an ok run writes run1.json, counts MCP calls and proves the Bash denial', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const dir = rundir();
+  const { run, outPath, problems } = await runParticipant('fake', { rundir: dir }, deps);
+  assert.deepEqual(problems, []);
+  assert.equal(run.harness.status, 'ok');
+  assert.equal(run.summary.passed, 3);
+  assert.equal(run.tool_efficiency.calls_total, 2);
+  assert.ok(run.tool_efficiency.p95_response_chars > 0, 'p95_response_chars gesetzt');
+  assert.equal(run.tool_efficiency.p50_response_chars, 10);
+  assert.equal(run.harness.tool_lock.bash_attempted, 1);
+  assert.equal(run.harness.tool_lock.bash_denied, true);
+  assert.deepEqual(run.harness.tool_lock.non_mcp_executed, []);
+  assert.equal(run.mcp_server_info.version, '9.9.9');
+  assert.equal(run.model, 'claude-opus-5-20260514');
+  assert.equal(run.harness.complete, false);
+  assert.match(run.notes, /incomplete: T1\.4/);
+  assert.equal(basename(outPath), 'fake-run1.json');
+  assert.equal(JSON.parse(readFileSync(outPath, 'utf8')).session_id, run.session_id);
+  assert.equal(statusOf(dir).phase, 'ok');
+});
+
+test('pipeline: a missing export aborts but still leaves a run JSON and a terminal status', async () => {
+  const { deps, rundir } = pipeEnv('noexport');
+  const dir = rundir();
+  const { run, outPath } = await runParticipant('fake', { rundir: dir }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.match(run.notes, /no export written/);
+  assert.ok(existsSync(outPath), 'Run-JSON existiert');
+  assert.equal(statusOf(dir).phase, 'aborted');
+});
+
+test('pipeline: an invalid export aborts with the validateExport reason in notes', async () => {
+  const { deps, rundir } = pipeEnv('badexport');
+  const { run } = await runParticipant('fake', { rundir: rundir() }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.match(run.notes, /tests is not an object/);
+});
+
+test('pipeline: the wall-clock limit aborts the run and kills the process group', async () => {
+  const { deps, rundir } = pipeEnv('hang');
+  const dir = rundir();
+  const { run } = await runParticipant('fake', { rundir: dir, timeoutMs: 2000 }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.equal(run.harness.timed_out, true);
+  assert.match(run.notes, /aborted: wall-clock limit/);
+  // Der Kill muss wirklich greifen: das Fake-Claude wuerde sonst 60 s weiterlaufen.
+  assert.ok(run.harness.wall_clock_s <= 6, `wall_clock_s ${run.harness.wall_clock_s}`);
+  assert.ok(run.harness.child_pid > 0);
+  assert.throws(() => process.kill(run.harness.child_pid, 0), /ESRCH/);
+  assert.equal(statusOf(dir).phase, 'aborted');
+});
+
+test('pipeline: a second run gets run2.json and does not overwrite run1', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const first = await runParticipant('fake', { rundir: rundir('a') }, deps);
+  const second = await runParticipant('fake', { rundir: rundir('b') }, deps);
+  assert.equal(basename(first.outPath), 'fake-run1.json');
+  assert.equal(basename(second.outPath), 'fake-run2.json');
+  assert.notEqual(JSON.parse(readFileSync(first.outPath, 'utf8')).session_id,
+    JSON.parse(readFileSync(second.outPath, 'utf8')).session_id);
+  assert.equal(JSON.parse(readFileSync(first.outPath, 'utf8')).run_file, 'fake-run1.json');
+});
+
+test('pipeline: a server version other than the pinned one aborts before the model starts', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const dir = rundir();
+  const { run } = await runParticipant('fake-mismatch', { rundir: dir }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.match(run.notes, /version mismatch/);
+  assert.equal(existsSync(join(dir, 'result.json')), false, 'Claude wurde nicht gestartet');
+  assert.equal(statusOf(dir).phase, 'aborted');
+});
+
+test('pipeline: a non-empty rundir is refused', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const dir = rundir();
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'leftover.txt'), 'x');
+  await assert.rejects(() => runParticipant('fake', { rundir: dir }, deps), /not empty/);
 });
