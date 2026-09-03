@@ -28,7 +28,44 @@
     "schema_fallback": true,
     "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
     "html_bytes": 101149,
-    "fingerprint_ok": true
+    "fingerprint_ok": true,
+    "test_ids": [
+      "T1.1",
+      "T1.2",
+      "T1.3",
+      "T1.4",
+      "T1.5",
+      "T1.6",
+      "T2.1",
+      "T2.2",
+      "T2.3",
+      "T2.4",
+      "T2.5",
+      "T2.6",
+      "T3.1",
+      "T3.2",
+      "T3.3",
+      "T3.4",
+      "T3.5",
+      "T3.6",
+      "T4.1",
+      "T4.2",
+      "T4.3",
+      "T4.4",
+      "T4.5",
+      "T4.6",
+      "T4.7",
+      "T5.1",
+      "T5.2",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6",
+      "T5.7",
+      "T5.8",
+      "T5.9",
+      "T5.10"
+    ]
   },
   "harness": {
     "mode": "blind-print",
@@ -39,19 +76,928 @@
     "node": "v22.14.0",
     "profile_isolation": "--isolated (in-memory profile)",
     "model_requested": "claude-opus-5",
-    "flags": "--model claude-opus-5 --output-format json --session-id e18d64ee-695a-40f2-9e76-29822214c568 --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-playwright-mcp-2/mcp.json --permission-mode dontAsk --allowedTools Write mcp__playwright --tools Write --max-turns 600",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-playwright-mcp-2/mcp.json --permission-mode dontAsk --allowedTools Write mcp__playwright --tools Write --max-turns 600",
     "allowed_tools_form": "plain",
     "wall_clock_s": 527,
     "exit_code": 0,
     "timed_out": false,
     "num_turns": 153,
     "run_dir": "/tmp/bench-playwright-mcp-2",
-    "child_pid": 2134,
     "tool_lock": {
       "bash_attempted": 0,
       "bash_denied": false,
       "non_mcp_executed": []
-    }
+    },
+    "chrome_version_source": "applications-binary",
+    "session_jsonl_sha256": "9aa747e3780437d67ac7b3b988b84776346c51143a3aed77bc616b4013c2f93c",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "mcp__playwright__browser_navigate",
+        "chars": 333,
+        "ms": 927
+      },
+      {
+        "i": 2,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 7527,
+        "ms": 39
+      },
+      {
+        "i": 3,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 341,
+        "ms": 569
+      },
+      {
+        "i": 4,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 1587,
+        "ms": 36
+      },
+      {
+        "i": 5,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 149,
+        "ms": 29
+      },
+      {
+        "i": 6,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 370,
+        "ms": 574
+      },
+      {
+        "i": 7,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 1003,
+        "ms": 31
+      },
+      {
+        "i": 8,
+        "tool": "mcp__playwright__browser_fill_form",
+        "chars": 645,
+        "ms": 112
+      },
+      {
+        "i": 9,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 344,
+        "ms": 566
+      },
+      {
+        "i": 10,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 818,
+        "ms": 549
+      },
+      {
+        "i": 11,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 343,
+        "ms": 550
+      },
+      {
+        "i": 12,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 346,
+        "ms": 556
+      },
+      {
+        "i": 13,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 355,
+        "ms": 554
+      },
+      {
+        "i": 14,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 353,
+        "ms": 567
+      },
+      {
+        "i": 15,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 352,
+        "ms": 575
+      },
+      {
+        "i": 16,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 352,
+        "ms": 573
+      },
+      {
+        "i": 17,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 350,
+        "ms": 587
+      },
+      {
+        "i": 18,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 352,
+        "ms": 570
+      },
+      {
+        "i": 19,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 359,
+        "ms": 565
+      },
+      {
+        "i": 20,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 279,
+        "ms": 525
+      },
+      {
+        "i": 21,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 141,
+        "ms": 17
+      },
+      {
+        "i": 22,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 354,
+        "ms": 579
+      },
+      {
+        "i": 23,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 364,
+        "ms": 528
+      },
+      {
+        "i": 24,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 366,
+        "ms": 1435
+      },
+      {
+        "i": 25,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 7082,
+        "ms": 28
+      },
+      {
+        "i": 26,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 353,
+        "ms": 556
+      },
+      {
+        "i": 27,
+        "tool": "mcp__playwright__browser_wait_for",
+        "chars": 369,
+        "ms": 2543
+      },
+      {
+        "i": 28,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 349,
+        "ms": 527
+      },
+      {
+        "i": 29,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 152,
+        "ms": 24
+      },
+      {
+        "i": 30,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 580
+      },
+      {
+        "i": 31,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 850,
+        "ms": 1029
+      },
+      {
+        "i": 32,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 365,
+        "ms": 566
+      },
+      {
+        "i": 33,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 376,
+        "ms": 530
+      },
+      {
+        "i": 34,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 358,
+        "ms": 577
+      },
+      {
+        "i": 35,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 574
+      },
+      {
+        "i": 36,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 850,
+        "ms": 16
+      },
+      {
+        "i": 37,
+        "tool": "mcp__playwright__browser_fill_form",
+        "chars": 216,
+        "ms": 36
+      },
+      {
+        "i": 38,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 556
+      },
+      {
+        "i": 39,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 725,
+        "ms": 23
+      },
+      {
+        "i": 40,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 358,
+        "ms": 565
+      },
+      {
+        "i": 41,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 381,
+        "ms": 558
+      },
+      {
+        "i": 42,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 780,
+        "ms": 21
+      },
+      {
+        "i": 43,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 336,
+        "ms": 578
+      },
+      {
+        "i": 44,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 370,
+        "ms": 516
+      },
+      {
+        "i": 45,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 538,
+        "ms": 604
+      },
+      {
+        "i": 46,
+        "tool": "mcp__playwright__browser_tabs",
+        "chars": 203,
+        "ms": 18
+      },
+      {
+        "i": 47,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 707,
+        "ms": 37
+      },
+      {
+        "i": 48,
+        "tool": "mcp__playwright__browser_tabs",
+        "chars": 133,
+        "ms": 33
+      },
+      {
+        "i": 49,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 155,
+        "ms": 26
+      },
+      {
+        "i": 50,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 578
+      },
+      {
+        "i": 51,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 357,
+        "ms": 597
+      },
+      {
+        "i": 52,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 389,
+        "ms": 518
+      },
+      {
+        "i": 53,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 357,
+        "ms": 572
+      },
+      {
+        "i": 54,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 389,
+        "ms": 521
+      },
+      {
+        "i": 55,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 154,
+        "ms": 28
+      },
+      {
+        "i": 56,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 568
+      },
+      {
+        "i": 57,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 364,
+        "ms": 529
+      },
+      {
+        "i": 58,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 362,
+        "ms": 668
+      },
+      {
+        "i": 59,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 3976,
+        "ms": 33
+      },
+      {
+        "i": 60,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 359,
+        "ms": 580
+      },
+      {
+        "i": 61,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 154,
+        "ms": 17
+      },
+      {
+        "i": 62,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 608
+      },
+      {
+        "i": 63,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 427,
+        "ms": 595
+      },
+      {
+        "i": 64,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 156,
+        "ms": 21
+      },
+      {
+        "i": 65,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 562
+      },
+      {
+        "i": 66,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 376,
+        "ms": 518
+      },
+      {
+        "i": 67,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 731,
+        "ms": 518
+      },
+      {
+        "i": 68,
+        "tool": "mcp__playwright__browser_drag",
+        "chars": 386,
+        "ms": 597
+      },
+      {
+        "i": 69,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 219,
+        "ms": 520
+      },
+      {
+        "i": 70,
+        "tool": "mcp__playwright__browser_drag",
+        "chars": 401,
+        "ms": 598
+      },
+      {
+        "i": 71,
+        "tool": "mcp__playwright__browser_drag",
+        "chars": 401,
+        "ms": 587
+      },
+      {
+        "i": 72,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 219,
+        "ms": 520
+      },
+      {
+        "i": 73,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 356,
+        "ms": 561
+      },
+      {
+        "i": 74,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1047,
+        "ms": 536
+      },
+      {
+        "i": 75,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1209,
+        "ms": 571
+      },
+      {
+        "i": 76,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1026,
+        "ms": 539
+      },
+      {
+        "i": 77,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 1177,
+        "ms": 559
+      },
+      {
+        "i": 78,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 370,
+        "ms": 526
+      },
+      {
+        "i": 79,
+        "tool": "mcp__playwright__browser_press_key",
+        "chars": 123,
+        "ms": 19
+      },
+      {
+        "i": 80,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 369,
+        "ms": 523
+      },
+      {
+        "i": 81,
+        "tool": "mcp__playwright__browser_press_key",
+        "chars": 117,
+        "ms": 18
+      },
+      {
+        "i": 82,
+        "tool": "mcp__playwright__browser_press_key",
+        "chars": 342,
+        "ms": 555
+      },
+      {
+        "i": 83,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1298,
+        "ms": 521
+      },
+      {
+        "i": 84,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 654,
+        "ms": 519
+      },
+      {
+        "i": 85,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 431,
+        "ms": 576
+      },
+      {
+        "i": 86,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 499,
+        "ms": 565
+      },
+      {
+        "i": 87,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 424,
+        "ms": 528
+      },
+      {
+        "i": 88,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 587
+      },
+      {
+        "i": 89,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 364,
+        "ms": 518
+      },
+      {
+        "i": 90,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 361,
+        "ms": 1387
+      },
+      {
+        "i": 91,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 5035,
+        "ms": 23
+      },
+      {
+        "i": 92,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 359,
+        "ms": 581
+      },
+      {
+        "i": 93,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 867,
+        "ms": 533
+      },
+      {
+        "i": 94,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 367,
+        "ms": 573
+      },
+      {
+        "i": 95,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 356,
+        "ms": 520
+      },
+      {
+        "i": 96,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 357,
+        "ms": 563
+      },
+      {
+        "i": 97,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 934,
+        "ms": 538
+      },
+      {
+        "i": 98,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1098,
+        "ms": 524
+      },
+      {
+        "i": 99,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 357,
+        "ms": 577
+      },
+      {
+        "i": 100,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 670,
+        "ms": 2116
+      },
+      {
+        "i": 101,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 365,
+        "ms": 907
+      },
+      {
+        "i": 102,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 191,
+        "ms": 523
+      },
+      {
+        "i": 103,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 148,
+        "ms": 39
+      },
+      {
+        "i": 104,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 823
+      },
+      {
+        "i": 105,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 324,
+        "ms": 514
+      },
+      {
+        "i": 106,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 362,
+        "ms": 788
+      },
+      {
+        "i": 107,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 356,
+        "ms": 764
+      },
+      {
+        "i": 108,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 147,
+        "ms": 45
+      },
+      {
+        "i": 109,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 853
+      },
+      {
+        "i": 110,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 385,
+        "ms": 519
+      },
+      {
+        "i": 111,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 504,
+        "ms": 522
+      },
+      {
+        "i": 112,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 484,
+        "ms": 519
+      },
+      {
+        "i": 113,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 359,
+        "ms": 757
+      },
+      {
+        "i": 114,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 234,
+        "ms": 4525
+      },
+      {
+        "i": 115,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 162,
+        "ms": 36
+      },
+      {
+        "i": 116,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 809
+      },
+      {
+        "i": 117,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 390,
+        "ms": 520
+      },
+      {
+        "i": 118,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 362,
+        "ms": 776
+      },
+      {
+        "i": 119,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 1359,
+        "ms": 462
+      },
+      {
+        "i": 120,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1554,
+        "ms": 575
+      },
+      {
+        "i": 121,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 638,
+        "ms": 524
+      },
+      {
+        "i": 122,
+        "tool": "mcp__playwright__browser_fill_form",
+        "chars": 270,
+        "ms": 92
+      },
+      {
+        "i": 123,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 369,
+        "ms": 715
+      },
+      {
+        "i": 124,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 199,
+        "ms": 524
+      },
+      {
+        "i": 125,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 155,
+        "ms": 33
+      },
+      {
+        "i": 126,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 375,
+        "ms": 740
+      },
+      {
+        "i": 127,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 379,
+        "ms": 516
+      },
+      {
+        "i": 128,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 368,
+        "ms": 1492
+      },
+      {
+        "i": 129,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1729,
+        "ms": 533
+      },
+      {
+        "i": 130,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 629
+      },
+      {
+        "i": 131,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 392,
+        "ms": 523
+      },
+      {
+        "i": 132,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 633
+      },
+      {
+        "i": 133,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 435,
+        "ms": 524
+      },
+      {
+        "i": 134,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 3396,
+        "ms": 521
+      },
+      {
+        "i": 135,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 641
+      },
+      {
+        "i": 136,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 879,
+        "ms": 17
+      },
+      {
+        "i": 137,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 644
+      },
+      {
+        "i": 138,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 856,
+        "ms": 26
+      },
+      {
+        "i": 139,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 659
+      },
+      {
+        "i": 140,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 957,
+        "ms": 31
+      },
+      {
+        "i": 141,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 349,
+        "ms": 648
+      },
+      {
+        "i": 142,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 843,
+        "ms": 32
+      },
+      {
+        "i": 143,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 349,
+        "ms": 632
+      },
+      {
+        "i": 144,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 203,
+        "ms": 25
+      },
+      {
+        "i": 145,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 299,
+        "ms": 559
+      },
+      {
+        "i": 146,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 425,
+        "ms": 521
+      },
+      {
+        "i": 147,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 92,
+        "ms": 19
+      },
+      {
+        "i": 148,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 354,
+        "ms": 1452
+      },
+      {
+        "i": 149,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 592,
+        "ms": 93
+      },
+      {
+        "i": 150,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 358,
+        "ms": 645
+      },
+      {
+        "i": 151,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 5835,
+        "ms": 521
+      }
+    ]
   },
   "summary": {
     "total": 35,
