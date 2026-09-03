@@ -148,7 +148,7 @@ python -m pip install ./python
 
 `Chrome.connect()` auto-starts the Public Browser server as a subprocess via a local `public-browser` binary or the `npx` fallback — no manual Chrome launch or port setup needed.
 
-> **Legacy single-file alternative:** For quick prototyping you can copy [`python/silbercuechrome.py`](python/silbercuechrome.py) into your project. This uses v1 direct CDP and does not benefit from server-side improvements — use the local `publicbrowser` package for the full Shared Core experience.
+> **Legacy single-file alternative:** For quick prototyping you can copy [`python/publicbrowser_standalone.py`](python/publicbrowser_standalone.py) into your project. This uses v1 direct CDP and does not benefit from server-side improvements — use the local `publicbrowser` package for the full Shared Core experience.
 
 ### How it works
 

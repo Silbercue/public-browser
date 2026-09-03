@@ -414,7 +414,7 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
     it("uebernimmt CLAUDE_CODE_SESSION_ID und CLAUDE_PROJECT_DIR in den Eintrag", async () => {
       process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
       process.env.CLAUDE_CODE_SESSION_ID = "f65dfbdc-9a0d-4735-85dd-eed6c615b9ad";
-      process.env.CLAUDE_PROJECT_DIR = "/Users/silbercue/Documents/Cursor/Skills/SilbercueChrome";
+      process.env.CLAUDE_PROJECT_DIR = "/home/dev/my-app";
 
       const recorder = new FrictionRecorder({ dataDir: "/fake" });
       await recorder.init();
@@ -423,7 +423,7 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       const entry = lastWrittenQueue().sessions[0];
       expect(entry.sessionIds).toEqual(["f65dfbdc-9a0d-4735-85dd-eed6c615b9ad"]);
-      expect(entry.projectDir).toBe("/Users/silbercue/Documents/Cursor/Skills/SilbercueChrome");
+      expect(entry.projectDir).toBe("/home/dev/my-app");
     });
 
     it("faellt ohne CLAUDE_PROJECT_DIR auf process.cwd() zurueck, sessionIds bleibt leer ohne CLAUDE_CODE_SESSION_ID", async () => {
@@ -448,7 +448,7 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
     it("traegt die UUID der juengsten .jsonl-Datei nach, wenn sie noch nicht bekannt ist", async () => {
       process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
       process.env.CLAUDE_CODE_SESSION_ID = "old-session-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-      process.env.CLAUDE_PROJECT_DIR = "/Users/silbercue/Documents/Cursor/Skills/SilbercueChrome";
+      process.env.CLAUDE_PROJECT_DIR = "/home/dev/my-app";
 
       mockReaddir.mockResolvedValue([
         "old-session-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl",
@@ -478,14 +478,14 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
 
       // Slug-Regel: alles ausser [a-zA-Z0-9] wird zu "-".
       expect(mockReaddir).toHaveBeenCalledWith(
-        "/Users/testuser/.claude/projects/-Users-silbercue-Documents-Cursor-Skills-SilbercueChrome",
+        "/Users/testuser/.claude/projects/-home-dev-my-app",
       );
     });
 
     it("haengt keine zweite ID an, wenn die juengste Datei bereits bekannt ist", async () => {
       process.env.SILBERCUE_CHROME_FRICTION_LOG = "1";
       process.env.CLAUDE_CODE_SESSION_ID = "known-session-cccc-cccc-cccc-cccccccccccc";
-      process.env.CLAUDE_PROJECT_DIR = "/Users/silbercue/Documents/Cursor/Skills/SilbercueChrome";
+      process.env.CLAUDE_PROJECT_DIR = "/home/dev/my-app";
 
       mockReaddir.mockResolvedValue(["known-session-cccc-cccc-cccc-cccccccccccc.jsonl"] as never);
       mockStat.mockResolvedValue({ mtimeMs: 5000 } as never);

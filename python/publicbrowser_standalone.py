@@ -1,11 +1,11 @@
-"""SilbercueChrome — Single-file CDP client for Chrome browser automation.
+"""Public Browser — single-file CDP client for Chrome browser automation.
 
 Copy this file into your project for zero-install browser automation.
 Only requires ``websockets`` (pip install websockets).
 
 Usage::
 
-    from silbercuechrome import Chrome
+    from publicbrowser_standalone import Chrome
 
     chrome = Chrome.connect(port=9222)
     with chrome.new_page() as page:

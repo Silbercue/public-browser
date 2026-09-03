@@ -189,7 +189,7 @@ claude mcp add --scope user public-browser npx -y public-browser@latest -- --scr
 
 ## Legacy: Single-File Alternative
 
-For quick prototyping, you can copy `silbercuechrome.py` into your project. This uses the v1 code path (direct CDP via WebSocket) and does **not** benefit from server-side improvements. Use the local `publicbrowser` package for the full Shared Core experience.
+For quick prototyping, you can copy `publicbrowser_standalone.py` into your project. This uses the v1 code path (direct CDP via WebSocket) and does **not** benefit from server-side improvements. Use the local `publicbrowser` package for the full Shared Core experience.
 
 ## License
 

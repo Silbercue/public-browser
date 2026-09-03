@@ -161,18 +161,18 @@ class TestPackageImports:
 
 
 class TestSingleFile:
-    """Verify the single-file silbercuechrome.py has identical API surface."""
+    """Verify the single-file publicbrowser_standalone.py has identical API surface."""
 
     @pytest.fixture(autouse=True)
     def _load_single_file(self) -> None:
         """Import the single-file module."""
-        single_file_path = Path(__file__).parent.parent / "silbercuechrome.py"
-        assert single_file_path.exists(), "silbercuechrome.py single-file not found"
+        single_file_path = Path(__file__).parent.parent / "publicbrowser_standalone.py"
+        assert single_file_path.exists(), "publicbrowser_standalone.py single-file not found"
 
         # Import the single file as a separate module to avoid collision
         # with the package
         spec = importlib.util.spec_from_file_location(
-            "silbercuechrome_single", str(single_file_path)
+            "publicbrowser_standalone_single", str(single_file_path)
         )
         assert spec is not None
         assert spec.loader is not None
@@ -266,7 +266,7 @@ class TestReadme:
 
     def test_mentions_single_file(self) -> None:
         """README mentions the single-file alternative."""
-        assert "silbercuechrome.py" in self.content
+        assert "publicbrowser_standalone.py" in self.content
 
     def test_has_api_reference(self) -> None:
         """README contains API reference section."""
