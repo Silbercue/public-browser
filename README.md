@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-A Chrome MCP server that talks straight to CDP. It finished the same 30-test benchmark page in 84 and 86 tool calls where Playwright MCP needed 137 and 151 — two runs each, 2026-09-03, driver Claude Opus 5, same pass rate ([Benchmarks](#benchmarks), including where it loses). Direct CDP, a11y-tree refs, multi-tab ready — 2,310 TypeScript tests, 237 Python tests.
+A Chrome MCP server that talks straight to CDP. It finished the same 30-test benchmark page in 84 and 86 tool calls where Playwright MCP needed 137 and 151 — two runs each, 2026-09-03, driver Claude Opus 5, same pass rate ([Benchmarks](#benchmarks), including where it loses). Direct CDP, a11y-tree refs, multi-tab ready — 2,322 TypeScript tests, 237 Python tests.
 
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
 
@@ -14,11 +14,11 @@ Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.
 
 ## Why Public Browser?
 
-Every Chrome MCP server has the same problem: **too many tokens, too few reliable refs.** Screenshots eat 10-30x more tokens than text trees. Selector-based refs break the second the DOM rerenders. Extension bridges (Browser MCP) get stuck on the connected tab. Playwright wrappers spin up a new browser instance for every session.
+Every Chrome MCP server has the same problem: **bulky responses, too few reliable refs.** Screenshots return 10-30x more context payload than text trees. Selector-based refs break the second the DOM rerenders. Extension bridges (Browser MCP) get stuck on the connected tab. Playwright wrappers spin up a new browser instance for every session.
 
 Public Browser fixes this. It talks directly to Chrome via CDP (same protocol Playwright and Puppeteer use internally), returns an accessibility-tree-based reference map, and caches it across calls so `click(ref: 'e5')` and `type(ref: 'e7', ...)` survive scrolls and DOM updates.
 
-Benchmark rows below are **April 2026, 35-test suite, Opus 4.6** unless a cell also gives a September value. Cells marked *Sep* come from the blind September 2026 re-run (35-test page, 30 scored, driver `claude-opus-5`, two runs per server) — run files `public-browser-run1/2.json`, `playwright-mcp-run5/6.json`, `browser-use-run6.json` in [`test-hardest/results/`](test-hardest/results). Cross-suite comparison is not valid; see [Benchmarks](#benchmarks).
+Benchmark rows below are **April 2026, 35-test suite, Opus 4.6** unless a cell also gives a September value. Cells marked *Sep* come from the blind September 2026 re-run (35-test page, 30 scored, driver `claude-opus-5`, two runs per required server; one browser-use run) — run files `public-browser-run1/2.json`, `playwright-mcp-run5/6.json`, `chrome-devtools-mcp-run3/4.json`, `browser-use-run6.json` in [`test-hardest/results/`](test-hardest/results). Cross-suite comparison is not valid; see [Benchmarks](#benchmarks).
 
 | What you get | Playwright MCP | Browser MCP | claude-in-chrome | browser-use | **Public Browser** |
 |---|---|---|---|---|---|
