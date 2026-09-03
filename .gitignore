@@ -46,7 +46,6 @@ CLAUDE.md
 _bmad/
 _bmad-output/
 docs/
-scripts/
 test-hardest/
 test-stress/
 live-test/
@@ -55,6 +54,14 @@ research/
 prompt.md
 PUBLIC_BROWSER_FINDINGS.md
 compare-*.png
+
+# scripts/: nur die oeffentlich nutzbaren Helfer liegen im Repo
+scripts/*
+!scripts/check-pack.mjs
+!scripts/dev-mode.sh
+!scripts/publish.ts
+!scripts/publish.test.ts
+!scripts/token-count.mjs
 
 # Registry-Publish-Tokens (lokal, niemals committen)
 .mcpregistry_*_token

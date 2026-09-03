@@ -68,7 +68,6 @@
     "token-count": "node scripts/token-count.mjs",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.ts\"",
-    "benchmark": "node test-hardest/benchmark-full.mjs",
     "publish:release": "tsx scripts/publish.ts",
     "dev": "bash scripts/dev-mode.sh on",
     "dev:off": "bash scripts/dev-mode.sh off",
