@@ -6,11 +6,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab ready — 2,310 TypeScript tests, 237 Python tests.
+A Chrome MCP server that talks straight to CDP. It finished the same 30-test benchmark page in 84 and 86 tool calls where Playwright MCP needed 137 and 151 — two runs each, 2026-09-03, driver Claude Opus 5, same pass rate ([Benchmarks](#benchmarks), including where it loses). Direct CDP, a11y-tree refs, multi-tab ready — 2,310 TypeScript tests, 237 Python tests.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-dark.svg">
-  <img alt="Public Browser versus Playwright MCP, lower is better. Each bar is what Public Browser needed where the full track is Playwright MCP. Tool calls to pass all 24 tests: 71 of 138, 49% fewer. Page snapshot: 1,124 of 6,084 chars, 5.4x smaller. P95 tool response: 2,328 of 8,068 chars, 3.5x smaller. Average tool response: 201 of 362 tokens, 1.8x smaller. Pass rate is a tie at 30 of 31 each." src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-light.svg" width="880">
+  <img alt="April 2026, 24- and 35-test suites, Opus 4.6 — historical, superseded by the September 2026 numbers below. Public Browser versus Playwright MCP, lower is better. Each bar is what Public Browser needed where the full track is Playwright MCP. Tool calls to pass all 24 tests: 71 of 138, 49% fewer. Page snapshot: 1,124 of 6,084 chars, 5.4x smaller. P95 tool response: 2,328 of 8,068 chars, 3.5x smaller. Average tool response: 201 of 362 tokens, 1.8x smaller. Pass rate is a tie at 30 of 31 each." src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-light.svg" width="880">
 </picture>
 
 <sub>Chart: April 2026, 24-test suite, Opus 4.6 — current numbers below.</sub>
@@ -521,7 +521,7 @@ immediately and never waits, for either a start or a completion.
 | Tool | Description |
 |---|---|
 | **Reading & Observation** | |
-| `view_page` | A11y-tree with stable `e`-refs — primary way to understand the page. `filter: "interactive"` (default) returns the elements an agent can act on; `filter: "all"` adds headings, paragraphs and other static text. 5.4x more compact than Playwright's `browser_snapshot`. |
+| `view_page` | A11y-tree with stable `e`-refs — primary way to understand the page. `filter: "interactive"` (default) returns the elements an agent can act on; `filter: "all"` adds headings, paragraphs and other static text. |
 | `capture_image` | WebP screenshot, max 800px, <100KB. For visual verification only — refs come from `view_page`. |
 | `console_logs` | Browser console output with level/pattern filters |
 | `network_monitor` | Start/stop/query network requests with filtering |
@@ -647,7 +647,7 @@ Public Browser Run 5 vs Playwright MCP Run 2 — the same two runs as the pass-r
 
 Public Browser's `click` is 2.8x larger than Playwright's because every click response embeds the DOM diff (NEW/REMOVED/CHANGED lines). Playwright returns a bare confirmation, forcing the LLM to follow up with a `browser_snapshot` or `browser_evaluate` to see what happened. Over a full benchmark run, Playwright MCP spends **47 `browser_evaluate` calls** averaging 2,155 chars against Public Browser's 33 at 510 chars. Public Browser delivers the diff inline. Net result: PB's click+read_page+evaluate total is **120k chars vs Playwright MCP's 170k** — 30% less response content overall.
 
-> **`view_page` is 5.4x more compact than Playwright MCP's `browser_snapshot`**
+> **April 2026, Opus 4.6: `view_page` was 5.4x more compact than Playwright MCP's `browser_snapshot`** (superseded — against Playwright MCP 0.0.80 in September 2026 it is not)
 
 Measured on the 35-test benchmark (2026-04-09): Public Browser's `view_page` averages **1,124 chars per call** vs Playwright MCP's `browser_snapshot` at **6,084 chars**. Same page, same test suite, same LLM driver. The a11y-tree compression + Ambient Context pipeline means we only send what the agent actually needs — smaller responses, less context pressure, cheaper runs.
 
