@@ -42,9 +42,6 @@ __pycache__/
 
 # Internal dev tooling (not for public repo)
 CLAUDE.md
-.prettierrc
-eslint.config.js
-vitest.config.ts
 .claude/
 _bmad/
 _bmad-output/
@@ -58,3 +55,6 @@ research/
 prompt.md
 PUBLIC_BROWSER_FINDINGS.md
 compare-*.png
+
+# Registry-Publish-Tokens (lokal, niemals committen)
+.mcpregistry_*_token
