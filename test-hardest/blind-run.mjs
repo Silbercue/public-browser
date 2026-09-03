@@ -496,6 +496,8 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
   const exportPath = join(rundir, 'run-export.json');
   const mcpPrefix = `mcp__${p.name}__`;
   const notes = [];
+  // status.json-Phasen: starting → running → measuring → terminal. Terminal ist genau eine von
+  // 'ok' (offizieller Lauf bestanden), 'smoke' (Smoke bestanden), 'aborted' (alles andere).
   const statusWrite = (phase, extra = {}) => writeFileSync(join(rundir, 'status.json'),
     `${JSON.stringify({ slug, session_id: sessionId, rundir, phase, updated: now().toISOString(), ...extra }, null, 2)}\n`);
 
@@ -604,18 +606,23 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
   } catch (e) {
     notes.push(`aborted: ${e.message}`);
   } finally {
-    if (res?.pid && isAlive(res.pid)) killGroup(res.pid, 'SIGTERM');
+    if (res?.pid && isAlive(res.pid)) {
+      killGroup(res.pid, 'SIGTERM');
+      setTimeout(() => killGroup(res.pid, 'SIGKILL'), 10_000).unref();
+    }
     if (slug === 'public-browser') killChromeOnPort(9333);
   }
 
   const eff = mcpOnly(tools?.by_tool, mcpPrefix);
   const summary = { ...score(exp?.tests), duration_s: exp?.elapsed_s > 0 ? exp.elapsed_s : wallClockS };
-  const modelOk = typeof model === 'string' && model.startsWith(model_requested.startsWith(MODEL_PIN) ? MODEL_PIN : 'claude-');
-  if (model && !modelOk) notes.push(`aborted: model mismatch: ${model} (requested ${model_requested})`);
+  // Der Pin gilt auch auf dem Fallback-Pfad (--model opus): die JSONL muss claude-opus-5 melden.
+  const modelOk = typeof model === 'string' && model.startsWith(MODEL_PIN);
+  if (!model) notes.push('aborted: model not found in session JSONL');
+  else if (!modelOk) notes.push(`aborted: model mismatch: ${model} (requested ${model_requested}, pinned ${MODEL_PIN})`);
   // Der Smoke-Prompt fordert genau einen Bash-Versuch an: taucht Bash trotzdem als
   // ausgefuehrter Call auf, ist die Sperre offen. Kein Call = das Werkzeug fehlte.
   const lockOk = toolLock.non_mcp_executed.length === 0;
-  if (!lockOk) notes.push(`aborted: non-MCP tools executed: ${toolLock.non_mcp_executed.join(', ')}`);
+  if (!lockOk) notes.push(`aborted: fairness violated, non-MCP tools executed: ${toolLock.non_mcp_executed.join(', ')}`);
   const executionOk = res?.code === 0 && !res?.timedOut && expProblems.length === 0 && !staleExport
     && modelOk && measureOk && lockOk && (smoke || suiteOk);
   const runStatus = executionOk ? (smoke ? 'smoke' : 'ok') : 'aborted';
@@ -682,7 +689,8 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
   const data = `${JSON.stringify(run, null, 2)}\n`;
   if (smoke) {
     outPath = join(rundir, 'run.json');
-    writeFileSync(outPath, data);
+    run.run_file = basename(outPath);            // gleiches Schema wie beim offiziellen Lauf
+    writeFileSync(outPath, `${JSON.stringify(run, null, 2)}\n`);
   } else {
     mkdirSync(d.resultsDir, { recursive: true });
     outPath = writeResultFile(d.resultsDir, slug, data);
@@ -728,14 +736,15 @@ async function main(argv) {
   if (cmd === 'run') {
     const slug = rest[0];
     const timeoutMin = opt('--timeout-min');
-    const { run } = await runParticipant(slug, {
+    const { run, problems } = await runParticipant(slug, {
       smoke: rest.includes('--smoke'),
       rundir: opt('--rundir'),
       allowedToolsForm: opt('--allowed-tools-form'),
       model: opt('--model'),
       timeoutMs: timeoutMin ? Number(timeoutMin) * 60_000 : undefined,
     });
-    process.exit(['ok', 'smoke'].includes(run.harness.status) ? 0 : 2);
+    // Exit 2 auch bei Post-Write-Problemen, damit eine Skript-Kette sie nicht uebersieht.
+    process.exit(['ok', 'smoke'].includes(run.harness.status) && problems.length === 0 ? 0 : 2);
   } else if (cmd === 'compare') {
     console.log(compareFromResults(opt('--dir')));
   } else {

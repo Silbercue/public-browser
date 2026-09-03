@@ -366,6 +366,7 @@ test('pipeline: an ok run writes run1.json, counts MCP calls and proves the Bash
   assert.equal(run.harness.complete, false);
   assert.match(run.notes, /incomplete: T1\.4/);
   assert.equal(basename(outPath), 'fake-run1.json');
+  assert.equal(run.run_file, 'fake-run1.json');
   assert.equal(JSON.parse(readFileSync(outPath, 'utf8')).session_id, run.session_id);
   assert.equal(statusOf(dir).phase, 'ok');
 });
@@ -443,6 +444,32 @@ test('pipeline: a changed suite page aborts an official run and only warns in a 
   assert.equal(smoke.run.harness.status, 'smoke');       // Gegenprobe: im Smoke nur eine Notiz
   assert.match(smoke.run.notes, /suite fingerprint not verified/);
   assert.equal(smoke.run.suite.fingerprint_ok, false);
+  assert.equal(smoke.run.run_file, 'run.json');          // Smoke-JSON traegt dasselbe Feld wie der offizielle Lauf
+});
+
+test('pipeline: the model pin holds on the fallback path (--model opus) too', async () => {
+  const { deps, rundir } = pipeEnv('badmodel');
+  // Auf dem Fallback-Pfad wird "opus" angefordert; die JSONL muss trotzdem claude-opus-5 melden.
+  const { run } = await runParticipant('fake', { rundir: rundir(), model: 'opus' }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.match(run.notes, /model mismatch: claude-sonnet-4-5/);
+});
+
+test('pipeline: a session JSONL without a model aborts with a note', async () => {
+  const { deps, rundir } = pipeEnv('nomodel');
+  const { run } = await runParticipant('fake', { rundir: rundir() }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.equal(run.model, 'unknown');
+  assert.match(run.notes, /model not found in session JSONL/);
+});
+
+test('pipeline: an executed non-MCP call breaks fairness and aborts the run', async () => {
+  const { deps, rundir } = pipeEnv('bashexec');
+  const { run } = await runParticipant('fake', { rundir: rundir() }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.deepEqual(run.harness.tool_lock.non_mcp_executed, ['Bash']);
+  assert.equal(run.harness.tool_lock.bash_denied, false);
+  assert.match(run.notes, /fairness violated/);
 });
 
 test('pipeline: a non-empty rundir is refused', async () => {

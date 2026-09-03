@@ -4,6 +4,9 @@
 //   noexport — wie ok, aber ohne run-export.json
 //   badexport— wie ok, aber Export ist {"tests":[]}
 //   hang     — schlaeft 60 s (fuer den Wall-Clock-Timeout)
+//   badmodel — wie ok, aber die JSONL meldet claude-sonnet-4-5
+//   nomodel  — wie ok, aber die Assistant-Zeilen tragen kein message.model
+//   bashexec — wie ok, aber der Bash-Call wurde AUSGEFUEHRT (Ergebnis "probe")
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -20,10 +23,11 @@ else {
   if (!sessionId || !mcpConfig) { console.error('fake-claude: --session-id / --mcp-config fehlt'); process.exit(3); }
 
   const t = (offsetMs) => new Date(Date.now() + offsetMs).toISOString();
-  const model = 'claude-opus-5-20260514';
+  const model = mode === 'badmodel' ? 'claude-sonnet-4-5' : 'claude-opus-5-20260514';
   const A = (ts, id, name) => JSON.stringify({
     type: 'assistant', timestamp: ts, uuid: `u-${id}`,
-    message: { model, usage: { output_tokens: 7, input_tokens: 3, cache_read_input_tokens: 100, cache_creation_input_tokens: 0 },
+    message: { ...(mode === 'nomodel' ? {} : { model }),
+      usage: { output_tokens: 7, input_tokens: 3, cache_read_input_tokens: 100, cache_creation_input_tokens: 0 },
       content: [{ type: 'tool_use', id, name, input: {} }] },
   });
   const U = (ts, id, content) => JSON.stringify({
@@ -36,7 +40,9 @@ else {
     A(t(2000), 'tu2', 'mcp__fake__click'),
     U(t(2250), 'tu2', [{ type: 'text', text: 'abc' }, { type: 'text', text: 'de' }]),
     A(t(3000), 'tu3', 'Bash'),
-    U(t(3100), 'tu3', 'Claude requested permissions to use Bash, but you have not granted it yet.'),
+    U(t(3100), 'tu3', mode === 'bashexec'
+      ? 'probe'
+      : 'Claude requested permissions to use Bash, but you have not granted it yet.'),
   ].join('\n') + '\n';
 
   const slug = realpathSync(process.cwd()).replace(/[^A-Za-z0-9]/g, '-');
@@ -44,7 +50,7 @@ else {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${sessionId}.jsonl`), jsonl);
 
-  if (mode === 'ok') {
+  if (mode !== 'noexport' && mode !== 'badexport') {
     writeFileSync(join(process.cwd(), 'run-export.json'), JSON.stringify({
       timestamp: new Date().toISOString(), elapsed_s: 42,
       tests: { 'T1.1': { status: 'pass', duration_ms: 10 }, 'T1.2': { status: 'pass', duration_ms: 11 }, 'T1.3': { status: 'pass', duration_ms: 12 } },
