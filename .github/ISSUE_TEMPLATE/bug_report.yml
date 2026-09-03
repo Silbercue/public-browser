@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in Public Browser does not behave as documented
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The page or URL, the tool call with its arguments, and the response.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Public Browser version
+      placeholder: "2.10.1 (npx public-browser --version)"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "macOS 15, Node 22, Chrome 146, Claude Code"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant server output. Redact anything private.
+      render: text
