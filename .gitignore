@@ -46,7 +46,19 @@ CLAUDE.md
 _bmad/
 _bmad-output/
 docs/
-test-hardest/
+# test-hardest: nur Rohdaten, Harness und Liesmich sind oeffentlich; die Seite selbst bleibt privat
+test-hardest/*
+!test-hardest/results/
+!test-hardest/benchmark-*.json
+!test-hardest/README.md
+!test-hardest/measure-tool-calls.sh
+!test-hardest/measure-session-cost.sh
+!test-hardest/blind-run.mjs
+!test-hardest/blind-run.test.mjs
+!test-hardest/blind-prompt.md
+!test-hardest/fixtures/
+test-hardest/fixtures/*
+!test-hardest/fixtures/blind-run/
 test-stress/
 live-test/
 marketing/
