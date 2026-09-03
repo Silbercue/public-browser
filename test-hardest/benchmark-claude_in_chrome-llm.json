@@ -1,0 +1,32 @@
+{
+  "name": "claude-in-chrome",
+  "type": "llm-driven",
+  "timestamp": "2026-04-02T19:18:00Z",
+  "summary": { "total": 24, "passed": 24, "failed": 0, "duration_s": 772, "tool_uses": 193 },
+  "tests": {
+    "T1.1": { "status": "pass", "duration_ms": 8020 },
+    "T1.2": { "status": "pass", "duration_ms": 19666 },
+    "T1.3": { "status": "pass", "duration_ms": 45714 },
+    "T1.4": { "status": "pass", "duration_ms": 27900 },
+    "T1.5": { "status": "pass", "duration_ms": 27745 },
+    "T1.6": { "status": "pass", "duration_ms": 22535 },
+    "T2.1": { "status": "pass", "duration_ms": 85275 },
+    "T2.2": { "status": "pass", "duration_ms": 30967 },
+    "T2.3": { "status": "pass", "duration_ms": 27460 },
+    "T2.4": { "status": "pass", "duration_ms": 20919 },
+    "T2.5": { "status": "pass", "duration_ms": 33370 },
+    "T2.6": { "status": "pass", "duration_ms": 22850 },
+    "T3.1": { "status": "pass", "duration_ms": 7318 },
+    "T3.2": { "status": "pass", "duration_ms": 8663 },
+    "T3.3": { "status": "pass", "duration_ms": 10528 },
+    "T3.4": { "status": "pass", "duration_ms": 2346 },
+    "T3.5": { "status": "pass", "duration_ms": 3189 },
+    "T3.6": { "status": "pass", "duration_ms": 6515 },
+    "T4.1": { "status": "pass", "duration_ms": 15323 },
+    "T4.2": { "status": "pass", "duration_ms": 32147 },
+    "T4.3": { "status": "pass", "duration_ms": 9429 },
+    "T4.4": { "status": "pass", "duration_ms": 7883 },
+    "T4.5": { "status": "pass", "duration_ms": 15502 },
+    "T4.6": { "status": "pass", "duration_ms": 41851 }
+  }
+}

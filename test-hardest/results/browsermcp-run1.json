@@ -1,0 +1,299 @@
+{
+  "name": "browsermcp",
+  "type": "mcp-llm",
+  "timestamp": "2026-04-10T20:36:00Z",
+  "model": "claude-opus-4-6",
+  "run_status": "aborted",
+  "abort_reason": "Level-2-Tab-Click reproducibly timed out (WebSocket response timeout after 30000ms). Level 2-5 and Results tab unreachable. Run stopped after Level 1 complete.",
+  "summary": {
+    "total": 35,
+    "counted": 31,
+    "passed": 6,
+    "failed": 25,
+    "skipped": 4,
+    "pass_rate": 19.35,
+    "duration_s": 294
+  },
+  "tokens": {
+    "start": 2239396,
+    "end": 13920030,
+    "delta": 11680634
+  },
+  "mqs": {
+    "score": 48.8,
+    "token_score": 33.8,
+    "reliability_score": 10.4,
+    "call_score": 97.6,
+    "speed_score": 95.8,
+    "baseline": "playwright-mcp-run2-2026-04-09",
+    "note": "MQS misleadingly high — run aborted after 6 tests. Call-Score and Speed-Score benefit from short run. Honest indicators: Reliability 10.4 + Token 33.8. Fair per-test efficiency vs SC Pro: 49s vs 16s, 43k chars vs 5k chars."
+  },
+  "tool_efficiency": {
+    "calls_total": 62,
+    "response_chars_total": 259240,
+    "avg_response_chars": 4181,
+    "avg_response_tokens_est": 1045,
+    "p50_response_chars": 4965,
+    "p95_response_chars": 5327,
+    "by_tool": [
+      {
+        "name": "mcp__browsermcp__browser_click",
+        "count": 35,
+        "avg_chars": 4453,
+        "p95_chars": 5327,
+        "total_chars": 155880,
+        "avg_ms": 9516,
+        "p50_ms": 6101,
+        "p95_ms": 30007,
+        "max_ms": 30011,
+        "total_ms": 333090,
+        "avg_output_tokens": 235,
+        "total_output_tokens": 8238,
+        "avg_total_tokens_est": 1348,
+        "total_total_tokens_est": 47193
+      },
+      {
+        "name": "mcp__browsermcp__browser_type",
+        "count": 10,
+        "avg_chars": 5088,
+        "p95_chars": 5334,
+        "total_chars": 50887,
+        "avg_ms": 3047,
+        "p50_ms": 3046,
+        "p95_ms": 3052,
+        "max_ms": 3061,
+        "total_ms": 30474,
+        "avg_output_tokens": 192,
+        "total_output_tokens": 1928,
+        "avg_total_tokens_est": 1464,
+        "total_total_tokens_est": 14645
+      },
+      {
+        "name": "mcp__browsermcp__browser_snapshot",
+        "count": 8,
+        "avg_chars": 3990,
+        "p95_chars": 5295,
+        "total_chars": 31921,
+        "avg_ms": 22,
+        "p50_ms": 13,
+        "p95_ms": 26,
+        "max_ms": 78,
+        "total_ms": 180,
+        "avg_output_tokens": 142,
+        "total_output_tokens": 1142,
+        "avg_total_tokens_est": 1139,
+        "total_total_tokens_est": 9117
+      },
+      {
+        "name": "mcp__browsermcp__browser_navigate",
+        "count": 4,
+        "avg_chars": 5084,
+        "p95_chars": 5292,
+        "total_chars": 20336,
+        "avg_ms": 119,
+        "p50_ms": 48,
+        "p95_ms": 163,
+        "max_ms": 241,
+        "total_ms": 477,
+        "avg_output_tokens": 596,
+        "total_output_tokens": 2384,
+        "avg_total_tokens_est": 1867,
+        "total_total_tokens_est": 7468
+      },
+      {
+        "name": "mcp__browsermcp__browser_select_option",
+        "count": 3,
+        "avg_chars": 45,
+        "p95_chars": 47,
+        "total_chars": 136,
+        "avg_ms": 14,
+        "p50_ms": 14,
+        "p95_ms": 14,
+        "max_ms": 16,
+        "total_ms": 43,
+        "avg_output_tokens": 190,
+        "total_output_tokens": 571,
+        "avg_total_tokens_est": 201,
+        "total_total_tokens_est": 603
+      },
+      {
+        "name": "mcp__browsermcp__browser_press_key",
+        "count": 2,
+        "avg_chars": 40,
+        "p95_chars": 40,
+        "total_chars": 80,
+        "avg_ms": 3026,
+        "p50_ms": 3013,
+        "p95_ms": 3013,
+        "max_ms": 3040,
+        "total_ms": 6053,
+        "avg_output_tokens": 76,
+        "total_output_tokens": 152,
+        "avg_total_tokens_est": 86,
+        "total_total_tokens_est": 172
+      }
+    ],
+    "avg_ms": 5972,
+    "p95_ms_max_across_tools": 30007,
+    "max_ms_across_tools": 30011,
+    "total_ms": 370317,
+    "total_output_tokens": 14415,
+    "avg_output_tokens": 232,
+    "total_tokens_est": 79198,
+    "avg_tokens_est": 1277,
+    "cache_read_tokens_total": 10294111,
+    "cache_creation_tokens_total": 246058,
+    "fresh_input_tokens_total": 164,
+    "cache_hit_rate": 97.66
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "details": "Button clicked"
+    },
+    "T1.2": {
+      "status": "pass",
+      "details": "Read hidden text"
+    },
+    "T1.3": {
+      "status": "pass",
+      "details": "Form filled (select_option failed 3x, workaround: click + press_key 'g')"
+    },
+    "T1.4": {
+      "status": "pass",
+      "details": "All 5 selectors clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "details": "Navigation sequence Alpha/Beta/Gamma"
+    },
+    "T1.6": {
+      "status": "pass",
+      "details": "Table sum 255"
+    },
+    "T2.1": {
+      "status": "fail",
+      "details": "UNREACHABLE — Level 2 tab click timed out"
+    },
+    "T2.2": {
+      "status": "fail",
+      "details": "UNREACHABLE — Level 2 tab click timed out"
+    },
+    "T2.3": {
+      "status": "fail",
+      "details": "UNREACHABLE — Level 2 tab click timed out"
+    },
+    "T2.4": {
+      "status": "fail",
+      "details": "UNREACHABLE — Level 2 tab click timed out"
+    },
+    "T2.5": {
+      "status": "fail",
+      "details": "UNREACHABLE — Level 2 tab click timed out"
+    },
+    "T2.6": {
+      "status": "fail",
+      "details": "UNREACHABLE — Level 2 tab click timed out"
+    },
+    "T3.1": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T3.2": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T3.3": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T3.4": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T3.5": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T3.6": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T4.1": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T4.2": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T4.3": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T4.4": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T4.5": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T4.6": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T4.7": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T5.1": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T5.2": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T5.3": {
+      "status": "skip",
+      "details": "Runner-Only"
+    },
+    "T5.4": {
+      "status": "skip",
+      "details": "Runner-Only"
+    },
+    "T5.5": {
+      "status": "skip",
+      "details": "Runner-Only"
+    },
+    "T5.6": {
+      "status": "skip",
+      "details": "Runner-Only"
+    },
+    "T5.7": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T5.8": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T5.9": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    },
+    "T5.10": {
+      "status": "fail",
+      "details": "UNREACHABLE"
+    }
+  },
+  "critical_bugs": [
+    "Navigation-Tab-Blocker (CRITICAL): Click auf Level 2/3/4/5 und Results-Tab fuehrt reproduzierbar zu WebSocket response timeout after 30000ms. 25 Tests dadurch unreachable.",
+    "select_option fehlerhaft: 3 Varianten fuer Country-Dropdown (Germany/germany/DE) schlugen fehl. Workaround: click + press_key 'g' + click Option.",
+    "Extension-Pairing: Vor dem ersten Tool-Call muss der User manuell im Browser auf 'Connect' klicken. Kein Zero-Config.",
+    "Response-Overhead: Jeder Call liefert vollen Accessibility-Tree (~5k Chars avg), auch bei state-freiem Klick. avg_response 4.181 Chars vs SC Pro 1.474 Chars (3x groesser)."
+  ],
+  "schema_fallback": true,
+  "schema_version": 2
+}

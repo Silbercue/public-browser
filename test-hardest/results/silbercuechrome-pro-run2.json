@@ -1,0 +1,380 @@
+{
+  "name": "SilbercueChrome Pro",
+  "type": "mcp-llm",
+  "timestamp": "2026-04-10T10:49:55Z",
+  "model": "claude-opus-4-6",
+  "summary": {
+    "total": 35,
+    "counted": 31,
+    "passed": 29,
+    "failed": 2,
+    "skipped": 4,
+    "duration_s": 562
+  },
+  "tokens": {
+    "start": 685019,
+    "end": 18568871,
+    "delta": 17883852
+  },
+  "tool_efficiency": {
+    "calls_total": 83,
+    "calls_mcp_only": 78,
+    "response_chars_total": 241851,
+    "avg_response_chars": 2913,
+    "avg_response_tokens_est": 728,
+    "p50_response_chars": 1170,
+    "p95_response_chars": 10112,
+    "by_tool": [
+      {
+        "name": "mcp__silbercuechrome__click",
+        "count": 20,
+        "avg_chars": 1562,
+        "p95_chars": 1924,
+        "total_chars": 31251,
+        "avg_ms": 668,
+        "p50_ms": 435,
+        "p95_ms": 2160,
+        "max_ms": 2364,
+        "total_ms": 13372,
+        "avg_output_tokens": 128,
+        "total_output_tokens": 2563,
+        "avg_total_tokens_est": 518,
+        "total_total_tokens_est": 10367
+      },
+      {
+        "name": "mcp__silbercuechrome__run_plan",
+        "count": 16,
+        "avg_chars": 2828,
+        "p95_chars": 4532,
+        "total_chars": 45259,
+        "avg_ms": 1721,
+        "p50_ms": 1146,
+        "p95_ms": 4663,
+        "max_ms": 5874,
+        "total_ms": 27543,
+        "avg_output_tokens": 331,
+        "total_output_tokens": 5306,
+        "avg_total_tokens_est": 1038,
+        "total_total_tokens_est": 16616
+      },
+      {
+        "name": "mcp__silbercuechrome__read_page",
+        "count": 15,
+        "avg_chars": 6079,
+        "p95_chars": 10112,
+        "total_chars": 91199,
+        "avg_ms": 454,
+        "p50_ms": 52,
+        "p95_ms": 2016,
+        "max_ms": 2285,
+        "total_ms": 6823,
+        "avg_output_tokens": 146,
+        "total_output_tokens": 2194,
+        "avg_total_tokens_est": 1666,
+        "total_total_tokens_est": 24990
+      },
+      {
+        "name": "mcp__silbercuechrome__evaluate",
+        "count": 12,
+        "avg_chars": 347,
+        "p95_chars": 608,
+        "total_chars": 4172,
+        "avg_ms": 303,
+        "p50_ms": 54,
+        "p95_ms": 97,
+        "max_ms": 3023,
+        "total_ms": 3646,
+        "avg_output_tokens": 450,
+        "total_output_tokens": 5405,
+        "avg_total_tokens_est": 537,
+        "total_total_tokens_est": 6445
+      },
+      {
+        "name": "mcp__silbercuechrome__observe",
+        "count": 5,
+        "avg_chars": 140,
+        "p95_chars": 160,
+        "total_chars": 701,
+        "avg_ms": 5227,
+        "p50_ms": 4581,
+        "p95_ms": 5014,
+        "max_ms": 10015,
+        "total_ms": 26137,
+        "avg_output_tokens": 425,
+        "total_output_tokens": 2125,
+        "avg_total_tokens_est": 459,
+        "total_total_tokens_est": 2298
+      },
+      {
+        "name": "mcp__silbercuechrome__screenshot",
+        "count": 2,
+        "avg_chars": 32552,
+        "p95_chars": 30252,
+        "total_chars": 65104,
+        "avg_ms": 480,
+        "p50_ms": 95,
+        "p95_ms": 95,
+        "max_ms": 865,
+        "total_ms": 960,
+        "avg_output_tokens": 198,
+        "total_output_tokens": 396,
+        "avg_total_tokens_est": 8336,
+        "total_total_tokens_est": 16672
+      },
+      {
+        "name": "mcp__silbercuechrome__scroll",
+        "count": 2,
+        "avg_chars": 68,
+        "p95_chars": 50,
+        "total_chars": 137,
+        "avg_ms": 21,
+        "p50_ms": 9,
+        "p95_ms": 9,
+        "max_ms": 34,
+        "total_ms": 43,
+        "avg_output_tokens": 299,
+        "total_output_tokens": 599,
+        "avg_total_tokens_est": 316,
+        "total_total_tokens_est": 632
+      },
+      {
+        "name": "mcp__silbercuechrome__switch_tab",
+        "count": 2,
+        "avg_chars": 255,
+        "p95_chars": 247,
+        "total_chars": 510,
+        "avg_ms": 37,
+        "p50_ms": 30,
+        "p95_ms": 30,
+        "max_ms": 45,
+        "total_ms": 75,
+        "avg_output_tokens": 129,
+        "total_output_tokens": 258,
+        "avg_total_tokens_est": 192,
+        "total_total_tokens_est": 384
+      },
+      {
+        "name": "mcp__silbercuechrome__navigate",
+        "count": 1,
+        "avg_chars": 107,
+        "p95_chars": 107,
+        "total_chars": 107,
+        "avg_ms": 2872,
+        "p50_ms": 2872,
+        "p95_ms": 2872,
+        "max_ms": 2872,
+        "total_ms": 2872,
+        "avg_output_tokens": 144,
+        "total_output_tokens": 144,
+        "avg_total_tokens_est": 170,
+        "total_total_tokens_est": 170
+      },
+      {
+        "name": "mcp__silbercuechrome__tab_status",
+        "count": 1,
+        "avg_chars": 84,
+        "p95_chars": 84,
+        "total_chars": 84,
+        "avg_ms": 995,
+        "p50_ms": 995,
+        "p95_ms": 995,
+        "max_ms": 995,
+        "total_ms": 995,
+        "avg_output_tokens": 47,
+        "total_output_tokens": 47,
+        "avg_total_tokens_est": 68,
+        "total_total_tokens_est": 68
+      },
+      {
+        "name": "mcp__silbercuechrome__type",
+        "count": 1,
+        "avg_chars": 77,
+        "p95_chars": 77,
+        "total_chars": 77,
+        "avg_ms": 70,
+        "p50_ms": 70,
+        "p95_ms": 70,
+        "max_ms": 70,
+        "total_ms": 70,
+        "avg_output_tokens": 335,
+        "total_output_tokens": 335,
+        "avg_total_tokens_est": 354,
+        "total_total_tokens_est": 354
+      },
+      {
+        "name": "mcp__silbercuechrome__virtual_desk",
+        "count": 1,
+        "avg_chars": 314,
+        "p95_chars": 314,
+        "total_chars": 314,
+        "avg_ms": 7,
+        "p50_ms": 7,
+        "p95_ms": 7,
+        "max_ms": 7,
+        "total_ms": 7,
+        "avg_output_tokens": 46,
+        "total_output_tokens": 46,
+        "avg_total_tokens_est": 124,
+        "total_total_tokens_est": 124
+      }
+    ],
+    "per_test": {},
+    "avg_ms": 1058,
+    "p95_ms_max_across_tools": 5014,
+    "max_ms_across_tools": 10015,
+    "total_ms": 82543,
+    "total_output_tokens": 19418,
+    "avg_output_tokens": 248,
+    "total_tokens_est": 79120,
+    "avg_tokens_est": 1014,
+    "cache_read_tokens_total": 11772521,
+    "cache_creation_tokens_total": 189273,
+    "fresh_input_tokens_total": 146,
+    "cache_hit_rate": 98.41
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 387
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 392
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 500
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 1242
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 383
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 38917
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 64350
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 19476
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 13833
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 27926
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 5667
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 22567
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 1
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 46525
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 34458
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 372
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 20968
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 27095
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 12385
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 21854
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 10259
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 16817
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 21674
+    },
+    "T4.7": {
+      "status": "fail",
+      "duration_ms": 80065,
+      "details": "interactive: 2571 tokens OVER BUDGET (limit 2000)"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 27731
+    },
+    "T5.2": {
+      "status": "fail",
+      "duration_ms": 444,
+      "details": "navigator.webdriver: EXPOSED (true)"
+    },
+    "T5.3": {
+      "status": "skipped",
+      "details": "Runner-Only"
+    },
+    "T5.4": {
+      "status": "skipped",
+      "details": "Runner-Only"
+    },
+    "T5.5": {
+      "status": "skipped",
+      "details": "Runner-Only"
+    },
+    "T5.6": {
+      "status": "skipped",
+      "details": "Runner-Only"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 10156
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 4958
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 4900
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 5175
+    }
+  },
+  "schema_version": 2
+}

@@ -1,0 +1,457 @@
+{
+  "name": "Chrome DevTools MCP",
+  "slug": "chrome-devtools-mcp",
+  "type": "mcp-llm",
+  "mcp_package": "chrome-devtools-mcp",
+  "mcp_version": "1.8.0",
+  "snapshot_tool": "take_snapshot",
+  "mcp_server_info": {
+    "name": "chrome_devtools",
+    "version": "1.8.0",
+    "instructions": null
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "152.0.7977.65",
+  "session_id": "720094bb-8e92-40fc-9c5b-a732a359d8b2",
+  "timestamp": "2026-09-03T19:20:10.223Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true
+  },
+  "harness": {
+    "mode": "blind-print",
+    "status": "ok",
+    "complete": true,
+    "claude_code_version": "2.1.259",
+    "os": "darwin 25.6.0",
+    "node": "v22.14.0",
+    "profile_isolation": "--isolated (temp user-data-dir)",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id 720094bb-8e92-40fc-9c5b-a732a359d8b2 --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-chrome-devtools-mcp-2/mcp.json --permission-mode dontAsk --allowedTools Write mcp__chrome-devtools --tools Write --max-turns 600",
+    "allowed_tools_form": "plain",
+    "wall_clock_s": 597,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 174,
+    "run_dir": "/tmp/bench-chrome-devtools-mcp-2",
+    "child_pid": 711,
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    }
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 29,
+    "failed": 1,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 96.7,
+    "duration_s": 558
+  },
+  "tokens": {
+    "start": 0,
+    "end": 12465445,
+    "delta": 12465445
+  },
+  "cost_usd_list": 6.366694000000001,
+  "mqs": {
+    "score": 55.7,
+    "token_score": 73.1,
+    "reliability_score": 51.7,
+    "call_score": 35.2,
+    "speed_score": 50.4,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": null,
+  "tool_efficiency": {
+    "calls_total": 172,
+    "response_chars_total": 119846,
+    "avg_response_chars": 696,
+    "p50_response_chars": 79,
+    "p95_response_chars": 5271,
+    "p50_ms": 239,
+    "p95_ms": 508,
+    "avg_response_tokens_est": 174,
+    "total_tokens_est": 54976,
+    "avg_tokens_est": 319,
+    "avg_ms": 301,
+    "total_ms": 51809,
+    "total_output_tokens": 25091,
+    "avg_output_tokens": 145,
+    "cache_read_tokens_total": 9494224,
+    "cache_creation_tokens_total": 87310,
+    "fresh_input_tokens_total": 346,
+    "cache_hit_rate": 99.08,
+    "by_tool": [
+      {
+        "name": "mcp__chrome-devtools__click",
+        "count": 62,
+        "total_chars": 36774,
+        "avg_chars": 593,
+        "p95_chars": 5291,
+        "max_chars": 5817,
+        "avg_ms": 260,
+        "p50_ms": 250,
+        "p95_ms": 320,
+        "max_ms": 389,
+        "total_ms": 16168,
+        "avg_output_tokens": 114,
+        "total_output_tokens": 7122,
+        "avg_total_tokens_est": 262,
+        "total_total_tokens_est": 16285
+      },
+      {
+        "name": "mcp__chrome-devtools__evaluate_script",
+        "count": 62,
+        "total_chars": 30308,
+        "avg_chars": 488,
+        "p95_chars": 1348,
+        "max_chars": 5682,
+        "avg_ms": 389,
+        "p50_ms": 225,
+        "p95_ms": 734,
+        "max_ms": 4279,
+        "total_ms": 24145,
+        "avg_output_tokens": 198,
+        "total_output_tokens": 12314,
+        "avg_total_tokens_est": 320,
+        "total_total_tokens_est": 19865
+      },
+      {
+        "name": "mcp__chrome-devtools__take_snapshot",
+        "count": 14,
+        "total_chars": 50306,
+        "avg_chars": 3593,
+        "p95_chars": 5630,
+        "max_chars": 6465,
+        "avg_ms": 86,
+        "p50_ms": 29,
+        "p95_ms": 41,
+        "max_ms": 823,
+        "total_ms": 1207,
+        "avg_output_tokens": 98,
+        "total_output_tokens": 1372,
+        "avg_total_tokens_est": 995,
+        "total_total_tokens_est": 13943
+      },
+      {
+        "name": "mcp__chrome-devtools__fill",
+        "count": 13,
+        "total_chars": 806,
+        "avg_chars": 62,
+        "p95_chars": 62,
+        "max_chars": 62,
+        "avg_ms": 260,
+        "p50_ms": 256,
+        "p95_ms": 296,
+        "max_ms": 323,
+        "total_ms": 3391,
+        "avg_output_tokens": 118,
+        "total_output_tokens": 1544,
+        "avg_total_tokens_est": 133,
+        "total_total_tokens_est": 1739
+      },
+      {
+        "name": "mcp__chrome-devtools__press_key",
+        "count": 10,
+        "total_chars": 643,
+        "avg_chars": 64,
+        "p95_chars": 68,
+        "max_chars": 68,
+        "avg_ms": 223,
+        "p50_ms": 225,
+        "p95_ms": 229,
+        "max_ms": 233,
+        "total_ms": 2239,
+        "avg_output_tokens": 112,
+        "total_output_tokens": 1121,
+        "avg_total_tokens_est": 127,
+        "total_total_tokens_est": 1279
+      },
+      {
+        "name": "mcp__chrome-devtools__drag",
+        "count": 3,
+        "total_chars": 174,
+        "avg_chars": 58,
+        "p95_chars": 58,
+        "max_chars": 58,
+        "avg_ms": 335,
+        "p50_ms": 333,
+        "p95_ms": 333,
+        "max_ms": 343,
+        "total_ms": 1006,
+        "avg_output_tokens": 260,
+        "total_output_tokens": 782,
+        "avg_total_tokens_est": 274,
+        "total_total_tokens_est": 824
+      },
+      {
+        "name": "mcp__chrome-devtools__fill_form",
+        "count": 3,
+        "total_chars": 249,
+        "avg_chars": 83,
+        "p95_chars": 59,
+        "max_chars": 131,
+        "avg_ms": 769,
+        "p50_ms": 508,
+        "p95_ms": 508,
+        "max_ms": 1552,
+        "total_ms": 2307,
+        "avg_output_tokens": 162,
+        "total_output_tokens": 486,
+        "avg_total_tokens_est": 182,
+        "total_total_tokens_est": 546
+      },
+      {
+        "name": "mcp__chrome-devtools__type_text",
+        "count": 2,
+        "total_chars": 95,
+        "avg_chars": 47,
+        "p95_chars": 47,
+        "max_chars": 48,
+        "avg_ms": 224,
+        "p50_ms": 223,
+        "p95_ms": 223,
+        "max_ms": 226,
+        "total_ms": 449,
+        "avg_output_tokens": 83,
+        "total_output_tokens": 166,
+        "avg_total_tokens_est": 94,
+        "total_total_tokens_est": 189
+      },
+      {
+        "name": "mcp__chrome-devtools__close_page",
+        "count": 1,
+        "total_chars": 145,
+        "avg_chars": 145,
+        "p95_chars": 145,
+        "max_chars": 145,
+        "avg_ms": 40,
+        "p50_ms": 40,
+        "p95_ms": 40,
+        "max_ms": 40,
+        "total_ms": 40,
+        "avg_output_tokens": 61,
+        "total_output_tokens": 61,
+        "avg_total_tokens_est": 97,
+        "total_total_tokens_est": 97
+      },
+      {
+        "name": "mcp__chrome-devtools__list_pages",
+        "count": 1,
+        "total_chars": 212,
+        "avg_chars": 212,
+        "p95_chars": 212,
+        "max_chars": 212,
+        "avg_ms": 14,
+        "p50_ms": 14,
+        "p95_ms": 14,
+        "max_ms": 14,
+        "total_ms": 14,
+        "avg_output_tokens": 39,
+        "total_output_tokens": 39,
+        "avg_total_tokens_est": 92,
+        "total_total_tokens_est": 92
+      },
+      {
+        "name": "mcp__chrome-devtools__new_page",
+        "count": 1,
+        "total_chars": 134,
+        "avg_chars": 134,
+        "p95_chars": 134,
+        "max_chars": 134,
+        "avg_ms": 843,
+        "p50_ms": 843,
+        "p95_ms": 843,
+        "max_ms": 843,
+        "total_ms": 843,
+        "avg_output_tokens": 84,
+        "total_output_tokens": 84,
+        "avg_total_tokens_est": 117,
+        "total_total_tokens_est": 117
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 5236,
+      "details": "Correct: N62C-75DA"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 7538,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 13885,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 9756,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 5433,
+      "details": "Correct sum: 251"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 51051,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 11258,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 17998,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 8418,
+      "details": "TypeScript selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 17077,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 26950,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 19024,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 8014,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 1,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 26866,
+      "details": "Hit! Distance: 0.3px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 12605,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 46192,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 34246,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 23246,
+      "details": "Captured at exactly 4!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 11616,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 15778,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 23108,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 55434,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 13717,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "fail",
+      "duration_ms": 12392,
+      "details": "navigator.webdriver: EXPOSED (true), chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 10798,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 4035,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 6095,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 6223,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 29,
+    "failed": 1
+  },
+  "notes": "",
+  "run_file": "chrome-devtools-mcp-run4.json"
+}

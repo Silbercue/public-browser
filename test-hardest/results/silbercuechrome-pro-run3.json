@@ -1,0 +1,378 @@
+{
+  "name": "SilbercueChrome Pro",
+  "type": "mcp-llm",
+  "timestamp": "2026-04-10T11:11:04.000Z",
+  "model": "claude-opus-4-6",
+  "summary": {
+    "total": 35,
+    "counted": 31,
+    "passed": 29,
+    "failed": 2,
+    "skipped": 4,
+    "duration_s": 572
+  },
+  "tokens": {
+    "start": 623070,
+    "end": 21353093,
+    "delta": 20730023
+  },
+  "tool_efficiency": {
+    "calls_total": 107,
+    "response_chars_total": 235671,
+    "avg_response_chars": 2203,
+    "avg_response_tokens_est": 551,
+    "p50_response_chars": 958,
+    "p95_response_chars": 6101,
+    "by_tool": [
+      {
+        "name": "mcp__silbercuechrome__read_page",
+        "count": 32,
+        "avg_chars": 1685,
+        "p95_chars": 3232,
+        "total_chars": 53944,
+        "avg_ms": 528,
+        "p50_ms": 39,
+        "p95_ms": 2415,
+        "max_ms": 4584,
+        "total_ms": 16918,
+        "avg_output_tokens": 350,
+        "total_output_tokens": 11210,
+        "avg_total_tokens_est": 771,
+        "total_total_tokens_est": 24685
+      },
+      {
+        "name": "mcp__silbercuechrome__click",
+        "count": 26,
+        "avg_chars": 1474,
+        "p95_chars": 1878,
+        "total_chars": 38346,
+        "avg_ms": 936,
+        "p50_ms": 432,
+        "p95_ms": 2417,
+        "max_ms": 5149,
+        "total_ms": 24338,
+        "avg_output_tokens": 232,
+        "total_output_tokens": 6053,
+        "avg_total_tokens_est": 601,
+        "total_total_tokens_est": 15630
+      },
+      {
+        "name": "mcp__silbercuechrome__evaluate",
+        "count": 15,
+        "avg_chars": 751,
+        "p95_chars": 1293,
+        "total_chars": 11278,
+        "avg_ms": 149,
+        "p50_ms": 62,
+        "p95_ms": 76,
+        "max_ms": 1524,
+        "total_ms": 2249,
+        "avg_output_tokens": 439,
+        "total_output_tokens": 6591,
+        "avg_total_tokens_est": 627,
+        "total_total_tokens_est": 9405
+      },
+      {
+        "name": "mcp__silbercuechrome__run_plan",
+        "count": 10,
+        "avg_chars": 3593,
+        "p95_chars": 5629,
+        "total_chars": 35931,
+        "avg_ms": 1191,
+        "p50_ms": 393,
+        "p95_ms": 2899,
+        "max_ms": 3987,
+        "total_ms": 11918,
+        "avg_output_tokens": 539,
+        "total_output_tokens": 5392,
+        "avg_total_tokens_est": 1437,
+        "total_total_tokens_est": 14374
+      },
+      {
+        "name": "mcp__silbercuechrome__observe",
+        "count": 7,
+        "avg_chars": 90,
+        "p95_chars": 125,
+        "total_chars": 636,
+        "avg_ms": 3368,
+        "p50_ms": 3517,
+        "p95_ms": 5010,
+        "max_ms": 5012,
+        "total_ms": 23579,
+        "avg_output_tokens": 409,
+        "total_output_tokens": 2864,
+        "avg_total_tokens_est": 431,
+        "total_total_tokens_est": 3021
+      },
+      {
+        "name": "mcp__silbercuechrome__scroll",
+        "count": 7,
+        "avg_chars": 79,
+        "p95_chars": 89,
+        "total_chars": 557,
+        "avg_ms": 18,
+        "p50_ms": 10,
+        "p95_ms": 31,
+        "max_ms": 44,
+        "total_ms": 131,
+        "avg_output_tokens": 195,
+        "total_output_tokens": 1370,
+        "avg_total_tokens_est": 215,
+        "total_total_tokens_est": 1506
+      },
+      {
+        "name": "mcp__silbercuechrome__switch_tab",
+        "count": 3,
+        "avg_chars": 193,
+        "p95_chars": 247,
+        "total_chars": 581,
+        "avg_ms": 27,
+        "p50_ms": 23,
+        "p95_ms": 23,
+        "max_ms": 44,
+        "total_ms": 82,
+        "avg_output_tokens": 291,
+        "total_output_tokens": 875,
+        "avg_total_tokens_est": 339,
+        "total_total_tokens_est": 1018
+      },
+      {
+        "name": "mcp__silbercuechrome__screenshot",
+        "count": 2,
+        "avg_chars": 46676,
+        "p95_chars": 35516,
+        "total_chars": 93352,
+        "avg_ms": 92,
+        "p50_ms": 90,
+        "p95_ms": 90,
+        "max_ms": 94,
+        "total_ms": 184,
+        "avg_output_tokens": 324,
+        "total_output_tokens": 649,
+        "avg_total_tokens_est": 11993,
+        "total_total_tokens_est": 23987
+      },
+      {
+        "name": "mcp__silbercuechrome__virtual_desk",
+        "count": 2,
+        "avg_chars": 314,
+        "p95_chars": 314,
+        "total_chars": 628,
+        "avg_ms": 6,
+        "p50_ms": 6,
+        "p95_ms": 6,
+        "max_ms": 7,
+        "total_ms": 13,
+        "avg_output_tokens": 180,
+        "total_output_tokens": 360,
+        "avg_total_tokens_est": 258,
+        "total_total_tokens_est": 516
+      },
+      {
+        "name": "mcp__silbercuechrome__fill_form",
+        "count": 1,
+        "avg_chars": 234,
+        "p95_chars": 234,
+        "total_chars": 234,
+        "avg_ms": 49,
+        "p50_ms": 49,
+        "p95_ms": 49,
+        "max_ms": 49,
+        "total_ms": 49,
+        "avg_output_tokens": 460,
+        "total_output_tokens": 460,
+        "avg_total_tokens_est": 518,
+        "total_total_tokens_est": 518
+      },
+      {
+        "name": "mcp__silbercuechrome__navigate",
+        "count": 1,
+        "avg_chars": 107,
+        "p95_chars": 107,
+        "total_chars": 107,
+        "avg_ms": 1199,
+        "p50_ms": 1199,
+        "p95_ms": 1199,
+        "max_ms": 1199,
+        "total_ms": 1199,
+        "avg_output_tokens": 72,
+        "total_output_tokens": 72,
+        "avg_total_tokens_est": 98,
+        "total_total_tokens_est": 98
+      },
+      {
+        "name": "mcp__silbercuechrome__type",
+        "count": 1,
+        "avg_chars": 77,
+        "p95_chars": 77,
+        "total_chars": 77,
+        "avg_ms": 8,
+        "p50_ms": 8,
+        "p95_ms": 8,
+        "max_ms": 8,
+        "total_ms": 8,
+        "avg_output_tokens": 199,
+        "total_output_tokens": 199,
+        "avg_total_tokens_est": 218,
+        "total_total_tokens_est": 218
+      }
+    ],
+    "avg_ms": 753,
+    "p95_ms_max_across_tools": 5010,
+    "max_ms_across_tools": 5149,
+    "total_ms": 80668,
+    "total_output_tokens": 36095,
+    "avg_output_tokens": 337,
+    "total_tokens_est": 94976,
+    "avg_tokens_est": 887,
+    "cache_read_tokens_total": 13269072,
+    "cache_creation_tokens_total": 210857,
+    "fresh_input_tokens_total": 172,
+    "cache_hit_rate": 98.43
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 32
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 401
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 483
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 1225
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 375
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 61467
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 11293
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 14627
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 16181
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 31366
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 383
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 1
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 21646
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 375
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 18075
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 370
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 375
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 47777
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 12058
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 2059
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 7781
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 11501
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 44032
+    },
+    "T4.7": {
+      "status": "fail",
+      "duration_ms": 44729,
+      "details": "Runner-only test"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 58717
+    },
+    "T5.2": {
+      "status": "fail",
+      "duration_ms": 434,
+      "details": "navigator.webdriver exposed"
+    },
+    "T5.3": {
+      "status": "skipped",
+      "details": "Runner-only"
+    },
+    "T5.4": {
+      "status": "skipped",
+      "details": "Runner-only"
+    },
+    "T5.5": {
+      "status": "skipped",
+      "details": "Runner-only"
+    },
+    "T5.6": {
+      "status": "skipped",
+      "details": "Runner-only"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 39574
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 4516
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 5305
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 4700
+    }
+  },
+  "schema_version": 2
+}

@@ -1,0 +1,72 @@
+{
+  "name": "browser-use",
+  "type": "mcp-llm",
+  "timestamp": "2026-04-10T19:15:00Z",
+  "model": "claude-opus-4-6",
+  "schema_version": 2,
+  "summary": {
+    "total": 35,
+    "counted": 31,
+    "passed": 21,
+    "failed": 10,
+    "skipped": 4,
+    "pass_rate": 67.7,
+    "duration_s": 1870
+  },
+  "tokens": {
+    "start": 297566,
+    "end": 19987094,
+    "delta": 19689528
+  },
+  "mqs": {
+    "score": 26.0,
+    "token_score": 13,
+    "reliability_score": 36,
+    "call_score": 43,
+    "speed_score": 15,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "tool_efficiency": {
+    "calls_total": 142,
+    "response_chars_total": 699650,
+    "avg_response_chars": 4927,
+    "avg_response_tokens_est": 1231,
+    "p50_response_chars": 87,
+    "p95_response_chars": 7635,
+    "avg_ms": 8766,
+    "p95_ms_max_across_tools": 176829,
+    "max_ms_across_tools": 209651,
+    "total_ms": 1244722,
+    "total_output_tokens": 27953,
+    "avg_output_tokens": 196,
+    "total_tokens_est": 202815,
+    "avg_tokens_est": 1428,
+    "cache_read_tokens_total": 0,
+    "cache_creation_tokens_total": 0,
+    "fresh_input_tokens_total": 0,
+    "cache_hit_rate": 98.46,
+    "by_tool": [
+      {"name": "mcp__browser-use__browser_click", "count": 53, "avg_chars": 47, "p95_chars": 59, "max_chars": 87, "total_chars": 2491, "avg_ms": 773, "p50_ms": 700, "p95_ms": 1563, "max_ms": 2661, "total_ms": 40995, "avg_output_tokens": 232, "total_output_tokens": 12333, "avg_total_tokens_est": 244, "total_total_tokens_est": 12937},
+      {"name": "mcp__browser-use__browser_get_state", "count": 20, "avg_chars": 6397, "p95_chars": 8319, "max_chars": 14310, "total_chars": 127946, "avg_ms": 351, "p50_ms": 179, "p95_ms": 990, "max_ms": 1127, "total_ms": 7026, "avg_output_tokens": 62, "total_output_tokens": 1256, "avg_total_tokens_est": 1661, "total_total_tokens_est": 33234},
+      {"name": "mcp__browser-use__browser_type", "count": 16, "avg_chars": 61, "p95_chars": 66, "max_chars": 86, "total_chars": 979, "avg_ms": 164, "p50_ms": 155, "p95_ms": 199, "max_ms": 365, "total_ms": 2636, "avg_output_tokens": 220, "total_output_tokens": 3526, "avg_total_tokens_est": 235, "total_total_tokens_est": 3765},
+      {"name": "mcp__browser-use__browser_extract_content", "count": 14, "avg_chars": 500, "p95_chars": 799, "max_chars": 808, "total_chars": 7004, "avg_ms": 2397, "p50_ms": 2461, "p95_ms": 3248, "max_ms": 3598, "total_ms": 33571, "avg_output_tokens": 143, "total_output_tokens": 2008, "avg_total_tokens_est": 268, "total_total_tokens_est": 3753},
+      {"name": "mcp__browser-use__browser_get_html", "count": 10, "avg_chars": 547, "p95_chars": 1001, "max_chars": 3792, "total_chars": 5473, "avg_ms": 13, "p50_ms": 7, "p95_ms": 30, "max_ms": 36, "total_ms": 134, "avg_output_tokens": 135, "total_output_tokens": 1355, "avg_total_tokens_est": 272, "total_total_tokens_est": 2720},
+      {"name": "mcp__browser-use__browser_scroll", "count": 9, "avg_chars": 39, "p95_chars": 40, "max_chars": 40, "total_chars": 354, "avg_ms": 62, "p50_ms": 62, "p95_ms": 70, "max_ms": 85, "total_ms": 564, "avg_output_tokens": 292, "total_output_tokens": 2632, "avg_total_tokens_est": 302, "total_total_tokens_est": 2719},
+      {"name": "mcp__browser-use__retry_with_browser_use_agent", "count": 9, "avg_chars": 1441, "p95_chars": 2182, "max_chars": 2189, "total_chars": 12975, "avg_ms": 128241, "p50_ms": 142098, "p95_ms": 176829, "max_ms": 209651, "total_ms": 1154169, "avg_output_tokens": 347, "total_output_tokens": 3129, "avg_total_tokens_est": 707, "total_total_tokens_est": 6369},
+      {"name": "mcp__browser-use__browser_screenshot", "count": 4, "avg_chars": 135402, "p95_chars": 125745, "max_chars": 188181, "total_chars": 541608, "avg_ms": 952, "p50_ms": 1021, "p95_ms": 1047, "max_ms": 1204, "total_ms": 3808, "avg_output_tokens": 91, "total_output_tokens": 366, "avg_total_tokens_est": 33941, "total_total_tokens_est": 135767},
+      {"name": "mcp__browser-use__browser_list_tabs", "count": 2, "avg_chars": 200, "p95_chars": 120, "max_chars": 280, "total_chars": 400, "avg_ms": 530, "p50_ms": 22, "p95_ms": 22, "max_ms": 1038, "total_ms": 1060, "avg_output_tokens": 266, "total_output_tokens": 532, "avg_total_tokens_est": 316, "total_total_tokens_est": 632},
+      {"name": "mcp__browser-use__browser_navigate", "count": 2, "avg_chars": 82, "p95_chars": 74, "max_chars": 90, "total_chars": 164, "avg_ms": 254, "p50_ms": 145, "p95_ms": 145, "max_ms": 363, "total_ms": 508, "avg_output_tokens": 258, "total_output_tokens": 517, "avg_total_tokens_est": 278, "total_total_tokens_est": 557},
+      {"name": "mcp__browser-use__browser_switch_tab", "count": 2, "avg_chars": 77, "p95_chars": 60, "max_chars": 94, "total_chars": 154, "avg_ms": 120, "p50_ms": 28, "p95_ms": 28, "max_ms": 212, "total_ms": 240, "avg_output_tokens": 101, "total_output_tokens": 203, "avg_total_tokens_est": 120, "total_total_tokens_est": 241},
+      {"name": "mcp__browser-use__browser_close_tab", "count": 1, "avg_chars": 102, "p95_chars": 102, "max_chars": 102, "total_chars": 102, "avg_ms": 11, "p50_ms": 11, "p95_ms": 11, "max_ms": 11, "total_ms": 11, "avg_output_tokens": 96, "total_output_tokens": 96, "avg_total_tokens_est": 121, "total_total_tokens_est": 121}
+    ]
+  },
+  "critical_findings": [
+    "retry_with_browser_use_agent ist der Token-Killer: 9 Calls, avg 128.241 ms (2 Min), max 209.651 ms (3.5 Min). Total 1.154.169 ms = 19 Minuten reine Tool-Execution aus 31 Minuten Gesamtdauer.",
+    "browser_screenshot 4 Calls = 541k Chars (77% des Response-Budgets). Screenshot-basierte Automation ist Token-Killer.",
+    "browser_extract_content avg 2.397 ms — langsam und unzuverlaessig (falscher Wert bei T4.2).",
+    "Keine JS-Execution (kein evaluate) → T4.4 localStorage, T4.5 MutationObserver, T4.7 Token Budget unmoeglich.",
+    "Kein Element-Scroll (nur Page-Scroll) → T2.2 Infinite Scroll scheitert.",
+    "Kein natives Drag&Drop → T3.3 unmoeglich.",
+    "retry_with_browser_use_agent reloadet die Seite und verliert Testzustand — 4 Tests (T3.4, T3.5, T3.6, T4.6) wurden vom Agent geloest, aber Parcours-Status ging verloren. Ohne Bug waere Pass-Rate 25/31 (81%)."
+  ]
+}

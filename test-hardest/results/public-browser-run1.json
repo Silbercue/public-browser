@@ -1,0 +1,428 @@
+{
+  "name": "Public Browser",
+  "slug": "public-browser",
+  "type": "mcp-llm",
+  "mcp_package": "public-browser",
+  "mcp_version": "2.10.1",
+  "snapshot_tool": "view_page",
+  "mcp_server_info": {
+    "name": "public-browser",
+    "version": "2.10.1",
+    "instructions": "Public Browser controls a real Chrome browser via CDP.\n\nWorkflow: virtual_desk → navigate (to open a page) → view_page (read) → click/type/fill_form (act) → view_page (verify the result).\n\nCRITICAL — view_page vs capture_image:\n- To see what is on the page: ALWAYS call view_page. It returns text + element refs for click/type.\n- capture_image is ONLY for CSS layout checks, canvas content, or when the user explicitly asks for a screenshot.\n- Do NOT call capture_image to read text, find buttons, check errors, or see page state — that is view_page.\n- capture_image cannot return element refs, so you cannot click anything you see in it.\n\nOther rules:\n- After every interaction, use view_page again to verify the result before proceeding.\n- fill_form beats multiple type calls for any form with 2+ fields.\n- For multi-step workflows, use run_plan to execute N steps in one call.\n- evaluate is for JS computation and style mutations (.style.X = ...) — not for CSS reading or element discovery.\n- Avoid evaluate as default recovery after click/type errors — call view_page for fresh refs and retry with the dedicated tool.\n\nScript API: `pip install publicbrowser` gives you a Python library for deterministic browser automation without an LLM. Scripts route through the same tool handlers as MCP (Shared Core). Usage: `from publicbrowser import Chrome; chrome = Chrome.connect(); page = chrome.new_page()` — then `page.navigate()`, `page.click()`, `page.fill()`, `page.evaluate()` etc. Auto-starts the server. Add `--script` to the MCP args for parallel MCP + Script access.\nCortex: 93 patterns loaded."
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "152.0.7977.65",
+  "session_id": "d2f20134-ec27-4759-8315-8f27c0bf24cb",
+  "timestamp": "2026-09-03T18:48:39.687Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true
+  },
+  "harness": {
+    "mode": "blind-print",
+    "status": "ok",
+    "complete": true,
+    "claude_code_version": "2.1.259",
+    "os": "darwin 25.6.0",
+    "node": "v22.14.0",
+    "profile_isolation": "auto-launched Chrome, fresh temp user-data-dir, CDP port 9333",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id d2f20134-ec27-4759-8315-8f27c0bf24cb --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-public-browser-1/mcp.json --permission-mode dontAsk --allowedTools Write mcp__public-browser --tools Write --max-turns 600",
+    "allowed_tools_form": "plain",
+    "wall_clock_s": 331,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 86,
+    "run_dir": "/tmp/bench-public-browser-1",
+    "child_pid": 94446,
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    }
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 30,
+    "failed": 0,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 100,
+    "duration_s": 281
+  },
+  "tokens": {
+    "start": 0,
+    "end": 6288593,
+    "delta": 6288593
+  },
+  "cost_usd_list": 3.4143540000000008,
+  "mqs": {
+    "score": 73.6,
+    "token_score": 80.4,
+    "reliability_score": 53.5,
+    "call_score": 72,
+    "speed_score": 100,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": {
+    "mode": "kalt",
+    "dir": "/tmp/bench-public-browser-1/cortex",
+    "patternCount": 93,
+    "note": "community package only, fresh dir"
+  },
+  "tool_efficiency": {
+    "calls_total": 84,
+    "response_chars_total": 109075,
+    "avg_response_chars": 1298,
+    "p50_response_chars": 320,
+    "p95_response_chars": 6077,
+    "p50_ms": 34,
+    "p95_ms": 1820,
+    "avg_response_tokens_est": 324,
+    "total_tokens_est": 44291,
+    "avg_tokens_est": 527,
+    "avg_ms": 271,
+    "total_ms": 22797,
+    "total_output_tokens": 17053,
+    "avg_output_tokens": 203,
+    "cache_read_tokens_total": 4376751,
+    "cache_creation_tokens_total": 75232,
+    "fresh_input_tokens_total": 170,
+    "cache_hit_rate": 98.3,
+    "by_tool": [
+      {
+        "name": "mcp__public-browser__evaluate",
+        "count": 22,
+        "total_chars": 42105,
+        "avg_chars": 1913,
+        "p95_chars": 5684,
+        "max_chars": 10663,
+        "avg_ms": 28,
+        "p50_ms": 31,
+        "p95_ms": 48,
+        "max_ms": 90,
+        "total_ms": 629,
+        "avg_output_tokens": 232,
+        "total_output_tokens": 5106,
+        "avg_total_tokens_est": 710,
+        "total_total_tokens_est": 15624
+      },
+      {
+        "name": "mcp__public-browser__run_plan",
+        "count": 22,
+        "total_chars": 8205,
+        "avg_chars": 372,
+        "p95_chars": 487,
+        "max_chars": 1917,
+        "avg_ms": 408,
+        "p50_ms": 41,
+        "p95_ms": 642,
+        "max_ms": 4903,
+        "total_ms": 8980,
+        "avg_output_tokens": 315,
+        "total_output_tokens": 6930,
+        "avg_total_tokens_est": 407,
+        "total_total_tokens_est": 8973
+      },
+      {
+        "name": "mcp__public-browser__view_page",
+        "count": 16,
+        "total_chars": 45462,
+        "avg_chars": 2841,
+        "p95_chars": 9734,
+        "max_chars": 11612,
+        "avg_ms": 157,
+        "p50_ms": 34,
+        "p95_ms": 122,
+        "max_ms": 1820,
+        "total_ms": 2526,
+        "avg_output_tokens": 151,
+        "total_output_tokens": 2427,
+        "avg_total_tokens_est": 861,
+        "total_total_tokens_est": 13787
+      },
+      {
+        "name": "mcp__public-browser__click",
+        "count": 13,
+        "total_chars": 9884,
+        "avg_chars": 760,
+        "p95_chars": 1535,
+        "max_chars": 6077,
+        "avg_ms": 90,
+        "p50_ms": 38,
+        "p95_ms": 384,
+        "max_ms": 456,
+        "total_ms": 1175,
+        "avg_output_tokens": 105,
+        "total_output_tokens": 1372,
+        "avg_total_tokens_est": 295,
+        "total_total_tokens_est": 3839
+      },
+      {
+        "name": "mcp__public-browser__observe",
+        "count": 3,
+        "total_chars": 324,
+        "avg_chars": 108,
+        "p95_chars": 122,
+        "max_chars": 132,
+        "avg_ms": 2182,
+        "p50_ms": 1513,
+        "p95_ms": 1513,
+        "max_ms": 5012,
+        "total_ms": 6547,
+        "avg_output_tokens": 169,
+        "total_output_tokens": 507,
+        "avg_total_tokens_est": 195,
+        "total_total_tokens_est": 587
+      },
+      {
+        "name": "mcp__public-browser__wait_for",
+        "count": 3,
+        "total_chars": 249,
+        "avg_chars": 83,
+        "p95_chars": 84,
+        "max_chars": 87,
+        "avg_ms": 8,
+        "p50_ms": 5,
+        "p95_ms": 5,
+        "max_ms": 14,
+        "total_ms": 24,
+        "avg_output_tokens": 112,
+        "total_output_tokens": 337,
+        "avg_total_tokens_est": 132,
+        "total_total_tokens_est": 398
+      },
+      {
+        "name": "mcp__public-browser__switch_tab",
+        "count": 2,
+        "total_chars": 563,
+        "avg_chars": 281,
+        "p95_chars": 247,
+        "max_chars": 316,
+        "avg_ms": 17,
+        "p50_ms": 11,
+        "p95_ms": 11,
+        "max_ms": 24,
+        "total_ms": 35,
+        "avg_output_tokens": 93,
+        "total_output_tokens": 187,
+        "avg_total_tokens_est": 163,
+        "total_total_tokens_est": 327
+      },
+      {
+        "name": "mcp__public-browser__virtual_desk",
+        "count": 2,
+        "total_chars": 1996,
+        "avg_chars": 998,
+        "p95_chars": 179,
+        "max_chars": 1817,
+        "avg_ms": 328,
+        "p50_ms": 6,
+        "p95_ms": 6,
+        "max_ms": 650,
+        "total_ms": 656,
+        "avg_output_tokens": 46,
+        "total_output_tokens": 92,
+        "avg_total_tokens_est": 295,
+        "total_total_tokens_est": 590
+      },
+      {
+        "name": "mcp__public-browser__navigate",
+        "count": 1,
+        "total_chars": 287,
+        "avg_chars": 287,
+        "p95_chars": 287,
+        "max_chars": 287,
+        "avg_ms": 2225,
+        "p50_ms": 2225,
+        "p95_ms": 2225,
+        "max_ms": 2225,
+        "total_ms": 2225,
+        "avg_output_tokens": 95,
+        "total_output_tokens": 95,
+        "avg_total_tokens_est": 166,
+        "total_total_tokens_est": 166
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 42,
+      "details": "Correct: E9ME-F1SB"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 59,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 50,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 66,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 34,
+      "details": "Correct sum: 360"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 22092,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 4599,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 15076,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 4040,
+      "details": "Kotlin selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 19001,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 5943,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 15094,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 15,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 29441,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 18675,
+      "details": "Hit! Distance: 0.2px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 5797,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 22987,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 22345,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 4573,
+      "details": "Captured at exactly 3!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 9911,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 11138,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 11043,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 8400,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 10491,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "pass",
+      "duration_ms": 9,
+      "details": "navigator.webdriver: clean, chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 11699,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 7717,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 4858,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 5085,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 30,
+    "failed": 0
+  },
+  "notes": "",
+  "run_file": "public-browser-run1.json"
+}

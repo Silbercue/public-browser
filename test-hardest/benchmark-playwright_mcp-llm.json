@@ -1,0 +1,32 @@
+{
+  "name": "Playwright MCP",
+  "type": "llm-driven",
+  "timestamp": "2026-04-02T19:05:00Z",
+  "summary": { "total": 24, "passed": 24, "failed": 0, "duration_s": 570, "tool_uses": 138 },
+  "tests": {
+    "T1.1": { "status": "pass", "duration_ms": 10262 },
+    "T1.2": { "status": "pass", "duration_ms": 12574 },
+    "T1.3": { "status": "pass", "duration_ms": 21749 },
+    "T1.4": { "status": "pass", "duration_ms": 18544 },
+    "T1.5": { "status": "pass", "duration_ms": 18002 },
+    "T1.6": { "status": "pass", "duration_ms": 7967 },
+    "T2.1": { "status": "pass", "duration_ms": 21011 },
+    "T2.2": { "status": "pass", "duration_ms": 21228 },
+    "T2.3": { "status": "pass", "duration_ms": 43260 },
+    "T2.4": { "status": "pass", "duration_ms": 17995 },
+    "T2.5": { "status": "pass", "duration_ms": 17667 },
+    "T2.6": { "status": "pass", "duration_ms": 20527 },
+    "T3.1": { "status": "pass", "duration_ms": 3200 },
+    "T3.2": { "status": "pass", "duration_ms": 1500 },
+    "T3.3": { "status": "pass", "duration_ms": 800 },
+    "T3.4": { "status": "pass", "duration_ms": 2600 },
+    "T3.5": { "status": "pass", "duration_ms": 18652 },
+    "T3.6": { "status": "pass", "duration_ms": 800 },
+    "T4.1": { "status": "pass", "duration_ms": 47076 },
+    "T4.2": { "status": "pass", "duration_ms": 29409 },
+    "T4.3": { "status": "pass", "duration_ms": 31105 },
+    "T4.4": { "status": "pass", "duration_ms": 21508 },
+    "T4.5": { "status": "pass", "duration_ms": 17635 },
+    "T4.6": { "status": "pass", "duration_ms": 19779 }
+  }
+}

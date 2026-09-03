@@ -1,0 +1,359 @@
+{
+  "name": "SilbercueChrome Pro",
+  "type": "mcp-llm",
+  "timestamp": "2026-04-10T13:31:20.000Z",
+  "model": "claude-opus-4-6",
+  "summary": {
+    "total": 35,
+    "counted": 31,
+    "passed": 30,
+    "failed": 1,
+    "skipped": 4,
+    "duration_s": 491
+  },
+  "tokens": {
+    "start": 1202177,
+    "end": 20302535,
+    "delta": 19100358
+  },
+  "tool_efficiency": {
+    "calls_total": 75,
+    "response_chars_total": 153301,
+    "avg_response_chars": 2044,
+    "avg_response_tokens_est": 511,
+    "p50_response_chars": 955,
+    "p95_response_chars": 7742,
+    "by_tool": [
+      {
+        "name": "mcp__silbercuechrome__read_page",
+        "count": 17,
+        "avg_chars": 1916,
+        "p95_chars": 3188,
+        "total_chars": 32572,
+        "avg_ms": 238,
+        "p50_ms": 58,
+        "p95_ms": 1551,
+        "max_ms": 1718,
+        "total_ms": 4046,
+        "avg_output_tokens": 210,
+        "total_output_tokens": 3570,
+        "avg_total_tokens_est": 688,
+        "total_total_tokens_est": 11707
+      },
+      {
+        "name": "mcp__silbercuechrome__click",
+        "count": 15,
+        "avg_chars": 1645,
+        "p95_chars": 1924,
+        "total_chars": 24676,
+        "avg_ms": 487,
+        "p50_ms": 395,
+        "p95_ms": 500,
+        "max_ms": 1903,
+        "total_ms": 7306,
+        "avg_output_tokens": 137,
+        "total_output_tokens": 2067,
+        "avg_total_tokens_est": 548,
+        "total_total_tokens_est": 8231
+      },
+      {
+        "name": "mcp__silbercuechrome__evaluate",
+        "count": 13,
+        "avg_chars": 740,
+        "p95_chars": 679,
+        "total_chars": 9623,
+        "avg_ms": 1899,
+        "p50_ms": 78,
+        "p95_ms": 7533,
+        "max_ms": 7563,
+        "total_ms": 24693,
+        "avg_output_tokens": 368,
+        "total_output_tokens": 4786,
+        "avg_total_tokens_est": 552,
+        "total_total_tokens_est": 7186
+      },
+      {
+        "name": "mcp__silbercuechrome__run_plan",
+        "count": 13,
+        "avg_chars": 6442,
+        "p95_chars": 14748,
+        "total_chars": 83746,
+        "avg_ms": 2435,
+        "p50_ms": 1861,
+        "p95_ms": 7965,
+        "max_ms": 8329,
+        "total_ms": 31657,
+        "avg_output_tokens": 426,
+        "total_output_tokens": 5538,
+        "avg_total_tokens_est": 2036,
+        "total_total_tokens_est": 26469
+      },
+      {
+        "name": "mcp__silbercuechrome__observe",
+        "count": 10,
+        "avg_chars": 98,
+        "p95_chars": 132,
+        "total_chars": 985,
+        "avg_ms": 1420,
+        "p50_ms": 53,
+        "p95_ms": 3919,
+        "max_ms": 5014,
+        "total_ms": 14206,
+        "avg_output_tokens": 256,
+        "total_output_tokens": 2561,
+        "avg_total_tokens_est": 280,
+        "total_total_tokens_est": 2805
+      },
+      {
+        "name": "mcp__silbercuechrome__scroll",
+        "count": 2,
+        "avg_chars": 54,
+        "p95_chars": 50,
+        "total_chars": 108,
+        "avg_ms": 8,
+        "p50_ms": 6,
+        "p95_ms": 6,
+        "max_ms": 10,
+        "total_ms": 16,
+        "avg_output_tokens": 163,
+        "total_output_tokens": 327,
+        "avg_total_tokens_est": 176,
+        "total_total_tokens_est": 353
+      },
+      {
+        "name": "mcp__silbercuechrome__switch_tab",
+        "count": 2,
+        "avg_chars": 255,
+        "p95_chars": 247,
+        "total_chars": 510,
+        "avg_ms": 109,
+        "p50_ms": 71,
+        "p95_ms": 71,
+        "max_ms": 147,
+        "total_ms": 218,
+        "avg_output_tokens": 161,
+        "total_output_tokens": 322,
+        "avg_total_tokens_est": 224,
+        "total_total_tokens_est": 448
+      },
+      {
+        "name": "mcp__silbercuechrome__virtual_desk",
+        "count": 2,
+        "avg_chars": 487,
+        "p95_chars": 429,
+        "total_chars": 974,
+        "avg_ms": 26,
+        "p50_ms": 6,
+        "p95_ms": 6,
+        "max_ms": 46,
+        "total_ms": 52,
+        "avg_output_tokens": 84,
+        "total_output_tokens": 168,
+        "avg_total_tokens_est": 205,
+        "total_total_tokens_est": 411
+      },
+      {
+        "name": "mcp__silbercuechrome__navigate",
+        "count": 1,
+        "avg_chars": 107,
+        "p95_chars": 107,
+        "total_chars": 107,
+        "avg_ms": 1274,
+        "p50_ms": 1274,
+        "p95_ms": 1274,
+        "max_ms": 1274,
+        "total_ms": 1274,
+        "avg_output_tokens": 190,
+        "total_output_tokens": 190,
+        "avg_total_tokens_est": 216,
+        "total_total_tokens_est": 216
+      }
+    ],
+    "avg_ms": 1112,
+    "p95_ms_max_across_tools": 7965,
+    "max_ms_across_tools": 8329,
+    "total_ms": 83468,
+    "total_output_tokens": 19529,
+    "avg_output_tokens": 260,
+    "total_tokens_est": 57826,
+    "avg_tokens_est": 771,
+    "cache_read_tokens_total": 20745826,
+    "cache_creation_tokens_total": 298639,
+    "fresh_input_tokens_total": 205,
+    "cache_hit_rate": 98.57
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 33,
+      "details": "Correct: GVB3-1BVL"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 392,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 475,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 1225,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 392,
+      "details": "Correct sum: 246"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 37142,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 96304,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 8226,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 4982,
+      "details": "Elixir selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 30406,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 10683,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 25358,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 1,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 12678,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 37754,
+      "details": "Hit! Distance: 1.9px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 367,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 10160,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 39349,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 8023,
+      "details": "Captured at exactly 6!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 32321,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 6139,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 27106,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 29356,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T4.7": {
+      "status": "fail",
+      "duration_ms": 13706,
+      "details": "Runner-only test"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 24441,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "pass",
+      "duration_ms": 419,
+      "details": "navigator.webdriver: clean"
+    },
+    "T5.3": {
+      "status": "skipped",
+      "details": "Runner-only"
+    },
+    "T5.4": {
+      "status": "skipped",
+      "details": "Runner-only"
+    },
+    "T5.5": {
+      "status": "skipped",
+      "details": "Runner-only"
+    },
+    "T5.6": {
+      "status": "skipped",
+      "details": "Runner-only"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 10320,
+      "details": "Success toast shown"
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 4360,
+      "details": "Error toast shown"
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 4192,
+      "details": "Warning banner shown"
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 4688,
+      "details": "Quick toast shown"
+    }
+  },
+  "schema_version": 2
+}

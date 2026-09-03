@@ -1,0 +1,474 @@
+{
+  "name": "Playwright MCP",
+  "slug": "playwright-mcp",
+  "type": "mcp-llm",
+  "mcp_package": "@playwright/mcp",
+  "mcp_version": "0.0.80",
+  "snapshot_tool": "browser_snapshot",
+  "mcp_server_info": {
+    "name": "Playwright",
+    "version": "1.63.0-alpha-2026-08-31",
+    "instructions": null
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "152.0.7977.65",
+  "session_id": "e18d64ee-695a-40f2-9e76-29822214c568",
+  "timestamp": "2026-09-03T19:30:44.333Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true
+  },
+  "harness": {
+    "mode": "blind-print",
+    "status": "ok",
+    "complete": true,
+    "claude_code_version": "2.1.259",
+    "os": "darwin 25.6.0",
+    "node": "v22.14.0",
+    "profile_isolation": "--isolated (in-memory profile)",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id e18d64ee-695a-40f2-9e76-29822214c568 --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-playwright-mcp-2/mcp.json --permission-mode dontAsk --allowedTools Write mcp__playwright --tools Write --max-turns 600",
+    "allowed_tools_form": "plain",
+    "wall_clock_s": 527,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 153,
+    "run_dir": "/tmp/bench-playwright-mcp-2",
+    "child_pid": 2134,
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    }
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 30,
+    "failed": 0,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 100,
+    "duration_s": 493
+  },
+  "tokens": {
+    "start": 0,
+    "end": 9592264,
+    "delta": 9592264
+  },
+  "cost_usd_list": 4.776008000000001,
+  "mqs": {
+    "score": 63.6,
+    "token_score": 88.4,
+    "reliability_score": 53.5,
+    "call_score": 40.1,
+    "speed_score": 57.1,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": null,
+  "tool_efficiency": {
+    "calls_total": 151,
+    "response_chars_total": 99147,
+    "avg_response_chars": 656,
+    "p50_response_chars": 365,
+    "p95_response_chars": 1587,
+    "p50_ms": 549,
+    "p95_ms": 1029,
+    "avg_response_tokens_est": 164,
+    "total_tokens_est": 45213,
+    "avg_tokens_est": 299,
+    "avg_ms": 531,
+    "total_ms": 80183,
+    "total_output_tokens": 20482,
+    "avg_output_tokens": 135,
+    "cache_read_tokens_total": 6852141,
+    "cache_creation_tokens_total": 72520,
+    "fresh_input_tokens_total": 304,
+    "cache_hit_rate": 98.94,
+    "by_tool": [
+      {
+        "name": "mcp__playwright__browser_click",
+        "count": 60,
+        "total_chars": 21514,
+        "avg_chars": 358,
+        "p95_chars": 381,
+        "max_chars": 538,
+        "avg_ms": 669,
+        "p50_ms": 580,
+        "p95_ms": 1387,
+        "max_ms": 1492,
+        "total_ms": 40159,
+        "avg_output_tokens": 104,
+        "total_output_tokens": 6280,
+        "avg_total_tokens_est": 194,
+        "total_total_tokens_est": 11640
+      },
+      {
+        "name": "mcp__playwright__browser_evaluate",
+        "count": 43,
+        "total_chars": 32472,
+        "avg_chars": 755,
+        "p95_chars": 1554,
+        "max_chars": 5835,
+        "avg_ms": 667,
+        "p50_ms": 523,
+        "p95_ms": 575,
+        "max_ms": 4525,
+        "total_ms": 28713,
+        "avg_output_tokens": 169,
+        "total_output_tokens": 7275,
+        "avg_total_tokens_est": 357,
+        "total_total_tokens_est": 15377
+      },
+      {
+        "name": "mcp__playwright__browser_snapshot",
+        "count": 14,
+        "total_chars": 31779,
+        "avg_chars": 2269,
+        "p95_chars": 7082,
+        "max_chars": 7527,
+        "avg_ms": 58,
+        "p50_ms": 26,
+        "p95_ms": 39,
+        "max_ms": 462,
+        "total_ms": 813,
+        "avg_output_tokens": 58,
+        "total_output_tokens": 815,
+        "avg_total_tokens_est": 625,
+        "total_total_tokens_est": 8753
+      },
+      {
+        "name": "mcp__playwright__browser_type",
+        "count": 12,
+        "total_chars": 2054,
+        "avg_chars": 171,
+        "p95_chars": 162,
+        "max_chars": 381,
+        "avg_ms": 72,
+        "p50_ms": 28,
+        "p95_ms": 45,
+        "max_ms": 558,
+        "total_ms": 873,
+        "avg_output_tokens": 123,
+        "total_output_tokens": 1484,
+        "avg_total_tokens_est": 166,
+        "total_total_tokens_est": 1993
+      },
+      {
+        "name": "mcp__playwright__browser_run_code_unsafe",
+        "count": 6,
+        "total_chars": 4207,
+        "avg_chars": 701,
+        "p95_chars": 934,
+        "max_chars": 1177,
+        "avg_ms": 555,
+        "p50_ms": 559,
+        "p95_ms": 565,
+        "max_ms": 576,
+        "total_ms": 3330,
+        "avg_output_tokens": 393,
+        "total_output_tokens": 2362,
+        "avg_total_tokens_est": 568,
+        "total_total_tokens_est": 3410
+      },
+      {
+        "name": "mcp__playwright__browser_drag",
+        "count": 3,
+        "total_chars": 1188,
+        "avg_chars": 396,
+        "p95_chars": 401,
+        "max_chars": 401,
+        "avg_ms": 594,
+        "p50_ms": 597,
+        "p95_ms": 597,
+        "max_ms": 598,
+        "total_ms": 1782,
+        "avg_output_tokens": 287,
+        "total_output_tokens": 862,
+        "avg_total_tokens_est": 386,
+        "total_total_tokens_est": 1158
+      },
+      {
+        "name": "mcp__playwright__browser_fill_form",
+        "count": 3,
+        "total_chars": 1131,
+        "avg_chars": 377,
+        "p95_chars": 270,
+        "max_chars": 645,
+        "avg_ms": 80,
+        "p50_ms": 92,
+        "p95_ms": 92,
+        "max_ms": 112,
+        "total_ms": 240,
+        "avg_output_tokens": 239,
+        "total_output_tokens": 717,
+        "avg_total_tokens_est": 333,
+        "total_total_tokens_est": 999
+      },
+      {
+        "name": "mcp__playwright__browser_find",
+        "count": 3,
+        "total_chars": 3182,
+        "avg_chars": 1060,
+        "p95_chars": 1003,
+        "max_chars": 1587,
+        "avg_ms": 53,
+        "p50_ms": 36,
+        "p95_ms": 36,
+        "max_ms": 93,
+        "total_ms": 160,
+        "avg_output_tokens": 62,
+        "total_output_tokens": 187,
+        "avg_total_tokens_est": 327,
+        "total_total_tokens_est": 981
+      },
+      {
+        "name": "mcp__playwright__browser_press_key",
+        "count": 3,
+        "total_chars": 582,
+        "avg_chars": 194,
+        "p95_chars": 123,
+        "max_chars": 342,
+        "avg_ms": 197,
+        "p50_ms": 19,
+        "p95_ms": 19,
+        "max_ms": 555,
+        "total_ms": 592,
+        "avg_output_tokens": 66,
+        "total_output_tokens": 198,
+        "avg_total_tokens_est": 114,
+        "total_total_tokens_est": 342
+      },
+      {
+        "name": "mcp__playwright__browser_tabs",
+        "count": 2,
+        "total_chars": 336,
+        "avg_chars": 168,
+        "p95_chars": 133,
+        "max_chars": 203,
+        "avg_ms": 25,
+        "p50_ms": 18,
+        "p95_ms": 18,
+        "max_ms": 33,
+        "total_ms": 51,
+        "avg_output_tokens": 79,
+        "total_output_tokens": 158,
+        "avg_total_tokens_est": 120,
+        "total_total_tokens_est": 241
+      },
+      {
+        "name": "mcp__playwright__browser_navigate",
+        "count": 1,
+        "total_chars": 333,
+        "avg_chars": 333,
+        "p95_chars": 333,
+        "max_chars": 333,
+        "avg_ms": 927,
+        "p50_ms": 927,
+        "p95_ms": 927,
+        "max_ms": 927,
+        "total_ms": 927,
+        "avg_output_tokens": 83,
+        "total_output_tokens": 83,
+        "avg_total_tokens_est": 166,
+        "total_total_tokens_est": 166
+      },
+      {
+        "name": "mcp__playwright__browser_wait_for",
+        "count": 1,
+        "total_chars": 369,
+        "avg_chars": 369,
+        "p95_chars": 369,
+        "max_chars": 369,
+        "avg_ms": 2543,
+        "p50_ms": 2543,
+        "p95_ms": 2543,
+        "max_ms": 2543,
+        "total_ms": 2543,
+        "avg_output_tokens": 61,
+        "total_output_tokens": 61,
+        "avg_total_tokens_est": 153,
+        "total_total_tokens_est": 153
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 7956,
+      "details": "Correct: MTPG-D74E"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 9331,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 18415,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 11775,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 9858,
+      "details": "Correct sum: 226"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 23915,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 10274,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 21694,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 8149,
+      "details": "Ruby selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 17316,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 17933,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 16600,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 7993,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 31085,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 27097,
+      "details": "Hit! Distance: 0.2px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 12887,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 28957,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 20841,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 16398,
+      "details": "Captured at exactly 1!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 11478,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 15647,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 25917,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 31142,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 13567,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "pass",
+      "duration_ms": 6459,
+      "details": "navigator.webdriver: clean, chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 12609,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 5592,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 5271,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 7533,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 30,
+    "failed": 0
+  },
+  "notes": "",
+  "run_file": "playwright-mcp-run6.json"
+}

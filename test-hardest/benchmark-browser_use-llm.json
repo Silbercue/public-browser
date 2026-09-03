@@ -1,0 +1,32 @@
+{
+  "name": "browser-use",
+  "type": "llm-driven",
+  "timestamp": "2026-04-02T21:30:00Z",
+  "summary": { "total": 24, "passed": 16, "failed": 2, "skipped": 6, "duration_s": 1813, "tool_uses": 124 },
+  "tests": {
+    "T1.1": { "status": "pass", "duration_ms": 7331 },
+    "T1.2": { "status": "pass", "duration_ms": 11624 },
+    "T1.3": { "status": "pass", "duration_ms": 54316 },
+    "T1.4": { "status": "pass", "duration_ms": 12013 },
+    "T1.5": { "status": "pass", "duration_ms": 20435 },
+    "T1.6": { "status": "pass", "duration_ms": 21033 },
+    "T2.1": { "status": "pass", "duration_ms": 34808 },
+    "T2.2": { "status": "pass", "duration_ms": 251250, "notes": "required retry_with_browser_use_agent (20 steps) - no element-level scroll" },
+    "T2.3": { "status": "pass", "duration_ms": 39841 },
+    "T2.4": { "status": "pass", "duration_ms": 16639 },
+    "T2.5": { "status": "pass", "duration_ms": 36256 },
+    "T2.6": { "status": "pass", "duration_ms": 21366 },
+    "T3.1": { "status": "pass", "duration_ms": 10486 },
+    "T3.2": { "status": "pass", "duration_ms": 24820 },
+    "T3.3": { "status": "pass", "duration_ms": 154665, "notes": "required 2 agent retries - no native drag support" },
+    "T3.4": { "status": "fail", "duration_ms": 335128, "notes": "canvas coordinate mapping broken - missed after 10+ click attempts" },
+    "T3.5": { "status": "pass", "duration_ms": 152898, "notes": "required 2 agent retries - no press_key tool" },
+    "T3.6": { "status": "pass", "duration_ms": 248910, "notes": "required 3 agent retries - no JS execution for bold formatting" },
+    "T4.1": { "status": "pass", "duration_ms": 28715 },
+    "T4.2": { "status": "fail", "duration_ms": 245981, "notes": "timing impossible - no JS execution, 500ms window vs ~5s tool latency" },
+    "T4.3": { "status": "skip", "duration_ms": null, "notes": "not attempted - benchmark aborted" },
+    "T4.4": { "status": "skip", "duration_ms": null, "notes": "not attempted - requires JS execution (localStorage/cookie)" },
+    "T4.5": { "status": "skip", "duration_ms": null, "notes": "not attempted - requires mutation observation timing" },
+    "T4.6": { "status": "skip", "duration_ms": null, "notes": "not attempted - benchmark aborted" }
+  }
+}
