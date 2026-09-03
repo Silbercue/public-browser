@@ -1,7 +1,7 @@
 {
   "name": "public-browser",
   "version": "2.10.1",
-  "description": "The most token-efficient MCP server for Chrome browser automation. Direct CDP, a11y-tree refs, multi-tab — a Playwright MCP alternative for Claude Code and Cursor.",
+  "description": "A Chrome MCP server that talks straight to CDP — a11y-tree refs, multi-tab, a Playwright MCP alternative for Claude Code and Cursor.",
   "keywords": [
     "mcp",
     "mcp-server",

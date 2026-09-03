@@ -131,7 +131,11 @@ test('PARTICIPANTS: browser-use pins package 0.12.5 and handshake version 0.1.0'
 });
 
 test('PARTICIPANTS: browser-use command is overridable via env', async () => {
-  assert.equal(PARTICIPANTS['browser-use'].command, '/Users/silbercue/.browser-use-env/bin/browser-use');
+  // Ohne gesetzte Variable greift der Default; mit gesetzter Variable (der dokumentierte Reproduktionsweg) deren Wert.
+  assert.equal(
+    PARTICIPANTS['browser-use'].command,
+    process.env.BLIND_RUN_BROWSER_USE_BIN || '/Users/silbercue/.browser-use-env/bin/browser-use',
+  );
   const before = process.env.BLIND_RUN_BROWSER_USE_BIN;
   process.env.BLIND_RUN_BROWSER_USE_BIN = '/x/fake-bu';
   try {

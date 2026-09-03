@@ -49,6 +49,8 @@ docs/
 # test-hardest: nur Rohdaten, Harness und Liesmich sind oeffentlich; die Seite selbst bleibt privat
 test-hardest/*
 !test-hardest/results/
+test-hardest/results/*
+!test-hardest/results/*.json
 !test-hardest/benchmark-*.json
 !test-hardest/README.md
 !test-hardest/measure-tool-calls.sh
