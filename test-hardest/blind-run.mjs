@@ -7,7 +7,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync,
 } from 'node:fs';
-import { homedir, release } from 'node:os';
+import { homedir, release, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,6 +42,8 @@ export const PARTICIPANTS = {
   'playwright-mcp': {
     name: 'playwright', display: 'Playwright MCP', package: '@playwright/mcp', version: '0.0.80',
     command: 'npx', args: ['-y', '@playwright/mcp@0.0.80', '--browser', 'chrome', '--isolated'],
+    // Der Server meldet im initialize-Handshake seine Playwright-Version, nicht die Paketversion.
+    serverVersion: '1.63.0-alpha-2026-08-31',
     env: (_rundir) => ({}),
     snapshotTool: 'browser_snapshot',
     profile_isolation: '--isolated (in-memory profile)',
@@ -398,9 +400,10 @@ export function suiteFingerprint(html) {
 }
 
 // A2.6: MCP-Server mit initialize anpingen und serverInfo/instructions lesen.
-export function probeServerInfo(participant, env = {}, deps = defaultDeps(), timeoutMs = 90_000) {
+export function probeServerInfo(participant, env = {}, deps = defaultDeps(), { timeoutMs = 90_000, cwd } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(participant.command, participant.args, {
+      cwd: cwd || tmpdir(),          // nie im Repo-Root: npx wuerde sonst das lokale Paket ziehen
       env: { ...process.env, ...(deps?.envOverrides || {}), ...env },
       detached: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -510,8 +513,12 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
 
   console.log(`[blind-run] ${slug} → ${rundir} (session ${sessionId}, smoke=${smoke})`);
   statusWrite('starting', { started_at: startedAt.toISOString() });
+  chromeBefore = chromeMainProcesses();          // Bestandsaufnahme vor allem, was wir selbst starten
 
   try {
+    if (slug === 'public-browser' && chromeProcessesOnPort(9333).length) {
+      throw new Error('Chrome on port 9333 already running — kill it first');
+    }
     if (!existsSync(d.claude.file)) throw new Error(`claude binary not found: ${d.claude.file}`);
     if (!existsSync(d.chromeBin)) throw new Error(`chrome binary not found: ${d.chromeBin}`);
     claudeVer = sh(d.claude.file, [...d.claude.argsPrefix, '--version'], { env: childEnv }).trim().split(/\s+/)[0];
@@ -521,9 +528,10 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
     writeFileSync(join(rundir, 'mcp.json'),
       `${JSON.stringify({ mcpServers: { [p.name]: { command: p.command, args: p.args, env } } }, null, 2)}\n`);
 
-    serverInfo = await probeServerInfo(p, env, d);
-    if (serverInfo.version !== p.version) {
-      throw new Error(`version mismatch: ${p.name} reports ${serverInfo.version}, pinned ${p.version}`);
+    serverInfo = await probeServerInfo(p, env, d, { cwd: rundir });
+    const expectVersion = p.serverVersion ?? p.version;
+    if (serverInfo.version !== expectVersion) {
+      throw new Error(`version mismatch: ${p.name} reports ${serverInfo.version}, pinned ${expectVersion}`);
     }
     if (slug === 'public-browser') {
       cortexCount = cortexPatternCount(serverInfo.instructions);
@@ -539,19 +547,18 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
       notes.push(`suite fingerprint not verified: ${e.message}`);
     }
 
-    if (slug === 'public-browser' && chromeProcessesOnPort(9333).length) {
-      throw new Error('Chrome on port 9333 already running — kill it first');
-    }
-    chromeBefore = chromeMainProcesses();
-
     const prompt = renderPrompt(readFileSync(join(HERE, 'blind-prompt.md'), 'utf8'),
       { mcpName: p.display, exportPath, smoke });
     if (prompt.includes('{{')) throw new Error(`prompt still contains placeholders: ${prompt.match(/\{\{[A-Z_]+\}\}/g)}`);
     writeFileSync(join(rundir, 'prompt.md'), prompt);
 
+    // Tool-Sperre: --allowedTools allein sperrt nichts (auf dieser Maschine fuehrt die CLI
+    // Bash auch unter --permission-mode dontAsk/manual aus). --tools Write nimmt das Werkzeug
+    // aus dem Werkzeugkasten: das Modell bekommt neben den MCP-Tools nur noch Write.
     flags = ['--model', model_requested, '--output-format', 'json', '--session-id', sessionId,
       '--setting-sources', 'project', '--strict-mcp-config', '--mcp-config', join(rundir, 'mcp.json'),
-      '--permission-mode', 'dontAsk', '--allowedTools', ...allowed, '--max-turns', '600'];
+      '--permission-mode', 'dontAsk', '--allowedTools', ...allowed, '--tools', 'Write',
+      '--max-turns', '600'];
 
     spawnedAt = Date.now();
     statusWrite('running', { started_at: startedAt.toISOString(), flags: flags.join(' ') });
@@ -605,19 +612,15 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
   const summary = { ...score(exp?.tests), duration_s: exp?.elapsed_s > 0 ? exp.elapsed_s : wallClockS };
   const modelOk = typeof model === 'string' && model.startsWith(model_requested.startsWith(MODEL_PIN) ? MODEL_PIN : 'claude-');
   if (model && !modelOk) notes.push(`aborted: model mismatch: ${model} (requested ${model_requested})`);
-  const lockOk = smoke
-    ? (toolLock.bash_attempted >= 1 && toolLock.bash_denied === true)
-    : toolLock.non_mcp_executed.length === 0;
-  if (!lockOk) {
-    notes.push(smoke
-      ? `aborted: tool lock unproven (bash_attempted ${toolLock.bash_attempted}, denied ${toolLock.bash_denied})`
-      : `aborted: non-MCP tools executed: ${toolLock.non_mcp_executed.join(', ')}`);
-  }
+  // Der Smoke-Prompt fordert genau einen Bash-Versuch an: taucht Bash trotzdem als
+  // ausgefuehrter Call auf, ist die Sperre offen. Kein Call = das Werkzeug fehlte.
+  const lockOk = toolLock.non_mcp_executed.length === 0;
+  if (!lockOk) notes.push(`aborted: non-MCP tools executed: ${toolLock.non_mcp_executed.join(', ')}`);
   const executionOk = res?.code === 0 && !res?.timedOut && expProblems.length === 0 && !staleExport
     && modelOk && measureOk && lockOk && (smoke || suiteOk);
   const runStatus = executionOk ? (smoke ? 'smoke' : 'ok') : 'aborted';
   const complete = summary.not_run === 0;
-  if (runStatus !== 'aborted' && !complete) {
+  if (runStatus === 'ok' && !complete) {          // im Smoke sind 28 nicht gelaufene Tests der Normalfall
     notes.push(`incomplete: ${SCORABLE.filter((id) => !['pass', 'fail'].includes(exp?.tests?.[id]?.status)).join(',')}`);
   }
   const charsOf = mcpCalls.map((c) => c.chars);

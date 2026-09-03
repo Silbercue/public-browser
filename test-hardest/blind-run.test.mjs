@@ -302,6 +302,7 @@ function registerFakes() {
   };
   registerParticipant('fake', { ...base, name: 'fake', version: '9.9.9' });
   registerParticipant('fake-mismatch', { ...base, name: 'fake', version: '1.0.0' });
+  registerParticipant('fake-alias', { ...base, name: 'fake', version: '0.0.80', serverVersion: '9.9.9' });
   fakeRegistered = true;
 }
 
@@ -331,7 +332,7 @@ const statusOf = (rundir) => JSON.parse(readFileSync(join(rundir, 'status.json')
 
 test('probeServerInfo: reads serverInfo and instructions from the fake MCP server', async () => {
   registerFakes();
-  const info = await probeServerInfo(PARTICIPANTS['fake'], {}, undefined, 20_000);
+  const info = await probeServerInfo(PARTICIPANTS['fake'], {}, undefined, { timeoutMs: 20_000 });
   assert.equal(info.name, 'fake');
   assert.equal(info.version, '9.9.9');
   assert.match(info.instructions, /Cortex: 93 patterns loaded/);
@@ -419,6 +420,14 @@ test('pipeline: a server version other than the pinned one aborts before the mod
   assert.match(run.notes, /version mismatch/);
   assert.equal(existsSync(join(dir, 'result.json')), false, 'Claude wurde nicht gestartet');
   assert.equal(statusOf(dir).phase, 'aborted');
+});
+
+test('pipeline: serverVersion overrides the package version in the handshake check', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const { run } = await runParticipant('fake-alias', { rundir: rundir() }, deps);
+  assert.equal(run.harness.status, 'ok');          // Gegenprobe zum Versions-Mismatch-Test darueber
+  assert.equal(run.mcp_version, '0.0.80');         // Paketversion bleibt im Run-JSON
+  assert.equal(run.mcp_server_info.version, '9.9.9');
 });
 
 test('pipeline: a non-empty rundir is refused', async () => {
