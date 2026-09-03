@@ -219,8 +219,8 @@ export function validateExport(exp) {
     }
   }
   if (exp.elapsed_s !== undefined && (!Number.isFinite(exp.elapsed_s) || exp.elapsed_s < 0)) problems.push('invalid elapsed_s');
-  if (exp.timestamp !== undefined
-    && (typeof exp.timestamp !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(exp.timestamp) || Number.isNaN(Date.parse(exp.timestamp)))) {
+  if (exp.timestamp === undefined) problems.push('timestamp missing');
+  else if (typeof exp.timestamp !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(exp.timestamp) || Number.isNaN(Date.parse(exp.timestamp))) {
     problems.push('invalid timestamp');
   }
   return problems;
@@ -262,7 +262,13 @@ export function verifyRunJson(run) {
     if (v === undefined || v === null) problems.push(`missing field ${k}`);
   }
   if (typeof run.model === 'string' && !/^claude-/.test(run.model)) problems.push(`model unknown: ${run.model}`);
-  if (run.chrome_version === undefined || run.chrome_version === null) problems.push('chrome_version missing');
+  // browser-use startet seinen eigenen Browser: das /Applications-Binary ist dort nicht der gemessene Browser.
+  if ((run.chrome_version === undefined || run.chrome_version === null) && run.slug !== 'browser-use') {
+    problems.push('chrome_version missing');
+  }
+  const ids = run.suite?.test_ids;
+  if (!Array.isArray(ids)) problems.push('suite.test_ids missing');
+  else if (ids.length !== run.suite?.tests) problems.push(`suite.test_ids (${ids.length}) != suite.tests (${run.suite?.tests})`);
   const byTool = run.tool_efficiency?.by_tool || [];
   const nonMcp = byTool.filter((t) => !String(t.name).startsWith('mcp__')).map((t) => t.name);
   if (nonMcp.length) problems.push(`Non-MCP tools in by_tool: ${nonMcp.join(', ')}`);
@@ -467,11 +473,12 @@ export function toolLockFromJsonl(jsonlText, mcpPrefix) {
   };
 }
 
-function writeResultFile(dir, slug, data) {
+// build(basename) liefert den Inhalt: so steht run_file schon im einzigen, atomaren wx-Schreibvorgang.
+function writeResultFile(dir, slug, build) {
   let n = nextRunNumber(readdirSync(dir), slug);
   for (let i = 0; i < 20; i++, n++) {
     const out = join(dir, `${slug}-run${n}.json`);
-    try { writeFileSync(out, data, { flag: 'wx' }); return out; } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    try { writeFileSync(out, build(basename(out)), { flag: 'wx' }); return out; } catch (e) { if (e.code !== 'EEXIST') throw e; }
   }
   throw new Error(`no free result file name for ${slug} after 20 tries`);
 }
@@ -510,219 +517,239 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
   let exp = null, expProblems = ['export is not an object'], staleExport = false;
   let tools = null, cost = null, measureOk = false, model = null, mcpCalls = [];
   let toolLock = { bash_attempted: 0, bash_denied: false, non_mcp_executed: [] };
-  let wallClockS = 0, flags = [], spawnedAt = null;
+  let wallClockS = 0, flags = [], spawnedAt = null, jsonlSha = null;
 
   const model_requested = opts.model || MODEL_PIN;
   const allowedForm = opts.allowedToolsForm === 'glob' ? 'glob' : 'plain';
   const allowed = allowedForm === 'glob' ? ['Write', `mcp__${p.name}__*`] : ['Write', `mcp__${p.name}`];
   const timeoutMs = opts.timeoutMs ?? (smoke ? 8 * 60_000 : 45 * 60_000);
 
-  console.log(`[blind-run] ${slug} → ${rundir} (session ${sessionId}, smoke=${smoke})`);
-  statusWrite('starting', { started_at: startedAt.toISOString() });
-  chromeBefore = chromeMainProcesses();          // Bestandsaufnahme vor allem, was wir selbst starten
-
+  // A2.2 (Codex #3): aeusserer Schutz um den GESAMTEN Lebenszyklus. Auch ein Fehler beim
+  // Run-Aufbau, beim Schreiben der Ergebnisdatei oder beim terminalen Status hinterlaesst
+  // best-effort ein Abbruch-JSON im Rundir und genau einen terminalen status.json.
+  let terminal = false;
   try {
-    if (slug === 'public-browser' && chromeProcessesOnPort(9333).length) {
-      throw new Error('Chrome on port 9333 already running — kill it first');
-    }
-    if (!existsSync(d.claude.file)) throw new Error(`claude binary not found: ${d.claude.file}`);
-    if (!existsSync(d.chromeBin)) throw new Error(`chrome binary not found: ${d.chromeBin}`);
-    claudeVer = sh(d.claude.file, [...d.claude.argsPrefix, '--version'], { env: childEnv }).trim().split(/\s+/)[0];
-    if (!claudeVer) throw new Error('claude --version returned nothing');
-    try { chromeVer = sh(d.chromeBin, ['--version']).trim().replace(/^Google Chrome /, ''); } catch { chromeVer = null; }
-
-    writeFileSync(join(rundir, 'mcp.json'),
-      `${JSON.stringify({ mcpServers: { [p.name]: { command: p.command, args: p.args, env } } }, null, 2)}\n`);
-
-    serverInfo = await probeServerInfo(p, env, d, { cwd: rundir });
-    const expectVersion = p.serverVersion ?? p.version;
-    if (serverInfo.version !== expectVersion) {
-      throw new Error(`version mismatch: ${p.name} reports ${serverInfo.version}, pinned ${expectVersion}`);
-    }
-    if (slug === 'public-browser') {
-      cortexCount = cortexPatternCount(serverInfo.instructions);
-      if (typeof cortexCount !== 'number') throw new Error('cortex pattern count missing in server instructions');
-    }
+    console.log(`[blind-run] ${slug} → ${rundir} (session ${sessionId}, smoke=${smoke})`);
+    statusWrite('starting', { started_at: startedAt.toISOString() });
+    chromeBefore = chromeMainProcesses();          // Bestandsaufnahme vor allem, was wir selbst starten
 
     try {
-      suite = suiteFingerprint(await d.suiteFetch(SUITE_URL));
-      suiteOk = JSON.stringify(suite.test_ids) === JSON.stringify(ALL_TESTS);
-      if (!suiteOk) throw new Error(`suite fingerprint mismatch: ${suite.test_ids.length} ids on the page, expected ${ALL_TESTS.length}`);
-    } catch (e) {
-      if (!smoke) throw e;
-      notes.push(`suite fingerprint not verified: ${e.message}`);
-    }
-
-    const prompt = renderPrompt(readFileSync(join(HERE, 'blind-prompt.md'), 'utf8'),
-      { mcpName: p.display, exportPath, smoke });
-    if (prompt.includes('{{')) throw new Error(`prompt still contains placeholders: ${prompt.match(/\{\{[A-Z_]+\}\}/g)}`);
-    writeFileSync(join(rundir, 'prompt.md'), prompt);
-
-    // Tool-Sperre: --allowedTools allein sperrt nichts (auf dieser Maschine fuehrt die CLI
-    // Bash auch unter --permission-mode dontAsk/manual aus). --tools Write nimmt das Werkzeug
-    // aus dem Werkzeugkasten: das Modell bekommt neben den MCP-Tools nur noch Write.
-    flags = ['--model', model_requested, '--output-format', 'json', '--session-id', sessionId,
-      '--setting-sources', 'project', '--strict-mcp-config', '--mcp-config', join(rundir, 'mcp.json'),
-      '--permission-mode', 'dontAsk', '--allowedTools', ...allowed, '--tools', 'Write',
-      '--max-turns', '600'];
-
-    spawnedAt = Date.now();
-    statusWrite('running', { started_at: startedAt.toISOString(), flags: flags.join(' ') });
-    res = await spawnWithTimeout(d.claude.file, [...d.claude.argsPrefix, '-p', prompt, ...flags],
-      { cwd: rundir, env: childEnv, timeoutMs, stderrFile: join(rundir, 'claude.log') });
-    wallClockS = Math.round((Date.now() - spawnedAt) / 1000);
-    writeFileSync(join(rundir, 'result.json'), res.stdout || '');
-    try { result = JSON.parse(res.stdout); } catch { result = null; }
-    if (res.error) notes.push(`aborted: claude spawn failed: ${res.error.message}`);
-    if (res.timedOut) notes.push('aborted: wall-clock limit');
-    statusWrite('measuring', { exit_code: res.code, timed_out: res.timedOut, wall_clock_s: wallClockS });
-
-    const jsonlSlug = jsonlSlugFor(rundir);
-    const jsonlPath = join(d.projectsDir, jsonlSlug, `${sessionId}.jsonl`);
-    const jsonlText = existsSync(jsonlPath) ? readFileSync(jsonlPath, 'utf8') : '';
-    if (!jsonlText) notes.push(`aborted: session JSONL missing (${jsonlPath})`);
-    model = readModelFromJsonl(jsonlText);
-    mcpCalls = mcpCallsFromJsonl(jsonlText, mcpPrefix);
-    toolLock = toolLockFromJsonl(jsonlText, mcpPrefix);
-
-    if (existsSync(exportPath)) {
-      try { exp = JSON.parse(readFileSync(exportPath, 'utf8')); } catch (e) { exp = null; notes.push(`aborted: export is not valid JSON: ${e.message}`); }
-      expProblems = validateExport(exp);
-      if (expProblems.length) notes.push(`aborted: invalid export: ${expProblems.join('; ')}`);
-      const ts = exp && typeof exp.timestamp === 'string' ? Date.parse(exp.timestamp) : NaN;
-      if (Number.isFinite(ts) && ts < startedAt.getTime() - 60_000) {
-        staleExport = true;
-        notes.push(`aborted: stale export (${exp.timestamp} older than run start ${startedAt.toISOString()})`);
+      if (slug === 'public-browser' && chromeProcessesOnPort(9333).length) {
+        throw new Error('Chrome on port 9333 already running — kill it first');
       }
-    } else {
-      notes.push('aborted: no export written');
-    }
+      if (!existsSync(d.claude.file)) throw new Error(`claude binary not found: ${d.claude.file}`);
+      if (!existsSync(d.chromeBin)) throw new Error(`chrome binary not found: ${d.chromeBin}`);
+      claudeVer = sh(d.claude.file, [...d.claude.argsPrefix, '--version'], { env: childEnv }).trim().split(/\s+/)[0];
+      if (!claudeVer) throw new Error('claude --version returned nothing');
+      try { chromeVer = sh(d.chromeBin, ['--version']).trim().replace(/^Google Chrome /, ''); } catch { chromeVer = null; }
 
-    if (jsonlText) {
+      writeFileSync(join(rundir, 'mcp.json'),
+        `${JSON.stringify({ mcpServers: { [p.name]: { command: p.command, args: p.args, env } } }, null, 2)}\n`);
+
+      serverInfo = await probeServerInfo(p, env, d, { cwd: rundir });
+      const expectVersion = p.serverVersion ?? p.version;
+      if (serverInfo.version !== expectVersion) {
+        throw new Error(`version mismatch: ${p.name} reports ${serverInfo.version}, pinned ${expectVersion}`);
+      }
+      if (slug === 'public-browser') {
+        cortexCount = cortexPatternCount(serverInfo.instructions);
+        if (typeof cortexCount !== 'number') throw new Error('cortex pattern count missing in server instructions');
+      }
+
       try {
-        tools = JSON.parse(sh('bash', [join(d.measureDir, 'measure-tool-calls.sh'), jsonlSlug, sessionId], { env: childEnv }));
-        cost = JSON.parse(sh('bash', [join(d.measureDir, 'measure-session-cost.sh'), jsonlSlug, sessionId], { env: childEnv }));
-        measureOk = true;
+        suite = suiteFingerprint(await d.suiteFetch(SUITE_URL));
+        suiteOk = JSON.stringify(suite.test_ids) === JSON.stringify(ALL_TESTS);
+        if (!suiteOk) throw new Error(`suite fingerprint mismatch: ${suite.test_ids.length} ids on the page, expected ${ALL_TESTS.length}`);
       } catch (e) {
-        notes.push(`aborted: measurement failed: ${String(e.message).slice(0, 300)}`);
+        if (!smoke) throw e;
+        notes.push(`suite fingerprint not verified: ${e.message}`);
       }
+
+      const prompt = renderPrompt(readFileSync(join(HERE, 'blind-prompt.md'), 'utf8'),
+        { mcpName: p.display, exportPath, smoke });
+      if (prompt.includes('{{')) throw new Error(`prompt still contains placeholders: ${prompt.match(/\{\{[A-Z_]+\}\}/g)}`);
+      writeFileSync(join(rundir, 'prompt.md'), prompt);
+
+      // Tool-Sperre: --allowedTools allein sperrt nichts (auf dieser Maschine fuehrt die CLI
+      // Bash auch unter --permission-mode dontAsk/manual aus). --tools Write nimmt das Werkzeug
+      // aus dem Werkzeugkasten: das Modell bekommt neben den MCP-Tools nur noch Write.
+      flags = ['--model', model_requested, '--output-format', 'json', '--session-id', sessionId,
+        '--setting-sources', 'project', '--strict-mcp-config', '--mcp-config', join(rundir, 'mcp.json'),
+        '--permission-mode', 'dontAsk', '--allowedTools', ...allowed, '--tools', 'Write',
+        '--max-turns', '600'];
+
+      spawnedAt = Date.now();
+      statusWrite('running', { started_at: startedAt.toISOString(), flags: flags.join(' ') });
+      res = await spawnWithTimeout(d.claude.file, [...d.claude.argsPrefix, '-p', prompt, ...flags],
+        { cwd: rundir, env: childEnv, timeoutMs, stderrFile: join(rundir, 'claude.log') });
+      wallClockS = Math.round((Date.now() - spawnedAt) / 1000);
+      writeFileSync(join(rundir, 'result.json'), res.stdout || '');
+      try { result = JSON.parse(res.stdout); } catch { result = null; }
+      if (res.error) notes.push(`aborted: claude spawn failed: ${res.error.message}`);
+      if (res.timedOut) notes.push('aborted: wall-clock limit');
+      statusWrite('measuring', { exit_code: res.code, timed_out: res.timedOut, wall_clock_s: wallClockS });
+
+      const jsonlSlug = jsonlSlugFor(rundir);
+      const jsonlPath = join(d.projectsDir, jsonlSlug, `${sessionId}.jsonl`);
+      const jsonlText = existsSync(jsonlPath) ? readFileSync(jsonlPath, 'utf8') : '';
+      jsonlSha = jsonlText ? createHash('sha256').update(jsonlText).digest('hex') : null;
+      if (!jsonlText) notes.push(`aborted: session JSONL missing (${jsonlPath})`);
+      model = readModelFromJsonl(jsonlText);
+      mcpCalls = mcpCallsFromJsonl(jsonlText, mcpPrefix);
+      toolLock = toolLockFromJsonl(jsonlText, mcpPrefix);
+
+      if (existsSync(exportPath)) {
+        try { exp = JSON.parse(readFileSync(exportPath, 'utf8')); } catch (e) { exp = null; notes.push(`aborted: export is not valid JSON: ${e.message}`); }
+        expProblems = validateExport(exp);
+        if (expProblems.length) notes.push(`aborted: invalid export: ${expProblems.join('; ')}`);
+        const ts = exp && typeof exp.timestamp === 'string' ? Date.parse(exp.timestamp) : NaN;
+        if (Number.isFinite(ts) && ts < startedAt.getTime() - 60_000) {
+          staleExport = true;
+          notes.push(`aborted: stale export (${exp.timestamp} older than run start ${startedAt.toISOString()})`);
+        }
+      } else {
+        notes.push('aborted: no export written');
+      }
+
+      if (jsonlText) {
+        try {
+          tools = JSON.parse(sh('bash', [join(d.measureDir, 'measure-tool-calls.sh'), jsonlSlug, sessionId], { env: childEnv }));
+          cost = JSON.parse(sh('bash', [join(d.measureDir, 'measure-session-cost.sh'), jsonlSlug, sessionId], { env: childEnv }));
+          measureOk = true;
+        } catch (e) {
+          notes.push(`aborted: measurement failed: ${String(e.message).slice(0, 300)}`);
+        }
+      }
+    } catch (e) {
+      notes.push(`aborted: ${e.message}`);
+    } finally {
+      if (res?.pid && isAlive(res.pid)) {
+        killGroup(res.pid, 'SIGTERM');
+        setTimeout(() => killGroup(res.pid, 'SIGKILL'), 10_000).unref();
+      }
+      if (slug === 'public-browser') killChromeOnPort(9333);
     }
+
+    const eff = mcpOnly(tools?.by_tool, mcpPrefix);
+    const summary = { ...score(exp?.tests), duration_s: exp?.elapsed_s > 0 ? exp.elapsed_s : wallClockS };
+    // Der Pin gilt auch auf dem Fallback-Pfad (--model opus): die JSONL muss claude-opus-5 melden.
+    const modelOk = typeof model === 'string' && model.startsWith(MODEL_PIN);
+    if (!model) notes.push('aborted: model not found in session JSONL');
+    else if (!modelOk) notes.push(`aborted: model mismatch: ${model} (requested ${model_requested}, pinned ${MODEL_PIN})`);
+    // Der Smoke-Prompt fordert genau einen Bash-Versuch an: taucht Bash trotzdem als
+    // ausgefuehrter Call auf, ist die Sperre offen. Kein Call = das Werkzeug fehlte.
+    const lockOk = toolLock.non_mcp_executed.length === 0;
+    if (!lockOk) notes.push(`aborted: fairness violated, non-MCP tools executed: ${toolLock.non_mcp_executed.join(', ')}`);
+    const executionOk = res?.code === 0 && !res?.timedOut && expProblems.length === 0 && !staleExport
+      && modelOk && measureOk && lockOk && (smoke || suiteOk);
+    const runStatus = executionOk ? (smoke ? 'smoke' : 'ok') : 'aborted';
+    const complete = summary.not_run === 0;
+    if (runStatus === 'ok' && !complete) {          // im Smoke sind 28 nicht gelaufene Tests der Normalfall
+      notes.push(`incomplete: ${SCORABLE.filter((id) => !['pass', 'fail'].includes(exp?.tests?.[id]?.status)).join(',')}`);
+    }
+    const charsOf = mcpCalls.map((c) => c.chars);
+    const msOf = mcpCalls.map((c) => c.ms).filter((x) => Number.isFinite(x));
+
+    const run = {
+      name: p.display, slug, type: 'mcp-llm',
+      mcp_package: p.package, mcp_version: p.version, snapshot_tool: p.snapshotTool,
+      mcp_server_info: serverInfo,
+      model: model || 'unknown',
+      chrome_version: slug === 'browser-use' ? null : chromeVer,
+      session_id: sessionId, timestamp: startedAt.toISOString(),
+      suite: { url: SUITE_URL, tests: ALL_TESTS.length, scorable: SCORABLE.length, excluded: EXCLUDED, schema_fallback: true,
+        html_sha256: suite?.html_sha256 ?? null, html_bytes: suite?.html_bytes ?? null, fingerprint_ok: suiteOk,
+        test_ids: suite?.test_ids ?? null },
+      harness: {
+        mode: 'blind-print', status: runStatus, complete,
+        claude_code_version: claudeVer, os: `${process.platform} ${release()}`, node: process.version,
+        profile_isolation: p.profile_isolation, model_requested,
+        flags: flags.join(' ').split(sessionId).join('<session_id>'), allowed_tools_form: allowedForm,
+        chrome_version_source: slug === 'browser-use'
+          ? 'not-captured (browser-use launches its own browser)' : 'applications-binary',
+        wall_clock_s: wallClockS, exit_code: res?.code ?? null, timed_out: res?.timedOut ?? false,
+        num_turns: result?.num_turns ?? null, run_dir: rundir,
+        tool_lock: toolLock,
+        session_jsonl_sha256: jsonlSha,
+        calls_ledger: mcpCalls.map((c, i) => ({
+          i: i + 1, tool: c.name, chars: c.chars, ...(Number.isFinite(c.ms) ? { ms: c.ms } : {}),
+        })),
+      },
+      summary,
+      tokens: { start: 0, end: cost?.total?.all ?? null, delta: cost?.total?.all ?? null },
+      cost_usd_list: result?.total_cost_usd ?? cost?.cost_usd ?? null,
+      mqs: mqs({ chars: eff.response_chars_total, pass_rate: summary.pass_rate, calls: eff.calls_total, duration_s: summary.duration_s }),
+      cortex: slug === 'public-browser'
+        ? { mode: 'kalt', dir: env.PUBLIC_BROWSER_CORTEX_DIR, patternCount: cortexCount, note: 'community package only, fresh dir' }
+        : null,
+      tool_efficiency: {
+        calls_total: eff.calls_total, response_chars_total: eff.response_chars_total,
+        avg_response_chars: eff.avg_response_chars,
+        p50_response_chars: percentile(charsOf, 50), p95_response_chars: percentile(charsOf, 95),
+        p50_ms: percentile(msOf, 50), p95_ms: percentile(msOf, 95),
+        avg_response_tokens_est: Math.floor(eff.avg_response_chars / 4),
+        total_tokens_est: eff.total_tokens_est, avg_tokens_est: eff.avg_tokens_est,
+        avg_ms: eff.avg_ms, total_ms: eff.total_ms,
+        total_output_tokens: eff.total_output_tokens, avg_output_tokens: eff.avg_output_tokens,
+        cache_read_tokens_total: tools?.summary?.cache_read_tokens_total ?? null,
+        cache_creation_tokens_total: tools?.summary?.cache_creation_tokens_total ?? null,
+        fresh_input_tokens_total: tools?.summary?.fresh_input_tokens_total ?? null,
+        cache_hit_rate: tools?.summary?.cache_hit_rate ?? null,
+        by_tool: eff.by_tool, per_test: null, segment: 'full',
+        non_mcp_calls: (tools?.by_tool || []).filter((t) => !String(t.name).startsWith(mcpPrefix))
+          .map((t) => ({ name: t.name, count: t.count })),
+      },
+      tests: exp?.tests ?? {},
+      export_summary: exp?.summary ?? null,
+      notes: notes.join(' | ') || (smoke ? 'smoke' : ''),
+    };
+
+    const problems = verifyRunJson(run);
+    if (measureOk && mcpCalls.length !== eff.calls_total) {
+      problems.push(`JSONL MCP calls (${mcpCalls.length}) != by_tool calls_total (${eff.calls_total})`);
+    }
+
+    const serialize = (name) => { run.run_file = name; return `${JSON.stringify(run, null, 2)}\n`; };
+    let outPath;
+    if (smoke) {
+      outPath = join(rundir, 'run.json');
+      writeFileSync(outPath, serialize(basename(outPath)));   // gleiches Schema wie beim offiziellen Lauf
+    } else {
+      mkdirSync(d.resultsDir, { recursive: true });
+      outPath = writeResultFile(d.resultsDir, slug, serialize);
+    }
+
+    const leftovers = chromeMainProcesses().filter((c) => !chromeBefore.some((b) => b.pid === c.pid));
+    statusWrite(runStatus === 'smoke' ? 'smoke' : runStatus,
+      { out: outPath, problems, chrome_leftovers: leftovers, wall_clock_s: wallClockS });
+    terminal = true;
+
+    console.log([
+      `Benchmark ${p.display} ${p.version} — ${runStatus}`,
+      `Ergebnis: ${summary.passed}/${summary.counted} bestanden (${summary.pass_rate}%), ${summary.failed} fail, ${summary.not_run} nicht gelaufen`,
+      `Dauer:    ${summary.duration_s}s (Seite) / ${wallClockS}s (Wall-Clock), Turns ${result?.num_turns ?? '?'}`,
+      `Modell:   ${run.model} (angefordert ${model_requested})`,
+      `Server:   ${serverInfo?.name ?? '?'} ${serverInfo?.version ?? '?'}${cortexCount === null ? '' : `, Cortex ${cortexCount} Patterns`}`,
+      `MQS: ${run.mqs.score}  Token ${run.mqs.token_score} / Reliability ${run.mqs.reliability_score} / Calls ${run.mqs.call_score} / Speed ${run.mqs.speed_score}`,
+      `MCP-Calls ${eff.calls_total}, Response ${Math.round(eff.response_chars_total / 1000)}k Chars, Ø ${eff.avg_response_chars}, P95 ${run.tool_efficiency.p95_response_chars}`,
+      `Tool-Sperre: ${toolLock.bash_attempted} Versuche ausserhalb, denied=${toolLock.bash_denied}, ausgefuehrt: ${toolLock.non_mcp_executed.join(', ') || 'keine'}`,
+      `Non-MCP-Calls: ${run.tool_efficiency.non_mcp_calls.map((t) => `${t.name}×${t.count}`).join(', ') || 'keine'}`,
+      `Kosten (Listenpreis): $${run.cost_usd_list ?? '?'}`,
+      `Rohdaten: ${outPath}`,
+      run.notes ? `Notes: ${run.notes}` : 'Notes: —',
+      problems.length ? `PROBLEME: ${problems.join(' | ')}` : 'Post-Write-Check: OK',
+      leftovers.length ? `Chrome-Reste: ${leftovers.map((c) => `${c.pid} ${c.cmd.slice(0, 80)}`).join(' ; ')}` : 'Chrome-Reste: keine',
+    ].join('\n'));
+    return { run, outPath, problems, rundir, childPid: res?.pid ?? null };
   } catch (e) {
-    notes.push(`aborted: ${e.message}`);
+    try {
+      writeFileSync(join(rundir, 'run-aborted.json'),
+        `${JSON.stringify({ slug, session_id: sessionId, rundir, error: String(e?.message ?? e), notes }, null, 2)}\n`);
+    } catch { /* best effort */ }
+    throw e;
   } finally {
-    if (res?.pid && isAlive(res.pid)) {
-      killGroup(res.pid, 'SIGTERM');
-      setTimeout(() => killGroup(res.pid, 'SIGKILL'), 10_000).unref();
-    }
-    if (slug === 'public-browser') killChromeOnPort(9333);
+    if (!terminal) { try { statusWrite('aborted', { reason: 'lifecycle error' }); } catch { /* best effort */ } }
   }
-
-  const eff = mcpOnly(tools?.by_tool, mcpPrefix);
-  const summary = { ...score(exp?.tests), duration_s: exp?.elapsed_s > 0 ? exp.elapsed_s : wallClockS };
-  // Der Pin gilt auch auf dem Fallback-Pfad (--model opus): die JSONL muss claude-opus-5 melden.
-  const modelOk = typeof model === 'string' && model.startsWith(MODEL_PIN);
-  if (!model) notes.push('aborted: model not found in session JSONL');
-  else if (!modelOk) notes.push(`aborted: model mismatch: ${model} (requested ${model_requested}, pinned ${MODEL_PIN})`);
-  // Der Smoke-Prompt fordert genau einen Bash-Versuch an: taucht Bash trotzdem als
-  // ausgefuehrter Call auf, ist die Sperre offen. Kein Call = das Werkzeug fehlte.
-  const lockOk = toolLock.non_mcp_executed.length === 0;
-  if (!lockOk) notes.push(`aborted: fairness violated, non-MCP tools executed: ${toolLock.non_mcp_executed.join(', ')}`);
-  const executionOk = res?.code === 0 && !res?.timedOut && expProblems.length === 0 && !staleExport
-    && modelOk && measureOk && lockOk && (smoke || suiteOk);
-  const runStatus = executionOk ? (smoke ? 'smoke' : 'ok') : 'aborted';
-  const complete = summary.not_run === 0;
-  if (runStatus === 'ok' && !complete) {          // im Smoke sind 28 nicht gelaufene Tests der Normalfall
-    notes.push(`incomplete: ${SCORABLE.filter((id) => !['pass', 'fail'].includes(exp?.tests?.[id]?.status)).join(',')}`);
-  }
-  const charsOf = mcpCalls.map((c) => c.chars);
-  const msOf = mcpCalls.map((c) => c.ms).filter((x) => Number.isFinite(x));
-
-  const run = {
-    name: p.display, slug, type: 'mcp-llm',
-    mcp_package: p.package, mcp_version: p.version, snapshot_tool: p.snapshotTool,
-    mcp_server_info: serverInfo,
-    model: model || 'unknown',
-    chrome_version: chromeVer,
-    session_id: sessionId, timestamp: startedAt.toISOString(),
-    suite: { url: SUITE_URL, tests: ALL_TESTS.length, scorable: SCORABLE.length, excluded: EXCLUDED, schema_fallback: true,
-      html_sha256: suite?.html_sha256 ?? null, html_bytes: suite?.html_bytes ?? null, fingerprint_ok: suiteOk },
-    harness: {
-      mode: 'blind-print', status: runStatus, complete,
-      claude_code_version: claudeVer, os: `${process.platform} ${release()}`, node: process.version,
-      profile_isolation: p.profile_isolation, model_requested,
-      flags: flags.join(' '), allowed_tools_form: allowedForm,
-      wall_clock_s: wallClockS, exit_code: res?.code ?? null, timed_out: res?.timedOut ?? false,
-      num_turns: result?.num_turns ?? null, run_dir: rundir, child_pid: res?.pid ?? null,
-      tool_lock: toolLock,
-    },
-    summary,
-    tokens: { start: 0, end: cost?.total?.all ?? null, delta: cost?.total?.all ?? null },
-    cost_usd_list: result?.total_cost_usd ?? cost?.cost_usd ?? null,
-    mqs: mqs({ chars: eff.response_chars_total, pass_rate: summary.pass_rate, calls: eff.calls_total, duration_s: summary.duration_s }),
-    cortex: slug === 'public-browser'
-      ? { mode: 'kalt', dir: env.PUBLIC_BROWSER_CORTEX_DIR, patternCount: cortexCount, note: 'community package only, fresh dir' }
-      : null,
-    tool_efficiency: {
-      calls_total: eff.calls_total, response_chars_total: eff.response_chars_total,
-      avg_response_chars: eff.avg_response_chars,
-      p50_response_chars: percentile(charsOf, 50), p95_response_chars: percentile(charsOf, 95),
-      p50_ms: percentile(msOf, 50), p95_ms: percentile(msOf, 95),
-      avg_response_tokens_est: Math.floor(eff.avg_response_chars / 4),
-      total_tokens_est: eff.total_tokens_est, avg_tokens_est: eff.avg_tokens_est,
-      avg_ms: eff.avg_ms, total_ms: eff.total_ms,
-      total_output_tokens: eff.total_output_tokens, avg_output_tokens: eff.avg_output_tokens,
-      cache_read_tokens_total: tools?.summary?.cache_read_tokens_total ?? null,
-      cache_creation_tokens_total: tools?.summary?.cache_creation_tokens_total ?? null,
-      fresh_input_tokens_total: tools?.summary?.fresh_input_tokens_total ?? null,
-      cache_hit_rate: tools?.summary?.cache_hit_rate ?? null,
-      by_tool: eff.by_tool, per_test: null, segment: 'full',
-      non_mcp_calls: (tools?.by_tool || []).filter((t) => !String(t.name).startsWith(mcpPrefix))
-        .map((t) => ({ name: t.name, count: t.count })),
-    },
-    tests: exp?.tests ?? {},
-    export_summary: exp?.summary ?? null,
-    notes: notes.join(' | ') || (smoke ? 'smoke' : ''),
-  };
-
-  const problems = verifyRunJson(run);
-  if (measureOk && mcpCalls.length !== eff.calls_total) {
-    problems.push(`JSONL MCP calls (${mcpCalls.length}) != by_tool calls_total (${eff.calls_total})`);
-  }
-
-  let outPath;
-  const data = `${JSON.stringify(run, null, 2)}\n`;
-  if (smoke) {
-    outPath = join(rundir, 'run.json');
-    run.run_file = basename(outPath);            // gleiches Schema wie beim offiziellen Lauf
-    writeFileSync(outPath, `${JSON.stringify(run, null, 2)}\n`);
-  } else {
-    mkdirSync(d.resultsDir, { recursive: true });
-    outPath = writeResultFile(d.resultsDir, slug, data);
-    run.run_file = basename(outPath);
-    writeFileSync(outPath, `${JSON.stringify(run, null, 2)}\n`);
-  }
-
-  const leftovers = chromeMainProcesses().filter((c) => !chromeBefore.some((b) => b.pid === c.pid));
-  statusWrite(runStatus === 'smoke' ? 'smoke' : runStatus,
-    { out: outPath, problems, chrome_leftovers: leftovers, wall_clock_s: wallClockS });
-
-  console.log([
-    `Benchmark ${p.display} ${p.version} — ${runStatus}`,
-    `Ergebnis: ${summary.passed}/${summary.counted} bestanden (${summary.pass_rate}%), ${summary.failed} fail, ${summary.not_run} nicht gelaufen`,
-    `Dauer:    ${summary.duration_s}s (Seite) / ${wallClockS}s (Wall-Clock), Turns ${result?.num_turns ?? '?'}`,
-    `Modell:   ${run.model} (angefordert ${model_requested})`,
-    `Server:   ${serverInfo?.name ?? '?'} ${serverInfo?.version ?? '?'}${cortexCount === null ? '' : `, Cortex ${cortexCount} Patterns`}`,
-    `MQS: ${run.mqs.score}  Token ${run.mqs.token_score} / Reliability ${run.mqs.reliability_score} / Calls ${run.mqs.call_score} / Speed ${run.mqs.speed_score}`,
-    `MCP-Calls ${eff.calls_total}, Response ${Math.round(eff.response_chars_total / 1000)}k Chars, Ø ${eff.avg_response_chars}, P95 ${run.tool_efficiency.p95_response_chars}`,
-    `Tool-Sperre: ${toolLock.bash_attempted} Versuche ausserhalb, denied=${toolLock.bash_denied}, ausgefuehrt: ${toolLock.non_mcp_executed.join(', ') || 'keine'}`,
-    `Non-MCP-Calls: ${run.tool_efficiency.non_mcp_calls.map((t) => `${t.name}×${t.count}`).join(', ') || 'keine'}`,
-    `Kosten (Listenpreis): $${run.cost_usd_list ?? '?'}`,
-    `Rohdaten: ${outPath}`,
-    run.notes ? `Notes: ${run.notes}` : 'Notes: —',
-    problems.length ? `PROBLEME: ${problems.join(' | ')}` : 'Post-Write-Check: OK',
-    leftovers.length ? `Chrome-Reste: ${leftovers.map((c) => `${c.pid} ${c.cmd.slice(0, 80)}`).join(' ; ')}` : 'Chrome-Reste: keine',
-  ].join('\n'));
-  return { run, outPath, problems, rundir };
 }
 
 export function compareFromResults(dir = defaultDeps().resultsDir) {

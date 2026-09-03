@@ -3,6 +3,7 @@
 //   ok       — JSONL (2 MCP-Calls + 1 verweigerter Bash) + gueltiger Export + JSON auf stdout
 //   noexport — wie ok, aber ohne run-export.json
 //   badexport— wie ok, aber Export ist {"tests":[]}
+//   notimestamp — wie ok, aber der Export traegt keinen timestamp
 //   hang     — schlaeft 60 s (fuer den Wall-Clock-Timeout)
 //   badmodel — wie ok, aber die JSONL meldet claude-sonnet-4-5
 //   nomodel  — wie ok, aber die Assistant-Zeilen tragen kein message.model
@@ -52,7 +53,7 @@ else {
 
   if (mode !== 'noexport' && mode !== 'badexport') {
     writeFileSync(join(process.cwd(), 'run-export.json'), JSON.stringify({
-      timestamp: new Date().toISOString(), elapsed_s: 42,
+      ...(mode === 'notimestamp' ? {} : { timestamp: new Date().toISOString() }), elapsed_s: 42,
       tests: { 'T1.1': { status: 'pass', duration_ms: 10 }, 'T1.2': { status: 'pass', duration_ms: 11 }, 'T1.3': { status: 'pass', duration_ms: 12 } },
       summary: { passed: 3, failed: 0 },
     }, null, 2));

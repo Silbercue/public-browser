@@ -152,6 +152,7 @@ const fakeRun = (over = {}) => ({
   snapshot_tool: 'browser_snapshot', run_file: 'playwright-mcp-run5.json', chrome_version: '152.0.7977.65',
   summary: { total: 35, counted: 30, passed: 28, failed: 2, not_run: 0, skipped: 5, pass_rate: 93.3, duration_s: 500 },
   mqs: { score: 51.2 }, cortex: null,
+  suite: { url: SUITE_URL, tests: 35, scorable: 30, test_ids: ALL_TESTS },
   harness: { mode: 'blind-print', status: 'ok' },
   tool_efficiency: { calls_total: 110, response_chars_total: 150000, avg_response_chars: 1363, p95_response_chars: 8000,
     by_tool: [{ name: 'mcp__playwright__browser_snapshot', count: 10, avg_chars: 6000, p95_chars: 8000, total_chars: 60000 }, { name: 'mcp__playwright__browser_click', count: 100, avg_chars: 900, p95_chars: 1200, total_chars: 90000 }] },
@@ -406,14 +407,14 @@ test('pipeline: an invalid export aborts with the validateExport reason in notes
 test('pipeline: the wall-clock limit aborts the run and kills the process group', async () => {
   const { deps, rundir } = pipeEnv('hang');
   const dir = rundir();
-  const { run } = await runParticipant('fake', { rundir: dir, timeoutMs: 2000 }, deps);
+  const { run, childPid } = await runParticipant('fake', { rundir: dir, timeoutMs: 2000 }, deps);
   assert.equal(run.harness.status, 'aborted');
   assert.equal(run.harness.timed_out, true);
   assert.match(run.notes, /aborted: wall-clock limit/);
   // Der Kill muss wirklich greifen: das Fake-Claude wuerde sonst 60 s weiterlaufen.
   assert.ok(run.harness.wall_clock_s <= 6, `wall_clock_s ${run.harness.wall_clock_s}`);
-  assert.ok(run.harness.child_pid > 0);
-  assert.throws(() => process.kill(run.harness.child_pid, 0), /ESRCH/);
+  assert.ok(childPid > 0);
+  assert.throws(() => process.kill(childPid, 0), /ESRCH/);
   assert.equal(statusOf(dir).phase, 'aborted');
 });
 
@@ -505,4 +506,82 @@ test('pipeline: a non-empty rundir is refused', async () => {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'leftover.txt'), 'x');
   await assert.rejects(() => runParticipant('fake', { rundir: dir }, deps), /not empty/);
+});
+
+// --- Abnahme-Fix-Runde 1 (Codex #1, #3, #4, #5, #10, #14) ---
+
+test('verifyRunJson: suite.test_ids must be present and as long as suite.tests', () => {
+  assert.deepEqual(verifyRunJson(fakeRun()), []);                       // Gegenprobe: fakeRun traegt die IDs
+  const missing = fakeRun({ suite: { ...fakeRun().suite, test_ids: undefined } });
+  assert.ok(verifyRunJson(missing).some((m) => /test_ids/.test(m)), 'fehlende test_ids gemeldet');
+  const short = fakeRun({ suite: { ...fakeRun().suite, test_ids: ALL_TESTS.slice(0, 34) } });
+  assert.ok(verifyRunJson(short).some((m) => /test_ids/.test(m)), 'zu kurze test_ids gemeldet');
+});
+
+test('verifyRunJson: chrome_version may be null only for browser-use', () => {
+  assert.ok(verifyRunJson(fakeRun({ chrome_version: null })).some((m) => /chrome_version/.test(m)));
+  assert.deepEqual(verifyRunJson(fakeRun({ slug: 'browser-use', chrome_version: null })), []);
+  assert.deepEqual(verifyRunJson(fakeRun({ chrome_version: '152.0.7977.65' })), []);   // Gegenprobe
+});
+
+test('validateExport: an export without timestamp is rejected', () => {
+  assert.deepEqual(validateExport({ timestamp: '2026-09-03T20:00:00Z', elapsed_s: 1, tests: {} }), []);
+  assert.ok(validateExport({ elapsed_s: 1, tests: {} }).some((m) => /timestamp/.test(m)), 'fehlender Zeitstempel gemeldet');
+});
+
+test('pipeline: an export without timestamp aborts the run', async () => {
+  const { deps, rundir } = pipeEnv('notimestamp');
+  const { run } = await runParticipant('fake', { rundir: rundir() }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.match(run.notes, /timestamp/);
+});
+
+test('pipeline: the run JSON carries the suite test-id manifest', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const { run, outPath } = await runParticipant('fake', { rundir: rundir() }, deps);
+  assert.deepEqual(run.suite.test_ids, ALL_TESTS);
+  assert.deepEqual(JSON.parse(readFileSync(outPath, 'utf8')).suite.test_ids, ALL_TESTS);
+});
+
+test('pipeline: the per-call ledger matches the aggregates and names the source JSONL', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const { run } = await runParticipant('fake', { rundir: rundir() }, deps);
+  const ledger = run.harness.calls_ledger;
+  assert.equal(ledger.length, run.tool_efficiency.calls_total);
+  assert.equal(ledger.reduce((a, c) => a + c.chars, 0), run.tool_efficiency.response_chars_total);
+  assert.deepEqual(ledger.map((c) => c.i), [1, 2]);
+  assert.deepEqual(ledger.map((c) => c.tool), ['mcp__fake__view_page', 'mcp__fake__click']);
+  assert.ok(ledger[0].ms >= 1500 && ledger[0].ms <= 1510, `ms ${ledger[0].ms}`);
+  assert.equal(ledger[0].chars, 10);
+  assert.equal('result_text' in ledger[0], false, 'keine Ergebnisinhalte im Ledger');
+  assert.match(run.harness.session_jsonl_sha256, /^[0-9a-f]{64}$/);
+});
+
+test('pipeline: no child_pid is published and the session id appears only once', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const { run, outPath } = await runParticipant('fake', { rundir: rundir() }, deps);
+  assert.equal('child_pid' in run.harness, false);
+  assert.match(run.harness.flags, /--session-id <session_id>/);
+  const raw = readFileSync(outPath, 'utf8');
+  assert.equal(raw.split(run.session_id).length - 1, 1, 'Session-ID genau einmal im JSON');
+});
+
+test('pipeline: a failure after the guarded section still leaves a terminal status and an abort JSON', async () => {
+  const { deps, rundir, tmp } = pipeEnv('ok');
+  writeFileSync(join(tmp, 'blocker'), 'x');
+  deps.resultsDir = join(tmp, 'blocker', 'results');       // mkdirSync scheitert mit ENOTDIR
+  const dir = rundir();
+  await assert.rejects(() => runParticipant('fake', { rundir: dir }, deps));
+  assert.equal(statusOf(dir).phase, 'aborted');
+  assert.ok(existsSync(join(dir, 'run-aborted.json')), 'Abbruch-JSON geschrieben');
+});
+
+test('pipeline: an existing result file name is never overwritten', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const taken = join(deps.resultsDir, 'fake-run1.json');
+  writeFileSync(taken, 'DO NOT OVERWRITE');
+  const { outPath, run } = await runParticipant('fake', { rundir: rundir() }, deps);
+  assert.equal(basename(outPath), 'fake-run2.json');
+  assert.equal(readFileSync(taken, 'utf8'), 'DO NOT OVERWRITE');
+  assert.equal(run.run_file, 'fake-run2.json');
 });
