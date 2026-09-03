@@ -119,9 +119,17 @@ test('PARTICIPANTS: every entry documents its profile isolation', () => {
   assert.match(PARTICIPANTS['browser-use'].profile_isolation, /not isolated/);
 });
 
-test('PARTICIPANTS: browser-use command is overridable via env', () => {
-  assert.equal(typeof PARTICIPANTS['browser-use'].command, 'string');
-  assert.ok(PARTICIPANTS['browser-use'].command.length > 0);
+test('PARTICIPANTS: browser-use command is overridable via env', async () => {
+  assert.equal(PARTICIPANTS['browser-use'].command, '/Users/silbercue/.browser-use-env/bin/browser-use');
+  const before = process.env.BLIND_RUN_BROWSER_USE_BIN;
+  process.env.BLIND_RUN_BROWSER_USE_BIN = '/x/fake-bu';
+  try {
+    const fresh = await import('./blind-run.mjs?override=1');
+    assert.equal(fresh.PARTICIPANTS['browser-use'].command, '/x/fake-bu');
+  } finally {
+    if (before === undefined) delete process.env.BLIND_RUN_BROWSER_USE_BIN;
+    else process.env.BLIND_RUN_BROWSER_USE_BIN = before;
+  }
 });
 
 const fakeRun = (over = {}) => ({
@@ -174,6 +182,12 @@ test('verifyRunJson: flags non-MCP tools, inconsistent totals, missing fields', 
   assert.ok(verifyRunJson(pb).some((m) => /cortex/.test(m)));
 });
 
+test('verifyRunJson: a missing run object is reported, not thrown', () => {
+  assert.deepEqual(verifyRunJson(undefined), ['run is not an object']);
+  assert.deepEqual(verifyRunJson([]), ['run is not an object']);
+  assert.deepEqual(verifyRunJson(fakeRun()), []);          // Gegenprobe: ein echtes Run-Objekt kommt durch
+});
+
 // A1.3
 test('verifyRunJson: model must be a claude model and chrome_version must be known', () => {
   assert.ok(verifyRunJson(fakeRun({ model: 'unknown' })).some((m) => /model unknown/.test(m)));
@@ -183,7 +197,7 @@ test('verifyRunJson: model must be a claude model and chrome_version must be kno
 
 test('verifyRunJson: an ok run needs calls and a consistent test count', () => {
   const noCalls = fakeRun({ tool_efficiency: { calls_total: 0, by_tool: [] } });
-  assert.ok(verifyRunJson(noCalls).some((m) => /calls_total .*0/.test(m) || /no MCP calls/.test(m)));
+  assert.ok(verifyRunJson(noCalls).some((m) => /no MCP calls recorded for an ok run/.test(m)));
   const offCount = fakeRun({ summary: { ...fakeRun().summary, not_run: 3 } });
   assert.ok(verifyRunJson(offCount).some((m) => /summary/.test(m)));
 });

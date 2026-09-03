@@ -121,6 +121,8 @@ export function renderPrompt(template, { mcpName, exportPath, smoke }) {
 }
 
 // Nearest-rank percentile: sortieren, Index ceil(p/100 * n) - 1.
+// Diese JS-Definition ist massgeblich fuer die Perzentile, die Task 2 fuers Run-JSON rechnet.
+// measure-tool-calls.sh rechnet anders (jq: floor((n-1) * p)) — die beiden Werte koennen abweichen.
 export function percentile(values, p) {
   const v = (values || []).map(Number).filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
   if (v.length === 0) return 0;
@@ -236,6 +238,7 @@ export function compareTable(runs) {
 }
 
 export function verifyRunJson(run) {
+  if (!run || typeof run !== 'object' || Array.isArray(run)) return ['run is not an object'];
   const problems = [];
   for (const k of ['summary.counted', 'mqs.score', 'tool_efficiency.calls_total', 'mcp_version', 'model', 'harness.mode']) {
     const v = k.split('.').reduce((o, p) => (o == null ? undefined : o[p]), run);
