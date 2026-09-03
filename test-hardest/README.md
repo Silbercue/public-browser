@@ -7,10 +7,10 @@ This folder holds every benchmark run behind the numbers in the main README — 
 | Files | Suite | When | Driver model | How it was run |
 |---|---|---|---|---|
 | `benchmark-*.json` | 24 tests (4 levels) | 2026-04-05 | Claude Opus 4.6 | interactive Claude Code session from `/tmp`, one MCP at a time |
-| `results/*-run*.json` dated April 2026 | 35 tests, 31 scored (T5.3–T5.6 runner-only) | 2026-04-09 … 04-12 | Claude Opus 4.6 | same; competitor versions were not recorded (`mcp_version: null`) |
+| `results/*-run*.json` dated April 2026 | 35 tests, 31 scored (T5.3–T5.6 runner-only; files vary, see below) | 2026-04-09 … 04-12 | Claude Opus 4.6 | same; competitor versions were not recorded (`mcp_version: null`) |
 | `results/*-run*.json` with `"harness": {"mode": "blind-print"}` | 35 tests, **30 scored** | 2026-09-03 | Claude Opus 5 (`claude-opus-5`) | `blind-run.mjs`, see below; package versions pinned and recorded |
 
-Cross-suite comparisons are not valid. Compare rows only within one data set. The April files are also internally uneven (e.g. `silbercuechrome-pro-run9.json` reports `37/31` because it counted tests outside the scored set, `-run8` counts 30). They are kept unedited as they were written.
+Cross-suite comparisons are not valid. Compare rows only within one data set. The April files are also internally uneven: `silbercuechrome-pro-run9.json` reports `37/31` — its `.tests` object holds 41 entries (37 `pass`, 4 `skip`) while `summary.counted` says 31 — and `-run8.json` counts 30 with 35 entries. Treat these as dev-session artefacts. They are kept unedited as they were written.
 
 ## Why 30 of 35 in the September runs
 
@@ -47,7 +47,7 @@ macOS `darwin 25.6.0` · Claude Code `2.1.259` · Node `v22.14.0` · Google Chro
 
 ## What changed since April
 
-Playwright MCP 0.0.80 now returns **smaller** responses than Public Browser: Ø 740 / 656 chars per call versus 1298 / 1214, and its `browser_snapshot` averages 1911 / 2269 chars against `view_page` at 2841 / 3398. In April the ranking was the other way round. Public Browser's remaining lead is in tool calls (84 / 86 versus 137 / 151 Playwright and 156 / 172 DevTools) and in wall-clock page duration (281 / 296 s versus 468 / 493 s and 547 / 558 s). Per-call click latency is mixed rather than a clean win: `by_tool.avg_ms` for click is 90 / 435 ms (Public Browser), 625 / 669 ms (Playwright), 251 / 260 ms (DevTools).
+Playwright MCP 0.0.80 now returns **smaller** responses than Public Browser: Ø 740 / 656 chars per call versus 1298 / 1214, and its `browser_snapshot` averages 1911 / 2269 chars against `view_page` at 2841 / 3398. The April data does not support a clean reversal statement: `tool_efficiency.avg_response_chars` is 1467 (`playwright-mcp-run3`) and 1216 (`-run4`) against a spread of 576 to 2913 across the nine `silbercuechrome-pro-run*` files — five of them above Playwright's 1467, two below its 1216. Public Browser's remaining lead is in tool calls (84 / 86 versus 137 / 151 Playwright and 156 / 172 DevTools) and in wall-clock page duration (281 / 296 s versus 468 / 493 s and 547 / 558 s). Per-call click latency is mixed rather than a clean win: `by_tool.avg_ms` for click is 90 / 435 ms (Public Browser), 625 / 669 ms (Playwright), 251 / 260 ms (DevTools).
 
 browser-use's 15.8M response characters come almost entirely from `browser_screenshot` (Ø 283883 chars) and `browser_get_state` (Ø 102819) returning raw payloads into the transcript.
 
