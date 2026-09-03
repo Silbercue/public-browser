@@ -430,6 +430,21 @@ test('pipeline: serverVersion overrides the package version in the handshake che
   assert.equal(run.mcp_server_info.version, '9.9.9');
 });
 
+test('pipeline: a changed suite page aborts an official run and only warns in a smoke', async () => {
+  const short = ALL_TESTS.filter((id) => id !== 'T3.4').join(' ');
+  const a = pipeEnv('ok');
+  a.deps.suiteFetch = async () => short;
+  const official = await runParticipant('fake', { rundir: a.rundir() }, a.deps);
+  assert.equal(official.run.harness.status, 'aborted');
+  assert.match(official.run.notes, /suite fingerprint mismatch: 34 ids/);
+  const b = pipeEnv('ok');
+  b.deps.suiteFetch = async () => short;
+  const smoke = await runParticipant('fake', { smoke: true, rundir: b.rundir() }, b.deps);
+  assert.equal(smoke.run.harness.status, 'smoke');       // Gegenprobe: im Smoke nur eine Notiz
+  assert.match(smoke.run.notes, /suite fingerprint not verified/);
+  assert.equal(smoke.run.suite.fingerprint_ok, false);
+});
+
 test('pipeline: a non-empty rundir is refused', async () => {
   const { deps, rundir } = pipeEnv('ok');
   const dir = rundir();
