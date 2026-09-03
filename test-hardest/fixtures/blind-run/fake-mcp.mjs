@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // Fake-MCP-Server fuer probeServerInfo(): beantwortet genau die initialize-Zeile.
+// FAKE_MCP_VERSION erlaubt Tests mit einer abweichenden Handshake-Version (Default 9.9.9).
+const VERSION = process.env.FAKE_MCP_VERSION || '9.9.9';
 let buf = '';
 process.stdin.on('data', (d) => {
   buf += d;
@@ -12,7 +14,7 @@ process.stdin.on('data', (d) => {
       process.stdout.write(JSON.stringify({
         jsonrpc: '2.0', id: msg.id,
         result: { protocolVersion: '2025-06-18', capabilities: {},
-          serverInfo: { name: 'fake', version: '9.9.9' },
+          serverInfo: { name: 'fake', version: VERSION },
           instructions: 'Fake MCP for tests.\nCortex: 93 patterns loaded.' },
       }) + '\n');
     }

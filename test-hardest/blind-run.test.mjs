@@ -123,6 +123,13 @@ test('PARTICIPANTS: every entry documents its profile isolation', () => {
   assert.match(PARTICIPANTS['browser-use'].profile_isolation, /not isolated/);
 });
 
+// Task 6: browser-use meldet im Handshake die Wrapper-Version, nicht die Paketversion.
+test('PARTICIPANTS: browser-use pins package 0.12.5 and handshake version 0.1.0', () => {
+  assert.equal(PARTICIPANTS['browser-use'].version, '0.12.5');
+  assert.equal(PARTICIPANTS['browser-use'].serverVersion, '0.1.0');
+  assert.equal(PARTICIPANTS['playwright-mcp'].version, '0.0.80');   // Gegenprobe: gleiches Muster beim Nachbarn
+});
+
 test('PARTICIPANTS: browser-use command is overridable via env', async () => {
   assert.equal(PARTICIPANTS['browser-use'].command, '/Users/silbercue/.browser-use-env/bin/browser-use');
   const before = process.env.BLIND_RUN_BROWSER_USE_BIN;
@@ -303,6 +310,10 @@ function registerFakes() {
   registerParticipant('fake', { ...base, name: 'fake', version: '9.9.9' });
   registerParticipant('fake-mismatch', { ...base, name: 'fake', version: '1.0.0' });
   registerParticipant('fake-alias', { ...base, name: 'fake', version: '0.0.80', serverVersion: '9.9.9' });
+  // Task 6: exakt das browser-use-Paar — Paket 0.12.5, Handshake 0.1.0.
+  const bu = { ...base, env: (_rundir) => ({ FAKE_MCP_VERSION: '0.1.0' }) };
+  registerParticipant('fake-bu', { ...bu, name: 'fake', version: '0.12.5', serverVersion: '0.1.0' });
+  registerParticipant('fake-bu-noalias', { ...bu, name: 'fake', version: '0.12.5' });
   fakeRegistered = true;
 }
 
@@ -429,6 +440,18 @@ test('pipeline: serverVersion overrides the package version in the handshake che
   assert.equal(run.harness.status, 'ok');          // Gegenprobe zum Versions-Mismatch-Test darueber
   assert.equal(run.mcp_version, '0.0.80');         // Paketversion bleibt im Run-JSON
   assert.equal(run.mcp_server_info.version, '9.9.9');
+});
+
+test('pipeline: the browser-use pair 0.12.5/0.1.0 passes the handshake check', async () => {
+  const a = pipeEnv('ok');
+  const ok = await runParticipant('fake-bu', { rundir: a.rundir() }, a.deps);
+  assert.equal(ok.run.harness.status, 'ok');
+  assert.equal(ok.run.mcp_version, '0.12.5');
+  assert.equal(ok.run.mcp_server_info.version, '0.1.0');
+  const b = pipeEnv('ok');                                  // Gegenprobe: ohne serverVersion bricht derselbe Server ab
+  const bad = await runParticipant('fake-bu-noalias', { rundir: b.rundir() }, b.deps);
+  assert.equal(bad.run.harness.status, 'aborted');
+  assert.match(bad.run.notes, /reports 0\.1\.0, pinned 0\.12\.5/);
 });
 
 test('pipeline: a changed suite page aborts an official run and only warns in a smoke', async () => {

@@ -59,8 +59,12 @@ export const PARTICIPANTS = {
     name: 'browser-use', display: 'browser-use', package: 'browser-use', version: '0.12.5',
     command: process.env.BLIND_RUN_BROWSER_USE_BIN || '/Users/silbercue/.browser-use-env/bin/browser-use',
     args: ['--mcp'],
+    // Der MCP-Server meldet im Handshake die Version seines MCP-Wrappers, nicht die des pip-Pakets (0.12.5).
+    serverVersion: '0.1.0',
     env: (_rundir) => ({}),
     snapshotTool: 'browser_get_state',
+    // --mcp wird in skill_cli/main.py vor dem Argparse abgefangen, alle anderen Flags (--profile, --session)
+    // wirken dort nicht; mcp/server.py setzt user_data_dir fest auf ~/.config/browseruse/profiles/default.
     profile_isolation: 'default browser-use profile (not isolated)',
   },
 };
