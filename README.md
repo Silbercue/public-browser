@@ -13,6 +13,8 @@ The most token-efficient MCP server for Chrome browser automation. Direct CDP, a
   <img alt="Public Browser versus Playwright MCP, lower is better. Each bar is what Public Browser needed where the full track is Playwright MCP. Tool calls to pass all 24 tests: 71 of 138, 49% fewer. Page snapshot: 1,124 of 6,084 chars, 5.4x smaller. P95 tool response: 2,328 of 8,068 chars, 3.5x smaller. Average tool response: 201 of 362 tokens, 1.8x smaller. Pass rate is a tie at 30 of 31 each." src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-light.svg" width="880">
 </picture>
 
+<sub>Chart: April 2026, 24-test suite, Opus 4.6 — current numbers below.</sub>
+
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
 
 > **Looking for an alternative to Playwright MCP, Browser MCP, or claude-in-chrome?** Public Browser talks to Chrome directly via the DevTools Protocol — no Playwright dependency, no Chrome extension bridge, no single-tab limit. One command to install, zero config. [See benchmark comparison below](#benchmarks).
@@ -23,12 +25,14 @@ Every Chrome MCP server has the same problem: **too many tokens, too few reliabl
 
 Public Browser fixes this. It talks directly to Chrome via CDP (same protocol Playwright and Puppeteer use internally), returns an accessibility-tree-based reference map, and caches it across calls so `click(ref: 'e5')` and `type(ref: 'e7', ...)` survive scrolls and DOM updates.
 
+Benchmark rows below are **April 2026, 35-test suite, Opus 4.6** unless a cell also gives a September value. Cells marked *Sep* come from the blind September 2026 re-run (35-test page, 30 scored, driver `claude-opus-5`, two runs per server) — run files `public-browser-run1/2.json`, `playwright-mcp-run5/6.json`, `chrome-devtools-mcp-run3/4.json`, `browser-use-run6.json` in [`test-hardest/results/`](test-hardest/results). Cross-suite comparison is not valid; see [Benchmarks](#benchmarks).
+
 | What you get | Playwright MCP | Browser MCP | claude-in-chrome | browser-use | **Public Browser** |
 |---|---|---|---|---|---|
-| Benchmark pass rate (31 scorable tests, LLM-driven) | 29/31 (563s) | **6/31, aborted** | (24-test suite only) | 21/31 (1870s) | **30/31 (598s)** |
-| Avg Tool-Response (Tokens est.) | 362 | — | — | — | **201 (1.8x smaller)** |
-| P95 Tool-Response (Chars) | 8,068 | — | — | — | **2,328 (3.5x smaller)** |
-| `view_page` avg (Chars) | 6,084 (`browser_snapshot`) | — | — | — | **1,124 (5.4x smaller)** |
+| Benchmark pass rate (Apr 2026: 31 scored / *Sep 2026: 30 scored*) | 29/31 (563s)<br>*Sep: 30/30 (468s, 493s)* | **6/31, aborted**<br>*Sep: not re-run* | (24-test suite only) | 21/31 (1870s)<br>*Sep: 24/30, incomplete run (2023s)* | **30/31 (598s)**<br>***Sep: 30/30 (281s, 296s)*** |
+| Avg Tool-Response (Chars) | 1,448<br>*Sep: 740, 656* | — | — | — | 807<br>*Sep: 1,298, 1,214* |
+| P95 Tool-Response (Chars) | 8,068<br>*Sep: 3,617, 1,587* | — | — | — | 2,328<br>*Sep: 6,077, 6,479* |
+| `view_page` avg (Chars) | 6,084 (`browser_snapshot`)<br>*Sep: 1,911, 2,269* | — | — | — | 1,124<br>*Sep: 2,841, 3,398* |
 | Multi-tab support | Yes | **No (single tab)** | Yes | Partial | **Yes** |
 | Connection | New browser | Extension bridge | Extension | Subprocess | **Direct CDP (pipe or WebSocket)** |
 | Ref system | Playwright refs | Playwright refs | CSS selectors | Screenshots | **A11y-tree refs (stable across DOM changes)** |
@@ -548,9 +552,31 @@ immediately and never waits, for either a start or a completion.
 
 ## Benchmarks
 
-Measured on `https://mcp-test.second-truth.com` against the **35-test version of the suite (April 2026)** — 5 levels (Basics, Intermediate, Advanced, Hardest, Community Pain Points). Four of the 35 tests are runner-only and are excluded from every score, so all pass rates below are out of **31 scorable tests**. The live suite has since grown to 42 tests in 6 levels; the numbers here are not re-measured against it, and cross-server comparisons are only valid within the same suite version. Each run is independent, values on the benchmark page are randomized per page-load, all runs started in a fresh Claude Code session out of `/tmp` (no project context bias), and **all metrics measured post-hoc from the session JSONL** via [`test-hardest/measure-tool-calls.sh`](.claude/skills/benchmarkTest/measure-tool-calls.sh) — no self-reporting, no MCP-side instrumentation, just counting `tool_use` blocks and `tool_result` char lengths.
+Two data sets, measured on `https://mcp-test.second-truth.com`: a **September 2026** blind re-run (current) and the **April 2026** runs kept for history. Cross-suite and cross-model comparisons are not valid — compare rows only inside one data set. Raw run JSONs, the full method and the environment matrix are in [`test-hardest/README.md`](test-hardest/README.md).
 
-### Head-to-Head (24-test suite, April 2026 — historical suite version)
+### September 2026 (current)
+
+2026-09-03, 35-test page with **30 scored** (T5.3–T5.6 can only be started by the page's own runner; T4.7 grades a self-reported token count and was dropped for everyone). One fresh blind Claude Code session per run in print mode, driver model `claude-opus-5`, exactly one MCP server per session, built-in tools cut down to `Write`, identical prompt for every server. Two runs each for Public Browser 2.10.1, Playwright MCP 0.0.80 and Chrome DevTools MCP 1.8.0; one run for browser-use 0.12.5. All seven runs are pinned to the same page version (`suite.html_sha256` = `81e4b7aa…bed2`). Metrics are counted post-hoc from the session transcript via [`test-hardest/measure-tool-calls.sh`](test-hardest/measure-tool-calls.sh) — nothing is self-reported by the servers. Table below is the output of `node test-hardest/blind-run.mjs compare`; method, profiles and losses are documented in [`test-hardest/README.md`](test-hardest/README.md).
+
+| MCP | Version | Model | Date | Run | Status | Passed | Duration | MCP calls | Response total | Ø response | P95 | Snapshot tool Ø |
+|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| browser-use | 0.12.5 | claude-opus-5 | 2026-09-03 | browser-use-run6 | ok | 24/30 | 2023s | 276 | 15800k | 57244 | 321033 | 102819 (18×) |
+| Chrome DevTools MCP | 1.8.0 | claude-opus-5 | 2026-09-03 | chrome-devtools-mcp-run3 | ok | 29/30 | 547s | 156 | 149k | 954 | 5676 | 4718 (12×) |
+| Chrome DevTools MCP | 1.8.0 | claude-opus-5 | 2026-09-03 | chrome-devtools-mcp-run4 | ok | 29/30 | 558s | 172 | 120k | 696 | 5271 | 3593 (14×) |
+| Playwright MCP | 0.0.80 | claude-opus-5 | 2026-09-03 | playwright-mcp-run5 | ok | 30/30 | 468s | 137 | 101k | 740 | 3617 | 1911 (17×) |
+| Playwright MCP | 0.0.80 | claude-opus-5 | 2026-09-03 | playwright-mcp-run6 | ok | 30/30 | 493s | 151 | 99k | 656 | 1587 | 2269 (14×) |
+| Public Browser | 2.10.1 | claude-opus-5 | 2026-09-03 | public-browser-run1 | ok | 30/30 | 281s | 84 | 109k | 1298 | 6077 | 2841 (16×) |
+| Public Browser | 2.10.1 | claude-opus-5 | 2026-09-03 | public-browser-run2 | ok | 30/30 | 296s | 86 | 104k | 1214 | 6479 | 3398 (16×) |
+
+What these two runs show: Public Browser needed 84 and 86 tool calls where Playwright MCP needed 137 and 151 and Chrome DevTools MCP needed 156 and 172, and it finished the page in 281s and 296s against 468s/493s and 547s/558s. Pass rate is a tie with Playwright MCP (30/30 in both runs each) and one test ahead of Chrome DevTools MCP, which failed T5.2 twice. `browser-use-run6` has `complete: false` — two tests were never started, so its 24/30 is an incomplete run, not a clean loss.
+
+Where Public Browser loses in these runs: Playwright MCP 0.0.80 returns the smaller responses (Ø 740 and 656 chars against 1298 and 1214; `browser_snapshot` Ø 1911 and 2269 against `view_page` at 2841 and 3398, whose P95 reaches 9,734), total response volume is a near tie slightly in Playwright's favour (101k/99k against 109k/104k), and per-call click latency is mixed rather than a win — `by_tool.avg_ms` for click is 90 ms in run 1 but 435 ms in run 2, against 251 and 260 ms for Chrome DevTools MCP. The April claim that `view_page` is 5.4x more compact than `browser_snapshot` does not hold against Playwright MCP 0.0.80.
+
+### April 2026 (historical)
+
+Measured on the same page against the **35-test version of the suite (April 2026)** — 5 levels (Basics, Intermediate, Advanced, Hardest, Community Pain Points). Four of the 35 tests are runner-only and are excluded from every score, so all pass rates in this section are out of **31 scorable tests**. An extended 42-test version exists locally and is not yet published; the numbers here are not measured against it. Driver model was Claude Opus 4.6 and competitor versions were not recorded. Each run is independent, values on the benchmark page are randomized per page-load, all runs started in a fresh Claude Code session out of `/tmp` (no project context bias), and **all metrics measured post-hoc from the session JSONL** via [`test-hardest/measure-tool-calls.sh`](test-hardest/measure-tool-calls.sh) — no self-reporting, no MCP-side instrumentation, just counting `tool_use` blocks and `tool_result` char lengths.
+
+#### Head-to-Head (24-test suite, April 2026 — historical suite version)
 
 All rows LLM-driven by Claude Opus 4.6 on the same test page, one recorded run each. Public Browser ran
 2026-04-05, the other servers 2026-04-02. This is the older 24-test version of the suite — do not compare
@@ -564,14 +590,15 @@ these rows against the 31-scorable-test numbers below.
 | claude-in-chrome | 24/24 | 772s | 193 | 2.2x slower |
 | browser-use | 16/24 | 1813s | 124 | 5.2x slower |
 
-Public Browser needed **71 tool calls where Playwright MCP needed 138** — roughly half the roundtrips for the
-same 24 passes. Raw data: `test-hardest/benchmark-*.json` (Public Browser row:
+In this one April 2026 run each (24-test suite, Opus 4.6), Public Browser needed **71 tool calls where Playwright
+MCP needed 138** — roughly half the roundtrips for the same 24 passes. The September 2026 re-run above is the
+current figure: 84 and 86 calls against 137 and 151. Raw data: `test-hardest/benchmark-*.json` (Public Browser row:
 `benchmark-silbercuechrome_mcp-llm-2026-04-05.json`, `type: llm-driven`).
 
-### Pass Rate + Duration (31 scorable tests, LLM-driven)
+#### Pass Rate + Duration (31 scorable tests, LLM-driven)
 
-Every row is one recorded run; the run id is named so each number is traceable to a single entry in
-[`test-hardest/BENCHMARK-PROTOCOL.md`](test-hardest/BENCHMARK-PROTOCOL.md). No averaging across runs.
+Every row is one recorded run; the run id is named so each number is traceable to a single run JSON in
+[`test-hardest/results/`](test-hardest/results). No averaging across runs.
 
 | MCP | Passed | Duration | Run |
 |---|---|---|---|
@@ -589,7 +616,7 @@ its best 29/31 in 518s (Run 1). Run 2 is quoted for both because that is the run
 instruments end to end. On pass rate this field is effectively a tie — the durable difference is response size, and
 that holds across every Playwright run measured (avg 1,216–1,467 chars in Runs 2–4).
 
-### Tool-Efficiency (the fair metric)
+#### Tool-Efficiency (the fair metric)
 
 We measure each tool call's response char length directly, group by tool name, estimate tokens via `chars/4`. Why this metric: session-level token deltas are dominated by LLM overhead (system prompt + CLAUDE.md + conversation history = ~80-90% of the budget) and only show 5-15% differences between MCPs — untrustworthy for comparing browser servers. Tool-response size is the part the MCP server actually controls.
 
@@ -603,7 +630,7 @@ Public Browser Run 5 vs Playwright MCP Run 2 — the same two runs as the pass-r
 | P95 Response | **2,328 Chars** | 8,068 Chars | **PB 3.5x smaller** |
 | Total response content | **128k Chars** | 175k Chars | **PB 27% less** |
 
-### Per-Tool Breakdown (where the difference comes from)
+#### Per-Tool Breakdown (where the difference comes from)
 
 | Tool | Public Browser Avg | Playwright MCP Avg | Verdict |
 |---|---:|---:|---|
@@ -614,7 +641,7 @@ Public Browser Run 5 vs Playwright MCP Run 2 — the same two runs as the pass-r
 
 ¹ recorded as `read_page` in the April 2026 runs; the tool was renamed to `view_page` afterwards.
 
-### The Ambient-Context trade-off
+#### The Ambient-Context trade-off
 
 > **Ambient Context — Claude sees DOM changes for free, no extra `view_page` needed**
 
@@ -624,7 +651,7 @@ Public Browser's `click` is 2.8x larger than Playwright's because every click re
 
 Measured on the 35-test benchmark (2026-04-09): Public Browser's `view_page` averages **1,124 chars per call** vs Playwright MCP's `browser_snapshot` at **6,084 chars**. Same page, same test suite, same LLM driver. The a11y-tree compression + Ambient Context pipeline means we only send what the agent actually needs — smaller responses, less context pressure, cheaper runs.
 
-See [`test-hardest/BENCHMARK-PROTOCOL.md`](test-hardest/BENCHMARK-PROTOCOL.md) for the full protocol, per-test breakdown, and raw JSON runs with `tool_efficiency` blocks.
+See [`test-hardest/README.md`](test-hardest/README.md) for the full protocol, per-test breakdown, and raw JSON runs with `tool_efficiency` blocks.
 
 ## Cortex — Self-Learning Pattern Engine
 
