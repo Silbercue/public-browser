@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-Lets Claude Code and Cursor drive Chrome — with your real, logged-in profile. On the same 30-test benchmark page it used **30% fewer tokens, 25% less money, 41% fewer tool calls and 40% less time** than Playwright MCP at the same pass rate — two runs each, 2026-09-03, driver Claude Opus 5, raw data in the repo ([Benchmarks](#benchmarks), including where it loses). Direct CDP, a11y-tree refs, multi-tab ready — 2,343 TypeScript tests, 237 Python tests.
+Lets Claude Code and Cursor drive Chrome — with your real, logged-in profile. On the same 30-test benchmark page it used **30% fewer tokens, 25% less money, 41% fewer tool calls and 40% less time** than Playwright MCP at the same pass rate — two runs each, 2026-09-03, driver Claude Opus 5, raw data in the repo ([Benchmarks](#benchmarks), including where it loses). Direct CDP, a11y-tree refs, multi-tab ready — 2,360 TypeScript tests, 237 Python tests.
 
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
 
@@ -570,7 +570,7 @@ The other argument for a CLI — "MCP needs a round-trip per step" — is what `
 
 ## Coming from Browser MCP?
 
-[Browser MCP](https://browsermcp.io) (`@browsermcp/mcp`) has had no release since 0.1.3 on 11 April 2025, and its extension bridge works on one tab. If you picked it for its four promises, here is what Public Browser does for each: **Fast** — talks to Chrome directly over CDP, no extension bridge, no cloud hop; **Private** — runs on your machine, telemetry is opt-in; **Logged In** — can drive your real, logged-in Chrome profile (see [Chrome Profiles](#chrome-profiles)); **Stealth** — sends real CDP input events, so pages see an ordinary browser; `--no-stealth` makes the automation identifiable when you want that. Install with one command ([Quick Start](#quick-start)). Tool names differ: `browser_snapshot` → `view_page`, `browser_click` → `click`, `browser_type` → `type`; `view_page` returns the refs that `click` and `type` take. Multi-tab works.
+[Browser MCP](https://browsermcp.io) (`@browsermcp/mcp`) has had no release since 0.1.3 on 11 April 2025, and its extension bridge works on one tab. If you picked it for its four promises, here is what Public Browser does for each: **Fast** — talks to Chrome directly over CDP, no extension bridge, no cloud hop; **Private** — runs on your machine, telemetry is opt-in; **Logged In** — can drive your real, logged-in Chrome profile (see [Chrome Profiles](#chrome-profiles)); **Stealth** — sends real CDP input events (not synthetic JS events) and masks `navigator.webdriver`; `--no-stealth` makes the automation identifiable when you want that. Install with one command ([Quick Start](#quick-start)). Tool names differ: `browser_snapshot` → `view_page`, `browser_click` → `click`, `browser_type` → `type`; `view_page` returns the refs that `click` and `type` take. Multi-tab works.
 
 ## Benchmarks
 

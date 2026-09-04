@@ -103,6 +103,9 @@ describe("pressKeyHandler mit Kombi-Schreibweise", () => {
     await pressKeyHandler({ key: "Cmd+Shift+P" }, cdpClient, "s1");
     expect(sendFn.mock.calls[0][1].modifiers).toBe(12);
     expect(sendFn.mock.calls[0][1].code).toBe("KeyP");
+    // Codex-Abnahme Finding #5: bei gehaltenem Shift ist KeyboardEvent.key der
+    // GROSSE Buchstabe — Handler, die auf e.key === "P" pruefen, brauchen das.
+    expect(sendFn.mock.calls[0][1].key).toBe("P");
   });
 
   it("laesst eine einfache Taste unveraendert", async () => {
@@ -118,7 +121,11 @@ describe("pressKeyHandler mit Kombi-Schreibweise", () => {
     await pressKeyHandler({ key: "Ctrl+K", modifiers: ["shift"] }, cdpClient, "s1");
     // ctrl (2) aus der Kombi + shift (8) aus dem Parameter = 10
     expect(sendFn.mock.calls[0][1].modifiers).toBe(10);
-    expect(sendFn.mock.calls[0][1].key).toBe("k");
+    // Shift kommt hier ueber den modifiers-Parameter statt aus der Kombi —
+    // die Gross-/Kleinschreibung von `key` folgt dem verodert Ergebnis
+    // (Codex-Abnahme Finding #5), darum "K" statt "k".
+    expect(sendFn.mock.calls[0][1].key).toBe("K");
+    expect(sendFn.mock.calls[0][1].code).toBe("KeyK");
   });
 });
 

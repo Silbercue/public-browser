@@ -181,9 +181,18 @@ export async function pressKeyHandler(
   }
 
   const combo = parseKeyCombo(params.key);
-  const { key, def } = resolveKey(combo.key);
+  const { key: resolvedKey, def } = resolveKey(combo.key);
   const modBits =
     (params.modifiers ?? []).reduce((acc, m) => acc | MODIFIER_BITS[m], 0) | combo.modifiers;
+
+  // Codex-Abnahme Finding #5: `parseKeyCombo` normalisiert den Buchstaben auf
+  // Kleinschreibung, damit `resolveKey` ihn trifft. Bei gehaltenem Shift ist
+  // `KeyboardEvent.key` aber der GROSSE Buchstabe — Shortcut-Handler, die auf
+  // `e.key === "P"` pruefen (statt auf `e.code`), fielen sonst durch.
+  const key =
+    (modBits & MODIFIER_BITS.shift) !== 0 && /^[a-z]$/i.test(resolvedKey)
+      ? resolvedKey.toUpperCase()
+      : resolvedKey;
 
   // Suppress text output when modifier keys are held (Ctrl+K should not type "k")
   const hasModifier = modBits > 0;
