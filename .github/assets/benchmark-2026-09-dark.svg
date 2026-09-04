@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="448" viewBox="0 0 880 448" role="img" aria-label="September 2026 benchmark, 35-test page, 30 scored, driver model claude-opus-5. Each bar is Public Browser as a share of Playwright MCP 0.0.80 on the same metric; the vertical line is Playwright at 100 percent and shorter is better. Tool calls: 84 and 86 against 137 and 151, 41 percent fewer. Time to finish: 281 and 296 seconds against 468 and 493, 40 percent less. Average response size: 1,298 and 1,214 chars against 740 and 656, 80 percent larger — Public Browser loses this one. Total response volume: 109k and 104k chars against 101k and 99k, 6 percent more. Pass rate is a tie at 30 of 30 in all four runs.">
+<rect width="880" height="448" fill="#141413"/>
+<g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+<text x="24" y="34" font-size="18" font-weight="600" fill="#ffffff">Fewer calls, less time — not smaller responses</text>
+<text x="24" y="57" font-size="12.5" fill="#c3c2b7">Each bar is Public Browser as a share of Playwright MCP 0.0.80 on the same metric. The line is Playwright; shorter is better.</text>
+<text x="24" y="75" font-size="12.5" fill="#c3c2b7">Where a bar breaks into segments it has run past Playwright — Public Browser is the more expensive one on that row.</text>
+<text x="24" y="96" font-size="11" fill="#8a8980">35-test page, 30 scored, driver model claude-opus-5, 2026-09-03. Two runs each, paired: upper bar run 1, lower bar run 2.</text>
+<text x="24" y="112" font-size="11" fill="#8a8980">Percentages on the right pool both runs (sum against sum).</text>
+<line x1="456.0" y1="116" x2="456.0" y2="360" stroke="#8a8980" stroke-width="1"/>
+<text x="456.0" y="110" font-size="10.5" text-anchor="middle" fill="#8a8980">Playwright MCP 0.0.80</text>
+<text x="24" y="139" font-size="14" font-weight="600" fill="#ffffff">Tool calls</text>
+<text x="24" y="157" font-size="11.5" fill="#8a8980">84 · 86 vs 137 · 151</text>
+<rect x="258" y="128" width="121.4" height="13" rx="4.0" fill="#3987e5"/>
+<rect x="258" y="143" width="112.8" height="13" rx="4.0" fill="#3987e5"/>
+<text x="856" y="146.0" font-size="13" font-weight="700" text-anchor="end" fill="#ffffff">41% fewer</text>
+<text x="24" y="205" font-size="14" font-weight="600" fill="#ffffff">Time to finish</text>
+<text x="24" y="223" font-size="11.5" fill="#8a8980">281s · 296s vs 468s · 493s (page timer)</text>
+<rect x="258" y="194" width="118.9" height="13" rx="4.0" fill="#3987e5"/>
+<rect x="258" y="209" width="118.9" height="13" rx="4.0" fill="#3987e5"/>
+<text x="856" y="212.0" font-size="13" font-weight="700" text-anchor="end" fill="#ffffff">40% less</text>
+<text x="24" y="271" font-size="14" font-weight="600" fill="#ffffff">Avg response size</text>
+<text x="24" y="289" font-size="11.5" fill="#8a8980">1,298 · 1,214 vs 740 · 656 chars</text>
+<path d="M262.0 260 H456.0 V273 H262.0 A4.0 4.0 0 0 1 258 269.0 V264.0 A4.0 4.0 0 0 1 262.0 260 Z" fill="#3987e5"/>
+<rect x="460.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="473.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="486.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="499.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="512.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="525.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="538.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="551.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="564.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="577.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="590.0" y="260" width="9.0" height="13" fill="#3987e5"/>
+<rect x="603.0" y="260" width="2.3" height="13" fill="#3987e5"/>
+<path d="M262.0 275 H456.0 V288 H262.0 A4.0 4.0 0 0 1 258 284.0 V279.0 A4.0 4.0 0 0 1 262.0 275 Z" fill="#3987e5"/>
+<rect x="460.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="473.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="486.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="499.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="512.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="525.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="538.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="551.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="564.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="577.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="590.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="603.0" y="275" width="9.0" height="13" fill="#3987e5"/>
+<rect x="616.0" y="275" width="8.4" height="13" fill="#3987e5"/>
+<text x="856" y="278.0" font-size="13" font-weight="700" text-anchor="end" fill="#ffffff">80% larger</text>
+<text x="24" y="337" font-size="14" font-weight="600" fill="#ffffff">Total response volume</text>
+<text x="24" y="355" font-size="11.5" fill="#8a8980">109k · 104k vs 101k · 99k chars</text>
+<path d="M262.0 326 H456.0 V339 H262.0 A4.0 4.0 0 0 1 258 335.0 V330.0 A4.0 4.0 0 0 1 262.0 326 Z" fill="#3987e5"/>
+<rect x="460.0" y="326" width="9.0" height="13" fill="#3987e5"/>
+<path d="M262.0 341 H456.0 V354 H262.0 A4.0 4.0 0 0 1 258 350.0 V345.0 A4.0 4.0 0 0 1 262.0 341 Z" fill="#3987e5"/>
+<rect x="460.0" y="341" width="6.6" height="13" fill="#3987e5"/>
+<text x="856" y="344.0" font-size="13" font-weight="700" text-anchor="end" fill="#ffffff">6% more</text>
+<text x="24" y="400" font-size="11" fill="#8a8980">P95 response size runs further against Public Browser than this chart shows: 6,077 and 6,479 chars against 3,617 and 1,587.</text>
+<text x="24" y="417" font-size="11" fill="#8a8980">Pass rate is a tie — 30/30 in all four runs. Raw run JSON: test-hardest/results/</text>
+</g>
+</svg>
