@@ -6,6 +6,7 @@ import { resolveAutoLaunch } from "./cdp/chrome-launcher.js";
 import { resolveProfileSpec, isChromeRunningWithProfile } from "./cdp/chrome-profiles.js";
 import type { ResolvedProfile } from "./cdp/chrome-profiles.js";
 import { ToolRegistry } from "./registry.js";
+import { installToolListCompaction } from "./tool-list-compact.js";
 import { VERSION } from "./version.js";
 import { ScriptApiServer } from "./transport/script-api-server.js";
 import { hintMatcher } from "./cortex/hint-matcher.js";
@@ -305,7 +306,7 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
 
   // 5. Start the stdio transport. This is the point at which Claude Code
   //    sees us come online — still no Chrome has been launched.
-  const transport = new StdioServerTransport();
+  const transport = installToolListCompaction(new StdioServerTransport());
   await server.connect(transport);
   console.error("Public Browser MCP server running on stdio (lazy launch enabled)");
 
