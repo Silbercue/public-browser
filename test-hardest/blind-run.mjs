@@ -527,14 +527,16 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
   }
 
   const childEnv = { ...process.env, ...(d.envOverrides || {}) };
-  const headless = !!opts.headless;
+  const headlessRequested = !!opts.headless;
+  // headless ist wahr, wenn die Env wirklich gesetzt wurde — nicht schon, wenn sie gewuenscht war.
+  const headless = headlessRequested && !!p.headlessEnv;
   // genau einmal je Lauf gebaut, danach wiederverwendet (Probe, mcp.json, Cortex-Block)
-  const env = { ...p.env(rundir), ...(headless && p.headlessEnv ? p.headlessEnv : {}) };
+  const env = { ...p.env(rundir), ...(headless ? p.headlessEnv : {}) };
   const sessionId = randomUUID();
   const exportPath = join(rundir, 'run-export.json');
   const mcpPrefix = `mcp__${p.name}__`;
   const notes = [];
-  if (headless && !p.headlessEnv) notes.push('--headless ignored: participant has no headless switch');
+  if (headlessRequested && !headless) notes.push('--headless ignored: participant has no headless switch');
   // status.json-Phasen: starting → running → measuring → terminal. Terminal ist genau eine von
   // 'ok' (offizieller Lauf bestanden), 'smoke' (Smoke bestanden), 'aborted' (alles andere).
   const statusWrite = (phase, extra = {}) => writeFileSync(join(rundir, 'status.json'),
@@ -689,7 +691,7 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
         html_sha256: suite?.html_sha256 ?? null, html_bytes: suite?.html_bytes ?? null, fingerprint_ok: suiteOk,
         test_ids: suite?.test_ids ?? null },
       harness: {
-        mode: 'blind-print', status: runStatus, complete, headless,
+        mode: 'blind-print', status: runStatus, complete, headless, headless_requested: headlessRequested,
         local_build: !!p.local, git_head: p.git_head ?? null, git_dirty: p.git_dirty ?? null,
         claude_code_version: claudeVer, os: `${process.platform} ${release()}`, node: process.version,
         profile_isolation: p.profile_isolation, model_requested,

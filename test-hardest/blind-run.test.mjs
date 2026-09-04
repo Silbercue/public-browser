@@ -684,6 +684,7 @@ test('pipeline: --headless setzt die Server-Env und haelt es im Run-JSON fest', 
   const dir = rundir('headless');
   const { run } = await runParticipant('fake-headless', { rundir: dir, headless: true }, deps);
   assert.equal(run.harness.headless, true);
+  assert.equal(run.harness.headless_requested, true);
   const mcp = JSON.parse(readFileSync(join(dir, 'mcp.json'), 'utf8'));
   assert.equal(mcp.mcpServers['fake'].env.SILBERCUE_CHROME_HEADLESS, '1');
   assert.ok(!run.notes.includes('--headless ignored'), JSON.stringify(run.notes));
@@ -697,6 +698,7 @@ test('pipeline: ohne --headless bleibt die Server-Env unberuehrt', async () => {
   const dir = rundir('headed');
   const { run } = await runParticipant('fake-headless2', { rundir: dir }, deps);
   assert.equal(run.harness.headless, false);
+  assert.equal(run.harness.headless_requested, false);
   const mcp = JSON.parse(readFileSync(join(dir, 'mcp.json'), 'utf8'));
   assert.equal(mcp.mcpServers['fake'].env.SILBERCUE_CHROME_HEADLESS, undefined);
 });
@@ -705,7 +707,8 @@ test('pipeline: ein Teilnehmer ohne headless-Schalter ignoriert --headless mit N
   const { deps, rundir } = pipeEnv('ok');
   const dir = rundir('ignored');
   const { run } = await runParticipant('fake', { rundir: dir, headless: true }, deps);
-  assert.equal(run.harness.headless, true);
+  assert.equal(run.harness.headless, false);            // ignoriert = es lief headed
+  assert.equal(run.harness.headless_requested, true);   // der Wunsch bleibt sichtbar
   const mcp = JSON.parse(readFileSync(join(dir, 'mcp.json'), 'utf8'));
   assert.equal(mcp.mcpServers['fake'].env.SILBERCUE_CHROME_HEADLESS, undefined);
   assert.ok(run.notes.includes('--headless ignored: participant has no headless switch'),
