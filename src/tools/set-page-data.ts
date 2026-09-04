@@ -40,11 +40,11 @@ const KEY_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const sourceSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("inline"),
-    data: z.string().describe("The payload as a string (base64 or utf-8)"),
+    data: z.string().describe("Payload string (base64 or utf-8)"),
   }),
   z.object({
     type: z.literal("file"),
-    path: z.string().describe("Absolute file path — the server reads the file as binary"),
+    path: z.string().describe("Absolute file path"),
   }),
 ]);
 
@@ -55,24 +55,18 @@ export const setPageDataSchema = z.object({
       KEY_REGEX,
       "key must match /^[a-zA-Z_][a-zA-Z0-9_]*$/ (JS identifier) — special characters are rejected to prevent injection into the page's evaluate expression",
     )
-    .describe("Property name under window.__pb_data (JS identifier — letters, digits, underscore; cannot start with digit)"),
-  source: sourceSchema.describe(
-    "Where to read the payload from. type 'inline' → pass `data` as a string. type 'file' → pass absolute `path`; the server reads the file as binary.",
-  ),
+    .describe("Property name under window.__pb_data (JS identifier: letters, digits, underscore; no leading digit)"),
+  source: sourceSchema.describe("inline: pass data. file: pass an absolute path, read as binary"),
   encoding: z
     .enum(["base64", "utf8", "binary"])
     .optional()
-    .describe(
-      "Encoding interpretation. 'utf8' (default for inline) keeps the data as a string. 'binary' (default for file) decodes to ArrayBuffer in the page so apps can pass it to FileReader / Blob / fetch body. 'base64' keeps the base64 string as-is (the page can decode it itself).",
-    ),
+    .describe("utf8 (inline default) keeps a string; binary (file default) gives an ArrayBuffer for FileReader/Blob/fetch; base64 keeps the base64 string"),
   chunkSize: z
     .number()
     .int()
     .positive()
     .optional()
-    .describe(
-      "Raw bytes per chunk before base64 encoding. Default 500_000 (~670 KB base64, safe under CDP's 1 MB-per-message limit). Capped at 700_000 (~933 KB base64) to leave safety margin.",
-    ),
+    .describe("Raw bytes per chunk before base64 (default 500000; max 700000)"),
 });
 
 export type SetPageDataParams = z.infer<typeof setPageDataSchema>;

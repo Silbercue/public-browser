@@ -4,13 +4,13 @@ import type { ToolResponse } from "../types.js";
 
 export const networkMonitorSchema = z.object({
   action: z.enum(["start", "get", "stop"])
-    .describe("start: begin recording, get: retrieve recorded requests, stop: return and clear"),
+    .describe("start recording | get results | stop: return and clear"),
   filter: z.enum(["failed"])
     .optional()
-    .describe("Filter results — 'failed': only requests with HTTP >= 400 or network errors"),
+    .describe("'failed': only HTTP >= 400 or network errors"),
   pattern: z.string()
     .optional()
-    .describe("Regex pattern to match against request URLs"),
+    .describe("Regex for request URLs"),
 });
 
 export type NetworkMonitorParams = z.infer<typeof networkMonitorSchema>;

@@ -76,6 +76,7 @@ describe("buildInstructions (Story 12.4)", () => {
     expect(result).toContain("Element targets: prefer the ref from the last view_page (e.g. 'e5')");
     expect(result).toContain("Refs go stale after navigate, reload or switch_tab");
     expect(result).toContain("not for CSS reading, element discovery, scrolling, dialogs or network capture");
+    expect(result).toContain("Avoid evaluate as default recovery after click/type errors");
     expect(result).toContain("bypasses the CDP pointer chain and framework listeners");
     expect(result).toContain("carry a DOM diff (NEW/REMOVED/CHANGED lines)");
   });

@@ -13,18 +13,14 @@ export const fileUploadSchema = z.object({
   ref: z
     .string()
     .optional()
-    .describe("A11y-Tree element ref (e.g. 'e8') — preferred when input is visible in view_page"),
+    .describe("Element ref of the file input"),
   selector: z
     .string()
     .optional()
-    .describe(
-      "CSS selector (e.g. 'input[type=file]') — use this for hidden file inputs (display:none, off-screen). " +
-        "Many React/Vue apps render a visible custom button that triggers a hidden <input type=file>; " +
-        "the hidden input is NOT in the a11y-tree, so ref won't find it. Pass the selector instead.",
-    ),
+    .describe("CSS selector of the file input; needed for hidden inputs (display:none, off-screen), which have no ref"),
   path: z
     .union([z.string(), z.array(z.string()).min(1)])
-    .describe("Absolute file path(s) to upload. String for single file, array for multiple files."),
+    .describe("Absolute path(s) of the file(s) to upload"),
 });
 
 export type FileUploadParams = z.infer<typeof fileUploadSchema>;

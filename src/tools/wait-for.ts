@@ -10,41 +10,32 @@ import { isFatalCdpError, wrapCdpError } from "./error-utils.js";
 export const waitForSchema = z.object({
   condition: z
     .enum(["element", "text", "url", "network_idle", "js"])
-    .describe(
-      "What to wait for: element visibility, visible page text, the URL, "
-      + "network idle, or a JS expression returning true",
-    ),
+    .describe("element | text | url | network_idle | js"),
   selector: z
     .string()
     .optional()
-    .describe("CSS selector or element ref (e.g. 'e5') — required when condition is 'element'"),
+    .describe("Condition 'element': CSS selector or ref"),
   text: z
     .string()
     .optional()
-    .describe(
-      "Substring of the page's visible text — required when condition is 'text'. "
-      + "Case-sensitive; matches document.body.innerText, i.e. what a reader sees.",
-    ),
+    .describe("Condition 'text': substring of document.body.innerText, case-sensitive"),
   url: z
     .string()
     .optional()
-    .describe("Substring of the page URL — required when condition is 'url'"),
+    .describe("Condition 'url': substring of the page URL"),
   expression: z
     .string()
     .optional()
-    .describe("JavaScript expression that should evaluate to true — required when condition is 'js'"),
+    .describe("Condition 'js': expression that should become true"),
   assert: z
     .boolean()
     .optional()
     .default(false)
-    .describe(
-      "Assert instead of wait: check the condition once and fail if it does not hold "
-      + "(default timeout becomes 0). Failures carry _meta.code = 'assertion_failed'.",
-    ),
+    .describe("Check once, fail if it does not hold; timeout 0, _meta.code 'assertion_failed'"),
   timeout: z
     .number()
     .optional()
-    .describe("Maximum wait time in milliseconds (default: 10000, or 0 when assert is true)"),
+    .describe("Max wait in ms (default 10000; 0 when assert is true)"),
 });
 
 export type WaitForParams = z.infer<typeof waitForSchema>;

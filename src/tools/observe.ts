@@ -15,48 +15,38 @@ const REF_RE = /^e\d+$/;
 export const observeSchema = z.object({
   selector: z
     .string()
-    .describe("CSS selector or element ref (e.g. 'e5') of the element to observe"),
+    .describe("CSS selector or ref of the element to observe"),
   duration: z
     .number()
     .optional()
-    .describe(
-      "Collect all changes for this many ms, then return them. Mutually exclusive with 'until'. Default: 5000",
-    ),
+    .describe("Collect window in ms (default 5000); exclusive with until"),
   until: z
     .string()
     .optional()
-    .describe(
-      "JS expression evaluated on each change — stops when it returns true. Variable 'el' is the observed element. Example: el.textContent === '8'",
-    ),
+    .describe("JS expression checked on each change, 'el' is the element, e.g. el.textContent === '8'"),
   then_click: z
     .string()
     .optional()
-    .describe(
-      "CSS selector or element ref (e.g. 'e5') to click immediately when 'until' condition is met (for timing-critical actions). Only used with 'until'.",
-    ),
+    .describe("Selector or ref to click immediately when until holds"),
   click_first: z
     .string()
     .optional()
-    .describe(
-      "CSS selector or element ref (e.g. 'e5') to click AFTER the observer is set up but BEFORE collection starts. Use to trigger the changes you want to observe (e.g. 'Start Mutations' button).",
-    ),
+    .describe("Selector or ref to click once the observer is armed"),
   collect: z
     .enum(["text", "attributes", "all"])
     .optional()
     .default("text")
-    .describe(
-      "What to collect: 'text' for textContent changes, 'attributes' for attribute changes, 'all' for both (default: 'text')",
-    ),
+    .describe("text (textContent) | attributes | all"),
   interval: z
     .number()
     .optional()
     .default(100)
-    .describe("Polling interval in ms for change detection fallback (default: 100)"),
+    .describe("Polling fallback interval in ms"),
   timeout: z
     .number()
     .optional()
     .default(10000)
-    .describe("Maximum observation time in ms (default: 10000, max: 25000)"),
+    .describe("Max observation time in ms (max 25000)"),
 });
 
 export type ObserveParams = z.infer<typeof observeSchema>;

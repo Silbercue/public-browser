@@ -8,11 +8,11 @@ export const consoleLogsSchema = z.object({
     .describe("Filter by log level"),
   pattern: z.string()
     .optional()
-    .describe("Regex pattern to match against log text"),
+    .describe("Regex matched against log text"),
   clear: z.boolean()
     .optional()
     .default(false)
-    .describe("Clear the log buffer after returning results"),
+    .describe("Clear the buffer after reading"),
 });
 
 export type ConsoleLogsParams = z.infer<typeof consoleLogsSchema>;

@@ -5,11 +5,11 @@ import { settle } from "../cdp/settle.js";
 import { wrapInIIFE } from "./evaluate.js";
 
 export const batchEvaluateSchema = z.object({
-  urls: z.array(z.string()).describe("Array of URLs to visit and evaluate sequentially"),
-  evaluate_per_page: z.string().describe("JavaScript expression to evaluate on each page after it loads"),
-  settle_ms: z.number().optional().default(2000).describe("Wait time in ms after each page load before evaluating (default: 2000)"),
-  timeout_per_page_ms: z.number().optional().default(30000).describe("Timeout per page in ms for the full navigate+settle+evaluate cycle (default: 30000)"),
-  continue_on_error: z.boolean().optional().default(true).describe("Continue processing remaining URLs if one fails (default: true)"),
+  urls: z.array(z.string()).describe("URLs to visit in order"),
+  evaluate_per_page: z.string().describe("JS expression evaluated on each page"),
+  settle_ms: z.number().optional().default(2000).describe("Wait in ms after each page load before evaluating"),
+  timeout_per_page_ms: z.number().optional().default(30000).describe("Timeout per page in ms (navigate+settle+evaluate)"),
+  continue_on_error: z.boolean().optional().default(true).describe("Continue with the remaining URLs if one fails"),
 });
 
 export type BatchEvaluateParams = z.infer<typeof batchEvaluateSchema>;

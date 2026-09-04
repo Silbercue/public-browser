@@ -6,16 +6,16 @@ import { discoverProfiles } from "../cdp/chrome-profiles.js";
 export const configureSessionSchema = z.object({
   defaults: z.record(z.unknown())
     .optional()
-    .describe("Set session defaults. Keys: param names (tab, timeout, etc.). Values: default values. null removes a default."),
+    .describe("Param name → default value; null removes a default"),
   autoPromote: z.boolean()
     .optional()
-    .describe("If true, apply all current auto-promote suggestions as defaults"),
+    .describe("Apply all current auto-promote suggestions"),
   profile: z.string()
     .optional()
-    .describe("Chrome profile name (e.g. \"Julian\", \"Business\"). Use `public-browser profiles` to list available profiles. With restart: true, can switch profiles mid-session."),
+    .describe("Chrome profile name (list them with: public-browser profiles); restart: true switches mid-session"),
   restart: z.boolean()
     .optional()
-    .describe("If true, restart Chrome with the new profile even if the browser is already running. Closes all current tabs."),
+    .describe("Restart Chrome with the new profile even if running; closes all tabs"),
 });
 
 export type ConfigureSessionParams = z.infer<typeof configureSessionSchema>;

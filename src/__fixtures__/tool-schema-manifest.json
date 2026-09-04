@@ -427,6 +427,15 @@
     "name": "run_plan",
     "inputSchema": {
       "properties": {
+        "errorStrategy": {
+          "default": "abort",
+          "enum": [
+            "abort",
+            "continue",
+            "capture_image"
+          ],
+          "type": "string"
+        },
         "parallel": {
           "items": {
             "properties": {
@@ -506,6 +515,9 @@
         "use_operator": {
           "default": false,
           "type": "boolean"
+        },
+        "vars": {
+          "type": "object"
         }
       },
       "type": "object"

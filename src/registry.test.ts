@@ -84,7 +84,10 @@ describe("ToolRegistry", () => {
     expect(toolFn).toHaveBeenCalledTimes(ALL_FREE_TOOL_NAMES.length);
     expect(toolFn).toHaveBeenCalledWith(
       "evaluate",
-      expect.stringMatching(/^Execute JavaScript in the browser page context.*Bad uses:.*automatic recovery after a click\/type\/fill_form failure/s),
+      // Die "Bad uses"-Regeln (Recovery, Scrolling, Element-Discovery) stehen
+      // seit Task 3 in den Server-Instructions; dort werden sie in
+      // src/server.test.ts festgehalten.
+      expect.stringMatching(/^Run JavaScript in the page\. Good uses:.*shared between calls/s),
       expect.objectContaining({
         expression: expect.anything(),
         await_promise: expect.anything(),
@@ -121,7 +124,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "wait_for",
-      expect.stringMatching(/^Wait for a condition: element visible, page text present/),
+      expect.stringMatching(/^Wait until a condition holds: element visible, page text present/),
       expect.objectContaining({
         condition: expect.anything(),
         selector: expect.anything(),
@@ -188,7 +191,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "file_upload",
-      "Upload file(s) to a file input element. Provide ref or CSS selector to identify the <input type='file'>, and absolute path(s) to the file(s).",
+      "Upload file(s) to an <input type='file'> identified by ref or CSS selector; file paths must be absolute.",
       expect.objectContaining({
         ref: expect.anything(),
         selector: expect.anything(),
@@ -206,10 +209,14 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "run_plan",
-      "Execute a sequential plan of tool steps server-side. Supports variables ($varName), conditions (if), saveAs, error strategies (abort/continue/capture_image), suspend/resume. Parallel tab execution via parallel: [{ tab, steps }].",
+      "Execute a sequence of tool steps server-side in one call. Variables via vars and saveAs ($name), conditions (if), suspend/resume to ask the agent mid-plan, errorStrategy abort | continue | capture_image, and parallel groups per tab: parallel: [{ tab, steps }].",
       expect.objectContaining({
         steps: expect.anything(),
         parallel: expect.anything(),
+        // Story 23.x: vars und errorStrategy werden jetzt durchgereicht — die
+        // Description bewirbt sie, also muessen sie in tools/list stehen.
+        vars: expect.anything(),
+        errorStrategy: expect.anything(),
         use_operator: expect.anything(),
         resume: expect.anything(),
       }),
@@ -217,7 +224,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "batch_evaluate",
-      expect.stringMatching(/^Visit multiple URLs sequentially/),
+      expect.stringMatching(/^Visit several URLs in sequence and run the same JS expression on each\./),
       expect.objectContaining({
         urls: expect.anything(),
         evaluate_per_page: expect.anything(),
@@ -757,7 +764,9 @@ describe("ToolRegistry", () => {
     );
     expect(networkMonitorCall).toBeDefined();
     expect(networkMonitorCall![1]).toBe(
-      "Monitor network requests via CDP. Workflow: start → trigger action → get(pattern: 'api'). Use INSTEAD of evaluate-based fetch interceptors (window.fetch = ..., XMLHttpRequest.prototype.open = ...) — network_monitor captures all requests including those initiated by the page itself.",
+      // Die Abgrenzung gegen evaluate-basierte fetch-Interceptors steht seit
+      // Task 3 in den Server-Instructions (src/server.test.ts).
+      "Capture network requests via CDP, including those the page issues itself. Workflow: start → trigger the action → get(pattern: 'api').",
     );
   });
 

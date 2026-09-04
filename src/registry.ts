@@ -1539,7 +1539,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 5. Timing (wait_for/observe) ---
     maybeRegisterFreeMCPTool(
       "wait_for",
-      "Wait for a condition: element visible, page text present, URL match, network idle, or JS expression true. Prefer condition:'text' over a JS expression for \"has the page said X yet\". Set assert:true to check once and fail instead of waiting.",
+      "Wait until a condition holds: element visible, page text present, URL match, network idle, or a JS expression true. Prefer condition 'text' over a JS expression for 'has the page said X yet'. assert: true checks once and fails instead of waiting.",
       {
         condition: waitForSchema.shape.condition,
         selector: waitForSchema.shape.selector,
@@ -1557,7 +1557,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // FR-009: observe — passively watch DOM changes
     maybeRegisterFreeMCPTool(
       "observe",
-      "Watch an element for changes over time — use this INSTEAD of writing MutationObserver/setInterval/setTimeout code in evaluate. Two modes: (1) collect — watch for 'duration' ms, return all text/attribute changes (e.g. collect 3 values that appear one after another). (2) until — wait for a condition, then optionally click immediately (e.g. click Capture when counter hits 8). Use click_first to trigger the action that causes changes (observer is set up BEFORE the click, so nothing is missed).",
+      "Watch an element for changes instead of polling with MutationObserver/setInterval code in evaluate. collect: record text/attribute changes for 'duration' ms. until: wait for a condition, then optionally click at once (then_click, for timing-critical actions). click_first fires the triggering action after the observer is armed, so nothing is missed.",
       {
         selector: observeSchema.shape.selector,
         duration: observeSchema.shape.duration,
@@ -1639,7 +1639,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // `docs/friction-fixes.md#FR-035` H1/H2.
     maybeRegisterFreeMCPTool(
       "handle_dialog",
-      "Configure browser dialog handling (alerts, confirms, prompts). Pre-configure BEFORE triggering actions that may show dialogs. Replaces evaluate-based workarounds (window.alert = ...) — handle_dialog uses CDP Page.javascriptDialogOpening and works even when the dialog blocks all JS.",
+      "Configure handling of alerts, confirms and prompts. Set it BEFORE triggering the action that opens the dialog. Uses CDP Page.javascriptDialogOpening, so it works even while the dialog blocks all JS.",
       {
         action: handleDialogSchema.shape.action,
         text: handleDialogSchema.shape.text,
@@ -1660,7 +1660,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Story 6.2: file_upload — upload files to file input elements
     maybeRegisterFreeMCPTool(
       "file_upload",
-      "Upload file(s) to a file input element. Provide ref or CSS selector to identify the <input type='file'>, and absolute path(s) to the file(s).",
+      "Upload file(s) to an <input type='file'> identified by ref or CSS selector; file paths must be absolute.",
       {
         ref: fileUploadSchema.shape.ref,
         selector: fileUploadSchema.shape.selector,
@@ -1685,7 +1685,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Collector nie initialisiert wird.
     maybeRegisterFreeMCPTool(
       "console_logs",
-      "Retrieve collected browser console logs. Filter by level (info/warning/error/debug) and/or regex pattern. Optionally clear the buffer after reading.",
+      "Read collected browser console logs; filter by level (info/warning/error/debug) and/or regex; optionally clear the buffer after reading.",
       {
         level: consoleLogsSchema.shape.level,
         pattern: consoleLogsSchema.shape.pattern,
@@ -1710,7 +1710,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // analog `console_logs`.
     maybeRegisterFreeMCPTool(
       "network_monitor",
-      "Monitor network requests via CDP. Workflow: start → trigger action → get(pattern: 'api'). Use INSTEAD of evaluate-based fetch interceptors (window.fetch = ..., XMLHttpRequest.prototype.open = ...) — network_monitor captures all requests including those initiated by the page itself.",
+      "Capture network requests via CDP, including those the page issues itself. Workflow: start → trigger the action → get(pattern: 'api').",
       {
         action: networkMonitorSchema.shape.action,
         filter: networkMonitorSchema.shape.filter,
@@ -1732,7 +1732,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Story 22.2: download — check download status or list session downloads
     maybeRegisterFreeMCPTool(
       "download",
-      "Check status of file downloads or list all downloaded files in this session. Downloads happen automatically when you click download links or navigate to files (PDFs, CSVs, etc.) — you do NOT need to call this tool to trigger downloads. Use this tool to:\n- Wait for a large download to finish: download()\n- List all downloaded files, without waiting: download({ action: \"list\" })",
+      "Wait for pending downloads or list this session's downloaded files. Downloads start by themselves when you click a download link or open a file URL (PDF, CSV, …); this tool never triggers them. download() waits for a pending download to finish; download({ action: 'list' }) returns at once.",
       {
         action: downloadSchema.shape.action,
         timeout: downloadSchema.shape.timeout,
@@ -1758,7 +1758,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     if (this._browserSession.sessionDefaults) {
       maybeRegisterFreeMCPTool(
         "configure_session",
-        "View/set session defaults for recurring parameters (tab, timeout, etc.). Without params: show current defaults and auto-promote suggestions. With autoPromote: true: apply all suggestions. Use profile param BEFORE any browser interaction to launch Chrome with a named profile.",
+        "View or set session defaults for recurring parameters (tab, timeout, …). Without params: show current defaults and auto-promote suggestions; autoPromote: true applies them. Set profile BEFORE any browser interaction to launch Chrome with a named profile.",
         {
           defaults: configureSessionSchema.shape.defaults,
           autoPromote: configureSessionSchema.shape.autoPromote,
@@ -1784,10 +1784,12 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     maybeRegisterFreeMCPTool(
       "run_plan",
-      "Execute a sequential plan of tool steps server-side. Supports variables ($varName), conditions (if), saveAs, error strategies (abort/continue/capture_image), suspend/resume. Parallel tab execution via parallel: [{ tab, steps }].",
+      "Execute a sequence of tool steps server-side in one call. Variables via vars and saveAs ($name), conditions (if), suspend/resume to ask the agent mid-plan, errorStrategy abort | continue | capture_image, and parallel groups per tab: parallel: [{ tab, steps }].",
       {
         steps: runPlanSchema.shape.steps,
         parallel: runPlanSchema.shape.parallel,
+        vars: runPlanSchema.shape.vars,
+        errorStrategy: runPlanSchema.shape.errorStrategy,
         use_operator: runPlanSchema.shape.use_operator,
         resume: runPlanSchema.shape.resume,
       },
@@ -1823,7 +1825,7 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     maybeRegisterFreeMCPTool(
       "batch_evaluate",
-      "Visit multiple URLs sequentially and evaluate the same JavaScript expression on each page. Use for controlled batch checks across known pages when view_page/run_plan would be too chatty. Not for normal page reading, clicking, or form work.",
+      "Visit several URLs in sequence and run the same JS expression on each. For controlled checks across known pages where view_page/run_plan would be too chatty; not for normal reading, clicking or form work.",
       {
         urls: batchEvaluateSchema.shape.urls,
         evaluate_per_page: batchEvaluateSchema.shape.evaluate_per_page,
@@ -1840,7 +1842,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // bypassing the CDP 1 MB-per-message limit via server-side chunking.
     maybeRegisterFreeMCPTool(
       "set_page_data",
-      "Write a large payload (>1 MB) to window.__pb_data[key] in the page, bypassing the CDP 1 MB-per-message limit via server-side chunking. Use when: passing big base64 images / JSON / fixtures to a debug hook (window.__yourHook(data)), stubbing fetch responses with large bodies, or feeding binary data to a custom drop-zone. Sources: inline (pass `data` directly — useful for known small payloads) or file (pass absolute `path`, server reads as binary). After this call the page can read window.__pb_data['<key>'] (string OR ArrayBuffer depending on encoding) and window.__pb_data['<key>__complete'] === true once all chunks landed. Note: each call chunks sequentially over the CDP WebSocket — do NOT issue multiple set_page_data calls for the same key in parallel; concurrent writes would race on window.__pb_data[key]. Do NOT use for: small (<200 KB) payloads where a single evaluate works, or where file_upload with an <input type=file> would suffice.",
+      "Write a payload larger than 1 MB into window.__pb_data[key], chunked server-side past the CDP 1 MB message limit — for big base64 images or JSON fixtures a page hook consumes. Source: inline (`data`) or file (absolute `path`, read as binary). The page then reads window.__pb_data[key] (string or ArrayBuffer per encoding) and window.__pb_data[key + '__complete'] === true. Never write one key from parallel calls — they race. Under ~200 KB use evaluate; for a real <input type=file> use file_upload.",
       {
         key: setPageDataSchema.shape.key,
         source: setPageDataSchema.shape.source,
@@ -1856,7 +1858,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // don't default to it for text/element tasks — Positional Bias fix) ---
     maybeRegisterFreeMCPTool(
       "evaluate",
-      "Execute JavaScript in the browser page context. Good uses: computation, style mutations (.style.X = ..., classList.add), shadow-root traversal, in-page fetch(), app-specific side effects no dedicated tool covers. Bad uses: (1) automatic recovery after a click/type/fill_form failure — call view_page for fresh refs and retry instead; (2) scrolling — use scroll via run_plan (returns position + content growth); (3) element discovery (querySelector/getElementById/innerText) — prefer view_page or fill_form. Scope is shared between calls — top-level const/let/class are auto-wrapped in IIFE. If/else blocks may return undefined — use ternary (a ? b : c) or explicit return.",
+      "Run JavaScript in the page. Good uses: computation, style mutations (.style.X = ..., classList), shadow-root traversal, in-page fetch(), app-specific side effects no dedicated tool covers. Scope is shared between calls; top-level const/let/class are wrapped in an IIFE. If/else blocks may return undefined — use a ternary or an explicit return.",
       {
         expression: evaluateSchema.shape.expression,
         await_promise: evaluateSchema.shape.await_promise,

@@ -9,52 +9,52 @@ import type { PlanStateStore } from "../plan/plan-state-store.js";
 import { getProHooks } from "../hooks/pro-hooks.js";
 
 const suspendSchema = z.object({
-  question: z.string().optional().describe("Question to ask the agent when suspending"),
-  context: z.enum(["capture_image"]).optional().describe("Context to include: 'capture_image' captures the page"),
-  condition: z.string().optional().describe("Condition expression — suspend AFTER step if true. Uses $varName syntax."),
+  question: z.string().optional().describe("Question for the agent"),
+  context: z.enum(["capture_image"]).optional().describe("capture_image: attach a screenshot"),
+  condition: z.string().optional().describe("Suspend after the step if this $-expression is true"),
 });
 
 const stepSchema = z.object({
-  tool: z.string().describe("Tool name to execute (e.g. 'click', 'type', 'press_key', 'navigate', 'scroll')"),
-  params: z.record(z.unknown()).optional().describe("Parameters for the tool. Use $varName for variable substitution."),
-  saveAs: z.string().optional().describe("Save step result as variable (accessible via $name in later steps)"),
-  if: z.string().optional().describe("Condition expression — step runs only if true. Use $varName for variables. Example: \"$pageTitle === 'Login'\""),
-  suspend: suspendSchema.optional().describe("Suspend plan at this step to ask the agent a question"),
+  tool: z.string().describe("Tool name"),
+  params: z.record(z.unknown()).optional().describe("Tool parameters; $name substitutes a variable"),
+  saveAs: z.string().optional().describe("Save the result as $name for later steps"),
+  if: z.string().optional().describe("Run the step only if this expression is true, e.g. \"$pageTitle === 'Login'\""),
+  suspend: suspendSchema.optional().describe("Pause here to ask the agent a question"),
 });
 
 const resumeSchema = z.object({
-  planId: z.string().describe("ID of the suspended plan to resume"),
-  answer: z.string().describe("Agent's answer to the suspend question"),
+  planId: z.string().describe("ID of the suspended plan"),
+  answer: z.string().describe("Answer to the suspend question"),
 });
 
 // Story 7.6: Schema for parallel tab groups
 const parallelGroupSchema = z.object({
-  tab: z.string().describe("Tab ID (targetId) to execute steps on"),
-  steps: z.array(stepSchema).describe("Steps to execute on this tab"),
+  tab: z.string().describe("Tab ID (targetId)"),
+  steps: z.array(stepSchema).describe("Steps for this tab"),
 });
 
 export const runPlanSchema = z.object({
   steps: z
     .array(stepSchema)
     .optional()
-    .describe("Array of tool steps to execute sequentially."),
+    .describe("Tool steps to run in order"),
   parallel: z
     .array(parallelGroupSchema)
     .optional()
-    .describe("Array of tab groups to execute in parallel across tabs."),
+    .describe("Tab groups to run in parallel"),
   vars: z
     .record(z.unknown())
     .optional()
-    .describe("Initial variables for the plan. Accessible via $varName in step params and conditions."),
+    .describe("Initial variables, available as $name"),
   errorStrategy: z
     .enum(["abort", "continue", "capture_image"])
     .optional()
     .default("abort")
-    .describe("Error handling: 'abort' (default) stops on first error, 'continue' runs all steps, 'capture_image' captures page on error then aborts."),
+    .describe("abort (default) stops at the first error; continue runs all steps; capture_image screenshots, then aborts"),
   use_operator: z.boolean().optional().default(false).describe(
-    "Operator mode (rule engine + Micro-LLM). Requires the executeOperator hook to be registered."
+    "Operator mode (rule engine + micro-LLM); needs the executeOperator hook"
   ),
-  resume: resumeSchema.optional().describe("Resume a previously suspended plan."),
+  resume: resumeSchema.optional().describe("Resume a suspended plan"),
 });
 
 export type RunPlanParams = z.infer<typeof runPlanSchema>;

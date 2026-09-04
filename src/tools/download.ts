@@ -5,24 +5,15 @@ import type { ToolResponse } from "../types.js";
 export const downloadSchema = z.object({
   action: z.enum(["status", "list"])
     .default("status")
-    .describe(
-      "status: check/wait for pending downloads (waits briefly for one to start, "
-      + "then until it finishes). list: full session history, returns immediately "
-      + "and never waits — use it for polling loops.",
-    ),
+    .describe("status waits for pending downloads; list: history, never waits (use for polling)"),
   timeout: z.number()
     .optional()
     .default(30_000)
-    .describe("Max wait time in ms for pending downloads (default: 30000)"),
+    .describe("Max wait in ms for pending downloads"),
   settle: z.number()
     .optional()
     .default(250)
-    .describe(
-      "Grace window in ms to wait for a download to START before reporting "
-      + "'no downloads' (default: 250). Chrome fires downloadWillBegin a few ms "
-      + "after the click that triggers it. Set 0 for an instant check, or use "
-      + "action: 'list' which never waits.",
-    ),
+    .describe("Ms to wait for a download to START before reporting none — Chrome fires downloadWillBegin a few ms after the click; 0 = instant"),
 });
 
 export type DownloadParams = z.infer<typeof downloadSchema>;
