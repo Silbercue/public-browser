@@ -14,19 +14,19 @@ export const waitForSchema = z.object({
   selector: z
     .string()
     .optional()
-    .describe("Condition 'element': CSS selector or ref"),
+    .describe("CSS selector or ref; required for condition 'element'"),
   text: z
     .string()
     .optional()
-    .describe("Condition 'text': substring of document.body.innerText, case-sensitive"),
+    .describe("Substring of document.body.innerText, case-sensitive; required for condition 'text'"),
   url: z
     .string()
     .optional()
-    .describe("Condition 'url': substring of the page URL"),
+    .describe("Substring of the page URL; required for condition 'url'"),
   expression: z
     .string()
     .optional()
-    .describe("Condition 'js': expression that should become true"),
+    .describe("Expression that should become true; required for condition 'js'"),
   assert: z
     .boolean()
     .optional()

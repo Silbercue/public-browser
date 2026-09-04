@@ -50,7 +50,7 @@ export const runPlanSchema = z.object({
     .enum(["abort", "continue", "capture_image"])
     .optional()
     .default("abort")
-    .describe("abort (default) stops at the first error; continue runs all steps; capture_image screenshots, then aborts"),
+    .describe("abort stops at the first error; continue runs all steps; capture_image screenshots, then aborts"),
   use_operator: z.boolean().optional().default(false).describe(
     "Operator mode (rule engine + micro-LLM); needs the executeOperator hook"
   ),

@@ -4,7 +4,7 @@ import type { ToolResponse } from "../types.js";
 
 export const handleDialogSchema = z.object({
   action: z.enum(["accept", "dismiss", "get_status"]).describe("accept or dismiss the next dialog; get_status: pending ones"),
-  text: z.string().optional().describe("Text returned for prompt dialogs (with action accept)"),
+  text: z.string().optional().describe("Text entered into prompt dialogs (with action accept)"),
 });
 
 export type HandleDialogParams = z.infer<typeof handleDialogSchema>;

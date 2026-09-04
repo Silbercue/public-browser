@@ -1448,7 +1448,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // @see docs/friction-fixes.md#FR-028
     maybeRegisterFreeMCPTool(
       "drag",
-      "Drag via native CDP mouse events. Works for CSS-driven drag: slider thumbs, resize handles, text selection, mouse-based reorder lists (SortableJS in mouse mode). NOT for the HTML5 Drag&Drop API (draggable=true with dragstart/drop listeners, React DnD HTML5Backend, Vuedraggable, ng2-dnd) — that needs Input.dispatchDragEvent.",
+      "Drag via native CDP mouse events. Works for CSS-driven drag: slider thumbs, resize handles, text selection, mouse-based reorder lists (SortableJS in mouse mode). NOT for the HTML5 Drag&Drop API (draggable=true with dragstart/drop listeners, React DnD HTML5Backend, Vuedraggable, ng2-dnd) — that needs Input.dispatchDragEvent. Source: from_ref/from_selector or from_x+from_y; target: to_ref/to_selector or to_x+to_y.",
       {
         from_ref: dragSchema.shape.from_ref,
         from_selector: dragSchema.shape.from_selector,
@@ -1557,7 +1557,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // FR-009: observe — passively watch DOM changes
     maybeRegisterFreeMCPTool(
       "observe",
-      "Watch an element for changes instead of polling with MutationObserver/setInterval code in evaluate. collect: record text/attribute changes for 'duration' ms. until: wait for a condition, then optionally click at once (then_click, for timing-critical actions). click_first fires the triggering action after the observer is armed, so nothing is missed.",
+      "Watch an element for changes instead of polling with MutationObserver/setInterval code in evaluate. collect: record text/attribute changes for 'duration' ms. until: wait for a condition, then optionally click at once (then_click). click_first fires the triggering action after the observer is armed, so nothing is missed.",
       {
         selector: observeSchema.shape.selector,
         duration: observeSchema.shape.duration,
@@ -1842,7 +1842,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // bypassing the CDP 1 MB-per-message limit via server-side chunking.
     maybeRegisterFreeMCPTool(
       "set_page_data",
-      "Write a payload larger than 1 MB into window.__pb_data[key], chunked server-side past the CDP 1 MB message limit — for big base64 images or JSON fixtures a page hook consumes. Source: inline (`data`) or file (absolute `path`, read as binary). The page then reads window.__pb_data[key] (string or ArrayBuffer per encoding) and window.__pb_data[key + '__complete'] === true. Never write one key from parallel calls — they race. Under ~200 KB use evaluate; for a real <input type=file> use file_upload.",
+      "Write a payload larger than 1 MB into window.__pb_data[key], chunked past the CDP 1 MB message limit. Source: inline (`data`) or file (absolute `path`, read as binary). The page reads window.__pb_data[key] (string or ArrayBuffer per encoding) and window.__pb_data[key + '__complete'] === true. Never write one key from parallel calls — they race. Under ~200 KB use evaluate; for a real <input type=file> use file_upload.",
       {
         key: setPageDataSchema.shape.key,
         source: setPageDataSchema.shape.source,

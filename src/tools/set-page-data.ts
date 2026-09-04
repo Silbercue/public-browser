@@ -55,7 +55,7 @@ export const setPageDataSchema = z.object({
       KEY_REGEX,
       "key must match /^[a-zA-Z_][a-zA-Z0-9_]*$/ (JS identifier) — special characters are rejected to prevent injection into the page's evaluate expression",
     )
-    .describe("Property name under window.__pb_data (JS identifier: letters, digits, underscore; no leading digit)"),
+    .describe("Property name under window.__pb_data (JS identifier, see pattern)"),
   source: sourceSchema.describe("inline: pass data. file: pass an absolute path, read as binary"),
   encoding: z
     .enum(["base64", "utf8", "binary"])
