@@ -2,11 +2,11 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/Silbercue/public-browser)](https://github.com/Silbercue/public-browser/releases)
 [![npm version](https://img.shields.io/npm/v/public-browser)](https://www.npmjs.com/package/public-browser)
-[![25 tools](https://img.shields.io/badge/Tools-25-brightgreen)](https://github.com/Silbercue/public-browser#tool-overview)
+[![Tool definitions < 5k tokens](https://img.shields.io/badge/tool_definitions-%3C5k_tokens-brightgreen)](#why-an-mcp-server-and-not-a-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-Lets Claude Code and Cursor drive Chrome — with your real, logged-in profile. On the same 30-test benchmark page it used **30% fewer tokens, 25% less money, 41% fewer tool calls and 40% less time** than Playwright MCP at the same pass rate — two runs each, 2026-09-03, driver Claude Opus 5, raw data in the repo ([Benchmarks](#benchmarks), including where it loses). Direct CDP, a11y-tree refs, multi-tab ready — 2,322 TypeScript tests, 237 Python tests.
+Lets Claude Code and Cursor drive Chrome — with your real, logged-in profile. On the same 30-test benchmark page it used **30% fewer tokens, 25% less money, 41% fewer tool calls and 40% less time** than Playwright MCP at the same pass rate — two runs each, 2026-09-03, driver Claude Opus 5, raw data in the repo ([Benchmarks](#benchmarks), including where it loses). Direct CDP, a11y-tree refs, multi-tab ready — 2,343 TypeScript tests, 237 Python tests.
 
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
 
@@ -541,7 +541,7 @@ immediately and never waits, for either a start or a completion.
 | `virtual_desk` | Lists all tabs with stable IDs. Call first in every session. |
 | `dom_snapshot` | Bounding boxes, computed styles, paint order. For spatial questions `view_page` cannot answer. |
 | **Interaction** | |
-| `click` | Real CDP mouse events by ref, selector, text, or coordinates. Response includes DOM diff (NEW/REMOVED/CHANGED). |
+| `click` | Real CDP mouse events by ref, selector, text, or coordinates. The DOM diff (NEW/REMOVED/CHANGED) arrives with the next response, or in this one with `wait_for_diff: true`. |
 | `type` | Type into an input by ref/selector |
 | `fill_form` | Fill a complete form in one call — text, `<select>`, checkbox, radio. Per-field status. |
 | `press_key` | Real CDP keyboard events — Enter, Escape, Tab, arrows, shortcuts (Ctrl+K, etc.) |
@@ -549,7 +549,7 @@ immediately and never waits, for either a start or a completion.
 | `file_upload` | Upload file(s) to `<input type="file">` |
 | `handle_dialog` | Configure `alert`/`confirm`/`prompt` handling before triggering actions |
 | `drag` | Native CDP drag & drop between elements |
-| `download` | Enable downloads, return download dir |
+| `download` | Wait for pending downloads or list downloaded session files |
 | **Navigation** | |
 | `navigate` | Load a URL. First call per session auto-redirected to `virtual_desk` to prevent overwriting the user's tab. |
 | `switch_tab` | Open, switch to, or close tabs by ID from `virtual_desk` |
@@ -559,6 +559,18 @@ immediately and never waits, for either a start or a completion.
 | `batch_evaluate` | Visit multiple URLs sequentially and run the same JavaScript expression on each page. |
 | `set_page_data` | Write large payloads to `window.__pb_data[key]` via server-side chunking for data that is too large for a single CDP message. |
 | `evaluate` | Execute JS in page context. Anti-pattern scanner warns on `querySelector`/`.click()`. |
+
+## Why an MCP server and not a CLI?
+
+Several browser-automation projects now ship a CLI and tell coding agents to call it from the shell; Microsoft's Playwright README recommends that route. A CLI adds no tool definitions to the context. The trade-off is that the model has to learn the command surface from `--help` output and error messages. In one practitioner's side-by-side of Chrome DevTools MCP and the agent-browser CLI, the models handled the MCP tool surface better and were "not deeply fluent" with the CLI yet ([Pasi Huuhka, 28 Jan 2026](https://www.huuhka.net/browser-verification-for-coding-agents-chrome-devtools-mcp-vs-agent-browser/)) — one comparison, not a study.
+
+Public Browser keeps the MCP surface and keeps it small: its 25 tool definitions take about **4,992 tokens** of context as delivered over the wire (characters / 4, `npm run token-count`; measured the same way, Playwright MCP 0.0.80 takes 4,626 and Chrome DevTools MCP 1.8.0 takes 6,290). A test enforces the budget, so it cannot creep back up. Getting there cost nothing in the benchmark: the two acceptance runs of the shortened definitions solved 30/30 with 79 calls each, against 84 and 86 for the previous wording (raw data in [`test-hardest/results-local/`](test-hardest/results-local)).
+
+The other argument for a CLI — "MCP needs a round-trip per step" — is what `run_plan` is for: N steps in one call, executed server-side with variables, conditions and suspend/resume. On the 30-test benchmark page that meant 79 and 79 tool calls per run against 137 and 151 for Playwright MCP (45% fewer, same pass rate; [Benchmarks](#benchmarks)).
+
+## Coming from Browser MCP?
+
+[Browser MCP](https://browsermcp.io) (`@browsermcp/mcp`) has had no release since 0.1.3 on 11 April 2025, and its extension bridge works on one tab. If you picked it for its four promises, here is what Public Browser does for each: **Fast** — talks to Chrome directly over CDP, no extension bridge, no cloud hop; **Private** — runs on your machine, telemetry is opt-in; **Logged In** — can drive your real, logged-in Chrome profile (see [Chrome Profiles](#chrome-profiles)); **Stealth** — sends real CDP input events, so pages see an ordinary browser; `--no-stealth` makes the automation identifiable when you want that. Install with one command ([Quick Start](#quick-start)). Tool names differ: `browser_snapshot` → `view_page`, `browser_click` → `click`, `browser_type` → `type`; `view_page` returns the refs that `click` and `type` take. Multi-tab works.
 
 ## Benchmarks
 
