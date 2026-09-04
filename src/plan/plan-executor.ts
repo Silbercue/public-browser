@@ -37,6 +37,13 @@ export interface StepResult {
    * `params.ref` / `params.target_ref` / `params.element_ref` uebereinstimmen.
    */
   params?: Record<string, unknown>;
+  /**
+   * Codex-Abnahme Finding #2: Der letzte Step war ein erfolgreicher
+   * `view_page` — seine Bloecke sind in den Aggregations-Overlay gewandert
+   * und werden am Plan-Ende vollstaendig ausgegeben. `formatStepLine` darf
+   * dann nicht `<no-output>` melden.
+   */
+  fullOutputInOverlay?: boolean;
 }
 
 export interface PlanOptions {
@@ -314,7 +321,20 @@ export async function executePlan(
   if (lastStep && !lastStep.skipped && !lastStep.result.isError) {
     const elementClass = lastStep.result._meta?.elementClass;
     const isTransitionTool = elementClass === "clickable" || elementClass === "widget-state";
-    if (isTransitionTool) {
+    // Codex-Abnahme Finding #2 (2026-09-04): Die run_plan-Description bewirbt
+    // "view_page chains". Ohne diesen Zweig kollabiert `formatStepLine` auch
+    // einen abschliessenden `view_page` auf die erste Zeile / 80 Zeichen — der
+    // Plan endet dann ohne lesbaren Seitenzustand und der LLM muss view_page
+    // separat nachziehen (genau der Call, den der Plan sparen soll). Der
+    // Overlay-Mechanismus fuer click/type liefert dasselbe fuer Transitionen;
+    // bei `view_page` IST die Step-Ausgabe der Seitenzustand, also wandert sie
+    // unveraendert in den Overlay. Nur der LETZTE Step — Zwischen-view_pages
+    // bleiben kompakt, sonst waere die Token-Ersparnis des Plans dahin.
+    if (lastStep.tool === "view_page") {
+      aggregationOverlay = lastStep.result.content;
+      lastStep.result = { ...lastStep.result, content: [] };
+      lastStep.fullOutputInOverlay = true;
+    } else if (isTransitionTool) {
       // H1-Fix (Review 18.2): Reference-Set-Based-Diffing statt
       // `slice(contentLengthBefore)`. Der bisherige Schnitt hat IMPLIZIT
       // angenommen, dass `runAggregationHook` neue Bloecke per `push` am Ende
@@ -566,6 +586,10 @@ function formatStepLine(stepResult: StepResult, stepsTotal: number): string {
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
     .map((c) => c.text)
     .join("\n");
+
+  if (stepResult.fullOutputInOverlay) {
+    return `${prefix} full output below`;
+  }
 
   if (!allText) {
     return `${prefix} <no-output>`;

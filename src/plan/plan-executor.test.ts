@@ -1449,6 +1449,64 @@ describe("executePlan — Ambient-Context suppression (Story 18.1)", () => {
     expect(aggregationCalls[0].toolName).toBe("type");
   });
 
+  // Codex-Abnahme Finding #2: `run_plan` bewirbt "view_page chains", aber ein
+  // abschliessender view_page-Step wurde auf 80 Zeichen kollabiert — der Plan
+  // lieferte nichts Lesbares. Der Plan-Abschluss propagiert jetzt die volle
+  // view_page-Ausgabe.
+  const LONG_PAGE_LINE =
+    "e3 link 'Continue to the payment step and confirm the order total including shipping'";
+  const PAGE_DUMP = [
+    "Page: Checkout",
+    "e1 heading 'Your cart'",
+    LONG_PAGE_LINE,
+    "e9 button 'Pay now'",
+  ].join("\n");
+
+  it("propagates the full view_page output when it is the last step of a plan", async () => {
+    const responses = new Map<string, ToolResponse>();
+    responses.set("view_page", okResponse("view_page", PAGE_DUMP));
+
+    const { registry } = createHookAwareRegistry(responses);
+    const steps: PlanStep[] = [{ tool: "view_page", params: {} }];
+
+    const result = await executePlan(steps, registry);
+    const allText = result.content
+      .filter((c): c is { type: "text"; text: string } => c.type === "text")
+      .map((c) => c.text)
+      .join("\n");
+
+    // Der Step bleibt als Zeile sichtbar …
+    expect(allText).toContain("[1/1] OK view_page");
+    // … und die Seitenausgabe kommt vollstaendig mit: die letzte Zeile des
+    // Dumps existiert nur, wenn nicht auf die erste Zeile gekuerzt wurde.
+    expect(allText).toContain("e9 button 'Pay now'");
+    // … inklusive der ueberlangen Zeile ohne "..."-Abschnitt.
+    expect(allText).toContain(LONG_PAGE_LINE);
+  });
+
+  it("keeps a view_page step compact when it is NOT the last step", async () => {
+    const responses = new Map<string, ToolResponse>();
+    responses.set("view_page", okResponse("view_page", PAGE_DUMP));
+    responses.set("click", okResponse("click", "clicked the button"));
+
+    const { registry } = createHookAwareRegistry(responses);
+    const steps: PlanStep[] = [
+      { tool: "view_page", params: {} },
+      { tool: "click", params: { ref: "e9" } },
+    ];
+
+    const result = await executePlan(steps, registry);
+    const allText = result.content
+      .filter((c): c is { type: "text"; text: string } => c.type === "text")
+      .map((c) => c.text)
+      .join("\n");
+
+    // Positive Gegenprobe: der Step lief und seine erste Zeile ist da …
+    expect(allText).toContain("[1/2] OK view_page (5ms): Page: Checkout");
+    // … aber der Rest des Dumps bleibt aus dem Plan-Response draussen.
+    expect(allText).not.toContain("e9 button 'Pay now'");
+  });
+
   // Story 20.1 M3: Aggregation hook sets syncDiff on the last step's _meta
   it("sets syncDiff=true on the last step result before calling runAggregationHook", async () => {
     const responses = new Map<string, ToolResponse>();
