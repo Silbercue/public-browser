@@ -256,8 +256,8 @@ class TestReadme:
 
     def test_has_installation_section(self) -> None:
         """README contains installation instructions."""
+        assert "pip install publicbrowser" in self.content
         assert "python -m pip install ./python" in self.content
-        assert "not currently published on PyPI" in self.content
 
     def test_has_quick_start(self) -> None:
         """README contains a quick start example."""
