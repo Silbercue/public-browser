@@ -44,6 +44,7 @@ const fileSet = new Set(files);
 const allowedExact = new Set(["README.md", "CHANGELOG.md", "LICENSE", "package.json"]);
 const disallowed = files.filter((file) =>
   file.startsWith("build/license/")
+  || file.startsWith("build/test-utils/")
   || file === "build/cli/license-commands.js"
   || file === "build/cli/license-commands.d.ts"
   || file.includes(".test."),
