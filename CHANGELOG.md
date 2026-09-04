@@ -3,7 +3,7 @@
 ## [2.10.4] - 2026-09-04
 
 ### Changed
-- Tool definitions cost 4,992 tokens on the wire instead of 7,607 (NFR4 budget < 5,000, enforced by `src/tool-budget.test.ts`): SDK metadata (`$schema`, `execution`, `additionalProperties: false`) is stripped from `tools/list`, shared rules moved into the server instructions, every tool and parameter description was tightened. No tool, parameter or rule was removed; accepted by two blind benchmark runs (30/30, 79/79 calls).
+- Tool definitions cost 4,990 tokens on the wire instead of 7,607 (NFR4 budget < 5,000, enforced by `src/tool-budget.test.ts`): SDK metadata (`$schema`, `execution`, `additionalProperties: false`) is stripped from `tools/list`, shared rules moved into the server instructions, every tool and parameter description was tightened. No tool, parameter or rule was removed — only illustrations and filler; accepted by two blind benchmark runs (30/30, 80 and 68 calls).
 - `run_plan` now exposes `vars` and `errorStrategy` in its input schema (they were implemented but not listed).
 - Blind-run harness: `--local` runs the benchmark against the local build.
 - Blind-run harness: `--headless` runs Public Browser without a visible Chrome window (`SILBERCUE_CHROME_HEADLESS=1`), recorded as `harness.headless` in the run JSON.
