@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Silbercue/public-browser",
   "title": "Public Browser",
-  "description": "A Chrome MCP server that talks straight to CDP \u2014 a Playwright MCP alternative.",
+  "description": "Browse with your real profile — 30% fewer tokens, 25% less cost, 41% fewer tool calls, 40% faster.",
   "repository": {
     "url": "https://github.com/Silbercue/public-browser",
     "source": "github"
@@ -24,12 +24,12 @@
       ]
     }
   ],
-  "version": "2.10.2",
+  "version": "2.10.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "public-browser",
-      "version": "2.10.2",
+      "version": "2.10.3",
       "transport": {
         "type": "stdio"
       }

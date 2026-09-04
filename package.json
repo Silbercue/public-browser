@@ -1,7 +1,7 @@
 {
   "name": "public-browser",
-  "version": "2.10.2",
-  "description": "A Chrome MCP server that talks straight to CDP \u2014 a11y-tree refs, multi-tab, a Playwright MCP alternative for Claude Code and Cursor.",
+  "version": "2.10.3",
+  "description": "Lets Claude Code and Cursor drive Chrome. Browse with your real profile — 30% fewer tokens, 25% less cost, 41% fewer tool calls, 40% faster than the competition.",
   "keywords": [
     "mcp",
     "mcp-server",

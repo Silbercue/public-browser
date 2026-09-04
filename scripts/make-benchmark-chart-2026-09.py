@@ -57,7 +57,13 @@ SEG_GAP = 4  # gap between those segments
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
 
 # label, sublabel, (pb_run1, pb_run2), (pw_run5, pw_run6), pooled factor text
+# Session tokens = tokens.delta (input + output + cache writes + cache reads over the
+# whole Claude Code session); cost = cost_usd_list, the Opus 5 list price of that run.
 ROWS = [
+    ("Session tokens", "6.3M · 6.5M vs 8.8M · 9.6M (whole run)",
+     (6288593, 6518119), (8783693, 9592264), "30% fewer"),
+    ("Cost per run", "$3.41 · $3.35 vs $4.28 · $4.78 (list price)",
+     (3.41, 3.35), (4.28, 4.78), "25% less"),
     ("Tool calls", "84 · 86 vs 137 · 151",
      (84, 86), (137, 151), "41% fewer"),
     ("Time to finish", "281s · 296s vs 468s · 493s (page timer)",
@@ -95,7 +101,7 @@ def esc(s: str) -> str:
 def build(theme: dict) -> str:
     head_h = 128
     body_h = ROW_H * len(ROWS)
-    foot_h = 56
+    foot_h = 74
     h = head_h + body_h + foot_h
 
     o = []
@@ -104,6 +110,9 @@ def build(theme: dict) -> str:
         "September 2026 benchmark, 35-test page, 30 scored, driver model claude-opus-5. "
         "Each bar is Public Browser as a share of Playwright MCP 0.0.80 on the same "
         "metric; the vertical line is Playwright at 100 percent and shorter is better. "
+        "Session tokens over the whole run: 6.3 and 6.5 million against 8.8 and 9.6 "
+        "million, 30 percent fewer. Cost per run at list price: 3.41 and 3.35 dollars "
+        "against 4.28 and 4.78, 25 percent less. "
         "Tool calls: 84 and 86 against 137 and 151, 41 percent fewer. Time to finish: "
         "281 and 296 seconds against 468 and 493, 40 percent less. Average response "
         "size: 1,298 and 1,214 chars against 740 and 656, 80 percent larger — Public "
@@ -117,7 +126,7 @@ def build(theme: dict) -> str:
 
     # --- header ---
     a(f'<text x="{MARGIN}" y="34" font-size="18" font-weight="600" fill="{theme["ink"]}">'
-      f'Fewer calls, less time — not smaller responses</text>')
+      f'Fewer tokens, less time — not smaller responses</text>')
     a(f'<text x="{MARGIN}" y="57" font-size="12.5" fill="{theme["muted"]}">'
       f'Each bar is Public Browser as a share of Playwright MCP 0.0.80 on the same metric. '
       f'The line is Playwright; shorter is better.</text>')
@@ -179,9 +188,12 @@ def build(theme: dict) -> str:
     # --- footer ---
     fy = head_h + body_h + 8
     a(f'<text x="{MARGIN}" y="{fy}" font-size="11" fill="{theme["faint"]}">'
+      f'Session tokens are the Claude Code transcript total, mostly cached re-reads of the growing '
+      f'conversation — fewer calls means fewer re-reads. Cost is the Opus 5 list price.</text>')
+    a(f'<text x="{MARGIN}" y="{fy + 17}" font-size="11" fill="{theme["faint"]}">'
       f'P95 response size runs further against Public Browser than this chart shows: '
       f'6,077 and 6,479 chars against 3,617 and 1,587.</text>')
-    a(f'<text x="{MARGIN}" y="{fy + 17}" font-size="11" fill="{theme["faint"]}">'
+    a(f'<text x="{MARGIN}" y="{fy + 34}" font-size="11" fill="{theme["faint"]}">'
       f'Pass rate is a tie — 30/30 in all four runs. Raw run JSON: test-hardest/results/</text>')
 
     a("</g>")
