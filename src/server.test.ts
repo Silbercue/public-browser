@@ -70,6 +70,15 @@ describe("buildInstructions (Story 12.4)", () => {
     expect(result).toContain("fill_form beats multiple type calls");
     expect(result).toContain("run_plan to execute N steps");
     expect(result).toContain("evaluate is for JS computation");
+    expect(result).toContain("Element targets: prefer the ref from the last view_page (e.g. 'e5')");
+    expect(result).toContain("Refs go stale after navigate, reload or switch_tab");
+    expect(result).toContain("not for CSS reading, element discovery, scrolling, dialogs or network capture");
+    expect(result).toContain("bypasses the CDP pointer chain and framework listeners");
+    expect(result).toContain("carry a DOM diff (NEW/REMOVED/CHANGED lines)");
+  });
+
+  it("bleibt kompakt: unter 2500 Zeichen ohne Cortex-Zeile", () => {
+    expect(buildInstructions(0).length).toBeLessThan(2500);
   });
 
   it("preserves Script API section", () => {
