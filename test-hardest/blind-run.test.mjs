@@ -104,7 +104,7 @@ test('renderPrompt substitutes all placeholders and appends smoke suffix only in
 
 test('PARTICIPANTS: four slugs, pinned versions, env is a function', () => {
   assert.deepEqual(Object.keys(PARTICIPANTS), ['public-browser', 'playwright-mcp', 'chrome-devtools-mcp', 'browser-use']);
-  assert.equal(PARTICIPANTS['public-browser'].version, '2.10.1');
+  assert.equal(PARTICIPANTS['public-browser'].version, '2.10.4');
   assert.ok(PARTICIPANTS['playwright-mcp'].args.join(' ').includes('@playwright/mcp@0.0.80'));
   assert.ok(PARTICIPANTS['chrome-devtools-mcp'].args.join(' ').includes('chrome-devtools-mcp@1.8.0'));
   const rundir = mkdtempSync(join(tmpdir(), 'blind-run-env-'));

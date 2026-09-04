@@ -25,8 +25,8 @@ export const SUITE_URL = 'https://mcp-test.second-truth.com';
 
 export const PARTICIPANTS = {
   'public-browser': {
-    name: 'public-browser', display: 'Public Browser', package: 'public-browser', version: '2.10.1',
-    command: 'npx', args: ['-y', 'public-browser@2.10.1'],
+    name: 'public-browser', display: 'Public Browser', package: 'public-browser', version: '2.10.4',
+    command: 'npx', args: ['-y', 'public-browser@2.10.4'],
     env: (rundir) => {
       const cortex = join(rundir, 'cortex');
       mkdirSync(cortex, { recursive: true });
