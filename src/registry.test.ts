@@ -209,7 +209,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "run_plan",
-      "Execute a sequence of tool steps server-side in one call. Variables via vars and saveAs ($name), conditions (if), suspend/resume to ask the agent mid-plan, errorStrategy abort | continue | capture_image, and parallel groups per tab: parallel: [{ tab, steps }].",
+      "Execute a sequence of tool steps server-side in one call. Batch the next 2+ known actions (click, type, scroll, press_key chains) here instead of N separate calls. Variables via vars and saveAs ($name), conditions (if), suspend/resume to ask the agent mid-plan, errorStrategy abort | continue | capture_image, and parallel groups per tab: parallel: [{ tab, steps }].",
       expect.objectContaining({
         steps: expect.anything(),
         parallel: expect.anything(),
