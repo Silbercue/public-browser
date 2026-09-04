@@ -24,12 +24,12 @@
       ]
     }
   ],
-  "version": "2.10.1",
+  "version": "2.10.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "public-browser",
-      "version": "2.10.1",
+      "version": "2.10.2",
       "transport": {
         "type": "stdio"
       }
