@@ -1,0 +1,737 @@
+[
+  {
+    "name": "batch_evaluate",
+    "inputSchema": {
+      "properties": {
+        "continue_on_error": {
+          "default": true,
+          "type": "boolean"
+        },
+        "evaluate_per_page": {
+          "type": "string"
+        },
+        "settle_ms": {
+          "default": 2000,
+          "type": "number"
+        },
+        "timeout_per_page_ms": {
+          "default": 30000,
+          "type": "number"
+        },
+        "urls": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "urls",
+        "evaluate_per_page"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "capture_image",
+    "inputSchema": {
+      "properties": {
+        "full_page": {
+          "default": false,
+          "type": "boolean"
+        },
+        "som": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "click",
+    "inputSchema": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "wait_for_diff": {
+          "type": "boolean"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "configure_session",
+    "inputSchema": {
+      "properties": {
+        "autoPromote": {
+          "type": "boolean"
+        },
+        "defaults": {
+          "type": "object"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "restart": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "console_logs",
+    "inputSchema": {
+      "properties": {
+        "clear": {
+          "default": false,
+          "type": "boolean"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error",
+            "debug"
+          ],
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "dom_snapshot",
+    "inputSchema": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "download",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "default": "status",
+          "enum": [
+            "status",
+            "list"
+          ],
+          "type": "string"
+        },
+        "settle": {
+          "default": 250,
+          "type": "number"
+        },
+        "timeout": {
+          "default": 30000,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "drag",
+    "inputSchema": {
+      "properties": {
+        "from_ref": {
+          "type": "string"
+        },
+        "from_selector": {
+          "type": "string"
+        },
+        "from_x": {
+          "type": "number"
+        },
+        "from_y": {
+          "type": "number"
+        },
+        "steps": {
+          "default": 10,
+          "minimum": 5,
+          "type": "integer"
+        },
+        "to_ref": {
+          "type": "string"
+        },
+        "to_selector": {
+          "type": "string"
+        },
+        "to_x": {
+          "type": "number"
+        },
+        "to_y": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "evaluate",
+    "inputSchema": {
+      "properties": {
+        "await_promise": {
+          "default": true,
+          "type": "boolean"
+        },
+        "expression": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expression"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "file_upload",
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          ]
+        },
+        "ref": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "fill_form",
+    "inputSchema": {
+      "properties": {
+        "fields": {
+          "items": {
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "selector": {
+                "type": "string"
+              },
+              "value": {
+                "type": [
+                  "string",
+                  "boolean",
+                  "number"
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "handle_dialog",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "enum": [
+            "accept",
+            "dismiss",
+            "get_status"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "navigate",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "default": "goto",
+          "enum": [
+            "goto",
+            "back",
+            "reload"
+          ],
+          "type": "string"
+        },
+        "settle_ms": {
+          "type": "number"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "network_monitor",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "enum": [
+            "start",
+            "get",
+            "stop"
+          ],
+          "type": "string"
+        },
+        "filter": {
+          "enum": [
+            "failed"
+          ],
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "observe",
+    "inputSchema": {
+      "properties": {
+        "click_first": {
+          "type": "string"
+        },
+        "collect": {
+          "default": "text",
+          "enum": [
+            "text",
+            "attributes",
+            "all"
+          ],
+          "type": "string"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "interval": {
+          "default": 100,
+          "type": "number"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "then_click": {
+          "type": "string"
+        },
+        "timeout": {
+          "default": 10000,
+          "type": "number"
+        },
+        "until": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "selector"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "press_key",
+    "inputSchema": {
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "modifiers": {
+          "items": {
+            "enum": [
+              "ctrl",
+              "shift",
+              "alt",
+              "meta"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "run_plan",
+    "inputSchema": {
+      "properties": {
+        "parallel": {
+          "items": {
+            "properties": {
+              "steps": {
+                "items": {
+                  "$ref": "#/properties/steps/items"
+                },
+                "type": "array"
+              },
+              "tab": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tab",
+              "steps"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "resume": {
+          "properties": {
+            "answer": {
+              "type": "string"
+            },
+            "planId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "planId",
+            "answer"
+          ],
+          "type": "object"
+        },
+        "steps": {
+          "items": {
+            "properties": {
+              "if": {
+                "type": "string"
+              },
+              "params": {
+                "type": "object"
+              },
+              "saveAs": {
+                "type": "string"
+              },
+              "suspend": {
+                "properties": {
+                  "condition": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "enum": [
+                      "capture_image"
+                    ],
+                    "type": "string"
+                  },
+                  "question": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "tool": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "use_operator": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "scroll",
+    "inputSchema": {
+      "properties": {
+        "amount": {
+          "type": "number"
+        },
+        "container_ref": {
+          "type": "string"
+        },
+        "container_selector": {
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "up",
+            "down"
+          ],
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "set_page_data",
+    "inputSchema": {
+      "properties": {
+        "chunkSize": {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        "encoding": {
+          "enum": [
+            "base64",
+            "utf8",
+            "binary"
+          ],
+          "type": "string"
+        },
+        "key": {
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "properties": {
+                "data": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "inline",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "data"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "file",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "source"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "switch_tab",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "default": "switch",
+          "enum": [
+            "open",
+            "switch",
+            "close"
+          ],
+          "type": "string"
+        },
+        "tab": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "tab_status",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "type",
+    "inputSchema": {
+      "properties": {
+        "clear": {
+          "default": false,
+          "type": "boolean"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "view_page",
+    "inputSchema": {
+      "properties": {
+        "depth": {
+          "default": 3,
+          "type": "number"
+        },
+        "filter": {
+          "default": "interactive",
+          "enum": [
+            "interactive",
+            "all",
+            "landmark",
+            "visual"
+          ],
+          "type": "string"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "ref": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "virtual_desk",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "wait_for",
+    "inputSchema": {
+      "properties": {
+        "assert": {
+          "default": false,
+          "type": "boolean"
+        },
+        "condition": {
+          "enum": [
+            "element",
+            "text",
+            "url",
+            "network_idle",
+            "js"
+          ],
+          "type": "string"
+        },
+        "expression": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "condition"
+      ],
+      "type": "object"
+    }
+  }
+]
