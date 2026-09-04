@@ -72,6 +72,38 @@ const MODIFIER_BITS: Record<string, number> = {
   shift: 8,
 };
 
+const MODIFIER_ALIASES: Record<string, string> = {
+  ctrl: "ctrl",
+  control: "ctrl",
+  alt: "alt",
+  option: "alt",
+  shift: "shift",
+  meta: "meta",
+  cmd: "meta",
+  command: "meta",
+};
+
+/**
+ * Zerlegt die Kombi-Schreibweise ("Ctrl+K", "Cmd+Shift+P") in Modifier-Bits und
+ * die eigentliche Taste. Ohne diese Zerlegung landete "Ctrl+K" als unbekannte
+ * Taste in `resolveKey` und wurde als Phantomtaste an CDP geschickt.
+ * Nicht-Kombinationen und unbekannte Praefixe kommen unveraendert zurueck.
+ */
+export function parseKeyCombo(raw: string): { key: string; modifiers: number } {
+  const parts = raw.split("+");
+  if (parts.length < 2 || parts.some((p) => p === "")) return { key: raw, modifiers: 0 };
+
+  let bits = 0;
+  for (const token of parts.slice(0, -1)) {
+    const name = MODIFIER_ALIASES[token.toLowerCase()];
+    if (name === undefined) return { key: raw, modifiers: 0 };
+    bits |= MODIFIER_BITS[name];
+  }
+
+  const last = parts[parts.length - 1];
+  return { key: last.length === 1 ? last.toLowerCase() : last, modifiers: bits };
+}
+
 /** Resolve a key string to its CDP key definition */
 export function resolveKey(key: string): { key: string; def: KeyDef } {
   // Special key (Enter, Escape, etc.)
@@ -148,8 +180,10 @@ export async function pressKeyHandler(
     }
   }
 
-  const { key, def } = resolveKey(params.key);
-  const modBits = (params.modifiers ?? []).reduce((acc, m) => acc | MODIFIER_BITS[m], 0);
+  const combo = parseKeyCombo(params.key);
+  const { key, def } = resolveKey(combo.key);
+  const modBits =
+    (params.modifiers ?? []).reduce((acc, m) => acc | MODIFIER_BITS[m], 0) | combo.modifiers;
 
   // Suppress text output when modifier keys are held (Ctrl+K should not type "k")
   const hasModifier = modBits > 0;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { pressKeySchema, pressKeyHandler, resolveKey } from "./press-key.js";
+import { pressKeySchema, pressKeyHandler, resolveKey, parseKeyCombo } from "./press-key.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 
 function createMockCdp() {
@@ -53,6 +53,72 @@ describe("resolveKey", () => {
   it("should resolve Space by name", () => {
     expect(resolveKey("Space").def.keyCode).toBe(32);
     expect(resolveKey("Space").def.text).toBe(" ");
+  });
+});
+
+describe("parseKeyCombo", () => {
+  it("zerlegt Ctrl+K in ctrl-Bit und die Taste k", () => {
+    expect(parseKeyCombo("Ctrl+K")).toEqual({ key: "k", modifiers: 2 });
+    // Gegenprobe: die Langform heisst dasselbe.
+    expect(parseKeyCombo("Control+k")).toEqual({ key: "k", modifiers: 2 });
+  });
+
+  it("kombiniert mehrere Modifier und kennt die Mac-Namen", () => {
+    // Cmd = meta (4) + Shift (8) = 12
+    expect(parseKeyCombo("Cmd+Shift+P")).toEqual({ key: "p", modifiers: 12 });
+    expect(parseKeyCombo("Command+Option+f")).toEqual({ key: "f", modifiers: 5 });
+  });
+
+  it("laesst einfache Tasten und unbekannte Praefixe unveraendert", () => {
+    expect(parseKeyCombo("Enter")).toEqual({ key: "Enter", modifiers: 0 });
+    expect(parseKeyCombo("a")).toEqual({ key: "a", modifiers: 0 });
+    // Kein Modifier-Name vorn: die Zeichenkette bleibt, wie sie ist.
+    expect(parseKeyCombo("Foo+K")).toEqual({ key: "Foo+K", modifiers: 0 });
+    // Das Pluszeichen selbst ist keine Kombination.
+    expect(parseKeyCombo("+")).toEqual({ key: "+", modifiers: 0 });
+  });
+
+  it("behaelt mehrstellige Tastennamen hinter einem Modifier", () => {
+    expect(parseKeyCombo("Ctrl+Enter")).toEqual({ key: "Enter", modifiers: 2 });
+  });
+});
+
+describe("pressKeyHandler mit Kombi-Schreibweise", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("schickt fuer key: \"Ctrl+K\" ctrl-Bit und KeyK statt einer Phantomtaste", async () => {
+    const { cdpClient, sendFn } = createMockCdp();
+    await pressKeyHandler({ key: "Ctrl+K" }, cdpClient, "s1");
+    expect(sendFn).toHaveBeenCalledTimes(2);
+    expect(sendFn.mock.calls[0][1].modifiers).toBe(2);
+    expect(sendFn.mock.calls[0][1].key).toBe("k");
+    expect(sendFn.mock.calls[0][1].code).toBe("KeyK");
+    expect(sendFn.mock.calls[0][1].windowsVirtualKeyCode).toBe(75);
+  });
+
+  it("schickt fuer key: \"Cmd+Shift+P\" meta+shift", async () => {
+    const { cdpClient, sendFn } = createMockCdp();
+    await pressKeyHandler({ key: "Cmd+Shift+P" }, cdpClient, "s1");
+    expect(sendFn.mock.calls[0][1].modifiers).toBe(12);
+    expect(sendFn.mock.calls[0][1].code).toBe("KeyP");
+  });
+
+  it("laesst eine einfache Taste unveraendert", async () => {
+    const { cdpClient, sendFn } = createMockCdp();
+    await pressKeyHandler({ key: "Enter" }, cdpClient, "s1");
+    expect(sendFn.mock.calls[0][1].key).toBe("Enter");
+    expect(sendFn.mock.calls[0][1].modifiers).toBe(0);
+    expect(sendFn.mock.calls[0][1].windowsVirtualKeyCode).toBe(13);
+  });
+
+  it("verodert die Kombi mit dem modifiers-Parameter", async () => {
+    const { cdpClient, sendFn } = createMockCdp();
+    await pressKeyHandler({ key: "Ctrl+K", modifiers: ["shift"] }, cdpClient, "s1");
+    // ctrl (2) aus der Kombi + shift (8) aus dem Parameter = 10
+    expect(sendFn.mock.calls[0][1].modifiers).toBe(10);
+    expect(sendFn.mock.calls[0][1].key).toBe("k");
   });
 });
 
