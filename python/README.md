@@ -4,13 +4,11 @@ Python client for Public Browser automation. Scripts use the same tool implement
 
 ## Installation
 
-The Python package is not currently published on PyPI. From the repository root, install the local package:
-
 ```bash
-python -m pip install ./python
+pip install publicbrowser
 ```
 
-If you are already in this `python/` directory, use `python -m pip install .` instead. No manual Chrome launch is needed — `Chrome.connect()` starts everything automatically via a local `public-browser` binary or the `npx` fallback.
+To install from a source checkout instead, run `python -m pip install ./python` from the repository root, or `python -m pip install .` from inside this `python/` directory. No manual Chrome launch is needed — `Chrome.connect()` starts everything automatically via a local `public-browser` binary or the `npx` fallback.
 
 Dependencies: `websockets` (for the Escape Hatch / `CdpClient` low-level access). The main Shared Core API uses `urllib` (built-in).
 

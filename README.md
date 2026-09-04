@@ -148,7 +148,11 @@ How fast that is without an LLM: a scripted run of the 24-test version of the be
 
 ### Installation
 
-The Python package is not currently published on PyPI. From a source checkout, install the local package:
+```bash
+pip install publicbrowser
+```
+
+Or, from a source checkout, install the local package:
 
 ```bash
 python -m pip install ./python
