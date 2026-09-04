@@ -57,6 +57,9 @@ Reproduce: `node blind-run.mjs run playwright-mcp` (needs Claude Code CLI, Node 
 **Local build.** `node blind-run.mjs run public-browser --local` runs the server from `../build/index.js`
 (after `npm run build`) instead of the pinned npm version; results go to `results-local/` and carry
 `harness.local_build: true` plus `harness.git_head`. Use it to accept a change before it is released.
+Add `--headless` to run Public Browser without a visible Chrome window (sets `SILBERCUE_CHROME_HEADLESS=1`
+for the server; the run JSON records `harness.headless: true`). The published September runs and the
+acceptance runs in `results-local/` were headed; do not mix headed and headless runs in one series.
 
 ## Environment (September runs)
 

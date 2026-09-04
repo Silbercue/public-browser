@@ -36,6 +36,8 @@ export const PARTICIPANTS = {
         PUBLIC_BROWSER_CHROME_PORT: '9333',
       };
     },
+    // Wird nur bei --headless gemerged; Teilnehmer ohne dieses Feld haben keinen headless-Schalter.
+    headlessEnv: { SILBERCUE_CHROME_HEADLESS: '1' },
     snapshotTool: 'view_page',
     profile_isolation: 'auto-launched Chrome, fresh temp user-data-dir, CDP port 9333',
   },
@@ -525,11 +527,14 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
   }
 
   const childEnv = { ...process.env, ...(d.envOverrides || {}) };
-  const env = p.env(rundir);                       // genau einmal je Lauf, danach wiederverwendet
+  const headless = !!opts.headless;
+  // genau einmal je Lauf gebaut, danach wiederverwendet (Probe, mcp.json, Cortex-Block)
+  const env = { ...p.env(rundir), ...(headless && p.headlessEnv ? p.headlessEnv : {}) };
   const sessionId = randomUUID();
   const exportPath = join(rundir, 'run-export.json');
   const mcpPrefix = `mcp__${p.name}__`;
   const notes = [];
+  if (headless && !p.headlessEnv) notes.push('--headless ignored: participant has no headless switch');
   // status.json-Phasen: starting → running → measuring → terminal. Terminal ist genau eine von
   // 'ok' (offizieller Lauf bestanden), 'smoke' (Smoke bestanden), 'aborted' (alles andere).
   const statusWrite = (phase, extra = {}) => writeFileSync(join(rundir, 'status.json'),
@@ -684,7 +689,7 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
         html_sha256: suite?.html_sha256 ?? null, html_bytes: suite?.html_bytes ?? null, fingerprint_ok: suiteOk,
         test_ids: suite?.test_ids ?? null },
       harness: {
-        mode: 'blind-print', status: runStatus, complete,
+        mode: 'blind-print', status: runStatus, complete, headless,
         local_build: !!p.local, git_head: p.git_head ?? null, git_dirty: p.git_dirty ?? null,
         claude_code_version: claudeVer, os: `${process.platform} ${release()}`, node: process.version,
         profile_isolation: p.profile_isolation, model_requested,
@@ -782,7 +787,7 @@ export function compareFromResults(dir = defaultDeps().resultsDir) {
   return compareTable(runs);
 }
 
-const USAGE = 'usage: node blind-run.mjs run <slug> [--local] [--smoke] [--rundir <dir>] [--allowed-tools-form plain|glob] '
+const USAGE = 'usage: node blind-run.mjs run <slug> [--local] [--headless] [--smoke] [--rundir <dir>] [--allowed-tools-form plain|glob] '
   + '[--model <id>] [--timeout-min <n>] | compare';
 
 // CLI-Argumente von `run` (ohne das Kommando selbst) in Optionen uebersetzen.
@@ -795,6 +800,7 @@ export function parseRunArgs(rest) {
   return {
     slug,
     smoke: rest.includes('--smoke'),
+    headless: rest.includes('--headless'),
     rundir: opt('--rundir'),
     allowedToolsForm: opt('--allowed-tools-form'),
     model: opt('--model'),
