@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { listToolsOverWire, withToolServer } from "./test-utils/list-tools.js";
+import { listToolsOverWire, schemaProperties, withToolServer } from "./test-utils/list-tools.js";
 
 /**
  * NFR4: Die Tool-Definitionen, die ein MCP-Client beim Verbinden bekommt,
@@ -37,10 +37,10 @@ describe("run_plan wire schema", () => {
   it("exponiert vars und errorStrategy und haelt parallel[].steps auf dem $ref", async () => {
     const tools = await listToolsOverWire();
     const rp = tools.find((t) => t.name === "run_plan")!;
-    const props = (rp.inputSchema as { properties: Record<string, any> }).properties;
+    const props = schemaProperties(rp);
     expect(props.vars).toBeDefined();
     expect(props.errorStrategy.enum).toEqual(["abort", "continue", "capture_image"]);
-    expect(props.parallel.items.properties.steps.items).toEqual({
+    expect(props.parallel.items?.properties?.steps.items).toEqual({
       $ref: "#/properties/steps/items",
     });
   });

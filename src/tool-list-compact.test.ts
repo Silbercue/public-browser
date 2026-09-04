@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { compactToolList, installToolListCompaction } from "./tool-list-compact.js";
-import { withToolServer } from "./test-utils/list-tools.js";
+import { withToolServer, type JsonSchemaNode } from "./test-utils/list-tools.js";
+
+/**
+ * Tool-Definition nach der Kompaktierung, soweit die Tests sie lesen.
+ * `compactToolList` gibt `unknown[]` zurueck, weil es beliebige SDK-Objekte
+ * durchreicht — hier wird auf die Form der Testdaten eingeengt.
+ */
+interface CompactedTool {
+  name: string;
+  description?: string;
+  execution?: { taskSupport: string };
+  inputSchema: JsonSchemaNode & { properties: Record<string, JsonSchemaNode> };
+}
 
 const rawTool = {
   name: "click",
@@ -20,12 +34,12 @@ const rawTool = {
 
 describe("compactToolList", () => {
   it("entfernt $schema, execution und additionalProperties:false auf allen Ebenen", () => {
-    const [t] = compactToolList([rawTool]) as any[];
+    const [t] = compactToolList([rawTool]) as CompactedTool[];
     expect(t.execution).toBeUndefined();
     expect(t.inputSchema.$schema).toBeUndefined();
     expect(t.inputSchema.additionalProperties).toBeUndefined();
     expect(t.inputSchema.properties.opts.additionalProperties).toBeUndefined();
-    expect(t.inputSchema.properties.list.items.additionalProperties).toBeUndefined();
+    expect(t.inputSchema.properties.list.items!.additionalProperties).toBeUndefined();
     expect(JSON.stringify(t)).not.toMatch(/\$schema|taskSupport|additionalProperties/);
   });
 
@@ -41,7 +55,7 @@ describe("compactToolList", () => {
         },
       },
     };
-    const [t] = compactToolList([tool]) as any[];
+    const [t] = compactToolList([tool]) as CompactedTool[];
     expect(t.name).toBe("click");
     expect(t.description).toBe("Click");
     expect(t.inputSchema.required).toEqual(["ref"]);
@@ -66,7 +80,7 @@ describe("compactToolList", () => {
       execution: { taskSupport: "forbidden" },
     };
     const before = JSON.stringify(tool);
-    const [t] = compactToolList([tool]) as any[];
+    const [t] = compactToolList([tool]) as CompactedTool[];
     expect(t.inputSchema.additionalProperties).toBe(true);
     expect(JSON.stringify(tool)).toBe(before);
   });
@@ -81,7 +95,7 @@ describe("compactToolList", () => {
         },
       },
     };
-    const [t] = compactToolList([tool]) as any[];
+    const [t] = compactToolList([tool]) as CompactedTool[];
     expect(t.inputSchema.properties.cfg.default).toEqual({ additionalProperties: false, $schema: "keep" });
   });
 
@@ -98,7 +112,7 @@ describe("compactToolList", () => {
         additionalProperties: false,
       },
     };
-    const [t] = compactToolList([tool]) as any[];
+    const [t] = compactToolList([tool]) as CompactedTool[];
     expect(t.inputSchema.properties.$schema).toEqual({ type: "string", description: "ein Parameter, der so heisst" });
     expect(t.inputSchema.properties.additionalProperties).toEqual({ type: "boolean", default: false });
     // Gegenprobe: eine Ebene hoeher sind es weiterhin Keywords und fallen weg.
@@ -115,12 +129,12 @@ describe("compactToolList", () => {
         },
       },
     };
-    const [t] = compactToolList([tool]) as any[];
+    const [t] = compactToolList([tool]) as CompactedTool[];
     expect(t.inputSchema.properties.$schema).toEqual({ type: "object", properties: {} });
   });
 
   it("laesst Nicht-Objekte und Tools ohne inputSchema unveraendert", () => {
-    const out = compactToolList([null, "x", { name: "a", description: "d" }]) as any[];
+    const out = compactToolList([null, "x", { name: "a", description: "d" }]);
     expect(out[0]).toBeNull();
     expect(out[1]).toBe("x");
     expect(out[2]).toEqual({ name: "a", description: "d" });
@@ -130,14 +144,14 @@ describe("compactToolList", () => {
 describe("installToolListCompaction", () => {
   /** Minimaler Fake-Transport, der alle gesendeten Nachrichten mitschreibt. */
   function fakeInner() {
-    const sent: unknown[] = [];
+    const sent: JSONRPCMessage[] = [];
     const calls: string[] = [];
-    const inner: any = {
+    const inner: Transport = {
       sessionId: "s-1",
-      send: async (m: unknown) => { sent.push(m); },
+      send: async (m) => { sent.push(m); },
       start: async () => { calls.push("start"); },
       close: async () => { calls.push("close"); },
-      setProtocolVersion: (v: string) => { calls.push(`version:${v}`); },
+      setProtocolVersion: (v) => { calls.push(`version:${v}`); },
     };
     return { inner, sent, calls };
   }
@@ -145,7 +159,7 @@ describe("installToolListCompaction", () => {
   it("kompaktiert die Antwort auf einen zuvor gesehenen tools/list-Request", async () => {
     const { inner, sent } = fakeInner();
     const outer = installToolListCompaction(inner);
-    inner.onmessage({ jsonrpc: "2.0", id: 7, method: "tools/list" });
+    inner.onmessage!({ jsonrpc: "2.0", id: 7, method: "tools/list" });
     await outer.send({ jsonrpc: "2.0", id: 7, result: { tools: [rawTool] } } as never);
     expect(JSON.stringify(sent[0])).not.toMatch(/taskSupport|\$schema|additionalProperties/);
     // Gegenprobe: der Tool-Name ueberlebt die Kompaktierung.
@@ -162,7 +176,7 @@ describe("installToolListCompaction", () => {
   it("merkt sich nur tools/list-Requests, nicht andere Methoden mit gleicher ID", async () => {
     const { inner, sent } = fakeInner();
     const outer = installToolListCompaction(inner);
-    inner.onmessage({ jsonrpc: "2.0", id: 9, method: "tools/call" });
+    inner.onmessage!({ jsonrpc: "2.0", id: 9, method: "tools/call" });
     await outer.send({ jsonrpc: "2.0", id: 9, result: { tools: [rawTool] } } as never);
     expect(sent[0]).toEqual({ jsonrpc: "2.0", id: 9, result: { tools: [rawTool] } });
   });
@@ -170,7 +184,7 @@ describe("installToolListCompaction", () => {
   it("laesst andere Nachrichten unveraendert durch", async () => {
     const { inner, sent } = fakeInner();
     const outer = installToolListCompaction(inner);
-    inner.onmessage({ jsonrpc: "2.0", id: 2, method: "tools/call" });
+    inner.onmessage!({ jsonrpc: "2.0", id: 2, method: "tools/call" });
     await outer.send({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "x" }] } } as never);
     expect(sent[0]).toEqual({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "x" }] } });
   });
@@ -178,7 +192,7 @@ describe("installToolListCompaction", () => {
   it("kompaktiert eine ID nur einmal (pending wird verbraucht)", async () => {
     const { inner, sent } = fakeInner();
     const outer = installToolListCompaction(inner);
-    inner.onmessage({ jsonrpc: "2.0", id: 7, method: "tools/list" });
+    inner.onmessage!({ jsonrpc: "2.0", id: 7, method: "tools/list" });
     await outer.send({ jsonrpc: "2.0", id: 7, result: { tools: [rawTool] } } as never);
     await outer.send({ jsonrpc: "2.0", id: 7, result: { tools: [rawTool] } } as never);
     expect(JSON.stringify(sent[0])).not.toMatch(/taskSupport/);
@@ -188,7 +202,7 @@ describe("installToolListCompaction", () => {
   it("raeumt pending auch auf, wenn die tools/list-Antwort ein Fehler ist", async () => {
     const { inner, sent } = fakeInner();
     const outer = installToolListCompaction(inner);
-    inner.onmessage({ jsonrpc: "2.0", id: 11, method: "tools/list" });
+    inner.onmessage!({ jsonrpc: "2.0", id: 11, method: "tools/list" });
     await outer.send({ jsonrpc: "2.0", id: 11, error: { code: -32603, message: "boom" } } as never);
     expect(sent[0]).toEqual({ jsonrpc: "2.0", id: 11, error: { code: -32603, message: "boom" } });
     // Die ID ist verbraucht: eine spaetere Antwort mit derselben ID wird NICHT
@@ -210,9 +224,9 @@ describe("installToolListCompaction", () => {
     await outer.start();
     await outer.close();
     outer.setProtocolVersion?.("2025-06-18");
-    inner.onmessage({ jsonrpc: "2.0", id: 1, method: "ping" });
-    inner.onclose();
-    inner.onerror(new Error("boom"));
+    inner.onmessage!({ jsonrpc: "2.0", id: 1, method: "ping" });
+    inner.onclose!();
+    inner.onerror!(new Error("boom"));
 
     expect(calls).toEqual(["start", "close", "version:2025-06-18"]);
     expect(outer.sessionId).toBe("s-1");

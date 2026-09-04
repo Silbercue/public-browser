@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { listToolsOverWire } from "./test-utils/list-tools.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { listToolsOverWire, schemaProperties } from "./test-utils/list-tools.js";
 
 /**
  * Regression gegen Codex-Finding #1 der Abnahme vom 2026-09-04: beim Kuerzen
@@ -9,16 +10,16 @@ import { listToolsOverWire } from "./test-utils/list-tools.js";
  * jeweils die Regel, die das Modell fuer einen korrekten Call braucht.
  */
 
-async function wireTool(name: string) {
+async function wireTool(name: string): Promise<Tool> {
   const tools = await listToolsOverWire();
   const tool = tools.find((t) => t.name === name);
   if (!tool) throw new Error(`tool ${name} not on the wire`);
-  return tool as { name: string; description?: string; inputSchema: any };
+  return tool;
 }
 
 describe("Regel-Erhalt in den Tool-Definitionen", () => {
   it("wait_for nennt fuer jeden Bedingungs-Parameter die Pflicht-condition", async () => {
-    const props = (await wireTool("wait_for")).inputSchema.properties;
+    const props = schemaProperties(await wireTool("wait_for"));
     expect(props.selector.description).toContain("required for condition 'element'");
     expect(props.text.description).toContain("required for condition 'text'");
     expect(props.url.description).toContain("required for condition 'url'");
@@ -26,7 +27,7 @@ describe("Regel-Erhalt in den Tool-Definitionen", () => {
   });
 
   it("wait_for behaelt neben der Pflicht-Aussage auch das Format des Parameters", async () => {
-    const props = (await wireTool("wait_for")).inputSchema.properties;
+    const props = schemaProperties(await wireTool("wait_for"));
     expect(props.selector.description).toContain("CSS selector or ref");
     expect(props.text.description).toContain("document.body.innerText");
     expect(props.url.description).toContain("page URL");
@@ -39,11 +40,11 @@ describe("Regel-Erhalt in den Tool-Definitionen", () => {
   });
 
   it("handle_dialog.text beschreibt eingegebenen, nicht zurueckgegebenen Text", async () => {
-    const props = (await wireTool("handle_dialog")).inputSchema.properties;
+    const props = schemaProperties(await wireTool("handle_dialog"));
     expect(props.text.description).toContain("entered into prompt dialogs");
     // Gegenprobe zur Negativ-Zusicherung darunter: die Description existiert
     // ueberhaupt und ist nicht leer.
-    expect(props.text.description.length).toBeGreaterThan(10);
+    expect(props.text.description?.length).toBeGreaterThan(10);
     expect(props.text.description).not.toContain("returned");
   });
 });

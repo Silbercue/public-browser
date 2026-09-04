@@ -16,6 +16,34 @@ import { VERSION } from "../version.js";
  * positionalen Parametern; `ensureReady()` ist dort ein No-op, deshalb genuegt
  * ein leerer CDP-Client-Mock.
  */
+/**
+ * JSON-Schema-Knoten einer Tool-Definition, soweit die Tests ihn lesen. Das SDK
+ * typisiert `Tool.inputSchema` nur als offenes Objekt; hier stehen die Keywords,
+ * die auf der Leitung tatsaechlich vorkommen.
+ */
+export interface JsonSchemaNode {
+  type?: string;
+  description?: string;
+  enum?: unknown[];
+  default?: unknown;
+  required?: string[];
+  properties?: Record<string, JsonSchemaNode>;
+  items?: JsonSchemaNode;
+  additionalProperties?: boolean;
+  $ref?: string;
+  $schema?: string;
+}
+
+/**
+ * `inputSchema.properties` eines Tools von der Leitung. Fehlen sie, ist das ein
+ * Testfehler und kein leeres Ergebnis — deshalb ein Wurf statt eines Fallbacks.
+ */
+export function schemaProperties(tool: Tool): Record<string, JsonSchemaNode> {
+  const props = (tool.inputSchema as JsonSchemaNode).properties;
+  if (!props) throw new Error(`tool ${tool.name} has no inputSchema.properties`);
+  return props;
+}
+
 export interface ToolServerContext {
   /** Tool-Definitionen, wie `tools/list` sie ausliefert (nach Kompaktierung). */
   tools: Tool[];
