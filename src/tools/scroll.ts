@@ -12,27 +12,27 @@ export const scrollSchema = z.object({
   ref: z
     .string()
     .optional()
-    .describe("Element ref to scroll into view (e.g. 'e42')"),
+    .describe("Element ref to scroll into view"),
   selector: z
     .string()
     .optional()
-    .describe("CSS selector to scroll into view (e.g. '#item-30')"),
+    .describe("CSS selector to scroll into view"),
   container_ref: z
     .string()
     .optional()
-    .describe("Scrollable container ref — scroll this container instead of the page (e.g. 'e10')"),
+    .describe("Scrollable container ref (scrolls it, not the page)"),
   container_selector: z
     .string()
     .optional()
-    .describe("Scrollable container CSS selector (e.g. '.sidebar-list')"),
+    .describe("Scrollable container CSS selector"),
   direction: z
     .enum(["up", "down"])
     .optional()
-    .describe("Scroll direction (when no ref/selector given). Default: down"),
+    .describe("up or down (default down); used when no ref/selector"),
   amount: z
     .number()
     .optional()
-    .describe("Pixels to scroll (default: 500). Only used with direction."),
+    .describe("Pixels per scroll (default 500); only with direction"),
 });
 
 export type ScrollParams = z.infer<typeof scrollSchema>;

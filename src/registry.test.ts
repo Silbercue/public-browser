@@ -93,7 +93,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "navigate",
-      "Navigate the ACTIVE tab to a URL (or action:'back' to go back, action:'reload' to refresh current page — all element refs become stale after reload). Waits for settle. WARNING: overwrites the user's active tab — always call virtual_desk FIRST to check what's open. First call per session is auto-redirected to virtual_desk.",
+      "Navigate the active tab to a URL, or action 'back' / 'reload' (all refs become stale after reload). Waits for settle. Overwrites the user's active tab — check virtual_desk first; the first call per session is redirected to virtual_desk.",
       expect.objectContaining({
         url: expect.anything(),
         action: expect.anything(),
@@ -103,7 +103,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "view_page",
-      "The way to see what is on the page. Call this after navigate/click/switch_tab — not capture_image. Returns text content + stable element refs (e.g. 'e5') for click/type/fill_form. Also use this to read visible text, check errors, find buttons. Default filter:'interactive' shows actionable elements; for paragraphs/table cells call view_page(ref: 'eN', filter: 'all'). Collapsed containers show as `[eXX role, N items]` — expand with view_page(ref:'eXX', filter:'all'). 10-30x cheaper than capture_image.",
+      "See what is on the page: text plus stable element refs for click/type/fill_form. Default filter 'interactive' lists actionable elements; for paragraphs or table cells call view_page(ref, filter: 'all'). Collapsed containers show as [eXX role, N items] — expand with view_page(ref: 'eXX', filter: 'all').",
       expect.objectContaining({
         depth: expect.anything(),
         ref: expect.anything(),
@@ -113,7 +113,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "capture_image",
-      "Pixel-level visual screenshot (WebP, max 800px, <100KB). Do NOT call this to see what is on the page — call view_page instead (10-30x cheaper, returns text + refs you can click). capture_image cannot drive click/type and cannot read text. The ONLY valid uses: (1) canvas/chart content that has no DOM text, (2) pixel-level animation or rendering comparison, (3) the user explicitly asks for a screenshot. If you are unsure, use view_page.",
+      "Pixel-level screenshot (WebP, max 800px, <100KB). Only for canvas or chart content without DOM text, pixel-level rendering or animation checks, or when the user explicitly asks for a screenshot. Returns no refs and reads no text — that is view_page.",
       expect.objectContaining({
         full_page: expect.anything(),
       }),
@@ -135,7 +135,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "click",
-      expect.stringMatching(/^Click an element by ref.*stale-ref error, call view_page/s),
+      expect.stringMatching(/^Click an element by ref.*DOM diff \(NEW\/REMOVED\/CHANGED\)/s),
       expect.objectContaining({
         ref: expect.anything(),
         selector: expect.anything(),
@@ -147,7 +147,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "type",
-      expect.stringMatching(/^Type text into an input field.*On stale-ref errors/s),
+      expect.stringMatching(/^Type text into an input.*use press_key/s),
       expect.objectContaining({
         ref: expect.anything(),
         selector: expect.anything(),
@@ -158,13 +158,13 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "tab_status",
-      "Active tab's cached URL/title/ready/errors for quick sanity checks mid-workflow ('did my click navigate?'). For tab discovery: use virtual_desk. For page content: use view_page.",
+      "Active tab's cached URL, title, ready state and errors — a cheap mid-workflow sanity check ('did my click navigate?'). Not for tab discovery or page content.",
       {},
       expect.any(Function),
     );
     expect(toolFn).toHaveBeenCalledWith(
       "switch_tab",
-      expect.stringMatching(/^Open a new tab.*After switching, refs from the previous tab are invalid/s),
+      expect.stringMatching(/^Open a new tab.*Refs from the previous tab are invalid/s),
       expect.objectContaining({
         action: expect.anything(),
         url: expect.anything(),
@@ -174,13 +174,13 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "virtual_desk",
-      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs to navigate to an existing tab instead of opening duplicates. Cheap, call liberally.",
+      "List all open tabs with IDs, URLs and state. Call it first in every session, after a reconnect, or when unsure; reuse a listed tab ID instead of opening duplicates. Cheap, call liberally.",
       {},
       expect.any(Function),
     );
     expect(toolFn).toHaveBeenCalledWith(
       "dom_snapshot",
-      "Structured layout data: bounding boxes, computed styles, paint order, colors. Refs match view_page. Use ONLY for spatial questions view_page cannot answer (is A above B? what color?). For element discovery or text: use view_page. For pure visual verification: use capture_image.",
+      "Structured layout data: bounding boxes, computed styles, paint order, colors; refs match view_page. Only for spatial questions view_page cannot answer (is A above B? what color?).",
       expect.objectContaining({
         ref: expect.anything(),
       }),
@@ -198,7 +198,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "fill_form",
-      expect.stringMatching(/^Fill a complete form with one call.*On per-field errors, call view_page/s),
+      expect.stringMatching(/^Fill a whole form in one call.*On per-field errors call view_page/s),
       expect.objectContaining({
         fields: expect.anything(),
       }),
@@ -700,7 +700,7 @@ describe("ToolRegistry", () => {
     );
     expect(domSnapshotCall).toBeDefined();
     expect(domSnapshotCall![1]).toBe(
-      "Structured layout data: bounding boxes, computed styles, paint order, colors. Refs match view_page. Use ONLY for spatial questions view_page cannot answer (is A above B? what color?). For element discovery or text: use view_page. For pure visual verification: use capture_image.",
+      "Structured layout data: bounding boxes, computed styles, paint order, colors; refs match view_page. Only for spatial questions view_page cannot answer (is A above B? what color?).",
     );
   });
 
@@ -1261,7 +1261,7 @@ describe("ToolRegistry", () => {
     );
     expect(switchTabCall).toBeDefined();
     expect(switchTabCall![1]).toMatch(
-      /^Open a new tab.*After switching, refs from the previous tab are invalid/s,
+      /^Open a new tab.*Refs from the previous tab are invalid/s,
     );
   });
 
@@ -1279,7 +1279,7 @@ describe("ToolRegistry", () => {
     );
     expect(virtualDeskCall).toBeDefined();
     expect(virtualDeskCall![1]).toBe(
-      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs to navigate to an existing tab instead of opening duplicates. Cheap, call liberally.",
+      "List all open tabs with IDs, URLs and state. Call it first in every session, after a reconnect, or when unsure; reuse a listed tab ID instead of opening duplicates. Cheap, call liberally.",
     );
   });
 

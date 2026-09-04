@@ -56,20 +56,20 @@ const DRAG_MIN_STEPS = 5;
 const DRAG_DEFAULT_STEPS = 10;
 
 export const dragSchema = z.object({
-  from_ref: z.string().optional().describe("A11y-Tree source ref (e.g. 'e5')"),
-  from_selector: z.string().optional().describe("CSS selector for source element"),
-  from_x: z.number().optional().describe("Source X coord (viewport px) — alternative zu Ref"),
-  from_y: z.number().optional().describe("Source Y coord (viewport px) — alternative zu Ref"),
-  to_ref: z.string().optional().describe("A11y-Tree target ref (e.g. 'e7')"),
-  to_selector: z.string().optional().describe("CSS selector for target element"),
-  to_x: z.number().optional().describe("Target X coord (viewport px)"),
-  to_y: z.number().optional().describe("Target Y coord (viewport px)"),
+  from_ref: z.string().optional().describe("Source element ref"),
+  from_selector: z.string().optional().describe("Source CSS selector"),
+  from_x: z.number().optional().describe("Source viewport X in px (with from_y)"),
+  from_y: z.number().optional().describe("Source viewport Y in px"),
+  to_ref: z.string().optional().describe("Target element ref"),
+  to_selector: z.string().optional().describe("Target CSS selector"),
+  to_x: z.number().optional().describe("Target viewport X in px (with to_y)"),
+  to_y: z.number().optional().describe("Target viewport Y in px"),
   steps: z
     .number()
     .int()
     .min(DRAG_MIN_STEPS)
     .default(DRAG_DEFAULT_STEPS)
-    .describe("Anzahl mouseMoved-Events zwischen press und release (min 5 fuer HTML5-dragover)"),
+    .describe("Native mouseMoved events between press and release; minimum 5"),
 });
 
 export type DragParams = z.infer<typeof dragSchema>;

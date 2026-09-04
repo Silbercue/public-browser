@@ -13,7 +13,7 @@ export const domSnapshotSchema = z.object({
   ref: z
     .string()
     .optional()
-    .describe("Element ref (e.g. 'e42') to get subtree snapshot for"),
+    .describe("Element ref for a subtree snapshot"),
 });
 
 export type DomSnapshotParams = z.infer<typeof domSnapshotSchema>;

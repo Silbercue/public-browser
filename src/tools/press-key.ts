@@ -10,19 +10,19 @@ import { toolSequence } from "../telemetry/tool-sequence.js";
 export const pressKeySchema = z.object({
   key: z
     .string()
-    .describe("Key to press — e.g. 'Enter', 'Escape', 'Tab', 'a', 'ArrowDown', 'F1'. For printable characters use the character itself."),
+    .describe("Key to press, e.g. 'Enter'; printable chars as-is"),
   ref: z
     .string()
     .optional()
-    .describe("Element ref to focus before pressing key (e.g. 'e5')"),
+    .describe("Element ref to focus first"),
   selector: z
     .string()
     .optional()
-    .describe("CSS selector to focus before pressing key (e.g. '#search-input')"),
+    .describe("CSS selector to focus first"),
   modifiers: z
     .array(z.enum(["ctrl", "shift", "alt", "meta"]))
     .optional()
-    .describe("Modifier keys to hold during key press (e.g. ['ctrl', 'shift'] for Ctrl+Shift+key)"),
+    .describe("Modifier keys held during the press"),
 });
 
 export type PressKeyParams = z.infer<typeof pressKeySchema>;

@@ -14,27 +14,27 @@ export const clickSchema = z.object({
   ref: z
     .string()
     .optional()
-    .describe("A11y-Tree element ref (e.g. 'e5') — preferred over selector"),
+    .describe("Element ref (preferred)"),
   selector: z
     .string()
     .optional()
-    .describe("CSS selector (e.g. '#submit-btn') — fallback when ref is not available"),
+    .describe("CSS selector (fallback)"),
   text: z
     .string()
     .optional()
-    .describe("Visible text to match (e.g. 'Submit'). Finds element by name in the A11y tree — no prior view_page needed. Prefers interactive elements (buttons, links)."),
+    .describe("Visible text (a11y name); no view_page needed, prefers interactive"),
   x: z
     .number()
     .optional()
-    .describe("X coordinate (viewport pixels) — for canvas or pixel-precise clicks. Use with y instead of ref/selector."),
+    .describe("Viewport X in px; with y, not ref/selector"),
   y: z
     .number()
     .optional()
-    .describe("Y coordinate (viewport pixels) — for canvas or pixel-precise clicks. Use with x instead of ref/selector."),
+    .describe("Viewport Y in px; use with x"),
   wait_for_diff: z
     .boolean()
     .optional()
-    .describe("When true, wait for the DOM diff synchronously before returning (slower but diff is in this response). Default: false — diff piggybacks on the next tool response."),
+    .describe("Wait for the DOM diff before returning (default false, slower)"),
 });
 
 export type ClickParams = z.infer<typeof clickSchema>;

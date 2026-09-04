@@ -1324,7 +1324,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 1. Orientation ---
     maybeRegisterFreeMCPTool(
       "virtual_desk",
-      "PRIMARY orientation tool — call first in every new session, after reconnect, or when unsure. Lists all tabs with IDs, URLs, state. Use returned IDs to navigate to an existing tab instead of opening duplicates. Cheap, call liberally.",
+      "List all open tabs with IDs, URLs and state. Call it first in every session, after a reconnect, or when unsure; reuse a listed tab ID instead of opening duplicates. Cheap, call liberally.",
       {},
       wrap(async (params) => {
         this._contextChecked = true;
@@ -1343,7 +1343,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 2. Reading ---
     maybeRegisterFreeMCPTool(
       "view_page",
-      "The way to see what is on the page. Call this after navigate/click/switch_tab — not capture_image. Returns text content + stable element refs (e.g. 'e5') for click/type/fill_form. Also use this to read visible text, check errors, find buttons. Default filter:'interactive' shows actionable elements; for paragraphs/table cells call view_page(ref: 'eN', filter: 'all'). Collapsed containers show as `[eXX role, N items]` — expand with view_page(ref:'eXX', filter:'all'). 10-30x cheaper than capture_image.",
+      "See what is on the page: text plus stable element refs for click/type/fill_form. Default filter 'interactive' lists actionable elements; for paragraphs or table cells call view_page(ref, filter: 'all'). Collapsed containers show as [eXX role, N items] — expand with view_page(ref: 'eXX', filter: 'all').",
       {
         depth: readPageSchema.shape.depth,
         ref: readPageSchema.shape.ref,
@@ -1358,7 +1358,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 3. Interaction (click/type/fill_form/press_key/scroll) ---
     maybeRegisterFreeMCPTool(
       "click",
-      "Click an element by ref, CSS selector, or viewport coordinates. Dispatches real CDP mouse events (mouseMoved/mousePressed/mouseReleased). For canvas or pixel-precise targets, use x+y coordinates instead of ref. If the click opens a new tab, the response reports it automatically. The response already includes the DOM diff (NEW/REMOVED/CHANGED lines) — inspect those changes for success/failure signals instead of following up with evaluate to re-check state. If click fails with a stale-ref error, call view_page for fresh refs and retry. Avoid evaluate(querySelector + .click()) as default recovery — it bypasses the CDP pointer chain and hides real bugs. (Legitimate exception: explicitly testing synthetic JS event plumbing.)",
+      "Click an element by ref, CSS selector, visible text, or viewport x/y (canvas, pixel-precise targets). Dispatches real CDP mouse events. A click that opens a new tab is reported in the response. The DOM diff (NEW/REMOVED/CHANGED) arrives with the next response, or in this one with wait_for_diff: true.",
       {
         ref: clickSchema.shape.ref,
         selector: clickSchema.shape.selector,
@@ -1374,7 +1374,7 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     maybeRegisterFreeMCPTool(
       "type",
-      "Type text into an input field identified by ref or CSS selector. For multiple fields in the same form, prefer fill_form — it handles text inputs, <select>, checkbox, and radio in one round-trip and is more reliable than N separate type calls. For special keys (Enter, Escape, Tab, arrows) or shortcuts (Ctrl+K), use press_key instead. On stale-ref errors, call view_page for fresh refs and retry. Avoid evaluate(element.value = ...) as default data-entry recovery — it bypasses framework listeners (React, Vue) and masks real failures. (Legitimate exception: tests explicitly targeting synthetic event plumbing.)",
+      "Type text into an input identified by ref or CSS selector. For 2+ fields use fill_form; for special keys (Enter, Escape, Tab, arrows) or shortcuts (Ctrl+K) use press_key.",
       {
         ref: typeSchema.shape.ref,
         selector: typeSchema.shape.selector,
@@ -1389,7 +1389,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Story 6.3: fill_form — fill complete forms with one call
     maybeRegisterFreeMCPTool(
       "fill_form",
-      "Fill a complete form with one call — the preferred way to submit any form with 2+ fields. Each field needs ref or CSS selector plus value. Supports text inputs, <select> (by value or visible label), checkboxes (boolean), and radio buttons. Use this INSTEAD of multiple type calls or evaluate-setting select.value: one round-trip, partial errors do not abort, each field reports its own status. On per-field errors, call view_page and retry the failing fields — DO NOT escape to evaluate(querySelector) to patch individual fields; it bypasses framework state management (React, Vue) and hides real bugs.",
+      "Fill a whole form in one call: text inputs, <select> (by value or visible label), checkboxes (boolean) and radio buttons. One round-trip; partial errors do not abort and each field reports its own status. On per-field errors call view_page and retry the failing fields.",
       {
         fields: fillFormSchema.shape.fields,
       },
@@ -1406,7 +1406,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // FR-C: press_key — real CDP keyboard events (not JS dispatchEvent)
     maybeRegisterFreeMCPTool(
       "press_key",
-      "Press a keyboard key or shortcut. Optionally focus an element first via ref/selector. Use for Enter, Escape, Tab, arrows, shortcuts (Ctrl+K).",
+      "Press a key or shortcut (Enter, Escape, Tab, arrows, Ctrl+K). Optionally focus an element first via ref or selector.",
       {
         key: pressKeySchema.shape.key,
         ref: pressKeySchema.shape.ref,
@@ -1421,7 +1421,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // FR-F: scroll — scroll page or element into view
     maybeRegisterFreeMCPTool(
       "scroll",
-      "Scroll the page, a container, or an element into view. Returns position and content-growth tracking (scrollHeight grew by Npx — useful for detecting lazy-loaded content). Do NOT scroll with evaluate(window.scrollTo/scrollBy) — scroll handles position tracking and settle timing automatically. Use container_ref/container_selector + direction to scroll inside a specific container.",
+      "Scroll the page, a container, or an element into view. Reports the position and content growth (scrollHeight delta — detects lazy-loaded content) and handles settle timing. Use container_ref/container_selector plus direction to scroll inside a container.",
       {
         ref: scrollSchema.shape.ref,
         selector: scrollSchema.shape.selector,
@@ -1448,7 +1448,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // @see docs/friction-fixes.md#FR-028
     maybeRegisterFreeMCPTool(
       "drag",
-      "Drag an element via native CDP mouse events (mousePressed → interpolated mouseMoved with buttons:1 → mouseReleased). Works for CSS-driven drag: slider thumbs, resize handles, text selection, mouse-based reorder lists (e.g. SortableJS in mouse mode). NOT suitable for HTML5 Drag&Drop API (draggable=true elements with dragstart/drop listeners, React DnD HTML5Backend, Vuedraggable, ng2-dnd) — that path needs Input.dispatchDragEvent which this tool does not implement. Parameters: from_ref/from_selector OR from_x+from_y as source, to_ref/to_selector OR to_x+to_y as target. `steps` (default 10, min 5) controls mouseMoved granularity.",
+      "Drag via native CDP mouse events. Works for CSS-driven drag: slider thumbs, resize handles, text selection, mouse-based reorder lists (SortableJS in mouse mode). NOT for the HTML5 Drag&Drop API (draggable=true with dragstart/drop listeners, React DnD HTML5Backend, Vuedraggable, ng2-dnd) — that needs Input.dispatchDragEvent.",
       {
         from_ref: dragSchema.shape.from_ref,
         from_selector: dragSchema.shape.from_selector,
@@ -1468,7 +1468,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 4. Tab management (navigate/switch_tab/tab_status) ---
     maybeRegisterFreeMCPTool(
       "navigate",
-      "Navigate the ACTIVE tab to a URL (or action:'back' to go back, action:'reload' to refresh current page — all element refs become stale after reload). Waits for settle. WARNING: overwrites the user's active tab — always call virtual_desk FIRST to check what's open. First call per session is auto-redirected to virtual_desk.",
+      "Navigate the active tab to a URL, or action 'back' / 'reload' (all refs become stale after reload). Waits for settle. Overwrites the user's active tab — check virtual_desk first; the first call per session is redirected to virtual_desk.",
       {
         url: navigateSchema.shape.url,
         action: navigateSchema.shape.action,
@@ -1499,7 +1499,7 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     maybeRegisterFreeMCPTool(
       "switch_tab",
-      "Open a new tab, switch to an existing tab by ID (from virtual_desk), or close a tab. Prefer 'open' over navigate when you don't want to touch the user's active tab. After switching, refs from the previous tab are invalid — call view_page FIRST to get fresh refs before click/type/fill_form. DO NOT try to reuse old refs via evaluate(querySelector) as a shortcut.",
+      "Open a new tab, switch to a tab by ID (from virtual_desk), or close one. Prefer 'open' over navigate when the user's active tab must stay untouched. Refs from the previous tab are invalid afterwards — call view_page before acting.",
       {
         action: switchTabSchema.shape.action,
         url: switchTabSchema.shape.url,
@@ -1522,7 +1522,7 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     maybeRegisterFreeMCPTool(
       "tab_status",
-      "Active tab's cached URL/title/ready/errors for quick sanity checks mid-workflow ('did my click navigate?'). For tab discovery: use virtual_desk. For page content: use view_page.",
+      "Active tab's cached URL, title, ready state and errors — a cheap mid-workflow sanity check ('did my click navigate?'). Not for tab discovery or page content.",
       {},
       wrap(async (params) => {
         this._contextChecked = true;
@@ -1576,7 +1576,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 6. Visual (capture_image/dom_snapshot — last resort for visual tasks) ---
     maybeRegisterFreeMCPTool(
       "capture_image",
-      "Pixel-level visual screenshot (WebP, max 800px, <100KB). Do NOT call this to see what is on the page — call view_page instead (10-30x cheaper, returns text + refs you can click). capture_image cannot drive click/type and cannot read text. The ONLY valid uses: (1) canvas/chart content that has no DOM text, (2) pixel-level animation or rendering comparison, (3) the user explicitly asks for a screenshot. If you are unsure, use view_page.",
+      "Pixel-level screenshot (WebP, max 800px, <100KB). Only for canvas or chart content without DOM text, pixel-level rendering or animation checks, or when the user explicitly asks for a screenshot. Returns no refs and reads no text — that is view_page.",
       {
         full_page: screenshotSchema.shape.full_page,
         som: screenshotSchema.shape.som,
@@ -1615,7 +1615,7 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     maybeRegisterFreeMCPTool(
       "dom_snapshot",
-      "Structured layout data: bounding boxes, computed styles, paint order, colors. Refs match view_page. Use ONLY for spatial questions view_page cannot answer (is A above B? what color?). For element discovery or text: use view_page. For pure visual verification: use capture_image.",
+      "Structured layout data: bounding boxes, computed styles, paint order, colors; refs match view_page. Only for spatial questions view_page cannot answer (is A above B? what color?).",
       {
         ref: domSnapshotSchema.shape.ref,
       },

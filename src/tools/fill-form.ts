@@ -20,21 +20,21 @@ const fieldSchema = z.object({
   ref: z
     .string()
     .optional()
-    .describe("A11y-Tree element ref (e.g. 'e5') — preferred over selector"),
+    .describe("Element ref (preferred)"),
   selector: z
     .string()
     .optional()
-    .describe("CSS selector (e.g. '#email') — fallback when ref is not available"),
+    .describe("CSS selector (fallback)"),
   value: z
     .union([z.string(), z.boolean(), z.number()])
-    .describe("Value to set: string for text/select, boolean for checkbox/radio, number coerced to string"),
+    .describe("string for text/select, boolean for checkbox/radio; number → string"),
 });
 
 export const fillFormSchema = z.object({
   fields: z
     .array(fieldSchema)
     .min(1)
-    .describe("Array of fields to fill. Each field needs ref or selector plus value."),
+    .describe("Each needs ref or selector plus value"),
 });
 
 export type FillFormParams = z.infer<typeof fillFormSchema>;

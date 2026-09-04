@@ -15,16 +15,16 @@ export const switchTabSchema = z.object({
     .enum(["open", "switch", "close"])
     .optional()
     .default("switch")
-    .describe("Action: open (new tab), switch (to existing tab, default), close (close tab)"),
+    .describe("open | switch | close"),
   url: z
     .string()
     .optional()
-    .describe("URL to navigate to (for open action, defaults to about:blank)"),
+    .describe("URL for a new tab (open); default about:blank"),
   tab: z
     .string()
     .optional()
     .describe(
-      "Tab ID or tab number (1-based index, e.g. '2') to switch to or close (defaults to active tab for close)",
+      "Tab ID or 1-based number (switch/close; close: active tab)",
     ),
 });
 

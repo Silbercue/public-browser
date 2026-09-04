@@ -62,6 +62,9 @@ describe("buildInstructions (Story 12.4)", () => {
     expect(result).toContain("CRITICAL — view_page vs capture_image:");
     expect(result).toContain("ALWAYS call view_page");
     expect(result).toContain("capture_image is ONLY for CSS layout checks");
+    expect(result).toContain(
+      "Do NOT call capture_image to read text, find buttons, check errors, or see page state — that is view_page.",
+    );
   });
 
   it("preserves Other rules section", () => {

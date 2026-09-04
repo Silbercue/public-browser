@@ -9,14 +9,14 @@ import { hintMatcher } from "../cortex/hint-matcher.js";
 import { debug } from "../cdp/debug.js";
 
 export const readPageSchema = z.object({
-  depth: z.number().optional().default(3).describe("Nesting depth — how many tree levels to display (default: 3). Controls indentation, not visibility. Hidden sections (display: none) require clicking tabs/buttons to reveal."),
-  ref: z.string().optional().describe("Element ref (e.g. 'e5') to get subtree for"),
+  depth: z.number().optional().default(3).describe("Tree levels shown; indentation only, hidden sections need a click"),
+  ref: z.string().optional().describe("Element ref for a subtree"),
   filter: z
     .enum(["interactive", "all", "landmark", "visual"])
     .optional()
     .default("interactive")
-    .describe("Filter mode: interactive (default), all, landmark, or visual (adds bounds/click/visibility)"),
-  max_tokens: z.number().int().optional().transform(v => v !== undefined && v < 500 ? 500 : v).describe("Token budget — page content is automatically downsampled to fit. Omit for full output."),
+    .describe("interactive | all | landmark | visual (bounds, click point, visibility)"),
+  max_tokens: z.number().int().optional().transform(v => v !== undefined && v < 500 ? 500 : v).describe("Token budget; content downsampled. Omit for full output"),
 });
 
 export type ReadPageParams = z.infer<typeof readPageSchema>;

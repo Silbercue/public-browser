@@ -13,19 +13,19 @@ export const typeSchema = z.object({
   ref: z
     .string()
     .optional()
-    .describe("Element reference from view_page (e.g. 'e12') — preferred over selector"),
+    .describe("Element ref (preferred)"),
   selector: z
     .string()
     .optional()
-    .describe("CSS selector as fallback (e.g. 'input[name=email]')"),
+    .describe("CSS selector (fallback)"),
   text: z
     .string()
-    .describe("Text to type into the element"),
+    .describe("Text to type"),
   clear: z
     .boolean()
     .optional()
     .default(false)
-    .describe("Clear existing field content before typing (default: false)"),
+    .describe("Clear the field first"),
 });
 
 export type TypeParams = z.infer<typeof typeSchema>;

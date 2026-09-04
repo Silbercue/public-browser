@@ -12,12 +12,12 @@ export const screenshotSchema = z.object({
     .boolean()
     .optional()
     .default(false)
-    .describe("Capture full scrollable page instead of just viewport"),
+    .describe("Capture the full scrollable page, not just the viewport"),
   som: z
     .boolean()
     .optional()
     .default(false)
-    .describe("Overlay numbered labels on interactive elements matching view_page ref IDs (Set-of-Mark)"),
+    .describe("Overlay numbered labels matching view_page refs (Set-of-Mark)"),
 });
 
 export type ScreenshotParams = z.infer<typeof screenshotSchema>;

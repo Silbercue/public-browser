@@ -11,16 +11,16 @@ import { debug } from "../cdp/debug.js";
 import { applyWebdriverMask } from "../cdp/stealth.js";
 
 export const navigateSchema = z.object({
-  url: z.string().optional().describe("URL to navigate to (required for goto action)"),
+  url: z.string().optional().describe("URL to open (required for goto)"),
   action: z
     .enum(["goto", "back", "reload"])
     .optional()
     .default("goto")
-    .describe("Navigation action: goto (default), back, or reload"),
+    .describe("goto (default) | back | reload"),
   settle_ms: z
     .number()
     .optional()
-    .describe("Extra wait time in ms after page load (default: 500)"),
+    .describe("Extra wait in ms after load (default 500)"),
 });
 
 export type NavigateParams = z.infer<typeof navigateSchema>;
