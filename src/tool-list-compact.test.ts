@@ -85,6 +85,40 @@ describe("compactToolList", () => {
     expect(t.inputSchema.properties.cfg.default).toEqual({ additionalProperties: false, $schema: "keep" });
   });
 
+  it("filtert Parameter-Namen unter `properties` nicht als Schema-Keywords weg", () => {
+    const tool = {
+      name: "x",
+      inputSchema: {
+        type: "object",
+        properties: {
+          $schema: { type: "string", description: "ein Parameter, der so heisst" },
+          additionalProperties: { type: "boolean", default: false },
+          ref: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    };
+    const [t] = compactToolList([tool]) as any[];
+    expect(t.inputSchema.properties.$schema).toEqual({ type: "string", description: "ein Parameter, der so heisst" });
+    expect(t.inputSchema.properties.additionalProperties).toEqual({ type: "boolean", default: false });
+    // Gegenprobe: eine Ebene hoeher sind es weiterhin Keywords und fallen weg.
+    expect(t.inputSchema.additionalProperties).toBeUndefined();
+  });
+
+  it("kompaktiert die Werte unter `properties` weiterhin rekursiv", () => {
+    const tool = {
+      name: "x",
+      inputSchema: {
+        type: "object",
+        properties: {
+          $schema: { type: "object", properties: {}, additionalProperties: false, $schema: "weg" },
+        },
+      },
+    };
+    const [t] = compactToolList([tool]) as any[];
+    expect(t.inputSchema.properties.$schema).toEqual({ type: "object", properties: {} });
+  });
+
   it("laesst Nicht-Objekte und Tools ohne inputSchema unveraendert", () => {
     const out = compactToolList([null, "x", { name: "a", description: "d" }]) as any[];
     expect(out[0]).toBeNull();
@@ -148,6 +182,18 @@ describe("installToolListCompaction", () => {
     await outer.send({ jsonrpc: "2.0", id: 7, result: { tools: [rawTool] } } as never);
     await outer.send({ jsonrpc: "2.0", id: 7, result: { tools: [rawTool] } } as never);
     expect(JSON.stringify(sent[0])).not.toMatch(/taskSupport/);
+    expect(JSON.stringify(sent[1])).toMatch(/taskSupport/);
+  });
+
+  it("raeumt pending auch auf, wenn die tools/list-Antwort ein Fehler ist", async () => {
+    const { inner, sent } = fakeInner();
+    const outer = installToolListCompaction(inner);
+    inner.onmessage({ jsonrpc: "2.0", id: 11, method: "tools/list" });
+    await outer.send({ jsonrpc: "2.0", id: 11, error: { code: -32603, message: "boom" } } as never);
+    expect(sent[0]).toEqual({ jsonrpc: "2.0", id: 11, error: { code: -32603, message: "boom" } });
+    // Die ID ist verbraucht: eine spaetere Antwort mit derselben ID wird NICHT
+    // mehr kompaktiert.
+    await outer.send({ jsonrpc: "2.0", id: 11, result: { tools: [rawTool] } } as never);
     expect(JSON.stringify(sent[1])).toMatch(/taskSupport/);
   });
 

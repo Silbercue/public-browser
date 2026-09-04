@@ -10,8 +10,10 @@ const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), "__fixtures__", "t
  * Kanonische Form eines Tool-Schemas: alles, was den Vertrag mit dem Modell
  * ausmacht (Parameter-Namen, `type`, `enum`, `default`, `required`, `items`,
  * `anyOf`, `$ref`, `minimum`/`maximum`) bleibt; reine Prosa (`description`) und
- * SDK-Rauschen (`$schema`, `additionalProperties`) fallen weg, damit reine
- * Beschreibungs-Kuerzungen die Fixture nicht anfassen. Objekt-Keys werden
+ * SDK-Rauschen (`$schema`, `additionalProperties: false`) fallen weg, damit reine
+ * Beschreibungs-Kuerzungen die Fixture nicht anfassen. Ein
+ * `additionalProperties` mit einem anderen Wert ist KEIN Rauschen, sondern der
+ * Vertrag eines Record-Parameters (freie Keys) und bleibt darum stehen. Objekt-Keys werden
  * sortiert, Array-Reihenfolgen bleiben (bei `required`/`enum` sind sie Teil des
  * Vertrags).
  */
@@ -20,7 +22,8 @@ function canonical(node: unknown): unknown {
   if (!node || typeof node !== "object") return node;
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(node as Record<string, unknown>).sort()) {
-    if (key === "description" || key === "$schema" || key === "additionalProperties") continue;
+    if (key === "description" || key === "$schema") continue;
+    if (key === "additionalProperties" && (node as Record<string, unknown>)[key] === false) continue;
     out[key] = canonical((node as Record<string, unknown>)[key]);
   }
   return out;

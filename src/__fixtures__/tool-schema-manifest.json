@@ -82,6 +82,7 @@
           "type": "boolean"
         },
         "defaults": {
+          "additionalProperties": {},
           "type": "object"
         },
         "profile": {
@@ -479,6 +480,7 @@
                 "type": "string"
               },
               "params": {
+                "additionalProperties": {},
                 "type": "object"
               },
               "saveAs": {
@@ -517,6 +519,7 @@
           "type": "boolean"
         },
         "vars": {
+          "additionalProperties": {},
           "type": "object"
         }
       },

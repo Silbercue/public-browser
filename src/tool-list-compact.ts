@@ -26,6 +26,17 @@ function compactSchema(node: unknown): unknown {
     if (k === "additionalProperties" && v === false) continue;
     // `default`-Werte sind Nutzdaten, keine Schema-Knoten — unveraendert uebernehmen.
     if (k === "default") { out[k] = v; continue; }
+    // Die Keys unter `properties` sind Parameter-NAMEN, keine Schema-Keywords:
+    // ein Tool darf einen Parameter `$schema` oder `additionalProperties`
+    // nennen. Nur die Werte werden weiter kompaktiert.
+    if (k === "properties" && v && typeof v === "object" && !Array.isArray(v)) {
+      const props: Record<string, unknown> = {};
+      for (const [name, sub] of Object.entries(v as Record<string, unknown>)) {
+        props[name] = compactSchema(sub);
+      }
+      out[k] = props;
+      continue;
+    }
     out[k] = compactSchema(v);
   }
   return out;
@@ -69,8 +80,13 @@ export class ToolListCompactingTransport implements Transport {
   }
 
   send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
-    const m = message as { id?: RequestId; result?: { tools?: unknown[] } };
-    if (m.id !== undefined && m.result && Array.isArray(m.result.tools) && this.pending.delete(m.id)) {
+    const m = message as { id?: RequestId; method?: string; result?: { tools?: unknown[] }; error?: unknown };
+    // Jede ANTWORT auf eine gemerkte ID verbraucht den Eintrag — auch eine
+    // Fehlerantwort, sonst bliebe die ID fuer immer in `pending` stehen.
+    // Server-initiierte Requests (mit `method`) zaehlen nicht als Antwort.
+    const isResponse = m.method === undefined && (m.result !== undefined || m.error !== undefined);
+    const wasPending = m.id !== undefined && isResponse && this.pending.delete(m.id);
+    if (wasPending && m.result && Array.isArray(m.result.tools)) {
       return this.inner.send(
         { ...message, result: { ...m.result, tools: compactToolList(m.result.tools) } } as JSONRPCMessage,
         options,
