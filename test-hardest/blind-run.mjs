@@ -316,6 +316,29 @@ export function registerParticipant(slug, def) {
   return PARTICIPANTS[slug];
 }
 
+// Lokaler Build statt npm-Pin: fuer die Abnahme einer ungekuerzten/gekuerzten Arbeitskopie.
+// Gleicher Slug, gleicher MCP-Name — alle public-browser-Pruefungen (Port 9333, Cortex-Zaehler) greifen.
+export function localParticipant(repoRoot) {
+  const entry = join(repoRoot, 'build', 'index.js');
+  if (!existsSync(entry)) throw new Error(`local build missing: ${entry} — run npm run build first`);
+  const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+  let gitHead = null, gitDirty = null;
+  try {
+    gitHead = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+    gitDirty = execFileSync('git', ['status', '--porcelain'], { cwd: repoRoot, encoding: 'utf8' }).trim() !== '';
+  } catch { /* kein git */ }
+  return {
+    ...PARTICIPANTS['public-browser'],
+    version: pkg.version,
+    command: process.execPath,
+    args: [entry],
+    local: true,
+    git_head: gitHead,
+    git_dirty: gitDirty,
+    profile_isolation: `${PARTICIPANTS['public-browser'].profile_isolation}; local build ${gitHead ?? '?'}`,
+  };
+}
+
 function sh(file, args, opts = {}) {
   return execFileSync(file, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...opts });
 }
@@ -662,6 +685,7 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
         test_ids: suite?.test_ids ?? null },
       harness: {
         mode: 'blind-print', status: runStatus, complete,
+        local_build: !!p.local, git_head: p.git_head ?? null, git_dirty: p.git_dirty ?? null,
         claude_code_version: claudeVer, os: `${process.platform} ${release()}`, node: process.version,
         profile_isolation: p.profile_isolation, model_requested,
         flags: flags.join(' ').split(sessionId).join('<session_id>'), allowed_tools_form: allowedForm,
@@ -758,21 +782,37 @@ export function compareFromResults(dir = defaultDeps().resultsDir) {
   return compareTable(runs);
 }
 
-const USAGE = 'usage: node blind-run.mjs run <slug> [--smoke] [--rundir <dir>] [--allowed-tools-form plain|glob] '
+const USAGE = 'usage: node blind-run.mjs run <slug> [--local] [--smoke] [--rundir <dir>] [--allowed-tools-form plain|glob] '
   + '[--model <id>] [--timeout-min <n>] | compare';
+
+// CLI-Argumente von `run` (ohne das Kommando selbst) in Optionen uebersetzen.
+export function parseRunArgs(rest) {
+  const opt = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
+  const slug = rest[0];
+  const local = rest.includes('--local');
+  if (local && slug !== 'public-browser') throw new Error('--local gilt nur fuer public-browser');
+  const timeoutMin = opt('--timeout-min');
+  return {
+    slug,
+    smoke: rest.includes('--smoke'),
+    rundir: opt('--rundir'),
+    allowedToolsForm: opt('--allowed-tools-form'),
+    model: opt('--model'),
+    timeoutMs: timeoutMin ? Number(timeoutMin) * 60_000 : undefined,
+    local,
+  };
+}
 
 async function main(argv) {
   const [cmd, ...rest] = argv;
   const opt = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
   if (cmd === 'run') {
-    const slug = rest[0];
-    const timeoutMin = opt('--timeout-min');
-    const { run, problems } = await runParticipant(slug, {
-      smoke: rest.includes('--smoke'),
-      rundir: opt('--rundir'),
-      allowedToolsForm: opt('--allowed-tools-form'),
-      model: opt('--model'),
-      timeoutMs: timeoutMin ? Number(timeoutMin) * 60_000 : undefined,
+    let args;
+    try { args = parseRunArgs(rest); } catch (e) { console.error(String(e.message)); process.exit(1); }
+    const { slug, local, ...runOpts } = args;
+    if (local) PARTICIPANTS['public-browser'] = localParticipant(join(HERE, '..'));
+    const { run, problems } = await runParticipant(slug, runOpts, {
+      resultsDir: process.env.BLIND_RUN_RESULTS_DIR || join(HERE, local ? 'results-local' : 'results'),
     });
     // Exit 2 auch bei Post-Write-Problemen, damit eine Skript-Kette sie nicht uebersieht.
     process.exit(['ok', 'smoke'].includes(run.harness.status) && problems.length === 0 ? 0 : 2);

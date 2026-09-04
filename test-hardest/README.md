@@ -54,6 +54,10 @@ Every run JSON carries what you need to recount its aggregates without the trans
 
 Reproduce: `node blind-run.mjs run playwright-mcp` (needs Claude Code CLI, Node 22, jq, Google Chrome). It also needs an account with access to `claude-opus-5` — the model is hard-pinned, a session that falls back to another model aborts the run. If your CLI does not know the id `claude-opus-5`, pass `--model opus`; the harness still verifies the model id it finds in the session transcript. Binaries and the output directory are overridable through `BLIND_RUN_CLAUDE_BIN` (default `~/.local/bin/claude`), `BLIND_RUN_CHROME_BIN` (default the `/Applications` Chrome), `BLIND_RUN_BROWSER_USE_BIN` and `BLIND_RUN_RESULTS_DIR`. The live page must still serve exactly the 35 test IDs the harness expects, otherwise the run stops with `suite fingerprint mismatch`. `node blind-run.mjs compare` prints the comparison table from `results/`.
 
+**Local build.** `node blind-run.mjs run public-browser --local` runs the server from `../build/index.js`
+(after `npm run build`) instead of the pinned npm version; results go to `results-local/` and carry
+`harness.local_build: true` plus `harness.git_head`. Use it to accept a change before it is released.
+
 ## Environment (September runs)
 
 macOS `darwin 25.6.0` · Claude Code `2.1.259` · Node `v22.14.0` · Google Chrome `152.0.7977.65` (the `/Applications` binary the harness measured; browser-use launches its own browser, whose version is not captured) · model `claude-opus-5` · authenticated through a Claude subscription, not an API key. The harness has only been tested on macOS. All values come from the run JSONs (`harness.os`, `harness.claude_code_version`, `harness.node`, `chrome_version`, `model`).

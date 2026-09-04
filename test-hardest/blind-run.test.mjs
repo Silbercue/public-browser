@@ -10,6 +10,7 @@ import {
   nextRunNumber, renderPrompt, compareTable, verifyRunJson,
   mcpCallsFromJsonl, percentile, validateExport,
   runParticipant, registerParticipant, probeServerInfo, cortexPatternCount,
+  localParticipant, parseRunArgs,
 } from './blind-run.mjs';
 
 // --- Fixture-Session (A1.1/A1.6): 2 MCP-Calls + 1 verweigerter Bash-Call ---
@@ -584,4 +585,79 @@ test('pipeline: an existing result file name is never overwritten', async () => 
   assert.equal(basename(outPath), 'fake-run2.json');
   assert.equal(readFileSync(taken, 'utf8'), 'DO NOT OVERWRITE');
   assert.equal(run.run_file, 'fake-run2.json');
+});
+
+// --- Task 1: lokaler Build statt npm-Pin ---
+
+test('localParticipant zeigt auf build/index.js und die package.json-Version', () => {
+  const root = join(HERE_T, '..');
+  const p = localParticipant(root);
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  assert.equal(p.name, 'public-browser');
+  assert.equal(p.command, process.execPath);
+  assert.deepEqual(p.args, [join(root, 'build', 'index.js')]);
+  assert.equal(p.version, pkg.version);
+  assert.equal(p.local, true);
+  assert.equal(p.snapshotTool, PARTICIPANTS['public-browser'].snapshotTool);
+  assert.equal(typeof p.env, 'function');
+  assert.match(p.profile_isolation, /local build/);
+});
+
+test('localParticipant liest den git-Kopf und den Dirty-Zustand des Repos', () => {
+  const root = join(HERE_T, '..');
+  const p = localParticipant(root);
+  const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim() !== '';
+  assert.equal(p.git_head, head);
+  assert.equal(p.git_dirty, dirty);
+});
+
+test('localParticipant wirft, wenn build/index.js fehlt', () => {
+  assert.throws(() => localParticipant('/nonexistent-root'), /build\/index\.js/);
+});
+
+test('parseRunArgs erkennt --local fuer public-browser', () => {
+  assert.equal(parseRunArgs(['public-browser', '--local']).local, true);
+  assert.equal(parseRunArgs(['public-browser', '--local']).slug, 'public-browser');
+});
+
+test('parseRunArgs meldet local=false ohne das Flag', () => {
+  assert.equal(parseRunArgs(['public-browser']).local, false);
+});
+
+test('parseRunArgs wirft, wenn --local fuer einen anderen Teilnehmer kommt', () => {
+  assert.throws(() => parseRunArgs(['playwright-mcp', '--local']), /--local gilt nur fuer public-browser/);
+});
+
+test('parseRunArgs liest die uebrigen Optionen weiter', () => {
+  const a = parseRunArgs(['fake', '--smoke', '--rundir', '/tmp/x', '--allowed-tools-form', 'glob', '--model', 'opus', '--timeout-min', '3']);
+  assert.equal(a.slug, 'fake');
+  assert.equal(a.smoke, true);
+  assert.equal(a.rundir, '/tmp/x');
+  assert.equal(a.allowedToolsForm, 'glob');
+  assert.equal(a.model, 'opus');
+  assert.equal(a.timeoutMs, 180_000);
+});
+
+test('pipeline: ein lokaler Teilnehmer schreibt Herkunft ins Run-JSON', async () => {
+  const { deps } = pipeEnv('ok');
+  registerParticipant('fake-local', { ...PARTICIPANTS['fake'], local: true, git_head: 'abc1234', git_dirty: false });
+  const { run, outPath } = await runParticipant('fake-local', {}, deps);
+  assert.equal(run.harness.local_build, true);
+  assert.equal(run.harness.git_head, 'abc1234');
+  assert.equal(run.harness.git_dirty, false);
+  assert.equal(dirname(outPath), deps.resultsDir);
+  assert.equal(basename(outPath), 'fake-local-run1.json');
+  const written = JSON.parse(readFileSync(outPath, 'utf8'));
+  assert.equal(written.harness.local_build, true);
+  assert.equal(written.harness.git_head, 'abc1234');
+  assert.equal(written.harness.git_dirty, false);
+});
+
+test('pipeline: ein normaler Teilnehmer meldet keinen lokalen Build', async () => {
+  const { deps } = pipeEnv('ok');
+  const { run } = await runParticipant('fake', {}, deps);
+  assert.equal(run.harness.local_build, false);
+  assert.equal(run.harness.git_head, null);
+  assert.equal(run.harness.git_dirty, null);
 });

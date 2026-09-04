@@ -51,6 +51,10 @@ test-hardest/*
 !test-hardest/results/
 test-hardest/results/*
 !test-hardest/results/*.json
+!test-hardest/results-local/
+test-hardest/results-local/*
+!test-hardest/results-local/*.json
+!test-hardest/results-local/README.md
 !test-hardest/benchmark-*.json
 !test-hardest/README.md
 !test-hardest/measure-tool-calls.sh
@@ -72,6 +76,7 @@ compare-*.png
 # scripts/: nur die oeffentlich nutzbaren Helfer liegen im Repo
 scripts/*
 !scripts/check-pack.mjs
+!scripts/tool-chars.mjs
 !scripts/dev-mode.sh
 !scripts/publish.ts
 !scripts/publish.test.ts
