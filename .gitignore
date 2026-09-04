@@ -80,3 +80,6 @@ scripts/*
 
 # Registry-Publish-Tokens (lokal, niemals committen)
 .mcpregistry_*_token
+
+# PyPI-Wiederherstellungscodes (lokal, niemals committen)
+pypi-recovery-codes.txt
