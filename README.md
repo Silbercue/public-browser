@@ -566,7 +566,7 @@ Several browser-automation projects now ship a CLI and tell coding agents to cal
 
 Public Browser keeps the MCP surface and keeps it small: its 25 tool definitions take about **4,992 tokens** of context as delivered over the wire (characters / 4, `npm run token-count`; measured the same way, Playwright MCP 0.0.80 takes 4,626 and Chrome DevTools MCP 1.8.0 takes 6,290). A test enforces the budget, so it cannot creep back up. Getting there cost nothing in the benchmark: the two acceptance runs of the shortened definitions solved 30/30 with 79 calls each, against 84 and 86 for the previous wording (raw data in [`test-hardest/results-local/`](test-hardest/results-local)).
 
-The other argument for a CLI — "MCP needs a round-trip per step" — is what `run_plan` is for: N steps in one call, executed server-side with variables, conditions and suspend/resume. On the 30-test benchmark page that meant 79 and 79 tool calls per run against 137 and 151 for Playwright MCP (45% fewer, same pass rate; [Benchmarks](#benchmarks)).
+The other argument for a CLI — "MCP needs a round-trip per step" — is what `run_plan` is for: N steps in one call, executed server-side with variables, conditions and suspend/resume. In the same two acceptance runs that was 45% fewer tool calls than Playwright MCP (79 and 79 against 137 and 151, same pass rate); the headline's 41% comes from the published September runs with the previous wording (84 and 86 calls, see [Benchmarks](#benchmarks)).
 
 ## Coming from Browser MCP?
 
