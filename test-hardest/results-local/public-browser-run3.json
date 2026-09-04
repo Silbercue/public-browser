@@ -1,0 +1,999 @@
+{
+  "name": "Public Browser",
+  "slug": "public-browser",
+  "type": "mcp-llm",
+  "mcp_package": "public-browser",
+  "mcp_version": "2.10.3",
+  "snapshot_tool": "view_page",
+  "mcp_server_info": {
+    "name": "public-browser",
+    "version": "2.10.3",
+    "instructions": "Public Browser controls a real Chrome browser via CDP.\n\nWorkflow: virtual_desk → navigate (to open a page) → view_page (read) → click/type/fill_form (act) → view_page (verify the result).\n\nCRITICAL — view_page vs capture_image:\n- To see what is on the page: ALWAYS call view_page. It returns text + element refs for click/type.\n- capture_image is ONLY for CSS layout checks, canvas content, or when the user explicitly asks for a screenshot.\n- Do NOT call capture_image to read text, find buttons, check errors, or see page state — that is view_page.\n- capture_image cannot return element refs, so you cannot click anything you see in it.\n\nOther rules:\n- After every interaction, use view_page again to verify the result before proceeding.\n- Element targets: prefer the ref from the last view_page (e.g. 'e5'); a CSS selector is the fallback. Refs go stale after navigate, reload or switch_tab — call view_page again before acting on the new page.\n- fill_form beats multiple type calls for any form with 2+ fields.\n- For multi-step workflows, use run_plan to execute N steps in one call.\n- evaluate is for JS computation and style mutations (.style.X = ...) — not for CSS reading, element discovery, scrolling, dialogs or network capture: dom_snapshot, view_page, scroll, handle_dialog and network_monitor cover those.\n- Avoid evaluate as default recovery after click/type errors — call view_page for fresh refs and retry with the dedicated tool. Patching via evaluate (querySelector().click(), element.value = ...) bypasses the CDP pointer chain and framework listeners (React, Vue) and hides real bugs; the only exception is a test that deliberately targets synthetic JS events.\n- Responses of type and fill_form carry a DOM diff (NEW/REMOVED/CHANGED lines); click's diff arrives with the next response unless wait_for_diff: true. Read it as the success signal instead of re-checking state with evaluate.\n\nScript API: `pip install publicbrowser` gives you a Python library for deterministic browser automation without an LLM. Scripts route through the same tool handlers as MCP (Shared Core). Usage: `from publicbrowser import Chrome; chrome = Chrome.connect(); page = chrome.new_page()` — then `page.navigate()`, `page.click()`, `page.fill()`, `page.evaluate()` etc. Auto-starts the server. Add `--script` to the MCP args for parallel MCP + Script access.\nCortex: 93 patterns loaded."
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "152.0.7977.76",
+  "session_id": "f8fba1e4-0e18-42d1-8d55-f7c7ed75e3ff",
+  "timestamp": "2026-09-04T12:23:24.770Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true,
+    "test_ids": [
+      "T1.1",
+      "T1.2",
+      "T1.3",
+      "T1.4",
+      "T1.5",
+      "T1.6",
+      "T2.1",
+      "T2.2",
+      "T2.3",
+      "T2.4",
+      "T2.5",
+      "T2.6",
+      "T3.1",
+      "T3.2",
+      "T3.3",
+      "T3.4",
+      "T3.5",
+      "T3.6",
+      "T4.1",
+      "T4.2",
+      "T4.3",
+      "T4.4",
+      "T4.5",
+      "T4.6",
+      "T4.7",
+      "T5.1",
+      "T5.2",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6",
+      "T5.7",
+      "T5.8",
+      "T5.9",
+      "T5.10"
+    ]
+  },
+  "harness": {
+    "mode": "blind-print",
+    "status": "ok",
+    "complete": true,
+    "headless": false,
+    "headless_requested": false,
+    "local_build": true,
+    "git_head": "97971b1",
+    "git_dirty": false,
+    "claude_code_version": "2.1.260",
+    "os": "darwin 25.6.0",
+    "node": "v22.14.0",
+    "profile_isolation": "auto-launched Chrome, fresh temp user-data-dir, CDP port 9333; local build 97971b1",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-public-browser-20260904-1223-FvARvq/mcp.json --permission-mode dontAsk --allowedTools Write mcp__public-browser --tools Write --max-turns 600",
+    "allowed_tools_form": "plain",
+    "chrome_version_source": "applications-binary",
+    "wall_clock_s": 338,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 84,
+    "run_dir": "/tmp/bench-public-browser-20260904-1223-FvARvq",
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    },
+    "session_jsonl_sha256": "366780e3effd6a2bdaee2eef45122e4795d2359023e5680015b809331469a616",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "mcp__public-browser__virtual_desk",
+        "chars": 179,
+        "ms": 762
+      },
+      {
+        "i": 2,
+        "tool": "mcp__public-browser__navigate",
+        "chars": 287,
+        "ms": 2291
+      },
+      {
+        "i": 3,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 9734,
+        "ms": 34
+      },
+      {
+        "i": 4,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 1756,
+        "ms": 29
+      },
+      {
+        "i": 5,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 5793,
+        "ms": 7
+      },
+      {
+        "i": 6,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 2192,
+        "ms": 556
+      },
+      {
+        "i": 7,
+        "tool": "mcp__public-browser__click",
+        "chars": 1921,
+        "ms": 400
+      },
+      {
+        "i": 8,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 2845,
+        "ms": 33
+      },
+      {
+        "i": 9,
+        "tool": "mcp__public-browser__click",
+        "chars": 211,
+        "ms": 21
+      },
+      {
+        "i": 10,
+        "tool": "mcp__public-browser__observe",
+        "chars": 1412,
+        "ms": 10
+      },
+      {
+        "i": 11,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 924,
+        "ms": 33
+      },
+      {
+        "i": 12,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1471,
+        "ms": 392
+      },
+      {
+        "i": 13,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 1396,
+        "ms": 32
+      },
+      {
+        "i": 14,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 731,
+        "ms": 924
+      },
+      {
+        "i": 15,
+        "tool": "mcp__public-browser__wait_for",
+        "chars": 88,
+        "ms": 6
+      },
+      {
+        "i": 16,
+        "tool": "mcp__public-browser__click",
+        "chars": 1113,
+        "ms": 423
+      },
+      {
+        "i": 17,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1180,
+        "ms": 61
+      },
+      {
+        "i": 18,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1071,
+        "ms": 50
+      },
+      {
+        "i": 19,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1738,
+        "ms": 96
+      },
+      {
+        "i": 20,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 983,
+        "ms": 37
+      },
+      {
+        "i": 21,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1115,
+        "ms": 86
+      },
+      {
+        "i": 22,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 718,
+        "ms": 37
+      },
+      {
+        "i": 23,
+        "tool": "mcp__public-browser__click",
+        "chars": 144,
+        "ms": 89
+      },
+      {
+        "i": 24,
+        "tool": "mcp__public-browser__virtual_desk",
+        "chars": 1817,
+        "ms": 6
+      },
+      {
+        "i": 25,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 135,
+        "ms": 5
+      },
+      {
+        "i": 26,
+        "tool": "mcp__public-browser__switch_tab",
+        "chars": 247,
+        "ms": 36
+      },
+      {
+        "i": 27,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 590,
+        "ms": 11
+      },
+      {
+        "i": 28,
+        "tool": "mcp__public-browser__switch_tab",
+        "chars": 263,
+        "ms": 74
+      },
+      {
+        "i": 29,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1889,
+        "ms": 41
+      },
+      {
+        "i": 30,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 2659,
+        "ms": 59
+      },
+      {
+        "i": 31,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 416,
+        "ms": 49
+      },
+      {
+        "i": 32,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 806,
+        "ms": 63
+      },
+      {
+        "i": 33,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 2763,
+        "ms": 106
+      },
+      {
+        "i": 34,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1002,
+        "ms": 38
+      },
+      {
+        "i": 35,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 169,
+        "ms": 48
+      },
+      {
+        "i": 36,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 842,
+        "ms": 34
+      },
+      {
+        "i": 37,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 7642,
+        "ms": 32
+      },
+      {
+        "i": 38,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 392,
+        "ms": 57
+      },
+      {
+        "i": 39,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 1273,
+        "ms": 7
+      },
+      {
+        "i": 40,
+        "tool": "mcp__public-browser__drag",
+        "chars": 120,
+        "ms": 150
+      },
+      {
+        "i": 41,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 264,
+        "ms": 6
+      },
+      {
+        "i": 42,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 652,
+        "ms": 6
+      },
+      {
+        "i": 43,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 371,
+        "ms": 6
+      },
+      {
+        "i": 44,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 268,
+        "ms": 48
+      },
+      {
+        "i": 45,
+        "tool": "mcp__public-browser__capture_image",
+        "chars": 46997,
+        "ms": 142
+      },
+      {
+        "i": 46,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 521,
+        "ms": 12
+      },
+      {
+        "i": 47,
+        "tool": "mcp__public-browser__click",
+        "chars": 48,
+        "ms": 18
+      },
+      {
+        "i": 48,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 582,
+        "ms": 35
+      },
+      {
+        "i": 49,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1577,
+        "ms": 35
+      },
+      {
+        "i": 50,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 184,
+        "ms": 16
+      },
+      {
+        "i": 51,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 444,
+        "ms": 12
+      },
+      {
+        "i": 52,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 49,
+        "ms": 7
+      },
+      {
+        "i": 53,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 885,
+        "ms": 39
+      },
+      {
+        "i": 54,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 192,
+        "ms": 23
+      },
+      {
+        "i": 55,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 8424,
+        "ms": 37
+      },
+      {
+        "i": 56,
+        "tool": "mcp__public-browser__observe",
+        "chars": 160,
+        "ms": 3939
+      },
+      {
+        "i": 57,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 141,
+        "ms": 42
+      },
+      {
+        "i": 58,
+        "tool": "mcp__public-browser__observe",
+        "chars": 194,
+        "ms": 8
+      },
+      {
+        "i": 59,
+        "tool": "mcp__public-browser__observe",
+        "chars": 115,
+        "ms": 511
+      },
+      {
+        "i": 60,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 1006,
+        "ms": 48
+      },
+      {
+        "i": 61,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 457,
+        "ms": 2595
+      },
+      {
+        "i": 62,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 147,
+        "ms": 8
+      },
+      {
+        "i": 63,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 242,
+        "ms": 8
+      },
+      {
+        "i": 64,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 328,
+        "ms": 1816
+      },
+      {
+        "i": 65,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1542,
+        "ms": 1809
+      },
+      {
+        "i": 66,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 188,
+        "ms": 1855
+      },
+      {
+        "i": 67,
+        "tool": "mcp__public-browser__evaluate",
+        "chars": 49,
+        "ms": 13
+      },
+      {
+        "i": 68,
+        "tool": "mcp__public-browser__observe",
+        "chars": 70,
+        "ms": 6147
+      },
+      {
+        "i": 69,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 391,
+        "ms": 3659
+      },
+      {
+        "i": 70,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 2239,
+        "ms": 1923
+      },
+      {
+        "i": 71,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 424,
+        "ms": 1829
+      },
+      {
+        "i": 72,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 328,
+        "ms": 1880
+      },
+      {
+        "i": 73,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 192,
+        "ms": 85
+      },
+      {
+        "i": 74,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 7797,
+        "ms": 81
+      },
+      {
+        "i": 75,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 789,
+        "ms": 123
+      },
+      {
+        "i": 76,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 818,
+        "ms": 101
+      },
+      {
+        "i": 77,
+        "tool": "mcp__public-browser__click",
+        "chars": 1492,
+        "ms": 453
+      },
+      {
+        "i": 78,
+        "tool": "mcp__public-browser__click",
+        "chars": 1478,
+        "ms": 443
+      },
+      {
+        "i": 79,
+        "tool": "mcp__public-browser__click",
+        "chars": 1529,
+        "ms": 448
+      },
+      {
+        "i": 80,
+        "tool": "mcp__public-browser__click",
+        "chars": 1501,
+        "ms": 437
+      },
+      {
+        "i": 81,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1188,
+        "ms": 110
+      },
+      {
+        "i": 82,
+        "tool": "mcp__public-browser__click",
+        "chars": 6083,
+        "ms": 426
+      }
+    ]
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 30,
+    "failed": 0,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 100,
+    "duration_s": 284
+  },
+  "tokens": {
+    "start": 0,
+    "end": 6513023,
+    "delta": 6513023
+  },
+  "cost_usd_list": 3.3356334999999997,
+  "mqs": {
+    "score": 65.5,
+    "token_score": 56.8,
+    "reliability_score": 53.5,
+    "call_score": 73.8,
+    "speed_score": 99.1,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": {
+    "mode": "kalt",
+    "dir": "/tmp/bench-public-browser-20260904-1223-FvARvq/cortex",
+    "patternCount": 93,
+    "note": "community package only, fresh dir"
+  },
+  "tool_efficiency": {
+    "calls_total": 82,
+    "response_chars_total": 154373,
+    "avg_response_chars": 1882,
+    "p50_response_chars": 731,
+    "p95_response_chars": 7642,
+    "p50_ms": 48,
+    "p95_ms": 2291,
+    "avg_response_tokens_est": 470,
+    "total_tokens_est": 54216,
+    "avg_tokens_est": 661,
+    "avg_ms": 469,
+    "total_ms": 38464,
+    "total_output_tokens": 15650,
+    "avg_output_tokens": 190,
+    "cache_read_tokens_total": 4024432,
+    "cache_creation_tokens_total": 81791,
+    "fresh_input_tokens_total": 166,
+    "cache_hit_rate": 98,
+    "by_tool": [
+      {
+        "name": "mcp__public-browser__run_plan",
+        "count": 34,
+        "total_chars": 32122,
+        "avg_chars": 944,
+        "p95_chars": 2239,
+        "max_chars": 2763,
+        "avg_ms": 551,
+        "p50_ms": 63,
+        "p95_ms": 1923,
+        "max_ms": 3659,
+        "total_ms": 18742,
+        "avg_output_tokens": 220,
+        "total_output_tokens": 7487,
+        "avg_total_tokens_est": 456,
+        "total_total_tokens_est": 15506
+      },
+      {
+        "name": "mcp__public-browser__view_page",
+        "count": 16,
+        "total_chars": 45568,
+        "avg_chars": 2848,
+        "p95_chars": 8424,
+        "max_chars": 9734,
+        "avg_ms": 150,
+        "p50_ms": 34,
+        "p95_ms": 81,
+        "max_ms": 1855,
+        "total_ms": 2410,
+        "avg_output_tokens": 111,
+        "total_output_tokens": 1789,
+        "avg_total_tokens_est": 823,
+        "total_total_tokens_est": 13176
+      },
+      {
+        "name": "mcp__public-browser__click",
+        "count": 10,
+        "total_chars": 15520,
+        "avg_chars": 1552,
+        "p95_chars": 1921,
+        "max_chars": 6083,
+        "avg_ms": 315,
+        "p50_ms": 423,
+        "p95_ms": 448,
+        "max_ms": 453,
+        "total_ms": 3158,
+        "avg_output_tokens": 98,
+        "total_output_tokens": 984,
+        "avg_total_tokens_est": 486,
+        "total_total_tokens_est": 4861
+      },
+      {
+        "name": "mcp__public-browser__evaluate",
+        "count": 9,
+        "total_chars": 9214,
+        "avg_chars": 1023,
+        "p95_chars": 1273,
+        "max_chars": 5793,
+        "avg_ms": 8,
+        "p50_ms": 7,
+        "p95_ms": 12,
+        "max_ms": 13,
+        "total_ms": 72,
+        "avg_output_tokens": 403,
+        "total_output_tokens": 3633,
+        "avg_total_tokens_est": 659,
+        "total_total_tokens_est": 5934
+      },
+      {
+        "name": "mcp__public-browser__observe",
+        "count": 5,
+        "total_chars": 1951,
+        "avg_chars": 390,
+        "p95_chars": 194,
+        "max_chars": 1412,
+        "avg_ms": 2123,
+        "p50_ms": 511,
+        "p95_ms": 3939,
+        "max_ms": 6147,
+        "total_ms": 10615,
+        "avg_output_tokens": 163,
+        "total_output_tokens": 816,
+        "avg_total_tokens_est": 260,
+        "total_total_tokens_est": 1302
+      },
+      {
+        "name": "mcp__public-browser__switch_tab",
+        "count": 2,
+        "total_chars": 510,
+        "avg_chars": 255,
+        "p95_chars": 247,
+        "max_chars": 263,
+        "avg_ms": 55,
+        "p50_ms": 36,
+        "p95_ms": 36,
+        "max_ms": 74,
+        "total_ms": 110,
+        "avg_output_tokens": 79,
+        "total_output_tokens": 159,
+        "avg_total_tokens_est": 142,
+        "total_total_tokens_est": 285
+      },
+      {
+        "name": "mcp__public-browser__virtual_desk",
+        "count": 2,
+        "total_chars": 1996,
+        "avg_chars": 998,
+        "p95_chars": 179,
+        "max_chars": 1817,
+        "avg_ms": 384,
+        "p50_ms": 6,
+        "p95_ms": 6,
+        "max_ms": 762,
+        "total_ms": 768,
+        "avg_output_tokens": 47,
+        "total_output_tokens": 95,
+        "avg_total_tokens_est": 296,
+        "total_total_tokens_est": 593
+      },
+      {
+        "name": "mcp__public-browser__capture_image",
+        "count": 1,
+        "total_chars": 46997,
+        "avg_chars": 46997,
+        "p95_chars": 46997,
+        "max_chars": 46997,
+        "avg_ms": 142,
+        "p50_ms": 142,
+        "p95_ms": 142,
+        "max_ms": 142,
+        "total_ms": 142,
+        "avg_output_tokens": 55,
+        "total_output_tokens": 55,
+        "avg_total_tokens_est": 11804,
+        "total_total_tokens_est": 11804
+      },
+      {
+        "name": "mcp__public-browser__drag",
+        "count": 1,
+        "total_chars": 120,
+        "avg_chars": 120,
+        "p95_chars": 120,
+        "max_chars": 120,
+        "avg_ms": 150,
+        "p50_ms": 150,
+        "p95_ms": 150,
+        "max_ms": 150,
+        "total_ms": 150,
+        "avg_output_tokens": 367,
+        "total_output_tokens": 367,
+        "avg_total_tokens_est": 397,
+        "total_total_tokens_est": 397
+      },
+      {
+        "name": "mcp__public-browser__navigate",
+        "count": 1,
+        "total_chars": 287,
+        "avg_chars": 287,
+        "p95_chars": 287,
+        "max_chars": 287,
+        "avg_ms": 2291,
+        "p50_ms": 2291,
+        "p95_ms": 2291,
+        "max_ms": 2291,
+        "total_ms": 2291,
+        "avg_output_tokens": 95,
+        "total_output_tokens": 95,
+        "avg_total_tokens_est": 166,
+        "total_total_tokens_est": 166
+      },
+      {
+        "name": "mcp__public-browser__wait_for",
+        "count": 1,
+        "total_chars": 88,
+        "avg_chars": 88,
+        "p95_chars": 88,
+        "max_chars": 88,
+        "avg_ms": 6,
+        "p50_ms": 6,
+        "p95_ms": 6,
+        "max_ms": 6,
+        "total_ms": 6,
+        "avg_output_tokens": 170,
+        "total_output_tokens": 170,
+        "avg_total_tokens_est": 192,
+        "total_total_tokens_est": 192
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 16,
+      "details": "Correct: XUB6-0Y2J"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 26,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 50,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 68,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 8,
+      "details": "Correct sum: 396"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 16041,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 13337,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 9333,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 5650,
+      "details": "Haskell selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 21800,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 3450,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 13758,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 10383,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 29350,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 15074,
+      "details": "Hit! Distance: 1.2px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 5977,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 23707,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 14351,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 8830,
+      "details": "Captured at exactly 1!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 11742,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 6220,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 20542,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 16659,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 11963,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "pass",
+      "duration_ms": 2807,
+      "details": "navigator.webdriver: clean, chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 2625,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 2934,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 2677,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 3074,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 30,
+    "failed": 0
+  },
+  "notes": "",
+  "run_file": "public-browser-run3.json"
+}
