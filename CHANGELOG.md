@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.10.5] - 2026-09-04
+
+### Changed
+- Package description and README headline now name the tool-definition shrink: 34% smaller since v2.10.4 (7,607 → 4,990 tokens, reproduce with `node scripts/token-count.mjs`). The figure is a comparison against this project's own earlier releases, not against other servers — Playwright MCP 0.0.80 ships smaller tool definitions (4,626 tokens) and the wording no longer implies otherwise. Metadata only, no behaviour change.
+
 ## [2.10.4] - 2026-09-04
 
 ### Changed

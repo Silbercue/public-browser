@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-Lets Claude Code and Cursor drive Chrome — with your real, logged-in profile. On the same 30-test benchmark page it used **30% fewer tokens, 25% less money, 41% fewer tool calls and 40% less time** than Playwright MCP at the same pass rate — two runs each, 2026-09-03, driver Claude Opus 5, raw data in the repo ([Benchmarks](#benchmarks), including where it loses). Direct CDP, a11y-tree refs, multi-tab ready — 2,360 TypeScript tests, 237 Python tests.
+Lets Claude Code and Cursor drive Chrome — with your real, logged-in profile. On the same 30-test benchmark page it used **30% fewer tokens, 25% less money, 41% fewer tool calls and 40% less time** than Playwright MCP at the same pass rate — two runs each, 2026-09-03, driver Claude Opus 5, raw data in the repo ([Benchmarks](#benchmarks), including where it loses). Its own tool definitions are **34% smaller since v2.10.4** (7,607 → 4,990 tokens, reproduce with `node scripts/token-count.mjs`). Direct CDP, a11y-tree refs, multi-tab ready — 2,360 TypeScript tests, 237 Python tests.
 
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
 
