@@ -515,11 +515,17 @@ export async function waitForHandler(
             },
           };
         }
+        // FR-052: Chrome's networkIdle lifecycle event fires once per document;
+        // on an already-loaded page this wait can only time out. Say why and
+        // name the condition that does work there.
+        const onceHint = result.signal === "timeout"
+          ? " Chrome reports network idle once per page load; on a page that is already loaded, wait for the expected text or element (condition 'text' / 'element') instead."
+          : "";
         return {
           content: [
             {
               type: "text",
-              text: `Timeout after ${timeout}ms waiting for network idle (signal: ${result.signal})`,
+              text: `Timeout after ${timeout}ms waiting for network idle (signal: ${result.signal}).${onceHint}`,
             },
           ],
           isError: true,

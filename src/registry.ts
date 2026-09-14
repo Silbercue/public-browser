@@ -306,8 +306,12 @@ function jsonSchemaPropToZod(prop: Record<string, unknown>): z.ZodTypeAny {
  * @see docs/friction-fixes.md#FR-029
  * @see docs/research/llm-tool-steering.md#Anti-Spiral Patterns
  */
+// FR-052: `network_idle` wird nicht mehr empfohlen — Chrome meldet es nur einmal
+// pro Seitenladung, nach einem Klick auf einer geladenen Seite laeuft es immer in
+// den Timeout.
+// @see docs/friction-fixes.md#FR-052
 const FR029_AJAX_RACE_HINT =
-  "No visible changes yet — the page may still be loading (AJAX/SPA). Use wait_for(condition: 'network_idle') or call view_page again to check.";
+  "No visible changes yet — the page may still be loading (AJAX/SPA). Use wait_for(condition: 'text' or 'element') for the result you expect, or call view_page again to check.";
 
 export class ToolRegistry implements ToolRegistryPublic {
   private _handlers = new Map<string, (params: Record<string, unknown>, sessionIdOverride?: string) => Promise<ToolResponse>>();

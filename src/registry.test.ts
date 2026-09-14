@@ -2810,7 +2810,26 @@ describe("ToolRegistry", () => {
             .filter((c): c is { type: "text"; text: string } => c.type === "text")
             .map((c) => c.text);
           expect(texts.some((t) => t.includes("No visible changes yet"))).toBe(true);
-          expect(texts.some((t) => t.includes("wait_for(condition: 'network_idle')"))).toBe(true);
+          expect(texts.some((t) => t.includes("wait_for(condition: 'network_idle')"))).toBe(false);
+        });
+
+        it("FR-052: the empty-diff hint recommends text/element instead of network_idle (full text)", async () => {
+          const hook = vi.fn<NonNullable<ProHooks["onToolResult"]>>(
+            async (_name, r, _ctx) => r,
+          );
+          const registry = buildRegistryWithHook(hook);
+          const result = makeClickResult("clickable");
+
+          await (registry as unknown as {
+            _runOnToolResultHook: (r: unknown, name: string) => Promise<void>;
+          })._runOnToolResultHook(result, "click");
+
+          const texts = result.content
+            .filter((c): c is { type: "text"; text: string } => c.type === "text")
+            .map((c) => c.text);
+          expect(texts).toContain(
+            "No visible changes yet — the page may still be loading (AJAX/SPA). Use wait_for(condition: 'text' or 'element') for the result you expect, or call view_page again to check.",
+          );
         });
 
         it("does NOT append hint when element class is static", async () => {

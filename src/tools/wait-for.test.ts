@@ -273,6 +273,23 @@ describe("waitForHandler — network_idle condition", () => {
     expect(result.content[0].text).toContain("Timeout after 1000ms waiting for network idle");
     expect(result.content[0].text).toContain("signal: timeout");
   });
+
+  it("FR-052: the timeout explains that networkIdle fires once per page load and names the alternative", async () => {
+    const { cdpClient } = createMockCdp({
+      "Page.getFrameTree": { frameTree: { frame: { id: "f1" } } },
+    });
+
+    const params: WaitForParams = { condition: "network_idle", timeout: 1000 };
+    const promise = waitForHandler(params, cdpClient, "s1");
+    await vi.advanceTimersByTimeAsync(1100);
+
+    const result = await promise;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe(
+      "Timeout after 1000ms waiting for network idle (signal: timeout). Chrome reports network idle once per page load; on a page that is already loaded, wait for the expected text or element (condition 'text' / 'element') instead.",
+    );
+    expect(result._meta?.code).toBe("timeout");
+  });
 });
 
 // --- JS condition tests (Task 7.6) ---
