@@ -3,7 +3,7 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
-import { wrapCdpError, isDetachedNodeError } from "./error-utils.js";
+import { wrapCdpError, isDetachedNodeError, isFatalCdpError } from "./error-utils.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { isHeadless } from "../cdp/emulation.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
@@ -188,6 +188,104 @@ async function dispatchClick(
 
 // --- Main handler (Task 6) ---
 
+/** FR-050: how many candidates click(text) probes live (first hit + replacements) before giving up. */
+const MAX_LIVE_PROBES = 5;
+
+interface LiveProbe {
+  connected: boolean;
+  visible: boolean;
+  docUrl: string;
+}
+
+/**
+ * FR-050: ask the browser about one candidate. Returns null when the node is
+ * gone (DOM.resolveNode rejects with a node error). Transport, session and
+ * timeout errors are rethrown — probing on would only multiply them.
+ */
+async function probeCandidate(
+  cdpClient: CdpClient,
+  owner: { backendNodeId: number; sessionId: string },
+): Promise<LiveProbe | null> {
+  try {
+    await cdpClient.send("DOM.getDocument", { depth: 0 }, owner.sessionId); // ensures DOM domain, idempotent
+    const resolved = await cdpClient.send<{ object: { objectId: string } }>(
+      "DOM.resolveNode",
+      { backendNodeId: owner.backendNodeId },
+      owner.sessionId,
+    );
+    const probe = await cdpClient.send<{ result?: { value?: LiveProbe } }>(
+      "Runtime.callFunctionOn",
+      {
+        functionDeclaration: `function() {
+          var r = this.getBoundingClientRect ? this.getBoundingClientRect() : { width: 0, height: 0 };
+          return {
+            connected: this.isConnected === true,
+            visible: r.width > 0 && r.height > 0,
+            docUrl: (this.ownerDocument && this.ownerDocument.URL) || ""
+          };
+        }`,
+        objectId: resolved.object.objectId,
+        returnByValue: true,
+      },
+      owner.sessionId,
+    );
+    const value = probe?.result?.value;
+    return value && typeof value.connected === "boolean" ? value : null;
+  } catch (err) {
+    if (isFatalCdpError(err)) throw err;
+    return null;
+  }
+}
+
+/**
+ * FR-050: Refs stay stable per backendNodeId on the same URL, so after an SPA
+ * re-render findByText's first hit may be the old, detached node while its
+ * replacement sits further down the list under the same name. If the first
+ * hit is still connected (visible or not) nothing changes. Otherwise return
+ * the first replacement that is connected, has a visible layout box, belongs
+ * to the same owner session and lives in the same document as the first hit
+ * (its document while it still exists, else the session's main document).
+ * Returns undefined when there is no such replacement — the caller proceeds
+ * exactly as before and reports the FR-051 stale hint.
+ */
+async function pickLiveReplacement(
+  cdpClient: CdpClient,
+  candidates: Array<{ ref: string; backendNodeId: number; sessionId: string }>,
+): Promise<{ ref: string } | undefined> {
+  const first = candidates[0];
+  const firstOwner = a11yTree.resolveRefFull(first.ref);
+  if (!firstOwner) return undefined;
+
+  const firstProbe = await probeCandidate(cdpClient, firstOwner);
+  if (firstProbe?.connected) return undefined; // still in the DOM — today's behaviour
+
+  let contextUrl = firstProbe?.docUrl ?? "";
+  if (!contextUrl) {
+    try {
+      const doc = await cdpClient.send<{ result: { value: string } }>(
+        "Runtime.evaluate",
+        { expression: "document.URL", returnByValue: true },
+        firstOwner.sessionId,
+      );
+      contextUrl = doc.result.value;
+    } catch (err) {
+      if (isFatalCdpError(err)) throw err;
+      return undefined;
+    }
+  }
+
+  for (const cand of candidates.slice(1, MAX_LIVE_PROBES)) {
+    if (cand.sessionId !== first.sessionId) continue;
+    const owner = a11yTree.resolveRefFull(cand.ref);
+    if (!owner) continue;
+    const probe = await probeCandidate(cdpClient, owner);
+    if (probe && probe.connected && probe.visible && probe.docUrl === contextUrl) {
+      return { ref: cand.ref };
+    }
+  }
+  return undefined;
+}
+
 export async function clickHandler(
   params: ClickParams,
   cdpClient: CdpClient,
@@ -291,15 +389,47 @@ export async function clickHandler(
     }
   }
 
+  let liveMatchFrom: string | undefined;
+
   // UX-001: Resolve text to ref before validation
   if (params.text && !params.ref && !params.selector) {
     // FR-046: Always fetch fresh a11y tree — previous refs may be stale after DOM mutations (e.g. type → restructure)
+    // FR-050: a failed fetch is reported, not swallowed — searching the old cache can only yield a stale click.
     try {
       await a11yTree.getTree(cdpClient, sessionId!, { depth: 3, filter: "interactive", fresh: true }, sessionManager);
-    } catch { /* best-effort — findByText will return null */ }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const text = isFatalCdpError(err)
+        ? wrapCdpError(err, "click")
+        : `click failed: could not read the page to find text "${params.text}" (${message}). Call view_page and retry.`;
+      return {
+        content: [{ type: "text", text }],
+        isError: true,
+        _meta: { elapsedMs: Math.round(performance.now() - start), method: "click" },
+      };
+    }
     const match = a11yTree.findByText(params.text);
     if (match) {
       params.ref = match.ref;
+      // FR-050: with several same-name hits the first may be a node the page
+      // has already replaced — take a connected, visible replacement in the
+      // same context, if there is one.
+      const all = a11yTree.findAllByText(params.text);
+      if (all.length > 1) {
+        try {
+          const live = await pickLiveReplacement(cdpClient, all);
+          if (live && live.ref !== match.ref) {
+            liveMatchFrom = match.ref;
+            params.ref = live.ref;
+          }
+        } catch (err) {
+          return {
+            content: [{ type: "text", text: wrapCdpError(err, "click", match.ref) }],
+            isError: true,
+            _meta: { elapsedMs: Math.round(performance.now() - start), method: "click" },
+          };
+        }
+      }
     } else {
       const elements = a11yTree.getInteractiveElements(8);
       const hint = elements.length > 0
@@ -374,7 +504,7 @@ export async function clickHandler(
       content: [
         {
           type: "text",
-          text: `Clicked ${params.ref ?? params.selector} (${element.resolvedVia}${suffix})${newTabHint}`,
+          text: `Clicked ${params.ref ?? params.selector} (${element.resolvedVia}${suffix})${liveMatchFrom ? ` — ${liveMatchFrom} was already replaced, took the live match` : ""}${newTabHint}`,
         },
       ],
       _meta: {
@@ -385,6 +515,7 @@ export async function clickHandler(
         clickX: clickResult.x,
         clickY: clickResult.y,
         elementClass,
+        ...(liveMatchFrom ? { liveMatchFrom } : {}),
         // Story 20.1: When wait_for_diff is true, signal the onToolResult
         // hook to run the diff synchronously (pre-20.1 behaviour).
         ...(params.wait_for_diff ? { syncDiff: true } : {}),

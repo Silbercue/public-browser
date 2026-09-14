@@ -682,6 +682,39 @@ describe("A11yTreeProcessor", () => {
     expect(suggestion!.name).toBe("Submit");
   });
 
+  // FR-050 ------------------------------------------------------------------
+  describe("FR-050 — findAllByText", () => {
+    const nodes: AXNode[] = [
+      makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 10, childIds: ["2", "3", "4", "5", "6"] }),
+      makeNode({ nodeId: "2", parentId: "1", role: { type: "role", value: "heading" }, name: { type: "computedString", value: "Speichern" }, backendDOMNodeId: 50 }),
+      makeNode({ nodeId: "3", parentId: "1", role: { type: "role", value: "button" }, name: { type: "computedString", value: "Speichern" }, backendDOMNodeId: 51 }),
+      makeNode({ nodeId: "4", parentId: "1", role: { type: "role", value: "button" }, name: { type: "computedString", value: "speichern" }, backendDOMNodeId: 52 }),
+      makeNode({ nodeId: "5", parentId: "1", role: { type: "role", value: "link" }, name: { type: "computedString", value: "Jetzt speichern" }, backendDOMNodeId: 53 }),
+      makeNode({ nodeId: "6", parentId: "1", role: { type: "role", value: "button" }, name: { type: "computedString", value: "Speichern" }, backendDOMNodeId: 54 }),
+    ];
+
+    it("returns every match in the tier order exact → case-insensitive → partial, interactive first, then lowest ref", async () => {
+      await processor.getTree(mockCdpClient(nodes), "s1");
+      // e1 WebArea, e2 heading 50, e3 button 51, e4 button 52 ("speichern"), e5 link 53 (partial), e6 button 54
+      expect(processor.findAllByText("Speichern")).toEqual([
+        { ref: "e3", backendNodeId: 51, sessionId: "s1" }, // exact, interactive, lowest
+        { ref: "e6", backendNodeId: 54, sessionId: "s1" }, // exact, interactive
+        { ref: "e2", backendNodeId: 50, sessionId: "s1" }, // exact, non-interactive
+        { ref: "e4", backendNodeId: 52, sessionId: "s1" }, // case-insensitive exact
+        { ref: "e5", backendNodeId: 53, sessionId: "s1" }, // partial
+      ]);
+    });
+
+    it("findByText is exactly the first entry of findAllByText (unchanged behaviour)", async () => {
+      await processor.getTree(mockCdpClient(nodes), "s1");
+      expect(processor.findByText("Speichern")).toEqual({ ref: "e3", backendNodeId: 51 });
+      expect(processor.findByText("speichern")).toEqual({ ref: "e4", backendNodeId: 52 }); // exact tier wins over case-insensitive
+      expect(processor.findByText("Jetzt")).toEqual({ ref: "e5", backendNodeId: 53 });     // partial only
+      expect(processor.findByText("nichts")).toBeNull();
+      expect(processor.findAllByText("nichts")).toEqual([]);
+    });
+  });
+
   // Test: nodeInfoMap is cleared on URL change
   it("should clear nodeInfoMap on URL change", async () => {
     const nodes1: AXNode[] = [

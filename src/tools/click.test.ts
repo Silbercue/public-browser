@@ -26,6 +26,8 @@ vi.mock("../cache/a11y-tree.js", () => ({
     findByText: vi.fn().mockReturnValue(null),
     hasRefs: vi.fn().mockReturnValue(true),
     getTree: vi.fn().mockResolvedValue({ text: "", tokenCount: 0, refCount: 0 }),
+    findAllByText: vi.fn().mockReturnValue([]),
+    resolveRefFull: vi.fn().mockReturnValue(undefined),
   },
 }));
 
@@ -36,6 +38,9 @@ const mockBuildRefNotFoundError = vi.mocked(buildRefNotFoundError);
 const mockGetInteractiveElements = vi.mocked(a11yTree.getInteractiveElements);
 const mockFindByText = vi.mocked(a11yTree.findByText);
 const mockHasRefs = vi.mocked(a11yTree.hasRefs);
+const mockFindAllByText = vi.mocked(a11yTree.findAllByText);
+const mockResolveRefFull = vi.mocked(a11yTree.resolveRefFull);
+const mockGetTree = vi.mocked(a11yTree.getTree);
 
 // --- Mock CDP client ---
 
@@ -964,6 +969,226 @@ describe("clickHandler", () => {
       expect(result.isError).toBeUndefined();
       expect(result._meta?.clickMethod).toBe("js-click");
       expect(mouseEvents(sendFn)).toHaveLength(0);
+    });
+  });
+
+  // --- FR-050: several same-name matches → take the first connected, visible one in the same context ---
+
+  describe("FR-050 — live check of same-name candidates", () => {
+    type Probe = { connected: boolean; visible: boolean; docUrl: string };
+    const PAGE = "https://example.com/app";
+    const candidates = [
+      { ref: "e5", backendNodeId: 5, sessionId: "s1" },
+      { ref: "e9", backendNodeId: 9, sessionId: "s1" },
+      { ref: "e12", backendNodeId: 12, sessionId: "oopif-1" },
+      { ref: "e13", backendNodeId: 13, sessionId: "s1" },
+    ];
+    const PROBE_MARK = "ownerDocument";
+    const probeCalls = (sendFn: ReturnType<typeof vi.fn>) =>
+      sendFn.mock.calls.filter(
+        (c: unknown[]) => c[0] === "Runtime.callFunctionOn"
+          && String((c[1] as { functionDeclaration: string }).functionDeclaration).includes(PROBE_MARK),
+      );
+    const live = (connected: boolean, visible = true, docUrl = PAGE): Probe => ({ connected, visible, docUrl });
+
+    /**
+     * probes: objectId ("live-<ref>") → probe result; a ref listed in `gone`
+     * fails DOM.resolveNode ("No node with given id found"); a ref listed in
+     * `fatal` fails with a transport error.
+     */
+    function arm(list: typeof candidates, probes: Record<string, Probe>, gone: string[] = [], fatal: string[] = []) {
+      mockFindByText.mockReturnValue({ ref: list[0].ref, backendNodeId: list[0].backendNodeId });
+      mockFindAllByText.mockReturnValue(list);
+      mockResolveRefFull.mockImplementation((ref: string) => {
+        const c = list.find((x) => x.ref === ref);
+        return c ? { backendNodeId: c.backendNodeId, sessionId: c.sessionId } : undefined;
+      });
+      mockResolveElement.mockImplementation(async (_cdp, _sid, target) => ({
+        backendNodeId: list.find((x) => x.ref === target.ref)!.backendNodeId,
+        objectId: `obj-${target.ref}`,
+        role: "button", name: "Speichern", resolvedVia: "ref" as const, resolvedSessionId: "s1",
+      }));
+      return createMockCdp({
+        "Runtime.evaluate": (args: unknown) => {
+          const expr = (args as { expression: string }).expression;
+          if (expr === "document.URL") return { result: { value: PAGE } };
+          return { result: { value: { sx: 0, sy: 0 } } };
+        },
+        "DOM.resolveNode": (args: unknown) => {
+          const { backendNodeId } = args as { backendNodeId: number };
+          const ref = list.find((x) => x.backendNodeId === backendNodeId)!.ref;
+          if (fatal.includes(ref)) throw new Error("CdpClient is closed");
+          if (gone.includes(ref)) throw new Error("CDP error -32000: No node with given id found");
+          return { object: { objectId: `live-${ref}` } };
+        },
+        "Runtime.callFunctionOn": (args: unknown) => {
+          const { objectId, functionDeclaration } = args as { objectId: string; functionDeclaration: string };
+          if (functionDeclaration.includes(PROBE_MARK)) {
+            return { result: { value: probes[objectId] ?? live(false) } };
+          }
+          return { result: { value: undefined } };
+        },
+      });
+    }
+
+    it("clicks the second candidate when the first is detached and the second is connected, visible, same document", async () => {
+      const { cdpClient, sendFn } = arm(candidates, { "live-e5": live(false), "live-e9": live(true) });
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+      expect(result._meta?.liveMatchFrom).toBe("e5");
+      expect(mockResolveElement).toHaveBeenCalledWith(cdpClient, "s1", { ref: "e9" }, undefined);
+      expect(probeCalls(sendFn)).toHaveLength(2); // e12/e13 never probed — first fit wins
+    });
+
+    it("treats a candidate whose node is gone (DOM.resolveNode fails) as not connected and moves on", async () => {
+      const { cdpClient } = arm(candidates, { "live-e13": live(true) }, ["e5", "e9"]);
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      // e12 belongs to another session and is skipped without a probe; e13 is the replacement
+      expect(result.content[0].text).toBe("Clicked e13 (ref) — e5 was already replaced, took the live match");
+    });
+
+    it("routes probes through the owner session of OOPIF candidates", async () => {
+      const oopif = [
+        { ref: "e20", backendNodeId: 20, sessionId: "oopif-1" },
+        { ref: "e21", backendNodeId: 21, sessionId: "oopif-1" },
+      ];
+      const { cdpClient, sendFn } = arm(oopif, { "live-e20": live(false), "live-e21": live(true) });
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.content[0].text).toBe("Clicked e21 (ref) — e20 was already replaced, took the live match");
+      const routed = sendFn.mock.calls.filter(
+        (c: unknown[]) => (c[0] === "DOM.resolveNode" || c[0] === "Runtime.callFunctionOn") && c[2] === "oopif-1",
+      );
+      expect(routed.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it("keeps the first candidate when it is still connected — even if invisible (selection identical to today)", async () => {
+      const { cdpClient, sendFn } = arm(candidates, { "live-e5": live(true, false), "live-e9": live(true) });
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.content[0].text).toBe("Clicked e5 (ref)");
+      expect(result._meta?.liveMatchFrom).toBeUndefined();
+      expect(probeCalls(sendFn)).toHaveLength(1); // only the first is probed
+    });
+
+    it("rejects a replacement without a visible layout box and reports the stale hint", async () => {
+      const { cdpClient, sendFn } = arm(candidates, { "live-e5": live(false), "live-e9": live(true, false), "live-e13": live(true, false) });
+      mockResolveElement.mockResolvedValue({
+        backendNodeId: 5, objectId: "obj-e5", role: "button", name: "Speichern", resolvedVia: "ref", resolvedSessionId: "s1",
+      });
+      const base = sendFn.getMockImplementation()!;
+      sendFn.mockImplementation(async (method: string, args?: unknown, sid?: string) => {
+        if (method === "DOM.scrollIntoViewIfNeeded") throw new Error("CDP error -32000: Node is detached from document");
+        return base(method, args, sid);
+      });
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(
+        "click failed: Element e5 was replaced by a page re-render (node detached from document). Call view_page for fresh refs and retry.",
+      );
+    });
+
+    it("rejects a replacement from another document (same session, other frame) and another session", async () => {
+      const { cdpClient, sendFn } = arm(candidates, {
+        "live-e5": live(false),
+        "live-e9": live(true, true, "https://example.com/iframe"),
+        "live-e13": live(true, true, "https://example.com/other-frame"),
+      });
+      mockResolveElement.mockResolvedValue({
+        backendNodeId: 5, objectId: "obj-e5", role: "button", name: "Speichern", resolvedVia: "ref", resolvedSessionId: "s1",
+      });
+      const base = sendFn.getMockImplementation()!;
+      sendFn.mockImplementation(async (method: string, args?: unknown, sid?: string) => {
+        if (method === "DOM.scrollIntoViewIfNeeded") throw new Error("CDP error -32000: Node is detached from document");
+        return base(method, args, sid);
+      });
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Element e5 was replaced by a page re-render");
+      // e12 (oopif-1) was never probed: different owner session than the first hit
+      const oopifProbes = sendFn.mock.calls.filter((c: unknown[]) => c[0] === "DOM.resolveNode" && c[2] === "oopif-1");
+      expect(oopifProbes).toHaveLength(0);
+    });
+
+    it("uses the session's main document as context when the first node is already gone", async () => {
+      const { cdpClient } = arm(candidates, { "live-e9": live(true, true, PAGE) }, ["e5"]);
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+    });
+
+    it("rethrows transport/session/timeout errors instead of probing on", async () => {
+      const { cdpClient, sendFn } = arm(candidates, {}, [], ["e5"]);
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe("CDP connection lost. The server is attempting to reconnect. Retry your request in a few seconds.");
+      const resolves = sendFn.mock.calls.filter((c: unknown[]) => c[0] === "DOM.resolveNode");
+      expect(resolves).toHaveLength(1);
+    });
+
+    it("does not run the live check for a single candidate", async () => {
+      mockFindByText.mockReturnValue({ ref: "e5", backendNodeId: 5 });
+      mockFindAllByText.mockReturnValue([candidates[0]]);
+      mockResolveElement.mockResolvedValue({
+        backendNodeId: 5, objectId: "obj-e5", role: "button", name: "Speichern", resolvedVia: "ref", resolvedSessionId: "s1",
+      });
+      const { cdpClient, sendFn } = createMockCdp();
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.content[0].text).toBe("Clicked e5 (ref)");
+      expect(probeCalls(sendFn)).toHaveLength(0);
+      expect(mockResolveRefFull).not.toHaveBeenCalled();
+    });
+
+    it("probes at most five candidates (first + four replacements)", async () => {
+      const many = Array.from({ length: 8 }, (_, i) => ({ ref: `e${i + 1}`, backendNodeId: i + 1, sessionId: "s1" }));
+      const { cdpClient, sendFn } = arm(many, {}); // every probe answers "not connected"
+      mockResolveElement.mockResolvedValue({
+        backendNodeId: 1, objectId: "obj-e1", role: "button", name: "Speichern", resolvedVia: "ref", resolvedSessionId: "s1",
+      });
+
+      await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(probeCalls(sendFn)).toHaveLength(5);
+    });
+
+    it("aborts the text click clearly when the fresh tree cannot be read", async () => {
+      mockGetTree.mockRejectedValueOnce(new Error("Execution context was destroyed."));
+      const { cdpClient } = createMockCdp();
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(
+        'click failed: could not read the page to find text "Speichern" (Execution context was destroyed.). Call view_page and retry.',
+      );
+      expect(mockFindByText).not.toHaveBeenCalled();
+    });
+
+    it("keeps the reconnect message when reading the fresh tree fails on transport loss", async () => {
+      mockGetTree.mockRejectedValueOnce(new Error("CdpClient is closed"));
+      const { cdpClient } = createMockCdp();
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe("CDP connection lost. The server is attempting to reconnect. Retry your request in a few seconds.");
     });
   });
 

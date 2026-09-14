@@ -847,12 +847,28 @@ export class A11yTreeProcessor {
    * UX-001: Find an element by visible text (name). Returns ref string and backendNodeId.
    * Matching priority: exact → case-insensitive exact → partial substring.
    * Within each tier, interactive roles (button, link, etc.) are preferred.
+   * FR-050: thin wrapper over findAllByText — same first result as before.
    */
   findByText(text: string): { ref: string; backendNodeId: number } | null {
-    if (!text || this.reverseMap.size === 0) return null;
+    const first = this.findAllByText(text)[0];
+    return first ? { ref: first.ref, backendNodeId: first.backendNodeId } : null;
+  }
+
+  /**
+   * FR-050: every element whose name matches, in the order findByText has
+   * always used (tier exact → case-insensitive → partial; inside a tier
+   * interactive first, then lowest ref). Refs stay stable per backendNodeId
+   * on the same URL, so after an SPA re-render the old, detached node and
+   * its replacement sit here side by side with the same name. click(text)
+   * checks the candidates live and takes the first one still in the DOM.
+   * `sessionId` is the owner session (BUG-016 composite key) so the caller
+   * can route CDP calls for OOPIF nodes.
+   */
+  findAllByText(text: string): Array<{ ref: string; backendNodeId: number; sessionId: string }> {
+    if (!text || this.reverseMap.size === 0) return [];
 
     const lower = text.toLowerCase();
-    type Candidate = { refNum: number; backendNodeId: number; interactive: boolean };
+    type Candidate = { refNum: number; backendNodeId: number; sessionId: string; interactive: boolean };
     const exact: Candidate[] = [];
     const iexact: Candidate[] = [];
     const partial: Candidate[] = [];
@@ -864,7 +880,7 @@ export class A11yTreeProcessor {
       const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
       if (!info || !info.name) continue;
       const interactive = INTERACTIVE_ROLES.has(info.role) || !!info.isClickable;
-      const cand = { refNum, backendNodeId: owner.backendNodeId, interactive };
+      const cand = { refNum, backendNodeId: owner.backendNodeId, sessionId: owner.sessionId, interactive };
       if (info.name === text) {
         exact.push(cand);
       } else if (info.name.toLowerCase() === lower) {
@@ -874,15 +890,11 @@ export class A11yTreeProcessor {
       }
     }
 
-    // Pick best candidate: prefer interactive, then lowest refNum (most stable)
-    const pick = (candidates: Candidate[]) => {
-      const interactive = candidates.filter(c => c.interactive);
-      const best = (interactive.length > 0 ? interactive : candidates)
-        .sort((a, b) => a.refNum - b.refNum)[0];
-      return best ? { ref: `e${best.refNum}`, backendNodeId: best.backendNodeId } : null;
-    };
-
-    return pick(exact) ?? pick(iexact) ?? pick(partial);
+    // Same ranking as the old pick(): interactive first, then lowest refNum.
+    const order = (a: Candidate, b: Candidate) =>
+      (Number(b.interactive) - Number(a.interactive)) || (a.refNum - b.refNum);
+    return [...exact.sort(order), ...iexact.sort(order), ...partial.sort(order)]
+      .map((c) => ({ ref: `e${c.refNum}`, backendNodeId: c.backendNodeId, sessionId: c.sessionId }));
   }
 
   /** Returns true if the ref map has been populated (i.e. getTree was called at least once). */
