@@ -1181,6 +1181,82 @@ describe("clickHandler", () => {
       expect(mockFindByText).not.toHaveBeenCalled();
     });
 
+    // Fix round 1: a replacement must share the first hit's match tier and interactive flag.
+    const staleClickOnFirst = (sendFn: ReturnType<typeof vi.fn>) => {
+      mockResolveElement.mockResolvedValue({
+        backendNodeId: 5, objectId: "obj-e5", role: "button", name: "Save", resolvedVia: "ref", resolvedSessionId: "s1",
+      });
+      const base = sendFn.getMockImplementation()!;
+      sendFn.mockImplementation(async (method: string, args?: unknown, sid?: string) => {
+        if (method === "DOM.scrollIntoViewIfNeeded") throw new Error("CDP error -32000: Node is detached from document");
+        return base(method, args, sid);
+      });
+    };
+    const STALE_E5 = "click failed: Element e5 was replaced by a page re-render (node detached from document). Call view_page for fresh refs and retry.";
+
+    it("never takes a substring match as replacement for a detached exact match", async () => {
+      const ranked = [
+        { ref: "e5", backendNodeId: 5, sessionId: "s1", tier: 0, interactive: true },  // "Save", detached
+        { ref: "e9", backendNodeId: 9, sessionId: "s1", tier: 2, interactive: true },  // "Save draft", live
+      ];
+      const { cdpClient, sendFn } = arm(ranked, { "live-e5": live(false), "live-e9": live(true) });
+      staleClickOnFirst(sendFn);
+
+      const result = await clickHandler({ text: "Save" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(STALE_E5);
+      expect(mockResolveElement).not.toHaveBeenCalledWith(cdpClient, "s1", { ref: "e9" }, undefined);
+      expect(probeCalls(sendFn)).toHaveLength(0);
+      expect(mockFindAllByText).toHaveBeenCalledWith("Save", { withRank: true });
+    });
+
+    it("never takes a non-interactive exact match as replacement for a detached interactive one", async () => {
+      const ranked = [
+        { ref: "e5", backendNodeId: 5, sessionId: "s1", tier: 0, interactive: true },   // button, detached
+        { ref: "e9", backendNodeId: 9, sessionId: "s1", tier: 0, interactive: false },  // heading, live
+      ];
+      const { cdpClient, sendFn } = arm(ranked, { "live-e5": live(false), "live-e9": live(true) });
+      staleClickOnFirst(sendFn);
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(STALE_E5);
+      expect(probeCalls(sendFn)).toHaveLength(0);
+    });
+
+    it("does not probe at all when the other matches sit only in other tiers or groups", async () => {
+      const ranked = [
+        { ref: "e5", backendNodeId: 5, sessionId: "s1", tier: 0, interactive: true },
+        { ref: "e6", backendNodeId: 6, sessionId: "s1", tier: 0, interactive: false },
+        { ref: "e7", backendNodeId: 7, sessionId: "s1", tier: 1, interactive: true },
+        { ref: "e8", backendNodeId: 8, sessionId: "s1", tier: 2, interactive: true },
+      ];
+      const { cdpClient, sendFn } = arm(ranked, { "live-e5": live(true) });
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.content[0].text).toBe("Clicked e5 (ref)");
+      expect(mockResolveRefFull).not.toHaveBeenCalled();
+      expect(probeCalls(sendFn)).toHaveLength(0);
+    });
+
+    it("still takes a same-tier, same-flag replacement and skips other tiers in between", async () => {
+      const ranked = [
+        { ref: "e5", backendNodeId: 5, sessionId: "s1", tier: 0, interactive: true },
+        { ref: "e7", backendNodeId: 7, sessionId: "s1", tier: 0, interactive: false },
+        { ref: "e9", backendNodeId: 9, sessionId: "s1", tier: 0, interactive: true },
+        { ref: "e11", backendNodeId: 11, sessionId: "s1", tier: 2, interactive: true },
+      ];
+      const { cdpClient, sendFn } = arm(ranked, { "live-e5": live(false), "live-e7": live(true), "live-e9": live(true), "live-e11": live(true) });
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+      expect(probeCalls(sendFn)).toHaveLength(2); // e5 and e9 — e7 (other flag) never probed
+    });
+
     it("keeps the reconnect message when reading the fresh tree fails on transport loss", async () => {
       mockGetTree.mockRejectedValueOnce(new Error("CdpClient is closed"));
       const { cdpClient } = createMockCdp();

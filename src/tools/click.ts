@@ -413,11 +413,16 @@ export async function clickHandler(
       params.ref = match.ref;
       // FR-050: with several same-name hits the first may be a node the page
       // has already replaced — take a connected, visible replacement in the
-      // same context, if there is one.
-      const all = a11yTree.findAllByText(params.text);
-      if (all.length > 1) {
+      // same context, if there is one. Only true namesakes qualify: same match
+      // tier and same interactive flag as the first hit ("Save draft" never
+      // stands in for "Save", a heading never for a button).
+      const all = a11yTree.findAllByText(params.text, { withRank: true });
+      const namesakes = all.filter(
+        (c) => c.tier === all[0]?.tier && c.interactive === all[0]?.interactive,
+      );
+      if (namesakes.length > 1) {
         try {
-          const live = await pickLiveReplacement(cdpClient, all);
+          const live = await pickLiveReplacement(cdpClient, namesakes);
           if (live && live.ref !== match.ref) {
             liveMatchFrom = match.ref;
             params.ref = live.ref;

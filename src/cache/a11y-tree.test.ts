@@ -713,6 +713,17 @@ describe("A11yTreeProcessor", () => {
       expect(processor.findByText("nichts")).toBeNull();
       expect(processor.findAllByText("nichts")).toEqual([]);
     });
+
+    it("withRank exposes the match tier and the interactive flag per entry (fix round 1)", async () => {
+      await processor.getTree(mockCdpClient(nodes), "s1");
+      expect(processor.findAllByText("Speichern", { withRank: true })).toEqual([
+        { ref: "e3", backendNodeId: 51, sessionId: "s1", tier: 0, interactive: true },
+        { ref: "e6", backendNodeId: 54, sessionId: "s1", tier: 0, interactive: true },
+        { ref: "e2", backendNodeId: 50, sessionId: "s1", tier: 0, interactive: false },
+        { ref: "e4", backendNodeId: 52, sessionId: "s1", tier: 1, interactive: true },
+        { ref: "e5", backendNodeId: 53, sessionId: "s1", tier: 2, interactive: true },
+      ]);
+    });
   });
 
   // Test: nodeInfoMap is cleared on URL change

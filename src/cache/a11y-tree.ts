@@ -862,9 +862,14 @@ export class A11yTreeProcessor {
    * its replacement sit here side by side with the same name. click(text)
    * checks the candidates live and takes the first one still in the DOM.
    * `sessionId` is the owner session (BUG-016 composite key) so the caller
-   * can route CDP calls for OOPIF nodes.
+   * can route CDP calls for OOPIF nodes. With `withRank` every entry also
+   * carries its match tier (0 exact, 1 case-insensitive, 2 partial) and the
+   * interactive flag, so click(text) only swaps between true namesakes.
    */
-  findAllByText(text: string): Array<{ ref: string; backendNodeId: number; sessionId: string }> {
+  findAllByText(
+    text: string,
+    options?: { withRank?: boolean },
+  ): Array<{ ref: string; backendNodeId: number; sessionId: string; tier?: number; interactive?: boolean }> {
     if (!text || this.reverseMap.size === 0) return [];
 
     const lower = text.toLowerCase();
@@ -893,8 +898,13 @@ export class A11yTreeProcessor {
     // Same ranking as the old pick(): interactive first, then lowest refNum.
     const order = (a: Candidate, b: Candidate) =>
       (Number(b.interactive) - Number(a.interactive)) || (a.refNum - b.refNum);
-    return [...exact.sort(order), ...iexact.sort(order), ...partial.sort(order)]
-      .map((c) => ({ ref: `e${c.refNum}`, backendNodeId: c.backendNodeId, sessionId: c.sessionId }));
+    const tiers = [exact.sort(order), iexact.sort(order), partial.sort(order)];
+    return tiers.flatMap((tier, tierIndex) => tier.map((c) => ({
+      ref: `e${c.refNum}`,
+      backendNodeId: c.backendNodeId,
+      sessionId: c.sessionId,
+      ...(options?.withRank ? { tier: tierIndex, interactive: c.interactive } : {}),
+    })));
   }
 
   /** Returns true if the ref map has been populated (i.e. getTree was called at least once). */
