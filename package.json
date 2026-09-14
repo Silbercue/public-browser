@@ -1,6 +1,6 @@
 {
   "name": "public-browser",
-  "version": "2.10.5",
+  "version": "2.10.6",
   "description": "Lets Claude Code and Cursor drive Chrome. Browse your real profile: -30% tokens, -25% cost, -41% tool calls, -34% tool defs, +40% faster.",
   "keywords": [
     "mcp",
