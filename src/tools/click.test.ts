@@ -1040,7 +1040,7 @@ describe("clickHandler", () => {
       expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
       expect(result._meta?.liveMatchFrom).toBe("e5");
       expect(mockResolveElement).toHaveBeenCalledWith(cdpClient, "s1", { ref: "e9" }, undefined);
-      expect(probeCalls(sendFn)).toHaveLength(2); // e12/e13 never probed — first fit wins
+      expect(probeCalls(sendFn)).toHaveLength(3); // fix round 3: e5, then newest-first e13 and e9 (ambiguity check); e12 other session
     });
 
     it("treats a candidate whose node is gone (DOM.resolveNode fails) as not connected and moves on", async () => {
@@ -1284,6 +1284,41 @@ describe("clickHandler", () => {
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+    });
+
+    // Fix round 3: replacements are scanned newest-first; two live namesakes are ambiguous.
+    const probedObjectIds = (sendFn: ReturnType<typeof vi.fn>) =>
+      probeCalls(sendFn).map((c: unknown[]) => (c[1] as { objectId: string }).objectId);
+
+    it("reaches the live replacement behind six or more stale namesakes (newest-first)", async () => {
+      const many = Array.from({ length: 8 }, (_, i) => ({ ref: `e${i + 1}`, backendNodeId: i + 1, sessionId: "s1" }));
+      const { cdpClient } = arm(many, { "live-e8": live(true) }); // e1..e7 detached, e8 is the live re-render
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toBe("Clicked e8 (ref) — e1 was already replaced, took the live match");
+    });
+
+    it("probes the first hit, then the replacements newest-first, capped at five", async () => {
+      const many = Array.from({ length: 8 }, (_, i) => ({ ref: `e${i + 1}`, backendNodeId: i + 1, sessionId: "s1" }));
+      const { cdpClient, sendFn } = arm(many, {});
+
+      await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(probedObjectIds(sendFn)).toEqual(["live-e1", "live-e8", "live-e7", "live-e6", "live-e5"]);
+    });
+
+    it("does not guess when two replacements qualify (e.g. a Delete button per row) and reports the stale hint", async () => {
+      const { cdpClient, sendFn } = arm(candidates, { "live-e5": live(false), "live-e9": live(true), "live-e13": live(true) });
+      staleClickOnFirst(sendFn);
+
+      const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(STALE_E5);
+      expect(mockResolveElement).toHaveBeenCalledTimes(1);
+      expect(mockResolveElement).toHaveBeenCalledWith(cdpClient, "s1", { ref: "e5" }, undefined);
     });
 
     it("keeps the reconnect message when reading the fresh tree fails on transport loss", async () => {

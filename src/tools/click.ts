@@ -241,12 +241,15 @@ async function probeCandidate(
  * FR-050: Refs stay stable per backendNodeId on the same URL, so after an SPA
  * re-render findByText's first hit may be the old, detached node while its
  * replacement sits further down the list under the same name. If the first
- * hit is still connected (visible or not) nothing changes. Otherwise return
- * the first replacement that is connected, has a visible layout box, belongs
- * to the same owner session and lives in the same document as the first hit
+ * hit is still connected (visible or not) nothing changes. Otherwise look
+ * for a replacement that is connected, has a visible layout box, belongs to
+ * the same owner session and lives in the same document as the first hit
  * (its document while it still exists, else the session's main document).
- * Returns undefined when there is no such replacement — the caller proceeds
- * exactly as before and reports the FR-051 stale hint.
+ * Candidates are scanned newest ref first: every re-render the server sees
+ * leaves one more stale namesake behind, and the live node is the latest one.
+ * Returns undefined when no replacement or more than one qualifies (e.g. a
+ * "Delete" button per row — no guessing) — the caller proceeds exactly as
+ * before and reports the FR-051 stale hint.
  */
 async function pickLiveReplacement(
   cdpClient: CdpClient,
@@ -274,16 +277,24 @@ async function pickLiveReplacement(
     }
   }
 
-  for (const cand of candidates.slice(1, MAX_LIVE_PROBES)) {
-    if (cand.sessionId !== first.sessionId) continue;
+  const newestFirst = candidates
+    .slice(1)
+    .filter((cand) => cand.sessionId === first.sessionId)
+    .sort((a, b) => Number(b.ref.slice(1)) - Number(a.ref.slice(1)));
+  let probes = 1; // the first hit
+  let match: { ref: string } | undefined;
+  for (const cand of newestFirst) {
+    if (probes >= MAX_LIVE_PROBES) break;
     const owner = a11yTree.resolveRefFull(cand.ref);
     if (!owner) continue;
+    probes++;
     const probe = await probeCandidate(cdpClient, owner);
     if (probe && probe.connected && probe.visible && probe.docUrl === contextUrl) {
-      return { ref: cand.ref };
+      if (match) return undefined; // two live namesakes — ambiguous
+      match = { ref: cand.ref };
     }
   }
-  return undefined;
+  return match;
 }
 
 export async function clickHandler(
