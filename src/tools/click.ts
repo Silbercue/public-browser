@@ -3,7 +3,7 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
-import { wrapCdpError } from "./error-utils.js";
+import { wrapCdpError, isDetachedNodeError } from "./error-utils.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { isHeadless } from "../cdp/emulation.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
@@ -111,28 +111,40 @@ async function dispatchClick(
     const q = quadsResult.quads[0];
     x = (q[0] + q[2] + q[4] + q[6]) / 4;
     y = (q[1] + q[3] + q[5] + q[7]) / 4;
-  } catch {
+  } catch (quadsErr) {
+    // FR-051: a detached node must not fall through to the rect fallback —
+    // getBoundingClientRect() of a detached element is 0/0/0/0, which used
+    // to become a real mouse click at (0,0).
+    if (isDetachedNodeError(quadsErr)) throw quadsErr;
+
     // Fallback 1: getBoundingClientRect via Runtime.callFunctionOn
     // Handles Shadow-DOM nodes and post-mutation stale layouts (BUG-005, BUG-007, BUG-012)
     try {
       const rectResult = await cdpClient.send<{
-        result: { value: { x: number; y: number } };
+        result: { value: { x: number; y: number; w?: number; h?: number; connected?: boolean } };
       }>(
         "Runtime.callFunctionOn",
         {
           functionDeclaration: `function() {
             var rect = this.getBoundingClientRect();
-            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, w: rect.width, h: rect.height, connected: this.isConnected };
           }`,
           objectId,
           returnByValue: true,
         },
         sessionId,
       );
-      x = rectResult.result.value.x;
-      y = rectResult.result.value.y;
+      const box = rectResult.result.value;
+      // FR-051: the element left the document between scroll and here.
+      if (box.connected === false) throw new Error("Node is detached from document");
+      // A connected element without a box cannot be hit by coordinates —
+      // the click would land on whatever is at that point. Use the JS click.
+      if (box.w === 0 && box.h === 0) throw new Error("Element has no layout box");
+      x = box.x;
+      y = box.y;
       clickMethod = "js-rect";
-    } catch {
+    } catch (rectErr) {
+      if (isDetachedNodeError(rectErr)) throw rectErr;
       // Fallback 2: Pure JS click — no coordinates needed
       await cdpClient.send(
         "Runtime.callFunctionOn",

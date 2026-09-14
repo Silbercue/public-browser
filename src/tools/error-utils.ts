@@ -16,6 +16,15 @@ export function wrapCdpError(err: unknown, toolName: string, elementHint?: strin
     return `${toolName} failed: ${message}. Use virtual_desk to discover available tabs and reconnect.`;
   }
 
+  // FR-051: the page re-rendered the element between view_page and the action
+  // (React/Vue key change, list rebuild). DOM.resolveNode may still answer for
+  // the old backendNodeId, but scrollIntoViewIfNeeded/focus reject the detached
+  // node. Same recovery as a stale ref — say so instead of leaking the raw CDP text.
+  if (isDetachedNodeMessage(message)) {
+    const elem = elementHint ?? "target element";
+    return `${toolName} failed: Element ${elem} was replaced by a page re-render (node detached from document). Call view_page for fresh refs and retry.`;
+  }
+
   // FR-003: Element exists in DOM but has no visual layout (display:none, hidden tab, etc.)
   if (
     message.includes("Node does not have a layout object") ||
@@ -64,4 +73,19 @@ export function isFatalCdpError(err: unknown): boolean {
     // The CDP client's own timeout — Chrome stopped answering this session.
     /^CDP call ".*" timed out after \d+ms$/.test(message)
   );
+}
+
+function isDetachedNodeMessage(message: string): boolean {
+  return message.includes("Node is detached from document");
+}
+
+/**
+ * FR-051: true when a CDP call failed because the target node was removed
+ * from the document (typically a framework re-render). `dispatchClick` uses
+ * this so the error is reported instead of falling through to a coordinate
+ * click at (0,0).
+ */
+export function isDetachedNodeError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return isDetachedNodeMessage(message);
 }

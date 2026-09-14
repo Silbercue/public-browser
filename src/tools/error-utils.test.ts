@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wrapCdpError } from "./error-utils.js";
+import { wrapCdpError, isDetachedNodeError } from "./error-utils.js";
 
 describe("wrapCdpError", () => {
   it("wraps 'CdpClient is closed' into friendly reconnect message", () => {
@@ -74,5 +74,28 @@ describe("wrapCdpError", () => {
     );
     expect(result).toContain("target element");
     expect(result).toContain("not visible");
+  });
+});
+
+describe("FR-051: detached node", () => {
+  it("wrapCdpError maps 'Node is detached from document' to a stale-ref hint naming the element", () => {
+    const result = wrapCdpError(new Error("CDP error -32000: Node is detached from document"), "click", "e87");
+    expect(result).toBe(
+      "click failed: Element e87 was replaced by a page re-render (node detached from document). Call view_page for fresh refs and retry.",
+    );
+  });
+
+  it("wrapCdpError falls back to 'target element' without an element hint", () => {
+    const result = wrapCdpError(new Error("Node is detached from document"), "type");
+    expect(result).toBe(
+      "type failed: Element target element was replaced by a page re-render (node detached from document). Call view_page for fresh refs and retry.",
+    );
+  });
+
+  it("isDetachedNodeError recognises the CDP message and nothing else", () => {
+    expect(isDetachedNodeError(new Error("CDP error -32000: Node is detached from document"))).toBe(true);
+    expect(isDetachedNodeError("Node is detached from document")).toBe(true);
+    expect(isDetachedNodeError(new Error("Could not find node with given id"))).toBe(false);
+    expect(isDetachedNodeError(new Error("CdpClient is closed"))).toBe(false);
   });
 });

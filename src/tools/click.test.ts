@@ -876,6 +876,97 @@ describe("clickHandler", () => {
     expect(mockFindByText).toHaveBeenCalledWith("Suchen");
   });
 
+  // --- FR-051: detached node — clear message, no click at (0,0) ---
+
+  describe("FR-051 — detached node handling in dispatchClick", () => {
+    const resolved = () => mockResolveElement.mockResolvedValue({
+      backendNodeId: 42, objectId: "obj-42", role: "button", name: "Speichern",
+      resolvedVia: "ref", resolvedSessionId: "s1",
+    });
+    const mouseEvents = (sendFn: ReturnType<typeof vi.fn>) =>
+      sendFn.mock.calls.filter((c: unknown[]) => c[0] === "Input.dispatchMouseEvent");
+    const detachedText =
+      "click failed: Element e42 was replaced by a page re-render (node detached from document). Call view_page for fresh refs and retry.";
+
+    it("scrollIntoViewIfNeeded detached → stale-ref message, no mouse events", async () => {
+      resolved();
+      const { cdpClient, sendFn } = createMockCdp({
+        "DOM.scrollIntoViewIfNeeded": () => { throw new Error("CDP error -32000: Node is detached from document"); },
+      });
+
+      const result = await clickHandler({ ref: "e42" }, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(detachedText);
+      expect(mouseEvents(sendFn)).toHaveLength(0);
+    });
+
+    it("getContentQuads detached → stale-ref message instead of a (0,0) click", async () => {
+      resolved();
+      const { cdpClient, sendFn } = createMockCdp({
+        "DOM.getContentQuads": () => { throw new Error("CDP error -32000: Node is detached from document"); },
+        "Runtime.callFunctionOn": () => ({ result: { value: { x: 0, y: 0, w: 0, h: 0, connected: false } } }),
+      });
+
+      const result = await clickHandler({ ref: "e42" }, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(detachedText);
+      expect(mouseEvents(sendFn)).toHaveLength(0);
+    });
+
+    it("getContentQuads detached and rect probe unavailable → stale-ref message, no js-click on the detached node", async () => {
+      resolved();
+      const { cdpClient, sendFn } = createMockCdp({
+        "DOM.getContentQuads": () => { throw new Error("CDP error -32000: Node is detached from document"); },
+        "Runtime.callFunctionOn": () => { throw new Error("Cannot find context with specified id"); },
+      });
+
+      const result = await clickHandler({ ref: "e42" }, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(detachedText);
+      expect(sendFn.mock.calls.filter((c: unknown[]) => c[0] === "Runtime.callFunctionOn")).toHaveLength(0);
+    });
+
+    it("rect fallback reports a disconnected node → stale-ref message, no js-click", async () => {
+      resolved();
+      const { cdpClient, sendFn } = createMockCdp({
+        "DOM.getContentQuads": () => { throw new Error("Could not compute content quads"); },
+        "Runtime.callFunctionOn": () => ({ result: { value: { x: 0, y: 0, w: 0, h: 0, connected: false } } }),
+      });
+
+      const result = await clickHandler({ ref: "e42" }, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(detachedText);
+      expect(mouseEvents(sendFn)).toHaveLength(0);
+      const jsClicks = sendFn.mock.calls.filter(
+        (c: unknown[]) => c[0] === "Runtime.callFunctionOn" && String((c[1] as { functionDeclaration: string }).functionDeclaration).includes("this.click()"),
+      );
+      expect(jsClicks).toHaveLength(0);
+    });
+
+    it("rect fallback with a zero-size but connected box → js-click instead of a coordinate click", async () => {
+      resolved();
+      let calls = 0;
+      const { cdpClient, sendFn } = createMockCdp({
+        "DOM.getContentQuads": () => { throw new Error("Could not compute content quads"); },
+        "Runtime.callFunctionOn": () => {
+          calls++;
+          if (calls === 1) return { result: { value: { x: 0, y: 0, w: 0, h: 0, connected: true } } };
+          return { result: { value: undefined } }; // this.click()
+        },
+      });
+
+      const result = await clickHandler({ ref: "e42" }, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(result._meta?.clickMethod).toBe("js-click");
+      expect(mouseEvents(sendFn)).toHaveLength(0);
+    });
+  });
+
   // --- Story 16.5: humanMouseMove callback delegation ---
 
   describe("Story 16.5 — humanMouseMove callback", () => {
