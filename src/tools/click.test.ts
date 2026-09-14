@@ -1257,6 +1257,35 @@ describe("clickHandler", () => {
       expect(probeCalls(sendFn)).toHaveLength(2); // e5 and e9 — e7 (other flag) never probed
     });
 
+    // Fix round 2: in every tier a replacement must carry the first hit's accessible name (case-insensitive).
+    it("never takes a differently named partial match as replacement (\"Save as\" for \"Save draft\")", async () => {
+      const ranked = [
+        { ref: "e5", backendNodeId: 5, sessionId: "s1", tier: 2, interactive: true, name: "Save draft" }, // detached
+        { ref: "e9", backendNodeId: 9, sessionId: "s1", tier: 2, interactive: true, name: "Save as" },    // live
+      ];
+      const { cdpClient, sendFn } = arm(ranked, { "live-e5": live(false), "live-e9": live(true) });
+      staleClickOnFirst(sendFn);
+
+      const result = await clickHandler({ text: "Save" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe(STALE_E5);
+      expect(probeCalls(sendFn)).toHaveLength(0);
+    });
+
+    it("takes a partial match with the same name in other case as replacement (\"save draft\" for \"Save draft\")", async () => {
+      const ranked = [
+        { ref: "e5", backendNodeId: 5, sessionId: "s1", tier: 2, interactive: true, name: "Save draft" }, // detached
+        { ref: "e9", backendNodeId: 9, sessionId: "s1", tier: 2, interactive: true, name: "save draft" }, // live
+      ];
+      const { cdpClient } = arm(ranked, { "live-e5": live(false), "live-e9": live(true) });
+
+      const result = await clickHandler({ text: "Save" } as ClickParams, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+    });
+
     it("keeps the reconnect message when reading the fresh tree fails on transport loss", async () => {
       mockGetTree.mockRejectedValueOnce(new Error("CdpClient is closed"));
       const { cdpClient } = createMockCdp();

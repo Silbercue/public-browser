@@ -414,11 +414,15 @@ export async function clickHandler(
       // FR-050: with several same-name hits the first may be a node the page
       // has already replaced — take a connected, visible replacement in the
       // same context, if there is one. Only true namesakes qualify: same match
-      // tier and same interactive flag as the first hit ("Save draft" never
-      // stands in for "Save", a heading never for a button).
+      // tier, same interactive flag and the same accessible name (ignoring
+      // case) as the first hit ("Save draft" never stands in for "Save" or
+      // "Save as", a heading never for a button).
       const all = a11yTree.findAllByText(params.text, { withRank: true });
+      const firstName = all[0]?.name?.toLowerCase();
       const namesakes = all.filter(
-        (c) => c.tier === all[0]?.tier && c.interactive === all[0]?.interactive,
+        (c) => c.tier === all[0]?.tier
+          && c.interactive === all[0]?.interactive
+          && c.name?.toLowerCase() === firstName,
       );
       if (namesakes.length > 1) {
         try {

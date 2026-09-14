@@ -863,17 +863,18 @@ export class A11yTreeProcessor {
    * checks the candidates live and takes the first one still in the DOM.
    * `sessionId` is the owner session (BUG-016 composite key) so the caller
    * can route CDP calls for OOPIF nodes. With `withRank` every entry also
-   * carries its match tier (0 exact, 1 case-insensitive, 2 partial) and the
-   * interactive flag, so click(text) only swaps between true namesakes.
+   * carries its match tier (0 exact, 1 case-insensitive, 2 partial), the
+   * interactive flag and the accessible name, so click(text) only swaps
+   * between true namesakes.
    */
   findAllByText(
     text: string,
     options?: { withRank?: boolean },
-  ): Array<{ ref: string; backendNodeId: number; sessionId: string; tier?: number; interactive?: boolean }> {
+  ): Array<{ ref: string; backendNodeId: number; sessionId: string; tier?: number; interactive?: boolean; name?: string }> {
     if (!text || this.reverseMap.size === 0) return [];
 
     const lower = text.toLowerCase();
-    type Candidate = { refNum: number; backendNodeId: number; sessionId: string; interactive: boolean };
+    type Candidate = { refNum: number; backendNodeId: number; sessionId: string; interactive: boolean; name: string };
     const exact: Candidate[] = [];
     const iexact: Candidate[] = [];
     const partial: Candidate[] = [];
@@ -885,7 +886,7 @@ export class A11yTreeProcessor {
       const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
       if (!info || !info.name) continue;
       const interactive = INTERACTIVE_ROLES.has(info.role) || !!info.isClickable;
-      const cand = { refNum, backendNodeId: owner.backendNodeId, sessionId: owner.sessionId, interactive };
+      const cand = { refNum, backendNodeId: owner.backendNodeId, sessionId: owner.sessionId, interactive, name: info.name };
       if (info.name === text) {
         exact.push(cand);
       } else if (info.name.toLowerCase() === lower) {
@@ -903,7 +904,7 @@ export class A11yTreeProcessor {
       ref: `e${c.refNum}`,
       backendNodeId: c.backendNodeId,
       sessionId: c.sessionId,
-      ...(options?.withRank ? { tier: tierIndex, interactive: c.interactive } : {}),
+      ...(options?.withRank ? { tier: tierIndex, interactive: c.interactive, name: c.name } : {}),
     })));
   }
 

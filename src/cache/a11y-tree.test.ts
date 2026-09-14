@@ -717,11 +717,11 @@ describe("A11yTreeProcessor", () => {
     it("withRank exposes the match tier and the interactive flag per entry (fix round 1)", async () => {
       await processor.getTree(mockCdpClient(nodes), "s1");
       expect(processor.findAllByText("Speichern", { withRank: true })).toEqual([
-        { ref: "e3", backendNodeId: 51, sessionId: "s1", tier: 0, interactive: true },
-        { ref: "e6", backendNodeId: 54, sessionId: "s1", tier: 0, interactive: true },
-        { ref: "e2", backendNodeId: 50, sessionId: "s1", tier: 0, interactive: false },
-        { ref: "e4", backendNodeId: 52, sessionId: "s1", tier: 1, interactive: true },
-        { ref: "e5", backendNodeId: 53, sessionId: "s1", tier: 2, interactive: true },
+        { ref: "e3", backendNodeId: 51, sessionId: "s1", tier: 0, interactive: true, name: "Speichern" },
+        { ref: "e6", backendNodeId: 54, sessionId: "s1", tier: 0, interactive: true, name: "Speichern" },
+        { ref: "e2", backendNodeId: 50, sessionId: "s1", tier: 0, interactive: false, name: "Speichern" },
+        { ref: "e4", backendNodeId: 52, sessionId: "s1", tier: 1, interactive: true, name: "speichern" },
+        { ref: "e5", backendNodeId: 53, sessionId: "s1", tier: 2, interactive: true, name: "Jetzt speichern" },
       ]);
     });
   });
