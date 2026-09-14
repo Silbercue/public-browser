@@ -17,3 +17,8 @@ instructions now name the trigger (2+ known follow-up actions -> one `run_plan`)
 Run 5: 30/30, 80 calls, 281 s — commit 385df7c.
 Run 6: 30/30, 68 calls, 250 s — commit 0fe49e9 (adds run 5's JSON only, identical source).
 Tool calls vs Playwright MCP 0.0.80 (Sep 2026, 137/151): -49% (mean 74).
+
+## Frictions-Fixes FR-050 bis FR-052 (2026-09-14)
+
+Gate: 30/30 und <= 90 calls; ein Wiederholungslauf erlaubt, das Gate gilt fuer den letzten Lauf.
+Run 7: 30/30, 70 calls, 223 s — commit a99a2d0. Gate erfuellt

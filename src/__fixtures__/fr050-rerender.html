@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>FR-050 fixture</title>
+<p>SPA-Nachbildung: der Button wird alle 1,5 s und 50 ms nach jedem Klick durch einen neuen DOM-Knoten ersetzt. <code>#out[data-gen]</code> zaehlt die Render-Generation.</p>
+<div id="app"></div>
+<script>
+  let clicks = 0;
+  let gen = 0;
+  function render() {
+    gen++;
+    const app = document.getElementById("app");
+    app.replaceChildren();
+    const btn = document.createElement("button");
+    btn.textContent = "Speichern";
+    btn.addEventListener("click", () => { clicks++; setTimeout(render, 50); });
+    const out = document.createElement("p");
+    out.id = "out";
+    out.dataset.gen = String(gen);
+    out.textContent = "clicks: " + clicks;
+    app.append(btn, out);
+  }
+  render();
+  setInterval(render, 1500);
+</script>

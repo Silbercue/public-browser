@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- `click` by text no longer hits a DOM node the page has already replaced: when the first match is detached and same-name matches exist (same match tier, interactive flag and name), it checks them live, newest first (at most 5 probes), and clicks the one that is connected, visible and in the same session and document; if none or more than one qualifies it reports the stale-element error instead of guessing (FR-050).
+- A click on a node the page re-rendered away now reports `Element eN was replaced by a page re-render (node detached from document). Call view_page for fresh refs and retry.` instead of the raw CDP error, and can no longer fall through to a mouse click at (0,0) (FR-051).
+- After a click with no visible change the hint no longer suggests `wait_for(condition: "network_idle")` — Chrome reports network idle once per page load, so that wait always timed out on a loaded page; the hint now names `text`/`element`, and the `network_idle` timeout explains this (FR-052).
+
 ## [2.10.5] - 2026-09-04
 
 ### Changed
