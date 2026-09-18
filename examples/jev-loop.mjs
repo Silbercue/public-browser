@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-console -- a CLI example, its output is the point */
 /**
  * Jev-driven browser loop on top of the Public Browser Node Library.
  *
@@ -123,7 +124,7 @@ async function runCard(session, testId) {
     const elements = parseTree((await session.callTool("view_page", { ref: card, filter: "all", depth: 12 })).content[0].text);
     pass = elements.some((e) => e.role === "StaticText" && e.name === "PASS");
     if (pass) break;
-    const { next, done } = await decide(goal, elements, history);
+    const { next } = await decide(goal, elements, history);
     if (next.choice === "done") { history.push("done (claimed)"); break; }
     const [action, ref] = next.choice.split(":");
     const target = elements.find((e) => e.ref === ref);
