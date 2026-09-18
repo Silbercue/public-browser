@@ -8,7 +8,7 @@
 
 Lets Claude Code and Cursor drive Chrome — with your real, logged-in profile. On the same 30-test benchmark page it used **30% fewer tokens, 25% less money, 41% fewer tool calls and 40% less time** than Playwright MCP at the same pass rate — two runs each, 2026-09-03, driver Claude Opus 5, raw data in the repo ([Benchmarks](#benchmarks), including where it loses). Its own tool definitions are **34% smaller since v2.10.4** (7,607 → 4,990 tokens, reproduce with `node scripts/token-count.mjs`). Direct CDP, a11y-tree refs, multi-tab ready — 2,360 TypeScript tests, 237 Python tests.
 
-Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client.
+Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client — and, without an LLM in the loop, for decision models like [Jev](#perfect-for-jev--a-decision-model-needs-a-menu-public-browser-hands-it-one).
 
 > **Looking for an alternative to Playwright MCP, Browser MCP, or claude-in-chrome?** Public Browser talks to Chrome directly via the DevTools Protocol — no Playwright dependency, no Chrome extension bridge, no single-tab limit. One command to install, zero config. [See benchmark comparison below](#benchmarks).
 
@@ -58,7 +58,7 @@ claude mcp add --scope user public-browser npx -y public-browser@latest
 
 **Important:** after `claude mcp add` you must **fully quit and reopen Claude Code**. `/mcp reconnect` is not enough — Claude Code reads the `mcpServers` config only at session start and caches it. After the restart, the first tool call auto-launches Chrome **visible** (no headless, no port setup). Done.
 
-> To enable parallel Python [Script API](#script-api-python) access, add `--script` to the args:
+> To enable parallel Python [Script API](#script-api-python--perfect-for-jev-loops) access, add `--script` to the args:
 > `claude mcp add --scope user public-browser npx -y public-browser@latest -- --script`
 
 ### Install in Cursor
@@ -76,7 +76,7 @@ Add to `~/.cursor/mcp.json`:
 }
 ```
 
-> For parallel Python [Script API](#script-api-python) access, use `"args": ["-y", "public-browser@latest", "--", "--script"]`
+> For parallel Python [Script API](#script-api-python--perfect-for-jev-loops) access, use `"args": ["-y", "public-browser@latest", "--", "--script"]`
 
 ### Install in Cline
 
@@ -142,7 +142,21 @@ When using a real profile, Public Browser preserves extensions, cookies, logins,
 
 Public Browser detects this via lock-file inspection. If Chrome is running with remote debugging enabled, it attaches via CDP. If not, it shows a clear error asking you to close Chrome first.
 
-## Script API (Python)
+## Perfect for Jev — a decision model needs a menu, Public Browser hands it one
+
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) (TypeSafe AI, announced 15 September 2026, early access) is not a chat model. It takes program state plus a bounded set of options and returns **one typed choice with calibrated probabilities** in 70–500 ms, at $0.042 per million input tokens with free output — it cannot produce free text, so it cannot invent a selector that does not exist. TypeSafe calls this a "System One model". Two browser agents already run on it: [browser-use/jev-ultrafast](https://github.com/browser-use/jev-ultrafast) (Google Flights search in 7.1 s, $0.0039, 91% fewer browser-protocol calls) and [jev-browser](https://github.com/MahmoudAdelbghany/jev-browser) (1.5× faster and 1.6× cheaper than Playwright MCP on a 12-task suite, 97% autonomous success at ~$0.0005 per task).
+
+Every one of those loops needs the same three things from the browser side, and they are exactly what Public Browser is built around:
+
+| Jev needs | Public Browser delivers |
+|---|---|
+| A **bounded menu** of actions, not a screenshot or a raw DOM | `view_page` (`filter: "interactive"`) — the a11y-tree elements an agent can act on, each with a stable `e`-ref. Ø 1.2–1.3k chars per view in the September benchmark, well inside Jev's ~32k-token page budget and 255-option choice cap. |
+| **Refs that survive the action** so the chosen option can be executed and verified | `e`-refs are cached across calls and survive scrolls and DOM re-renders; `click`/`type`/`fill_form` return a DOM diff (NEW/REMOVED/CHANGED) that serves as the deterministic verification signal Jev-style loops use instead of a second model call. |
+| A **programmatic driver without an LLM in the loop** | The [Script API (Python)](#script-api-python--perfect-for-jev-loops) over HTTP and the [Node Library API](#node-library-api-multiple-instances-in-one-process--perfect-for-jev) in-process — same tool handlers as the MCP server, one Chrome per Jev worker, headless or with a real logged-in profile. |
+
+The loop is: `view_page` → send goal + option list to Jev → execute the returned ref with `click`/`type` → read the DOM diff → repeat; on low confidence, escalate to a full LLM that talks to the same server over MCP. Public Browser does not call Jev itself and we have not benchmarked a Jev loop yet — this section describes the fit, not a measurement. If you build one, [open an issue](https://github.com/Silbercue/public-browser/issues); we will add the numbers.
+
+## Script API (Python) — perfect for Jev loops
 
 A second way to use Public Browser — deterministic browser automation from Python, without an LLM in the loop. Scripts use the same tool implementations as the MCP server (Shared Core) — every improvement to `click`, `navigate`, `fill_form` etc. automatically benefits your scripts too. The MCP server handles AI-driven workflows; the Script API is for repeatable scripts you write yourself.
 
@@ -282,7 +296,7 @@ claude mcp add --scope user public-browser npx -y public-browser@latest -- --scr
 
 See [`python/README.md`](python/README.md) for the full API reference and advanced examples.
 
-## Node Library API (multiple instances in one process)
+## Node Library API (multiple instances in one process) — perfect for Jev
 
 The MCP server and the Python Script API both drive exactly **one** Chrome per
 process. When you need several browsers at once — say a read-only research
@@ -767,7 +781,7 @@ Connection priority:
 Invalid values fail loudly: an unparseable port or naming mode aborts startup
 with a named error instead of silently falling back to 9222. Sessions created
 through the Node library ignore every variable in this table except
-`CHROME_PATH` and the telemetry pair — see [Node Library API](#node-library-api-multiple-instances-in-one-process).
+`CHROME_PATH` and the telemetry pair — see [Node Library API](#node-library-api-multiple-instances-in-one-process--perfect-for-jev).
 
 ## License
 
