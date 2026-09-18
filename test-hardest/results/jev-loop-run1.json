@@ -1,0 +1,107 @@
+{
+ "url": "https://mcp-test.second-truth.com",
+ "date": "2026-09-18T18:32:26.920Z",
+ "results": [
+  {
+   "testId": "1.1",
+   "pass": true,
+   "steps": 1,
+   "ms": 871,
+   "history": [
+    "clicked button \"Click Me\""
+   ],
+   "jevCalls": 1,
+   "textCalls": 0,
+   "cost": 0.000022554
+  },
+  {
+   "testId": "1.2",
+   "pass": true,
+   "steps": 2,
+   "ms": 2357,
+   "history": [
+    "typed \"DKK5-EE2W\" into textbox \"Code hier eingeben...\"",
+    "clicked button \"Verify\""
+   ],
+   "jevCalls": 2,
+   "textCalls": 1,
+   "cost": 0.00008005000000000001
+  },
+  {
+   "testId": "1.3",
+   "pass": true,
+   "steps": 7,
+   "ms": 7823,
+   "history": [
+    "typed \"John Doe\" into textbox \"Full Name *\"",
+    "typed \"john.doe@example.com\" into textbox \"Email *\"",
+    "typed \"30\" into spinbutton \"Age (18-99) *\"",
+    "typed \"Germany\" into combobox \"Country *\"",
+    "typed \"Enthusiastic traveler with a love for technology and learning new languages.\" into textbox \"Short Bio\"",
+    "clicked checkbox \"I agree to the Terms\"",
+    "clicked button \"Submit Form\""
+   ],
+   "jevCalls": 7,
+   "textCalls": 5,
+   "cost": 0.0005735040000000001
+  },
+  {
+   "testId": "1.4",
+   "pass": true,
+   "steps": 5,
+   "ms": 1896,
+   "history": [
+    "clicked button \"Find by ID\"",
+    "clicked button \"Find by Class\"",
+    "clicked button \"Find by data-attribute\"",
+    "clicked button \"accessibility-target\"",
+    "clicked button \"Find by exact text: UNIQUE_IQNVOKIN\""
+   ],
+   "jevCalls": 5,
+   "textCalls": 0,
+   "cost": 0.00016035600000000003
+  },
+  {
+   "testId": "1.5",
+   "pass": true,
+   "steps": 4,
+   "ms": 3890,
+   "history": [
+    "clicked link \"Step Alpha\"",
+    "clicked link \"Step Beta\"",
+    "clicked link \"Step Gamma\"",
+    "clicked button \"Verify Sequence\""
+   ],
+   "jevCalls": 4,
+   "textCalls": 0,
+   "cost": 0.00011676
+  },
+  {
+   "testId": "1.6",
+   "pass": true,
+   "steps": 4,
+   "ms": 3379,
+   "history": [
+    "typed \"216\" into spinbutton \"Sum of scores...\"",
+    "clicked button \"Verify Sum\"",
+    "typed \"276\" into spinbutton \"Sum of scores...\"",
+    "clicked button \"Verify Sum\""
+   ],
+   "jevCalls": 4,
+   "textCalls": 2,
+   "cost": 0.000246372
+  }
+ ],
+ "usage": {
+  "typesafe-ai/jev": {
+   "in": 21788,
+   "out": 2443,
+   "calls": 23
+  },
+  "gpt-4.1-nano": {
+   "in": 2681,
+   "out": 41,
+   "calls": 8
+  }
+ }
+}

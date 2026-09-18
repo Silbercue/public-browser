@@ -154,7 +154,17 @@ Every one of those loops needs the same three things from the browser side, and 
 | **Refs that survive the action** so the chosen option can be executed and verified | `e`-refs are cached across calls and survive scrolls and DOM re-renders; `click`/`type`/`fill_form` return a DOM diff (NEW/REMOVED/CHANGED) that serves as the deterministic verification signal Jev-style loops use instead of a second model call. |
 | A **programmatic driver without an LLM in the loop** | The [Script API (Python)](#script-api-python--perfect-for-jev-loops) over HTTP and the [Node Library API](#node-library-api-multiple-instances-in-one-process--perfect-for-jev) in-process — same tool handlers as the MCP server, one Chrome per Jev worker, headless or with a real logged-in profile. |
 
-The loop is: `view_page` → send goal + option list to Jev → execute the returned ref with `click`/`type` → read the DOM diff → repeat; on low confidence, escalate to a full LLM that talks to the same server over MCP. Public Browser does not call Jev itself and we have not benchmarked a Jev loop yet — this section describes the fit, not a measurement. If you build one, [open an issue](https://github.com/Silbercue/public-browser/issues); we will add the numbers.
+**Measured, not claimed.** [`examples/jev-loop.mjs`](examples/jev-loop.mjs) is that loop in ~150 lines on the Node Library: `view_page` on the test card → one Jev `choice` over the card's refs (plus a `boolean` "already done?") → `click` / `type` / `fill_form` → repeat. Jev cannot write text, so when it picks a "type" action, `gpt-4.1-nano` writes the literal value for that one field — the same split browser-use/jev-ultrafast uses. Run on the six Level-1 cards of the [public benchmark page](https://mcp-test.second-truth.com), two runs, 2026-09-18, Jev via Vercel AI Gateway, headless Chrome:
+
+| | Run 1 | Run 2 |
+|---|---|---|
+| Cards passed | **6/6** | **6/6** |
+| Steps = Jev calls (one decision per step) | 23 | 21 |
+| Text-model calls (form fields, secret code, table sum) | 8 | 7 |
+| Wall-clock, all six cards | 20.2 s | 16.4 s |
+| Cost, all six cards (Jev $0.042/M in, nano $0.10/M in, $0.40/M out) | $0.0012 | $0.0011 |
+
+Per card that is ~3 s and ~$0.0002. The same six cards inside the LLM-driven September runs above (Opus 5 over MCP, 30 cards in 281–296 s for $3.35–3.41) come to roughly 9–10 s and $0.11 per card — a different setup (a frontier model reads the whole page and plans; Jev only picks from a menu), so read it as "what the cheap path costs", not as a benchmark of equals. Level 1 is the easy tier; whether a Jev-only loop survives Level 2–4 (observe, shadow DOM, canvas, races) is the open question, and the harness for asking it is in the repo. Raw data: [`test-hardest/results/jev-loop-run1.json`](test-hardest/results/jev-loop-run1.json), [`run2`](test-hardest/results/jev-loop-run2.json). Setup: `npm i ai @ai-sdk/openai public-browser`, `AI_GATEWAY_API_KEY` + `OPENAI_API_KEY`, `node examples/jev-loop.mjs`.
 
 ## Script API (Python) — perfect for Jev loops
 
