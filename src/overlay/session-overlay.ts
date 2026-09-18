@@ -1,3 +1,4 @@
+import type { NudgeMessage } from "./star-nudge.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 
 // 48x48 Second Truth logo (PNG, base64)
@@ -7,6 +8,8 @@ const LOGO_BASE64 =
 const OVERLAY_ID = "__sc_session_overlay__";
 /** Window property set while the host waits for <html> to exist. */
 const OVERLAY_PENDING_FLAG = "__sc_session_overlay_pending__";
+/** Set on window by the nudge's click handlers; read and cleared by updateOverlayNudge. */
+const NUDGE_RESULT_FLAG = "__sc_nudge_result__";
 
 function buildOverlayScript(): string {
   // Static template — safe for shadow DOM injection, no user input.
@@ -85,10 +88,41 @@ function buildOverlayScript(): string {
         animation: sc-fadeIn 0.4s ease-out 0.5s both;
       }
 
+      /* Star nudge — right end of the bar, only rendered while a message is set.
+         The bar itself lets clicks through; the nudge is the one thing besides
+         the logo that takes them. */
+      .sc-nudge {
+        display: none;
+        margin-left: auto;
+        align-items: center;
+        gap: 6px;
+        pointer-events: auto;
+        text-transform: none;
+        letter-spacing: 0.3px;
+        animation: sc-fadeIn 0.4s ease-out both;
+      }
+      .sc-nudge.on { display: flex; }
+      .sc-nudge a {
+        color: rgba(255,255,255,0.9);
+        text-decoration: none;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 10px;
+        padding: 3px 9px;
+        background: rgba(0,0,0,0.35);
+      }
+      .sc-nudge a:hover { background: rgba(255,255,255,0.15); }
+      .sc-nudge .sc-nudge-close {
+        cursor: pointer;
+        color: rgba(255,255,255,0.55);
+        padding: 2px 4px;
+      }
+      .sc-nudge .sc-nudge-close:hover { color: #fff; }
+
     </style>
     <div class="sc-bar">
       <div class="sc-logo"></div>
       <span class="sc-text-area" id="sc-text-area"></span>
+      <span class="sc-nudge" id="sc-nudge"><a id="sc-nudge-link" target="_blank" rel="noopener"></a><span class="sc-nudge-close" title="Don't show again">✕</span></span>
     </div>`;
 
   const escaped = tmpl.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
@@ -116,6 +150,13 @@ function buildOverlayScript(): string {
   if (logo) {
     logo.style.backgroundImage = 'url(' + LOGO + ')';
   }
+  var nudgeLink = sr.querySelector('#sc-nudge-link');
+  var nudgeClose = sr.querySelector('.sc-nudge-close');
+  if (nudgeLink) nudgeLink.addEventListener('click', function () { window.${NUDGE_RESULT_FLAG} = 'starred'; });
+  if (nudgeClose) nudgeClose.addEventListener('click', function () {
+    window.${NUDGE_RESULT_FLAG} = 'closed';
+    var n = sr.querySelector('#sc-nudge'); if (n) n.classList.remove('on');
+  });
   var attach = function () {
     var root = document.documentElement;
     if (!root) return false;
@@ -231,6 +272,45 @@ export async function updateOverlayStatus(cdpClient: CdpClient, sessionId: strin
     await cdpClient.send("Runtime.evaluate", { expression: script, awaitPromise: false }, sessionId);
   } catch {
     // Non-critical
+  }
+}
+
+/**
+ * Show or hide the star nudge and report whether the person acted on it
+ * since the last call. `message` null hides it. Returns "starred" when the
+ * link was clicked, "closed" for the ✕, null otherwise.
+ */
+export async function updateOverlayNudge(
+  cdpClient: CdpClient,
+  sessionId: string,
+  message: NudgeMessage | null,
+): Promise<"starred" | "closed" | null> {
+  const payload = JSON.stringify(message);
+  const script = `(() => {
+  var result = window.${NUDGE_RESULT_FLAG} || null;
+  window.${NUDGE_RESULT_FLAG} = null;
+  var host = document.getElementById('${OVERLAY_ID}');
+  if (!host || !host.shadowRoot) return result;
+  var sr = host.shadowRoot;
+  var n = sr.querySelector('#sc-nudge');
+  var a = sr.querySelector('#sc-nudge-link');
+  if (!n || !a) return result;
+  var msg = ${payload};
+  if (!msg || result) { n.classList.remove('on'); return result; }
+  a.textContent = msg.text;
+  a.href = msg.href;
+  n.classList.add('on');
+  return result;
+})()`;
+  try {
+    const { result } = await cdpClient.send<{ result: { value: "starred" | "closed" | null } }>(
+      "Runtime.evaluate",
+      { expression: script, returnByValue: true },
+      sessionId,
+    );
+    return result.value ?? null;
+  } catch {
+    return null;
   }
 }
 

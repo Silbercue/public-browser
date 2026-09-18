@@ -60,7 +60,8 @@ import { downloadSchema, downloadHandler } from "./tools/download.js";
 import type { DownloadParams } from "./tools/download.js";
 import { batchEvaluateSchema, batchEvaluateHandler } from "./tools/batch-evaluate.js";
 import type { BatchEvaluateParams } from "./tools/batch-evaluate.js";
-import { updateOverlayStatus, getToolLabel, setLastElapsed, showClickIndicator } from "./overlay/session-overlay.js";
+import { updateOverlayStatus, updateOverlayNudge, getToolLabel, setLastElapsed, showClickIndicator } from "./overlay/session-overlay.js";
+import { StarNudge } from "./overlay/star-nudge.js";
 import { PlanStateStore } from "./plan/plan-state-store.js";
 import { z } from "zod";
 import { getProHooks, registerProHooks } from "./hooks/pro-hooks.js";
@@ -1149,6 +1150,9 @@ export class ToolRegistry implements ToolRegistryPublic {
       }
     };
 
+    // Star nudge in the overlay bar — for the person watching, never headless.
+    const starNudge = new StarNudge({ enabled: !browserSession.headless });
+
     // Session overlay: show status before tool, clear after (with elapsed time)
     const overlayBefore = async (name: string) => {
       await updateOverlayStatus(browserSession.cdpClient, browserSession.sessionId, getToolLabel(name));
@@ -1160,6 +1164,8 @@ export class ToolRegistry implements ToolRegistryPublic {
         showClickIndicator(browserSession.cdpClient, browserSession.sessionId, meta.clickX as number, meta.clickY as number);
       }
       await updateOverlayStatus(browserSession.cdpClient, browserSession.sessionId, "");
+      const acted = await updateOverlayNudge(browserSession.cdpClient, browserSession.sessionId, starNudge.onToolCall());
+      if (acted) starNudge.dismiss(acted);
     };
 
     const wrap = <T>(fn: (params: T) => Promise<ToolResponse>, toolName?: string) => {
