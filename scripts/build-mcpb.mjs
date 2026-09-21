@@ -19,6 +19,7 @@ const MCPB_CLI = "@anthropic-ai/mcpb@2.1.2";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 const outFile = join(repoRoot, "dist", "public-browser.mcpb");
+const smitheryFile = join(repoRoot, "dist", "public-browser.smithery.mcpb");
 
 if (!existsSync(join(repoRoot, "build/index.js"))) {
   console.error("build/index.js is missing. Run npm run build first.");
@@ -86,7 +87,16 @@ try {
   mkdirSync(dirname(outFile), { recursive: true });
   execFileSync("npx", ["-y", MCPB_CLI, "validate", join(stage, "manifest.json")], { stdio: "inherit" });
   execFileSync("npx", ["-y", MCPB_CLI, "pack", stage, outFile], { stdio: "inherit" });
-  console.log(`\n${outFile} (${tools.length} tools, v${pkg.version})`);
+
+  // Smithery uebernimmt `tools` unveraendert als Server-Card und verlangt je Tool ein
+  // inputSchema (sonst 400). Das MCPB-Schema verbietet das Feld, `mcpb pack` bricht damit
+  // ab — deshalb eine zweite Archiv-Variante, in der nur manifest.json ersetzt wird.
+  manifest.tools = tools.map((t, i) => ({ ...manifest.tools[i], inputSchema: t.inputSchema }));
+  writeFileSync(join(stage, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  cpSync(outFile, smitheryFile);
+  execFileSync("zip", ["-q", "-j", smitheryFile, join(stage, "manifest.json")]);
+
+  console.log(`\n${outFile} (${tools.length} tools, v${pkg.version})\n${smitheryFile}`);
 } finally {
   rmSync(stage, { recursive: true, force: true });
 }
