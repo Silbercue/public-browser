@@ -81,6 +81,7 @@ scripts/*
 !scripts/publish.ts
 !scripts/publish.test.ts
 !scripts/token-count.mjs
+!scripts/build-mcpb.mjs
 !scripts/make-benchmark-chart-2026-09.py
 
 # Registry-Publish-Tokens (lokal, niemals committen)
