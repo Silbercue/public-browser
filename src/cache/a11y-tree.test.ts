@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { A11yTreeProcessor, RefNotFoundError } from "./a11y-tree.js";
+import { A11yTreeProcessor, RefNotFoundError, a11yTree, bindScriptTab, forgetScriptTab, scriptTabOf, runInTabOf } from "./a11y-tree.js";
 import type { AXNode } from "./a11y-tree.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 
@@ -5601,5 +5601,314 @@ describe("A11yTreeProcessor", () => {
       const typeNoFilter = processor.getPageType();
       expect(typeNoFilter).toBe(typeA);
     });
+  });
+});
+
+// --- B1 (S3): element refs per tab ---
+
+describe("A11yTreeProcessor — refs per tab (B1)", () => {
+  let processor: A11yTreeProcessor;
+
+  beforeEach(() => {
+    processor = new A11yTreeProcessor();
+  });
+
+  // Page.getFrameTree answers per CDP session. The main frame's loaderId is
+  // the document identity switchTab() compares.
+  function frameTreeCdp(loaderBySession: Record<string, string>): CdpClient {
+    return {
+      send: vi.fn(async (method: string, _params?: unknown, sessionId?: string) => {
+        if (method === "Page.getFrameTree") {
+          return { frameTree: { frame: { id: "main", loaderId: loaderBySession[sessionId ?? ""] } } };
+        }
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+  }
+
+  // P21: a page whose main document has the given loaderId — getTree() records
+  // it with the refs, switchTab() stores it with the table.
+  function pageCdp(nodes: AXNode[], url: string, loaderId: string): CdpClient {
+    return {
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: url } };
+        if (method === "Accessibility.getFullAXTree") return { nodes };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId } } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+  }
+
+  const pageA: AXNode[] = [
+    makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 100, childIds: ["2"] }),
+    makeNode({
+      nodeId: "2",
+      parentId: "1",
+      role: { type: "role", value: "button" },
+      name: { type: "computedString", value: "Verify" },
+      backendDOMNodeId: 101,
+    }),
+  ];
+  // Tab B runs in another renderer process: the same backendNodeIds are different nodes.
+  const pageB: AXNode[] = [
+    makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 100, childIds: ["2"] }),
+    makeNode({
+      nodeId: "2",
+      parentId: "1",
+      role: { type: "role", value: "link" },
+      name: { type: "computedString", value: "Back" },
+      backendDOMNodeId: 101,
+    }),
+  ];
+
+  it("B1: keeps a tab's refs while away and restores them when its page is unchanged", async () => {
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A"), "sA1");
+    expect(processor.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "sA1" });
+
+    const cdp = frameTreeCdp({ sA1: "doc-A", sB1: "doc-B", sA2: "doc-A" });
+    expect(await processor.switchTab(cdp, { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" })).toBe(false);
+    expect(processor.resolveRefFull("e2")).toBeUndefined();
+    expect(processor.findRefOwnerTab("e2")).toEqual({ targetId: "A", url: "https://a.test/" });
+
+    // B continues the numbering — e1/e2 stay A's.
+    const treeB = await processor.getTree(pageCdp(pageB, "https://b.test/", "doc-B"), "sB1");
+    expect(treeB.text).toContain('[e4] link "Back"');
+    expect(processor.resolveRefFull("e4")).toEqual({ backendNodeId: 101, sessionId: "sB1" });
+
+    // Back to A: same document, new CDP session.
+    expect(await processor.switchTab(cdp, { targetId: "B", sessionId: "sB1" }, { targetId: "A", sessionId: "sA2" })).toBe(true);
+    expect(processor.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "sA2" });
+    expect(processor.getNodeInfo(101, "sA2")?.name).toBe("Verify");
+    expect(processor.findRefOwnerTab("e4")).toEqual({ targetId: "B", url: "https://b.test/" });
+
+    // A fresh view_page in A keeps the old numbers instead of adding new ones.
+    const treeA = await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A"), "sA2");
+    expect(treeA.text).toContain('[e2] button "Verify"');
+    expect(processor.refCount).toBe(2);
+  });
+
+  it("B1: switching to the tab that is already active keeps its refs under the new session", async () => {
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A"), "sA1");
+
+    const cdp = frameTreeCdp({ sA1: "doc-A", sA2: "doc-A" });
+    expect(await processor.switchTab(cdp, { targetId: "A", sessionId: "sA1" }, { targetId: "A", sessionId: "sA2" })).toBe(true);
+
+    expect(processor.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "sA2" });
+    expect(processor.findRefOwnerTab("e2")).toBeUndefined();
+  });
+
+  it("B1: drops a tab's refs when its page changed while away", async () => {
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A"), "sA1");
+    const cdp = frameTreeCdp({ sA1: "doc-A", sB1: "doc-B", sA2: "doc-A-reloaded" });
+    await processor.switchTab(cdp, { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+
+    expect(await processor.switchTab(cdp, { targetId: "B", sessionId: "sB1" }, { targetId: "A", sessionId: "sA2" })).toBe(false);
+    expect(processor.resolveRefFull("e2")).toBeUndefined();
+    expect(processor.findRefOwnerTab("e2")).toBeUndefined();
+  });
+
+  it("P21: a navigation between view_page and switch_tab keeps the old refs from coming back", async () => {
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A1"), "sA1");
+    // A link click navigates tab A (no navigate call, no view_page), then switch_tab right away.
+    const cdp = frameTreeCdp({ sA1: "doc-A2", sB1: "doc-B", sA2: "doc-A2" });
+    await processor.switchTab(cdp, { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+
+    // The table was stored with doc-A1, the document its refs belong to — not doc-A2.
+    expect(await processor.switchTab(cdp, { targetId: "B", sessionId: "sB1" }, { targetId: "A", sessionId: "sA2" })).toBe(false);
+    expect(processor.resolveRefFull("e2")).toBeUndefined();
+    expect(processor.findRefOwnerTab("e2")).toBeUndefined();
+  });
+
+  it("P21: a new document under the same URL resets the table like a URL change", async () => {
+    const reloaded: AXNode[] = pageA.map((node) => ({ ...node, backendDOMNodeId: (node.backendDOMNodeId ?? 0) + 100 }));
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-1"), "s1");
+    expect(processor.refCount).toBe(2);
+
+    await processor.getTree(pageCdp(reloaded, "https://a.test/", "doc-2"), "s1");
+
+    // Only the new document's two nodes — the old document's refs are gone.
+    expect(processor.refCount).toBe(2);
+    expect(processor.getNodeInfo(101, "s1")).toBeUndefined();
+    expect(processor.getNodeInfo(201, "s1")?.name).toBe("Verify");
+  });
+
+  it("P21: isCurrentDocument compares with the document the refs were assigned in", async () => {
+    const fresh = frameTreeCdp({ s1: "doc-1" });
+    expect(await processor.isCurrentDocument(fresh, "s1")).toBe(true); // no identity yet
+    expect(fresh.send).not.toHaveBeenCalled(); // and no CDP call for it
+
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-1"), "s1");
+
+    expect(await processor.isCurrentDocument(frameTreeCdp({ s1: "doc-1" }), "s1")).toBe(true);
+    expect(await processor.isCurrentDocument(frameTreeCdp({ s1: "doc-2" }), "s1")).toBe(false);
+    expect(await processor.isCurrentDocument(frameTreeCdp({}), "s1")).toBe(true); // unknown now: not compared
+  });
+
+  it("B1: never restores when the document identity cannot be read", async () => {
+    await processor.getTree(mockCdpClient(pageA, "https://a.test/"), "sA1");
+    const cdp = frameTreeCdp({});
+    await processor.switchTab(cdp, { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+
+    expect(await processor.switchTab(cdp, null, { targetId: "A", sessionId: "sA2" })).toBe(false);
+    expect(processor.resolveRefFull("e2")).toBeUndefined();
+  });
+
+  it("B1: a navigation in one tab never reuses ref numbers another tab still holds", async () => {
+    await processor.getTree(mockCdpClient(pageA, "https://a.test/"), "sA1"); // e1, e2
+    await processor.switchTab(frameTreeCdp({ sA1: "doc-A" }), { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+    await processor.getTree(mockCdpClient(pageB, "https://b.test/"), "sB1"); // e3, e4
+
+    processor.reset(); // navigate in B
+    await processor.getTree(mockCdpClient(pageB, "https://b.test/next"), "sB1");
+
+    expect(processor.resolveRefFull("e3")).toEqual({ backendNodeId: 100, sessionId: "sB1" });
+    expect(processor.resolveRefFull("e1")).toBeUndefined();
+    expect(processor.findRefOwnerTab("e1")).toEqual({ targetId: "A", url: "https://a.test/" });
+  });
+
+  it("B1: reset() keeps other tabs' refs, resetAll() and forgetTab() drop them", async () => {
+    await processor.getTree(mockCdpClient(pageA, "https://a.test/"), "sA1");
+    await processor.switchTab(frameTreeCdp({ sA1: "doc-A" }), { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+
+    processor.reset();
+    expect(processor.findRefOwnerTab("e2")?.targetId).toBe("A");
+
+    processor.forgetTab("A");
+    expect(processor.findRefOwnerTab("e2")).toBeUndefined();
+
+    await processor.getTree(mockCdpClient(pageA, "https://a.test/"), "sA1");
+    await processor.switchTab(frameTreeCdp({ sA1: "doc-A" }), { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+    processor.resetAll();
+    expect(processor.findRefOwnerTab("e2")).toBeUndefined();
+    await processor.getTree(mockCdpClient(pageB, "https://b.test/"), "sB1");
+    expect(processor.resolveRefFull("e1")).toEqual({ backendNodeId: 100, sessionId: "sB1" });
+  });
+
+  it("B1: a refresh that started before a tab switch does not write into the next tab's table", async () => {
+    let releaseTree!: () => void;
+    let treeRequested!: () => void;
+    const requested = new Promise<void>((resolve) => {
+      treeRequested = resolve;
+    });
+    const slowCdp = {
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: "https://a.test/" } };
+        if (method === "Accessibility.getFullAXTree") {
+          treeRequested();
+          await new Promise<void>((resolve) => {
+            releaseTree = resolve;
+          });
+          return { nodes: pageA };
+        }
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const refresh = processor.refreshPrecomputed(slowCdp, "sA1");
+    await requested;
+    await processor.switchTab(frameTreeCdp({}), { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+    releaseTree();
+    await refresh;
+
+    expect(processor.refCount).toBe(0);
+    expect(processor.hasPrecomputed("sA1")).toBe(false);
+  });
+});
+
+// --- P5 (Plancheck): a Script-API tab keeps its own ref table ---
+
+describe("a11yTree — Script-API tabs keep their own ref table (P5)", () => {
+  const pageA: AXNode[] = [
+    makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 100, childIds: ["2"] }),
+    makeNode({
+      nodeId: "2",
+      parentId: "1",
+      role: { type: "role", value: "button" },
+      name: { type: "computedString", value: "Verify" },
+      backendDOMNodeId: 101,
+    }),
+  ];
+  // The script's tab runs in another renderer process: same backendNodeIds, other nodes.
+  const pageB: AXNode[] = [
+    makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 100, childIds: ["2"] }),
+    makeNode({
+      nodeId: "2",
+      parentId: "1",
+      role: { type: "role", value: "link" },
+      name: { type: "computedString", value: "Back" },
+      backendDOMNodeId: 101,
+    }),
+  ];
+
+  beforeEach(() => {
+    forgetScriptTab("TAB-B");
+    a11yTree.resetAll();
+  });
+
+  it("P5: view_page in a Script-API tab leaves the MCP tab's refs and URL alone", async () => {
+    try {
+      await a11yTree.getTree(mockCdpClient(pageA, "https://a.test/"), "sA");
+      bindScriptTab("sB", "TAB-B");
+
+      const treeB = await runInTabOf("sB", () => a11yTree.getTree(mockCdpClient(pageB, "https://b.test/"), "sB"));
+
+      expect(treeB.text).toContain('[e2] link "Back"');
+      expect(a11yTree.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "sA" });
+      expect(a11yTree.currentUrl).toBe("https://a.test/");
+      expect(await runInTabOf("sB", async () => a11yTree.resolveRefFull("e2"))).toEqual({ backendNodeId: 101, sessionId: "sB" });
+    } finally {
+      forgetScriptTab("TAB-B");
+      a11yTree.resetAll();
+    }
+  });
+
+  it("P5: a reset (navigate) in the Script-API tab clears only that tab's table", async () => {
+    try {
+      await a11yTree.getTree(mockCdpClient(pageA, "https://a.test/"), "sA");
+      bindScriptTab("sB", "TAB-B");
+      await runInTabOf("sB", () => a11yTree.getTree(mockCdpClient(pageB, "https://b.test/"), "sB"));
+
+      await runInTabOf("sB", async () => a11yTree.reset());
+
+      expect(a11yTree.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "sA" });
+      expect(await runInTabOf("sB", async () => a11yTree.refCount)).toBe(0);
+    } finally {
+      forgetScriptTab("TAB-B");
+      a11yTree.resetAll();
+    }
+  });
+
+  it("P5: sessions the Script API did not bind (MCP tab, reconnect) use the MCP table", async () => {
+    try {
+      expect(scriptTabOf("sA")).toBeUndefined();
+      await runInTabOf("sA", () => a11yTree.getTree(mockCdpClient(pageA, "https://a.test/"), "sA"));
+      expect(a11yTree.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "sA" });
+    } finally {
+      a11yTree.resetAll();
+    }
+  });
+
+  it("P5: forgetScriptTab drops the tab's table together with its session binding", async () => {
+    try {
+      bindScriptTab("sB", "TAB-B");
+      await runInTabOf("sB", () => a11yTree.getTree(mockCdpClient(pageB, "https://b.test/"), "sB"));
+      forgetScriptTab("TAB-B");
+      expect(scriptTabOf("sB")).toBeUndefined();
+
+      bindScriptTab("sB", "TAB-B");
+      expect(await runInTabOf("sB", async () => a11yTree.refCount)).toBe(0);
+    } finally {
+      forgetScriptTab("TAB-B");
+      a11yTree.resetAll();
+    }
   });
 });

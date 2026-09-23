@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
-import { a11yTree } from "../cache/a11y-tree.js";
+import { a11yTree, bindScriptTab, forgetScriptTab, runInTabOf } from "../cache/a11y-tree.js";
 import { selectorCache } from "../cache/selector-cache.js";
 import type { AXNode } from "../cache/a11y-tree.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
@@ -61,6 +61,18 @@ function mockCdpForTree(nodes: AXNode[], url = "https://example.com"): CdpClient
 
 // --- Tests ---
 
+// B1: WebArea (e1) with one button "OK" (e2, backendNodeId 101).
+const buttonTree: AXNode[] = [
+  makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 100, childIds: ["2"] }),
+  makeNode({
+    nodeId: "2",
+    parentId: "1",
+    role: { type: "role", value: "button" },
+    name: { type: "computedString", value: "OK" },
+    backendDOMNodeId: 101,
+  }),
+];
+
 describe("resolveElement", () => {
   beforeEach(() => {
     a11yTree.reset();
@@ -68,6 +80,11 @@ describe("resolveElement", () => {
     // prior tests would hit the cache branch before resolveRefFull runs
     // and mask routing regressions.
     selectorCache.invalidate();
+  });
+
+  // B1: tests that switch tabs leave stored tables in the singleton.
+  afterEach(() => {
+    a11yTree.resetAll();
   });
 
   it("resolves ref to backendNodeId and objectId on main session", async () => {
@@ -169,6 +186,47 @@ describe("resolveElement", () => {
     await expect(resolveElement(cdp, "s1", { ref: "e999" })).rejects.toThrow(RefNotFoundError);
   });
 
+  it("B1: a ref of another tab names that tab", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree, "https://a.test/"), "session-A");
+    await a11yTree.switchTab(
+      mockCdpClient(),
+      { targetId: "TAB-A", sessionId: "session-A" },
+      { targetId: "TAB-B", sessionId: "session-B" },
+    );
+
+    const err = await resolveElement(mockCdpClient(), "session-B", { ref: "e2" }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RefNotFoundError);
+    expect((err as Error).message).toContain("belongs to tab TAB-A (https://a.test/)");
+    expect((err as Error).message).toContain("switch_tab");
+  });
+
+  it("P21: a ref of a document the page has left is stale, even if its node id still resolves", async () => {
+    const docCdp = (loaderId: string): CdpClient => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: "https://example.com" } };
+        if (method === "Accessibility.getFullAXTree") return { nodes: buttonTree };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId } } };
+        if (method === "DOM.resolveNode") return { object: { objectId: "obj-some-node" } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    }) as unknown as CdpClient;
+    await a11yTree.getTree(docCdp("doc-1"), "s1");
+    // A link click navigated the page; no navigate call reset the table.
+    const cdp = docCdp("doc-2");
+
+    const err = await resolveElement(cdp, "s1", { ref: "e2" }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RefNotFoundError);
+    expect((err as Error).message).toContain("Element e2 is a stale ref");
+    expect(cdp.send).not.toHaveBeenCalledWith("DOM.resolveNode", expect.anything(), expect.anything());
+    // Same document: resolves as before.
+    await expect(resolveElement(docCdp("doc-1"), "s1", { ref: "e2" })).resolves.toMatchObject({ backendNodeId: 101 });
+  });
+
   it("throws RefNotFoundError for stale DOM node", async () => {
     const nodes: AXNode[] = [
       makeNode({
@@ -196,6 +254,7 @@ describe("resolveElement", () => {
     } as unknown as CdpClient;
 
     await expect(resolveElement(cdp, "s1", { ref: "e2" })).rejects.toThrow("stale ref");
+    await expect(resolveElement(cdp, "s1", { ref: "e2" })).rejects.toThrow("Call view_page");
   });
 
   it("throws descriptive error when DOM agent is not enabled", async () => {
@@ -248,6 +307,24 @@ describe("resolveElement", () => {
 describe("buildRefNotFoundError", () => {
   beforeEach(() => {
     a11yTree.reset();
+  });
+
+  afterEach(() => {
+    a11yTree.resetAll();
+  });
+
+  it("B1: names the owning tab for a ref of another tab", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree, "https://a.test/"), "session-A");
+    await a11yTree.switchTab(
+      mockCdpClient(),
+      { targetId: "TAB-A", sessionId: "session-A" },
+      { targetId: "TAB-B", sessionId: "session-B" },
+    );
+
+    const error = buildRefNotFoundError("e2");
+
+    expect(error).toContain("Element e2 belongs to tab TAB-A");
+    expect(error).not.toContain("Did you mean");
   });
 
   it("returns error message with suggestion when refs exist", async () => {
@@ -313,9 +390,9 @@ describe("buildRefNotFoundError", () => {
     expect(error).not.toContain("Did you mean");
   });
 
-  it("returns stale-refs message when suggestion ref equals requested ref", async () => {
-    // This is a safety-net case — if the ref is in the reverseMap but
-    // resolveRef failed elsewhere, the suggestion would echo back the same ref.
+  it("B1: a ref this tab knows but that failed to resolve is reported as stale", async () => {
+    // resolveElement throws RefNotFoundError for a known ref only when
+    // DOM.resolveNode failed — the node is gone. No neighbour guess.
     const nodes: AXNode[] = [
       makeNode({
         nodeId: "1",
@@ -334,10 +411,9 @@ describe("buildRefNotFoundError", () => {
     const treeCdp = mockCdpForTree(nodes);
     await a11yTree.getTree(treeCdp, "s1");
 
-    // e2 exists in the tree — findClosestRef("e2") returns { ref: "e2", ... }
     const error = buildRefNotFoundError("e2");
-    expect(error).toContain("e2 not found");
-    expect(error).toContain("possibly stale");
+    expect(error).toContain("Element e2 is a stale ref");
+    expect(error).toContain("view_page");
     expect(error).not.toContain("Did you mean");
   });
 
@@ -623,5 +699,42 @@ describe("Selector Cache Integration", () => {
     const cached = selectorCache.get("e2");
     expect(cached).toBeDefined();
     expect(cached!.sessionId).toBe("main-session");
+  });
+});
+
+// --- P5 (Plancheck): the selector cache belongs to the MCP table ---
+
+describe("resolveElement — Script-API tab (P5)", () => {
+  beforeEach(() => {
+    forgetScriptTab("TAB-S");
+    a11yTree.resetAll();
+    selectorCache.invalidate();
+  });
+
+  it("P5: resolving a ref in a Script-API tab neither reads nor writes the selector cache", async () => {
+    const get = vi.spyOn(selectorCache, "get");
+    const set = vi.spyOn(selectorCache, "set");
+    try {
+      bindScriptTab("script-session", "TAB-S");
+      await runInTabOf("script-session", async () => {
+        await a11yTree.getTree(mockCdpForTree(buttonTree), "script-session");
+        const resolved = await resolveElement(mockCdpClient(), "script-session", { ref: "e2" });
+        expect(resolved.resolvedSessionId).toBe("script-session");
+      });
+      expect(get).not.toHaveBeenCalled();
+      expect(set).not.toHaveBeenCalled();
+
+      // The MCP side keeps using the cache as before.
+      await a11yTree.getTree(mockCdpForTree(buttonTree), "main-session");
+      await resolveElement(mockCdpClient(), "main-session", { ref: "e2" });
+      expect(get).toHaveBeenCalledWith("e2");
+      expect(set).toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
+      forgetScriptTab("TAB-S");
+      a11yTree.resetAll();
+      selectorCache.invalidate();
+    }
   });
 });

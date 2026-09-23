@@ -6,7 +6,7 @@ import { registerProHooks } from "./hooks/pro-hooks.js";
 import type { ProHooks } from "./hooks/pro-hooks.js";
 import { SessionDefaults } from "./cache/session-defaults.js";
 import { TabStateCache as TabStateCacheCtor } from "./cache/tab-state-cache.js";
-import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
+import { a11yTree, A11yTreeProcessor, bindScriptTab, forgetScriptTab } from "./cache/a11y-tree.js";
 import { prefetchSlot } from "./cache/prefetch-slot.js";
 import { deferredDiffSlot } from "./cache/deferred-diff-slot.js";
 import { toolSequence } from "./telemetry/tool-sequence.js";
@@ -4863,5 +4863,90 @@ describe("ToolRegistry — Piggyback-Drain (Story 20.1 M1)", () => {
 
     // The slot should be empty after drain
     expect(deferredDiffSlot.pendingDiffText).toBeNull();
+  });
+});
+
+// --- P5 (Plancheck): a Script-API session works in its own tab ---
+
+describe("ToolRegistry — Script-API tab keeps its own refs (P5)", () => {
+  const pageA = [
+    { nodeId: "1", ignored: false, role: { type: "role", value: "WebArea" }, backendDOMNodeId: 100, childIds: ["2"] },
+    {
+      nodeId: "2",
+      parentId: "1",
+      ignored: false,
+      role: { type: "role", value: "button" },
+      name: { type: "computedString", value: "Verify" },
+      backendDOMNodeId: 101,
+    },
+  ];
+  /** Tree of the MCP tab (session-A) for a direct getTree call. */
+  const treeCdp = {
+    send: vi.fn(async (method: string) => {
+      if (method === "Runtime.evaluate") return { result: { value: "https://a.test/" } };
+      if (method === "Accessibility.getFullAXTree") return { nodes: pageA };
+      return {};
+    }),
+    on: vi.fn(),
+    once: vi.fn(),
+    off: vi.fn(),
+  };
+  /** Same mock as the existing navigate tests above. */
+  const navCdp = {
+    send: vi.fn().mockImplementation(async (method: string) => {
+      if (method === "Page.navigate") return { frameId: "frame1" };
+      if (method === "Runtime.evaluate") return { result: { type: "string", value: "complete" } };
+      return {};
+    }),
+  };
+
+  beforeEach(() => {
+    registerProHooks({});
+    forgetScriptTab("TAB-B");
+    a11yTree.resetAll();
+  });
+
+  it("P5: navigate through a Script-API session in tab B leaves the refs of tab A valid", async () => {
+    const cancel = vi.spyOn(deferredDiffSlot, "cancel");
+    try {
+      await a11yTree.getTree(treeCdp as never, "session-A");
+      expect(a11yTree.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "session-A" });
+      bindScriptTab("session-B", "TAB-B");
+      const registry = new ToolRegistry({ tool: vi.fn() } as never, navCdp as never, "session-A", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("navigate", { url: "https://b.test/" }, "session-B");
+
+      expect(result.isError).toBeFalsy();
+      expect(a11yTree.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "session-A" });
+      expect(cancel).not.toHaveBeenCalled();
+
+      // Control: navigate in the MCP tab still resets the MCP tab's table.
+      await registry.executeTool("navigate", { url: "https://a.test/next" });
+      expect(a11yTree.resolveRefFull("e2")).toBeUndefined();
+      expect(cancel).toHaveBeenCalled();
+    } finally {
+      cancel.mockRestore();
+      forgetScriptTab("TAB-B");
+      a11yTree.resetAll();
+    }
+  });
+
+  it("P5: a Script-API call does not pick up the MCP tab's deferred click diff", async () => {
+    const drain = vi.spyOn(deferredDiffSlot, "drain");
+    try {
+      bindScriptTab("session-B", "TAB-B");
+      const registry = new ToolRegistry({ tool: vi.fn() } as never, navCdp as never, "session-A", {} as never);
+      registry.registerAll();
+
+      await registry.executeTool("evaluate", { expression: "1" }, "session-B");
+      expect(drain).not.toHaveBeenCalled();
+
+      await registry.executeTool("evaluate", { expression: "1" });
+      expect(drain).toHaveBeenCalledTimes(1);
+    } finally {
+      drain.mockRestore();
+      forgetScriptTab("TAB-B");
+    }
   });
 });

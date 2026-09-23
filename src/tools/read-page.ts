@@ -4,6 +4,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { a11yTree, RefNotFoundError } from "../cache/a11y-tree.js";
 import { wrapCdpError } from "./error-utils.js";
+import { foreignTabRefMessage } from "./element-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
 import { hintMatcher } from "../cortex/hint-matcher.js";
 import { debug } from "../cdp/debug.js";
@@ -138,8 +139,10 @@ export async function readPageHandler(
     const elapsedMs = Math.round(performance.now() - start);
 
     if (err instanceof RefNotFoundError) {
+      // B1: a ref of another tab — name that tab instead of "did you mean" in this one.
+      const owner = params.ref ? a11yTree.findRefOwnerTab(params.ref) : undefined;
       return {
-        content: [{ type: "text", text: err.message }],
+        content: [{ type: "text", text: owner && params.ref ? foreignTabRefMessage(params.ref, owner) : err.message }],
         isError: true,
         _meta: { elapsedMs, method },
       };

@@ -14,8 +14,12 @@ vi.mock("../cache/a11y-tree.js", () => ({
     currentUrl: "http://test.local",
     refCount: 10,
     findClosestRef: vi.fn(),
+    isCurrentDocument: vi.fn(async () => true),
+    findRefOwnerTab: vi.fn(() => undefined),
   },
   A11yTreeProcessor: { diffSnapshots: vi.fn(() => []), formatDomDiff: vi.fn() },
+  // P5: element-utils asks whether the call runs in a Script-API tab.
+  inScriptTab: vi.fn(() => false),
   RefNotFoundError: class RefNotFoundError extends Error {
     constructor(msg: string) {
       super(msg);

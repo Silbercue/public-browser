@@ -4,6 +4,7 @@ import type { SwitchTabParams, TabOwnership } from "./switch-tab.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { DEVICE_METRICS_OVERRIDE } from "../cdp/emulation.js";
+import { a11yTree } from "../cache/a11y-tree.js";
 
 type EventCallback = (params: unknown, sessionId?: string) => void;
 
@@ -1338,5 +1339,137 @@ describe("switchTabHandler — Story 9.1 TabOwnership", () => {
     expect(text).toContain("T1");
     expect(text).toContain("T2");
     expect(text).toContain("T3");
+  });
+});
+
+// --- B1 (S3): element refs per tab ---
+
+describe("switchTabHandler — refs per tab (B1)", () => {
+  beforeEach(() => {
+    _resetSwitchLock();
+    _resetOriginTab();
+    a11yTree.resetAll();
+  });
+
+  afterEach(() => {
+    a11yTree.resetAll();
+  });
+
+  // Tabs T1 and T2 (`live` lists the ones that still exist). Every attach
+  // yields a new session; Page.getFrameTree reports the loaderId of the tab
+  // behind that session (neither page changes).
+  function twoTabCdp(live: string[] = ["T1", "T2"]): CdpClient {
+    let attachCount = 0;
+    const tabOfSession: Record<string, string> = { "s-T1-0": "T1" };
+    const tabs = [
+      { targetId: "T1", type: "page", url: "https://a.test/", title: "A" },
+      { targetId: "T2", type: "page", url: "https://b.test/", title: "B" },
+    ];
+    return {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+        switch (method) {
+          case "Target.getTargets":
+            return { targetInfos: tabs.filter((t) => live.includes(t.targetId)) };
+          case "Target.attachToTarget": {
+            attachCount++;
+            const targetId = String(params?.targetId);
+            const sid = `s-${targetId}-${attachCount}`;
+            tabOfSession[sid] = targetId;
+            return { sessionId: sid };
+          }
+          case "Page.getFrameTree":
+            return { frameTree: { frame: { id: "main", loaderId: `doc-${tabOfSession[sessionId ?? ""]}` } } };
+          case "Page.getNavigationHistory":
+            return { currentIndex: 0, entries: [{ url: "https://a.test/", title: "A" }] };
+          case "Runtime.evaluate":
+            return { result: { value: "complete" } };
+          default:
+            return {};
+        }
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+  }
+
+  // Tab T1 (session s-T1-0, document doc-T1) has e1 = WebArea, e2 = button "Verify" (backendNodeId 42).
+  async function seedTabT1(): Promise<void> {
+    const seedCdp = {
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: "https://a.test/" } };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId: "doc-T1" } } }; // P21
+        if (method === "Accessibility.getFullAXTree") {
+          return {
+            nodes: [
+              { nodeId: "1", ignored: false, role: { type: "role", value: "WebArea" }, backendDOMNodeId: 1, childIds: ["2"] },
+              { nodeId: "2", ignored: false, parentId: "1", role: { type: "role", value: "button" }, name: { type: "computedString", value: "Verify" }, backendDOMNodeId: 42 },
+            ],
+          };
+        }
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+    await a11yTree.getTree(seedCdp, "s-T1-0");
+  }
+
+  it("B1: returning to an unchanged tab keeps its refs and says so", async () => {
+    await seedTabT1();
+    const cdp = twoTabCdp();
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+
+    const away = await switchTabHandler({ action: "switch", tab: "T2" }, cdp, "s-T1-0", cache, vi.fn());
+    expect(away.content[0].text).toContain("Element refs from the previous tab are no longer valid");
+    expect(a11yTree.resolveRefFull("e2")).toBeUndefined();
+
+    const back = await switchTabHandler({ action: "switch", tab: "T1" }, cdp, "s-T2-1", cache, vi.fn());
+    expect(back.content[0].text).toContain("refs from before are valid again");
+    expect(a11yTree.resolveRefFull("e2")).toEqual({ backendNodeId: 42, sessionId: "s-T1-2" });
+  });
+
+  it("B1: closing the active tab returns to the origin tab with its refs", async () => {
+    await seedTabT1();
+    const cdp = twoTabCdp();
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    await switchTabHandler({ action: "switch", tab: "T2" }, cdp, "s-T1-0", cache, vi.fn());
+
+    const result = await switchTabHandler({ action: "close" }, cdp, "s-T2-1", cache, vi.fn());
+
+    expect(result.content[0].text).toContain("Returned to origin tab: T1");
+    expect(result.content[0].text).toContain("refs from before are valid again");
+    expect(a11yTree.resolveRefFull("e2")).toEqual({ backendNodeId: 42, sessionId: "s-T1-2" });
+  });
+
+  it("B1: refs of a tab that closed without switch_tab are dropped on the next switch_tab", async () => {
+    await seedTabT1();
+    const live = ["T1", "T2"];
+    const cdp = twoTabCdp(live);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    await switchTabHandler({ action: "switch", tab: "T2" }, cdp, "s-T1-0", cache, vi.fn());
+    expect(a11yTree.findRefOwnerTab("e2")?.targetId).toBe("T1");
+
+    live.splice(live.indexOf("T1"), 1); // the page or the user closed T1
+    await switchTabHandler({ action: "switch" }, cdp, "s-T2-1", cache, vi.fn());
+
+    expect(a11yTree.findRefOwnerTab("e2")).toBeUndefined();
+  });
+
+  it("B1: closing a background tab forgets its refs", async () => {
+    await seedTabT1();
+    const cdp = twoTabCdp();
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    await switchTabHandler({ action: "switch", tab: "T2" }, cdp, "s-T1-0", cache, vi.fn());
+    expect(a11yTree.findRefOwnerTab("e2")?.targetId).toBe("T1");
+
+    await switchTabHandler({ action: "close", tab: "T1" }, cdp, "s-T2-1", cache, vi.fn());
+
+    expect(a11yTree.findRefOwnerTab("e2")).toBeUndefined();
   });
 });

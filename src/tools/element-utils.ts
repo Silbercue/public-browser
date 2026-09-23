@@ -1,6 +1,8 @@
 import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
 import { a11yTree, RefNotFoundError } from "../cache/a11y-tree.js";
+import type { RefTabOwner } from "../cache/a11y-tree.js";
+import { inScriptTab } from "../cache/a11y-tree.js";
 import { selectorCache } from "../cache/selector-cache.js";
 import { wrapCdpError } from "./error-utils.js";
 import { debug } from "../cdp/debug.js";
@@ -21,6 +23,19 @@ export interface ElementTarget {
   selector?: string;
 }
 
+// --- Ref error messages (B1 / S3) ---
+
+/** B1: The node behind a known ref is gone. Never guess a neighbour — the model re-reads. */
+export function staleRefMessage(ref: string): string {
+  return `Element ${ref} is a stale ref: its node no longer exists (page re-rendered or navigated). Call view_page for fresh refs and retry.`;
+}
+
+/** B1: The ref was issued in another tab; that tab's table still holds it. */
+export function foreignTabRefMessage(ref: string, owner: RefTabOwner): string {
+  const where = owner.url ? ` (${owner.url})` : "";
+  return `Element ${ref} belongs to tab ${owner.targetId}${where}, not to the active tab. switch_tab to that tab first, or call view_page for refs of this tab.`;
+}
+
 // --- Element Resolution ---
 
 /**
@@ -37,8 +52,19 @@ export async function resolveElement(
 ): Promise<ResolvedElement> {
   // Ref path (preferred)
   if (target.ref) {
+    // P21: a ref belongs to the document it was assigned in. If the page's main
+    // document changed since (link click, redirect — no navigate call reset
+    // the table), its backendNodeId may name another node after a renderer
+    // swap: stale, never a silent hit. One Page.getFrameTree per resolution.
+    if (a11yTree.resolveRefFull(target.ref) && !(await a11yTree.isCurrentDocument(cdpClient, sessionId))) {
+      throw new RefNotFoundError(staleRefMessage(target.ref));
+    }
+
     // --- Selector-Cache Check (Story 7.5) ---
-    const cached = selectorCache.get(target.ref);
+    // P5: The cache is keyed by the ref text alone and belongs to the MCP
+    // table. A Script-API tab numbers refs in its own table ("e5" there is
+    // another node), so it neither reads nor writes the cache.
+    const cached = inScriptTab() ? undefined : selectorCache.get(target.ref);
     if (cached) {
       // M1 fix: Verify cached sessionId still matches current session
       const currentSessionForNode = sessionManager?.getSessionForNode(cached.backendNodeId) ?? sessionId;
@@ -78,7 +104,9 @@ export async function resolveElement(
     // type into a Chrome Webstore iframe.
     const full = a11yTree.resolveRefFull(target.ref);
     if (!full) {
-      throw new RefNotFoundError(`Element ${target.ref} not found.`);
+      // B1: a ref of another tab is not unknown, it is foreign — say whose it is.
+      const owner = a11yTree.findRefOwnerTab(target.ref);
+      throw new RefNotFoundError(owner ? foreignTabRefMessage(target.ref, owner) : `Element ${target.ref} not found.`);
     }
     const { backendNodeId, sessionId: targetSessionId } = full;
 
@@ -109,9 +137,7 @@ export async function resolveElement(
       if (msg.includes("DOM agent needs to be enabled")) {
         throw new Error(`DOM domain not enabled for session — this is a server bug, not a stale ref. Try calling view_page first or report this issue.`);
       }
-      throw new RefNotFoundError(
-        `Element ${target.ref} not found (stale ref — node no longer in DOM).`,
-      );
+      throw new RefNotFoundError(staleRefMessage(target.ref));
     }
     // Get role/name directly from nodeInfoMap via backendNodeId
     const info = a11yTree.getNodeInfo(backendNodeId);
@@ -119,7 +145,9 @@ export async function resolveElement(
     // Cache the resolved ref for future lookups (Story 7.5)
     // H1 fix: Pass URL + nodeCount so set() can compute on-the-fly fingerprint
     // when no fingerprint is active yet (first resolution after navigation)
-    selectorCache.set(target.ref, backendNodeId, targetSessionId, a11yTree.currentUrl, a11yTree.refCount);
+    if (!inScriptTab()) {
+      selectorCache.set(target.ref, backendNodeId, targetSessionId, a11yTree.currentUrl, a11yTree.refCount);
+    }
 
     return {
       backendNodeId,
@@ -179,6 +207,12 @@ export function buildRefNotFoundError(
   ref: string,
   roleFilter?: Set<string>,
 ): string {
+  // B1: a ref of another tab — name that tab instead of guessing a neighbour here.
+  const owner = a11yTree.findRefOwnerTab(ref);
+  if (owner) return foreignTabRefMessage(ref, owner);
+  // B1: this tab knows the ref, so resolving it failed on its node — stale, not a typo.
+  if (a11yTree.resolveRefFull(ref)) return staleRefMessage(ref);
+
   const suggestion = a11yTree.findClosestRef(ref, roleFilter);
 
   // FR-004 + BUG-013: Detect stale / useless suggestions.

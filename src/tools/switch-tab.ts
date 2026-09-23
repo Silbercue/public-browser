@@ -92,6 +92,23 @@ export function _getOriginTabId(): string | undefined {
 /** FR-014: Hint appended to responses where the active tab changes. */
 const STALE_REFS_HINT = "\n\nNote: Element refs from the previous tab are no longer valid. Call view_page for fresh refs.";
 
+/** B1: Hint when the target tab's refs came back (its page is unchanged). */
+const REFS_RESTORED_HINT = "\n\nNote: This tab's refs from before are valid again (page unchanged); refs of the previous tab are not.";
+
+/** B1: The hint that matches what a11yTree.switchTab() did with the refs. */
+function refsHint(restored: boolean): string {
+  return restored ? REFS_RESTORED_HINT : STALE_REFS_HINT;
+}
+
+/** B1: Tab and session being left, whose refs a11yTree.switchTab() stores. Null when unknown. */
+function leavingTab(
+  tabStateCache: TabStateCache,
+  sessionId: string | undefined,
+): { targetId: string; sessionId: string } | null {
+  const targetId = tabStateCache.activeTargetId;
+  return targetId && sessionId ? { targetId, sessionId } : null;
+}
+
 /**
  * Story 9.1: Optional tab ownership callbacks for script mode.
  * When provided, MCP tools only operate on owned tabs — externally
@@ -115,7 +132,8 @@ async function activateSession(
   targetId: string,
   tabStateCache: TabStateCache,
   onSessionChange: (newSessionId: string) => void,
-): Promise<string> {
+  leaving: { targetId: string; sessionId: string } | null,
+): Promise<{ sessionId: string; refsRestored: boolean }> {
   // 1. Attach to target -> new sessionId
   const { sessionId: newSessionId } = await cdpClient.send<{ sessionId: string }>(
     "Target.attachToTarget",
@@ -147,18 +165,16 @@ async function activateSession(
   // 4. Propagate new session to ToolRegistry
   onSessionChange(newSessionId);
 
-  // BUG-017: Every ref in the a11y-cache belongs to the previous tab's
-  // document and sits in a completely different backendNodeId namespace.
-  // Reset the cache so the next read_page builds a fresh ref table —
-  // this makes the existing STALE_REFS_HINT (Z. 91) truthful for the
-  // first time. Without this reset, a stale ref could silently resolve
-  // to an unrelated node in the new tab via the old refNum.
-  a11yTree.reset();
+  // B1 (replaces the BUG-017 reset): refs are kept per tab. The table of the
+  // tab being left is stored; the target tab's refs come back only if its
+  // page is unchanged. A ref never resolves across tabs — the active table
+  // is always swapped, so an old ref of another tab fails loudly.
+  const refsRestored = await a11yTree.switchTab(cdpClient, leaving, { targetId, sessionId: newSessionId });
 
   // 5. Inject session overlay into the new tab
   await injectOverlay(cdpClient, newSessionId);
 
-  return newSessionId;
+  return { sessionId: newSessionId, refsRestored };
 }
 
 export async function switchTabHandler(
@@ -180,11 +196,12 @@ export async function switchTabHandler(
       // `.default("switch")` above never applies there — default here too.
       switch (params.action ?? "switch") {
         case "open":
-          return await handleOpen(params, cdpClient, tabStateCache, onSessionChange, start, method, sessionManager, tabOwnership);
+          return await handleOpen(params, cdpClient, sessionId, tabStateCache, onSessionChange, start, method, sessionManager, tabOwnership);
         case "switch":
           return await handleSwitch(
             params,
             cdpClient,
+            sessionId,
             tabStateCache,
             onSessionChange,
             start,
@@ -218,6 +235,7 @@ export async function switchTabHandler(
 async function handleOpen(
   params: SwitchTabParams,
   cdpClient: CdpClient,
+  sessionId: string | undefined,
   tabStateCache: TabStateCache,
   onSessionChange: (newSessionId: string) => void,
   start: number,
@@ -229,6 +247,7 @@ async function handleOpen(
 
   // Remember origin tab before switching away
   _originTabId = tabStateCache.activeTargetId ?? undefined;
+  const leaving = leavingTab(tabStateCache, sessionId); // B1: before the active target moves
 
   // Create new tab
   const { targetId } = await cdpClient.send<{ targetId: string }>("Target.createTarget", {
@@ -238,8 +257,8 @@ async function handleOpen(
   // Story 9.1: Track the new tab as MCP-owned
   tabOwnership?.track(targetId);
 
-  // Activate session on the new tab
-  const newSessionId = await activateSession(cdpClient, targetId, tabStateCache, onSessionChange);
+  // Activate session on the new tab (a new tab has no refs to restore)
+  const { sessionId: newSessionId } = await activateSession(cdpClient, targetId, tabStateCache, onSessionChange, leaving);
 
   // C1: Re-initialize SessionManager for new tab's OOPIF auto-attach
   if (sessionManager) {
@@ -279,6 +298,7 @@ async function handleOpen(
 async function handleSwitch(
   params: SwitchTabParams,
   cdpClient: CdpClient,
+  sessionId: string | undefined,
   tabStateCache: TabStateCache,
   onSessionChange: (newSessionId: string) => void,
   start: number,
@@ -291,6 +311,7 @@ async function handleSwitch(
     const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
     // Story 9.1: Filter to owned tabs only when tab ownership tracking is active
     const pageTabs = targetInfos.filter((t) => t.type === "page" && (!tabOwnership || tabOwnership.filter(t.targetId)));
+    a11yTree.retainTabs(pageTabs.map((t) => t.targetId)); // B1: tabs closed without switch_tab
     const activeId = tabStateCache.activeTargetId;
     const lines = pageTabs.map((t, i) => {
       const marker = t.targetId === activeId ? "★" : " ";
@@ -306,6 +327,7 @@ async function handleSwitch(
   const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
   // Story 9.1: Filter to owned tabs only when tab ownership tracking is active
   const pageTabs = targetInfos.filter((t) => t.type === "page" && (!tabOwnership || tabOwnership.filter(t.targetId)));
+  a11yTree.retainTabs(pageTabs.map((t) => t.targetId)); // B1: tabs closed without switch_tab
   const resolvedId = resolveTabId(params.tab!, pageTabs);
   if (!resolvedId) {
     return {
@@ -317,6 +339,7 @@ async function handleSwitch(
 
   // Remember origin tab before switching away
   _originTabId = tabStateCache.activeTargetId ?? undefined;
+  const leaving = leavingTab(tabStateCache, sessionId); // B1: before the active target moves
 
   // C1: Remember previous state for rollback if attachToTarget fails
   const previousTargetId = tabStateCache.activeTargetId;
@@ -337,13 +360,14 @@ async function handleSwitch(
   }
 
   // C1: Activate CDP session — rollback on failure
-  let newSessionId: string;
+  let activated: { sessionId: string; refsRestored: boolean };
   try {
-    newSessionId = await activateSession(
+    activated = await activateSession(
       cdpClient,
       resolvedId,
       tabStateCache,
       onSessionChange,
+      leaving,
     );
   } catch (attachErr) {
     // C1: Rollback — re-activate the previous tab visually
@@ -356,6 +380,7 @@ async function handleSwitch(
     }
     throw attachErr;
   }
+  const newSessionId = activated.sessionId;
 
   // C1: Re-initialize SessionManager for new tab's OOPIF auto-attach
   if (sessionManager) {
@@ -370,7 +395,7 @@ async function handleSwitch(
     content: [
       {
         type: "text",
-        text: `Switched to tab: ${resolvedId}\nURL: ${state.url}\nTitle: ${state.title}${STALE_REFS_HINT}`,
+        text: `Switched to tab: ${resolvedId}\nURL: ${state.url}\nTitle: ${state.title}${refsHint(activated.refsRestored)}`,
       },
     ],
     _meta: { elapsedMs, method },
@@ -447,14 +472,15 @@ async function handleClose(
     // H1: Activate the new tab visually first
     await cdpClient.send("Target.activateTarget", { targetId: newActiveTab });
 
-    // H1: Then attach session
-    let newSessionId: string;
+    // H1: Then attach session. B1: the closing tab's refs are not kept (leaving = null).
+    let activated: { sessionId: string; refsRestored: boolean };
     try {
-      newSessionId = await activateSession(
+      activated = await activateSession(
         cdpClient,
         newActiveTab,
         tabStateCache,
         onSessionChange,
+        null,
       );
     } catch (attachErr) {
       // C2: activateSession failed — don't leave activeTargetId on a tab we're about to close.
@@ -465,15 +491,17 @@ async function handleClose(
       if (fallback) {
         try {
           await cdpClient.send("Target.activateTarget", { targetId: fallback.targetId });
-          const fallbackSessionId = await activateSession(
+          const { sessionId: fallbackSessionId, refsRestored: fallbackRestored } = await activateSession(
             cdpClient,
             fallback.targetId,
             tabStateCache,
             onSessionChange,
+            null,
           );
           // Still close the intended target
           await cdpClient.send("Target.closeTarget", { targetId: targetTab });
           tabStateCache.invalidate(targetTab);
+          a11yTree.forgetTab(targetTab); // B1
           tabOwnership?.untrack(targetTab); // Story 9.1
           _originTabId = undefined; // Reset after close
           const { state } = await tabStateCache.getOrFetch(
@@ -486,7 +514,7 @@ async function handleClose(
             content: [
               {
                 type: "text",
-                text: `Tab closed: ${targetTab}\nActive tab: ${fallback.targetId} (fallback)\nURL: ${state.url}\nTitle: ${state.title}${STALE_REFS_HINT}`,
+                text: `Tab closed: ${targetTab}\nActive tab: ${fallback.targetId} (fallback)\nURL: ${state.url}\nTitle: ${state.title}${refsHint(fallbackRestored)}`,
               },
             ],
             _meta: { elapsedMs, method },
@@ -501,12 +529,13 @@ async function handleClose(
     // Now safely close the old tab and clean up
     await cdpClient.send("Target.closeTarget", { targetId: targetTab });
     tabStateCache.invalidate(targetTab);
+    a11yTree.forgetTab(targetTab); // B1
     tabOwnership?.untrack(targetTab); // Story 9.1
 
     const usedOrigin = newActiveTab === _originTabId;
     _originTabId = undefined; // Reset after close
 
-    const { state } = await tabStateCache.getOrFetch(cdpClient, newActiveTab, newSessionId);
+    const { state } = await tabStateCache.getOrFetch(cdpClient, newActiveTab, activated.sessionId);
     const elapsedMs = Math.round(performance.now() - start);
 
     const activeLine = usedOrigin
@@ -517,7 +546,7 @@ async function handleClose(
       content: [
         {
           type: "text",
-          text: `Tab closed: ${targetTab}\n${activeLine}\nURL: ${state.url}\nTitle: ${state.title}${STALE_REFS_HINT}`,
+          text: `Tab closed: ${targetTab}\n${activeLine}\nURL: ${state.url}\nTitle: ${state.title}${refsHint(activated.refsRestored)}`,
         },
       ],
       _meta: { elapsedMs, method },
@@ -527,6 +556,7 @@ async function handleClose(
   // Non-active tab was closed, no switch needed
   await cdpClient.send("Target.closeTarget", { targetId: targetTab });
   tabStateCache.invalidate(targetTab);
+  a11yTree.forgetTab(targetTab); // B1
   tabOwnership?.untrack(targetTab); // Story 9.1
 
   const elapsedMs = Math.round(performance.now() - start);

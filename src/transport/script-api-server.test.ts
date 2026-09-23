@@ -11,6 +11,7 @@ import { ScriptApiServer, SessionStore } from "./script-api-server.js";
 import type { ScriptApiToolRegistry } from "./script-api-server.js";
 import type { IBrowserSession } from "../cdp/browser-session.js";
 import type { ToolResponse } from "../types.js";
+import { scriptTabOf } from "../cache/a11y-tree.js";
 import { VERSION } from "../version.js";
 
 const TEST_TOKEN = "test-token-0123456789abcdef0123456789abcdef";
@@ -980,5 +981,38 @@ describe("ScriptApiServer — Escape Hatch nach dem tatsaechlichen Port (S2)", (
     const res = await createWith(50123);
     expect(res.body.cdp_ws_url).toBe("ws://localhost:50123/devtools/page/tab-1");
     expect(res.body).not.toHaveProperty("cdp_ws_note");
+  });
+});
+
+// ── P5: the script's tab keeps its own ref table ───────────────────────
+
+describe("ScriptApiServer — ref table of the script's tab (P5)", () => {
+  let server: ScriptApiServer;
+  let port: number;
+
+  beforeEach(async () => {
+    server = new ScriptApiServer({
+      port: 0,
+      registry: createMockRegistry(),
+      browserSession: createMockBrowserSession(),
+      token: TEST_TOKEN,
+    });
+    await server.start();
+    port = server.port;
+  });
+
+  afterEach(async () => {
+    await server.stop();
+  });
+
+  it("P5: session/create binds the CDP session to its tab, session/close forgets it", async () => {
+    const created = await request(port, "/session/create", {});
+    expect(created.status).toBe(200);
+    const cdpSessionId = created.body.cdp_session_id as string;
+    expect(scriptTabOf(cdpSessionId)).toBe(created.body.target_id);
+
+    const closed = await request(port, "/session/close", { session_token: created.body.session_token });
+    expect(closed.status).toBe(200);
+    expect(scriptTabOf(cdpSessionId)).toBeUndefined();
   });
 });

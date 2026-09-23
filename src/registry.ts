@@ -67,7 +67,7 @@ import { z } from "zod";
 import { getProHooks, registerProHooks } from "./hooks/pro-hooks.js";
 import type { ToolRegistryPublic } from "./hooks/pro-hooks.js";
 import { createDefaultOnToolResult, drainPendingDiff } from "./hooks/default-on-tool-result.js";
-import { a11yTree, A11yTreeProcessor } from "./cache/a11y-tree.js";
+import { a11yTree, A11yTreeProcessor, scriptTabOf, runInTabOf } from "./cache/a11y-tree.js";
 import { prefetchSlot } from "./cache/prefetch-slot.js";
 import { deferredDiffSlot } from "./cache/deferred-diff-slot.js";
 import { frictionRecorder } from "./telemetry/friction-recorder.js";
@@ -640,13 +640,18 @@ export class ToolRegistry implements ToolRegistryPublic {
     // completed, we pick it up here and prepend it to this tool's response
     // after the handler finishes. Non-blocking — if the diff is not ready
     // yet, `drainPendingDiff()` returns null and we move on.
-    const piggybackDiff = drainPendingDiff();
+    //
+    // P5 (Plancheck): A Script-API session drives a tab of its own. Its call
+    // must not take (and so steal) the MCP tab's deferred click diff.
+    const scriptTab = scriptTabOf(sessionIdOverride) !== undefined;
+    const piggybackDiff = scriptTab ? null : drainPendingDiff();
 
     // S5: run_plan and the Script API pass raw params — no zod defaults and
     // no required-field check. A handler whose `switch` then matches no case
     // (switch_tab without `action`, wait_for without `condition`) returns
     // nothing; report that instead of crashing on `result.isError` below.
-    const result: ToolResponse = (await handler(resolvedParams, sessionIdOverride)) ?? {
+    // P5: inside runInTabOf() `a11yTree` is the ref table of the script's tab.
+    const result: ToolResponse = (await runInTabOf(sessionIdOverride, () => handler(resolvedParams, sessionIdOverride))) ?? {
       content: [{
         type: "text",
         text: `${name} returned no result — a required parameter (for example 'action' or 'condition') is missing or has an invalid value.`,
@@ -668,7 +673,12 @@ export class ToolRegistry implements ToolRegistryPublic {
     // Story 18.1: `skipOnToolResultHook` erlaubt `run_plan`, den Ambient-Context
     // fuer Zwischen-Steps zu unterdruecken. Dialog-Notifications und
     // Relaunch-Notice laufen oben bewusst unabhaengig davon.
-    await this._runOnToolResultHook(result, name, options?.skipOnToolResultHook === true);
+    // P5: For a Script-API tab the ambient-context hook (click diff) stays
+    // off — it reads the MCP tab. The navigate reset in there still runs, in
+    // the script's tab, and so clears only that tab's refs.
+    await runInTabOf(sessionIdOverride, () =>
+      this._runOnToolResultHook(result, name, options?.skipOnToolResultHook === true || scriptTab, scriptTab),
+    );
     // Story 7.3: Inject auto-promote suggestion into _meta
     if (suggestionText && result._meta) {
       result._meta.suggestion = suggestionText;
@@ -689,7 +699,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // DeferredDiffSlot's background build already calls
     // refreshPrecomputed, which has the same cache-warming effect.
     // Only navigate triggers the speculative prefetch now.
-    if (!result.isError && name === "navigate") {
+    if (!result.isError && name === "navigate" && !scriptTab) {
       this._triggerSpeculativePrefetch();
     }
     return result;
@@ -804,6 +814,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     result: ToolResponse,
     name: string,
     skipHook = false,
+    scriptTab = false,
   ): Promise<void> {
     // Friction-Session-Tracking (opt-in, dev-only): zaehlt jeden Tool-Call
     // und Tool-Fehler, bevor irgendein Guard frueh zurueckkehrt. No-op ohne
@@ -822,11 +833,15 @@ export class ToolRegistry implements ToolRegistryPublic {
     // ebenfalls zurueckgesetzt — neue Seite, neuer Orientierungsbedarf fuer
     // den LLM. Identisch zum Muster aus FR-020 (`tool-sequence.ts`).
     if (name === "navigate") {
+      // P5: inside runInTabOf() for a Script-API session this resets that
+      // tab's table only; the MCP tab keeps its refs, hint state and diff.
       a11yTree.reset();
-      this._resetFr029Streak();
-      // Story 20.1: Cancel any pending deferred diff — the page changed,
-      // the old diff is stale.
-      deferredDiffSlot.cancel();
+      if (!scriptTab) {
+        this._resetFr029Streak();
+        // Story 20.1: Cancel any pending deferred diff — the page changed,
+        // the old diff is stale.
+        deferredDiffSlot.cancel();
+      }
     }
 
     if (result.isError) return;

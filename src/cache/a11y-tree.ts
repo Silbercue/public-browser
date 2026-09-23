@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager, SessionInfo } from "../cdp/session-manager.js";
 import { wrapCdpError } from "../tools/error-utils.js";
@@ -311,6 +312,25 @@ interface NodeInfo {
   nameFullLength?: number; // FR-021: Full innerText length when name was truncated by FR-H5 enrichment (80-char cap)
 }
 
+/** B1: Ref table of an inactive tab, kept by switchTab() until the tab comes back or closes. */
+interface SavedRefTable {
+  refMap: Map<string, number>;
+  reverseMap: Map<number, { backendNodeId: number; sessionId: string }>;
+  nodeInfoMap: Map<string, NodeInfo>;
+  sessionNodeMap: Map<string, Set<number>>;
+  lastUrl: string;
+  /** Main-frame CDP session the table's keys were built with. */
+  sessionId: string;
+  /** P21: main frame's loaderId when the refs were assigned (getTree/refreshPrecomputed); undefined = unknown, never restored. */
+  docId?: string;
+}
+
+/** B1: The inactive tab a ref belongs to — for the "belongs to tab X" error. */
+export interface RefTabOwner {
+  targetId: string;
+  url: string;
+}
+
 export class A11yTreeProcessor {
   // BUG-016: refMap is keyed by COMPOSITE `${sessionId}:${backendNodeId}`.
   // Chrome's `backendNodeId` is unique per renderer process, not globally —
@@ -384,6 +404,18 @@ export class A11yTreeProcessor {
   // signal to know which refs are still live.
   private _activeRefsAfterRefresh: Set<number> = new Set();
 
+  // B1: Ref tables of inactive tabs, keyed by targetId. The active tab's
+  // table lives in the fields above. `nextRef` stays global, so no ref
+  // number is ever held by two tables at once (see _firstFreeRef).
+  private _savedTables = new Map<string, SavedRefTable>();
+  // B1: Bumped by switchTab(). A refreshPrecomputed() that started before
+  // the switch must not write into the next tab's table.
+  private _tableEpoch = 0;
+  // P21: Main-frame loaderId of the document the active table's refs were
+  // assigned in, recorded by getTree()/refreshPrecomputed(). undefined =
+  // unknown (not read yet, or CDP could not tell) — then nothing compares.
+  private _docId: string | undefined = undefined;
+
   /** Story 13.1: Current cache version — increments on every state change */
   get cacheVersion(): number {
     return this._cacheVersion;
@@ -405,6 +437,16 @@ export class A11yTreeProcessor {
   }
 
   /**
+   * B1: Full reset — also drops the tables of all inactive tabs (tests, a
+   * freshly launched Chrome). `reset()` alone keeps them, because a
+   * navigation in one tab does not change the others.
+   */
+  resetAll(): void {
+    this._savedTables.clear();
+    this.reset();
+  }
+
+  /**
    * Story 18.5: Internal map-clearing helper used by `reset()` and by
    * `refreshPrecomputed` when it detects a URL change mid-build. Does NOT
    * touch the prefetch slot — calling `prefetchSlot.cancel()` from inside
@@ -417,7 +459,8 @@ export class A11yTreeProcessor {
     this.nodeInfoMap.clear();
     this.sessionNodeMap.clear();
     this._activeRefsAfterRefresh = new Set();
-    this.nextRef = 1;
+    this._docId = undefined; // P21: the next tree records its document
+    this.nextRef = this._firstFreeRef(); // B1: 1 unless another tab still holds refs
     this.lastUrl = "";
     this._renderSessionId = "";
     this._lastVisualCache = null; // Story 18.4 M3
@@ -562,9 +605,14 @@ export class A11yTreeProcessor {
     signal?: AbortSignal,
     expectedUrl?: string,
   ): Promise<void> {
+    // B1: A tab switch during this build makes its result belong to a tab
+    // that is no longer active — treat it like an abort.
+    const epoch = this._tableEpoch;
+    const superseded = (): boolean => signal?.aborted === true || epoch !== this._tableEpoch;
+
     // Story 18.5: Frueher Abort-Check — wenn der Slot bereits abgebrochen
     // wurde, bevor wir ueberhaupt anfangen, sofort exit.
-    if (signal?.aborted) return;
+    if (superseded()) return;
 
     // 1. URL pruefen — wenn sich die Basis-URL (ohne Hash) geaendert hat, reset() aufrufen
     //    Hash-only-Aenderungen (z.B. /#step-alpha → /#step-beta) behalten Refs,
@@ -574,8 +622,11 @@ export class A11yTreeProcessor {
       { expression: "document.URL", returnByValue: true },
       sessionId,
     );
-    if (signal?.aborted) return;
+    if (superseded()) return;
     const startUrl = urlResult.result.value;
+    // P21: document identity the refs of this pass belong to (see getTree()).
+    const docId = await this._fetchDocId(cdpClient, sessionId);
+    if (superseded()) return;
 
     // Story 18.5 L1: Pre-Read-Check — wenn der Slot einen nicht-leeren
     // `expectedUrl` mitgegeben hat (d.h. wir laufen im Prefetch-Pfad UND
@@ -601,7 +652,7 @@ export class A11yTreeProcessor {
       );
       return;
     }
-    if (stripHash(startUrl) !== stripHash(this.lastUrl)) {
+    if (stripHash(startUrl) !== stripHash(this.lastUrl) || this._isOtherDocument(docId)) {
       // Story 18.5: Use the internal helper instead of `reset()` so the
       // slot's own AbortController is NOT cancelled — see _resetState()
       // doc and the "self-cancel" note in the Story-18.5 race-condition
@@ -611,6 +662,7 @@ export class A11yTreeProcessor {
       this._resetState();
     }
     this.lastUrl = startUrl;
+    if (docId !== undefined) this._docId = docId; // P21
 
     // 2. A11y-Tree via CDP laden — no depth limit (BUG-019).
     // The precomputed cache previously primed only the top 3 levels, so any
@@ -621,7 +673,7 @@ export class A11yTreeProcessor {
       {},
       sessionId,
     );
-    if (signal?.aborted) return;
+    if (superseded()) return;
     if (!result.nodes || result.nodes.length === 0) return;
 
     // 3. Ref-IDs zuweisen (STABIL — bestehende Refs bleiben, neue bekommen neue Nummern)
@@ -656,7 +708,7 @@ export class A11yTreeProcessor {
     // einen neuen navigate auf URL B), darf der frische Stand NICHT in
     // den Cache geschrieben werden — sonst sieht der naechste read_page
     // die Slot-1-Daten statt der erwarteten Slot-2-Daten.
-    if (signal?.aborted) return;
+    if (superseded()) return;
 
     // Story 18.5 (AC-3): URL-Race-Pruefung. Zwischen dem Start-URL-Fetch
     // (oben) und JETZT kann die Page weiter navigiert sein — z.B. weil ein
@@ -676,7 +728,7 @@ export class A11yTreeProcessor {
       { expression: "document.URL", returnByValue: true },
       sessionId,
     );
-    if (signal?.aborted) return;
+    if (superseded()) return;
     const recheckUrl = recheckResult.result.value;
     const referenceUrl = (expectedUrl !== undefined && expectedUrl !== "")
       ? expectedUrl
@@ -701,7 +753,7 @@ export class A11yTreeProcessor {
     // 5. Register root node for Accessibility.nodesUpdated tracking (Story 13a.2 fix).
     // getFullAXTree does NOT populate Chrome's nodes_requested_ set, so nodesUpdated
     // never fires. A single getRootAXNode call registers the root — 1 extra CDP call.
-    if (signal?.aborted) return;
+    if (superseded()) return;
     try {
       await cdpClient.send("Accessibility.getRootAXNode", {}, sessionId);
     } catch {
@@ -710,11 +762,11 @@ export class A11yTreeProcessor {
     }
 
     // 6. FR-004 + FR-005: Enrich nodes with HTML attributes and click listeners
-    if (signal?.aborted) return;
+    if (superseded()) return;
     await this._enrichNodeMetadata(cdpClient, sessionId);
 
     // Phase 3: FR-001 — detect scrollable containers (1 CDP call total)
-    if (signal?.aborted) return;
+    if (superseded()) return;
     try {
       const scrollResult = await cdpClient.send<{ result: { value: string } }>(
         "Runtime.evaluate",
@@ -808,6 +860,144 @@ export class A11yTreeProcessor {
       this.nodeInfoMap.delete(key);
     }
     this.sessionNodeMap.delete(sessionId);
+  }
+
+  /**
+   * B1: Tab switch. The active table is stored under the tab being left,
+   * together with the document identity its refs were assigned in (P21 —
+   * recorded by getTree()/refreshPrecomputed(), not read now). The target tab's
+   * stored table comes back only if its document is still the same
+   * (Page.getFrameTree loaderId); its keys then move to the new CDP session,
+   * so old refs resolve again and a fresh view_page keeps their numbers.
+   * OOPIF entries are dropped — SessionManager re-creates those sessions.
+   * Returns true when the target tab's refs were restored.
+   */
+  async switchTab(
+    cdpClient: CdpClient,
+    from: { targetId: string; sessionId: string } | null,
+    to: { targetId: string; sessionId: string },
+  ): Promise<boolean> {
+    prefetchSlot.cancel();
+    this._tableEpoch++;
+    const leaving: SavedRefTable | null = from && this.reverseMap.size > 0
+      ? {
+          refMap: this.refMap,
+          reverseMap: this.reverseMap,
+          nodeInfoMap: this.nodeInfoMap,
+          sessionNodeMap: this.sessionNodeMap,
+          docId: this._docId, // P21: recorded with the refs, not read now
+          lastUrl: this.lastUrl,
+          sessionId: from.sessionId,
+        }
+      : null;
+    this._clearActiveTable();
+    if (from && leaving) this._savedTables.set(from.targetId, leaving);
+    const target = this._savedTables.get(to.targetId);
+    this._savedTables.delete(to.targetId);
+    if (!target || target.docId === undefined) return false;
+    if ((await this._fetchDocId(cdpClient, to.sessionId)) !== target.docId) return false;
+    this._adoptTable(target, to.sessionId);
+    return true;
+  }
+
+  /** B1: A closed tab's refs are gone for good. */
+  forgetTab(targetId: string): void {
+    this._savedTables.delete(targetId);
+  }
+
+  /** B1: Drops the tables of tabs that no longer exist (closed by the page or the user). */
+  retainTabs(liveTargetIds: Iterable<string>): void {
+    const live = new Set(liveTargetIds);
+    for (const targetId of [...this._savedTables.keys()]) {
+      if (!live.has(targetId)) this._savedTables.delete(targetId);
+    }
+  }
+
+  /**
+   * B1: The inactive tab a ref belongs to, or undefined. Asked only after the
+   * active table did not know the ref, so the error can name the right tab
+   * instead of guessing a neighbour in this one.
+   */
+  findRefOwnerTab(ref: string): RefTabOwner | undefined {
+    const match = ref.match(/^e(\d+)$/);
+    if (!match) return undefined;
+    const refNum = parseInt(match[1], 10);
+    for (const [targetId, table] of this._savedTables) {
+      if (table.reverseMap.has(refNum)) return { targetId, url: table.lastUrl };
+    }
+    return undefined;
+  }
+
+  /** B1: First ref number no inactive tab holds — 1 while only one tab has refs. */
+  private _firstFreeRef(): number {
+    let max = 0;
+    for (const table of this._savedTables.values()) {
+      for (const refNum of table.reverseMap.keys()) {
+        if (refNum > max) max = refNum;
+      }
+    }
+    return max + 1;
+  }
+
+  /** B1: Empty active table; nextRef and the inactive tabs stay untouched. */
+  private _clearActiveTable(): void {
+    this.refMap = new Map();
+    this.reverseMap = new Map();
+    this.nodeInfoMap = new Map();
+    this.sessionNodeMap = new Map();
+    this.lastUrl = "";
+    this._docId = undefined; // P21
+    this._renderSessionId = "";
+    this.invalidatePrecomputed(); // also empties _activeRefsAfterRefresh
+  }
+
+  /** B1: Re-activates a stored table under the tab's new main-frame session. */
+  private _adoptTable(saved: SavedRefTable, sessionId: string): void {
+    for (const [refNum, owner] of saved.reverseMap) {
+      if (owner.sessionId !== saved.sessionId) continue; // OOPIF — its session is gone
+      const newKey = this.refKey(owner.backendNodeId, sessionId);
+      this.reverseMap.set(refNum, { backendNodeId: owner.backendNodeId, sessionId });
+      this.refMap.set(newKey, refNum);
+      const info = saved.nodeInfoMap.get(this.refKey(owner.backendNodeId, saved.sessionId));
+      if (info) this.nodeInfoMap.set(newKey, info);
+    }
+    const nodes = saved.sessionNodeMap.get(saved.sessionId);
+    if (nodes) this.sessionNodeMap.set(sessionId, new Set(nodes));
+    this.lastUrl = saved.lastUrl;
+    this._docId = saved.docId; // P21: switchTab() just checked it is still the tab's document
+  }
+
+  /**
+   * P21: false when the page's main document is no longer the one the active
+   * table's refs were assigned in — a navigation no navigate call reported
+   * (link click, redirect, reload by the page). After a renderer swap the old
+   * backendNodeIds can name other nodes, so such a ref must fail as stale.
+   * Unknown identity on either side → true (nothing to compare). Costs one
+   * Page.getFrameTree per call while the identity is known.
+   */
+  async isCurrentDocument(cdpClient: CdpClient, sessionId: string): Promise<boolean> {
+    if (this._docId === undefined) return true;
+    const current = await this._fetchDocId(cdpClient, sessionId);
+    return current === undefined || current === this._docId;
+  }
+
+  /** P21: true only when both identities are known and differ. */
+  private _isOtherDocument(docId: string | undefined): boolean {
+    return docId !== undefined && this._docId !== undefined && docId !== this._docId;
+  }
+
+  /** B1: Document identity of a tab's main frame; undefined when it cannot be read. */
+  private async _fetchDocId(cdpClient: CdpClient, sessionId: string): Promise<string | undefined> {
+    try {
+      const tree = await cdpClient.send<{ frameTree?: { frame?: { loaderId?: string } } }>(
+        "Page.getFrameTree",
+        {},
+        sessionId,
+      );
+      return tree?.frameTree?.frame?.loaderId;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -1409,7 +1599,10 @@ export class A11yTreeProcessor {
       sessionId,
     );
     const currentUrl = urlResult.result.value;
-    if (stripHash(currentUrl) !== stripHash(this.lastUrl)) {
+    // P21: the document the refs are assigned in (main-frame loaderId). A new
+    // document under the same URL (reload by the page) resets like a URL change.
+    const docId = await this._fetchDocId(cdpClient, sessionId);
+    if (stripHash(currentUrl) !== stripHash(this.lastUrl) || this._isOtherDocument(docId)) {
       // BUG-016 follow-up (final review MEDIUM #4): also clear
       // sessionNodeMap and _renderSessionId so stale session-ownership
       // can't influence the next round of cleanup/render decisions.
@@ -1420,10 +1613,11 @@ export class A11yTreeProcessor {
       this.nodeInfoMap.clear();
       this.sessionNodeMap.clear();
       this._renderSessionId = "";
-      this.nextRef = 1;
+      this.nextRef = this._firstFreeRef(); // B1: 1 unless another tab still holds refs
       this.invalidatePrecomputed();
     }
     this.lastUrl = currentUrl;
+    if (docId !== undefined) this._docId = docId; // P21
 
     // Precomputed cache check — bypass CDP call if cache is valid (Story 7.4)
     // Subtree queries (options.ref) always load fresh — cached tree may not have full depth
@@ -3623,4 +3817,69 @@ export class RefNotFoundError extends Error {
   }
 }
 
-export const a11yTree = new A11yTreeProcessor();
+// --- P5 (Plancheck): ref tables of tabs driven through the Script API ---
+//
+// A Script-API session (executeTool with sessionIdOverride) drives a tab of
+// its own, one the MCP side never switches to. Its view_page, navigate and
+// diff baseline must not touch the MCP tab's table (S3: refs per tab). So
+// each such tab gets a processor of its own, keyed by targetId, and
+// runInTabOf() points `a11yTree` at it for the duration of the call.
+// AsyncLocalStorage keeps that choice per call chain: an MCP call running at
+// the same time still sees the MCP table.
+
+const mcpTree = new A11yTreeProcessor();
+const tabTree = new AsyncLocalStorage<A11yTreeProcessor>();
+const scriptTrees = new Map<string, A11yTreeProcessor>(); // targetId → table of that tab
+const scriptTabOfSession = new Map<string, string>(); // CDP sessionId → targetId
+
+/** P5: `sessionId` drives Script-API tab `targetId`; its refs live in that tab's own table. */
+export function bindScriptTab(sessionId: string, targetId: string): void {
+  scriptTabOfSession.set(sessionId, targetId);
+}
+
+/** P5: The Script-API tab is gone (session closed or orphaned) — its table goes with it. */
+export function forgetScriptTab(targetId: string): void {
+  scriptTrees.delete(targetId);
+  for (const [sessionId, owner] of [...scriptTabOfSession]) {
+    if (owner === targetId) scriptTabOfSession.delete(sessionId);
+  }
+}
+
+/** P5: targetId of the Script-API tab a session drives; undefined for the MCP side. */
+export function scriptTabOf(sessionId: string | undefined): string | undefined {
+  return sessionId === undefined ? undefined : scriptTabOfSession.get(sessionId);
+}
+
+/** P5: true while the current call runs inside runInTabOf() for a Script-API tab. */
+export function inScriptTab(): boolean {
+  return tabTree.getStore() !== undefined;
+}
+
+/**
+ * P5: Runs `fn` with `a11yTree` pointing at the ref table of the session's
+ * tab. Sessions the Script API did not bind (the MCP tab, OOPIFs, a session
+ * after a reconnect) run unchanged against the MCP table.
+ */
+export function runInTabOf<T>(sessionId: string | undefined, fn: () => Promise<T>): Promise<T> {
+  const targetId = scriptTabOf(sessionId);
+  if (targetId === undefined) return fn();
+  let tree = scriptTrees.get(targetId);
+  if (!tree) {
+    tree = new A11yTreeProcessor();
+    scriptTrees.set(targetId, tree);
+  }
+  return tabTree.run(tree, fn);
+}
+
+/**
+ * The ref table of the current call: the MCP table, or — inside runInTabOf()
+ * for a Script-API session — the table of that script's tab. Methods come
+ * bound to the table they belong to; vi.spyOn() on it spies on the MCP table.
+ */
+export const a11yTree: A11yTreeProcessor = new Proxy(mcpTree, {
+  get(target, prop) {
+    const current = tabTree.getStore() ?? target;
+    const value: unknown = Reflect.get(current, prop, current);
+    return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(current) : value;
+  },
+});

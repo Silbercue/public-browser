@@ -1127,3 +1127,35 @@ describe("readPageHandler", () => {
     });
   });
 });
+
+// --- B1 (S3): refs per tab ---
+
+describe("readPageHandler — ref of another tab (B1)", () => {
+  beforeEach(() => {
+    a11yTree.resetAll();
+  });
+
+  afterEach(() => {
+    a11yTree.resetAll();
+  });
+
+  it("B1: view_page with a ref of another tab names that tab", async () => {
+    await readPageHandler({ depth: 3, filter: "interactive" }, mockCdpClient(sampleNodes, "https://a.test/"), "s-A");
+    await a11yTree.switchTab(
+      mockCdpClient([]),
+      { targetId: "TAB-A", sessionId: "s-A" },
+      { targetId: "TAB-B", sessionId: "s-B" },
+    );
+    await readPageHandler({ depth: 3, filter: "interactive" }, mockCdpClient(sampleNodes, "https://b.test/"), "s-B");
+
+    const result = await readPageHandler(
+      { depth: 3, filter: "all", ref: "e2" },
+      mockCdpClient(sampleNodes, "https://b.test/"),
+      "s-B",
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Element e2 belongs to tab TAB-A");
+    expect(result.content[0].text).not.toContain("Did you mean");
+  });
+});

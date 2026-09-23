@@ -25,6 +25,7 @@ import { VERSION } from "../version.js";
 import { SCRIPT_SERVER_ID } from "./script-api-token.js";
 import type { IBrowserSession } from "../cdp/browser-session.js";
 import type { ToolResponse } from "../types.js";
+import { bindScriptTab, forgetScriptTab } from "../cache/a11y-tree.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -349,6 +350,9 @@ export class ScriptApiServer {
 
       // 4. Store session.
       const session = this.sessionStore.create(targetId, cdpSessionId);
+      // P5: the script's tab keeps its own ref table — its view_page,
+      // navigate and clicks never touch the MCP tab's refs.
+      bindScriptTab(cdpSessionId, targetId);
 
       // 5. Build CDP WebSocket URL for Escape Hatch (Story 9.9). S2: from the
       // port Chrome actually listens on. Over the pipe there is none — the
@@ -494,6 +498,7 @@ export class ScriptApiServer {
   // ── Tab Management ─────────────────────────────────────────────────
 
   private async _closeTab(session: SessionInfo): Promise<void> {
+    forgetScriptTab(session.targetId); // P5: the tab's ref table goes with it
     try {
       this._browserSession.untrackOwnedTarget(session.targetId);
       const cdpClient = this._browserSession.cdpClient;
