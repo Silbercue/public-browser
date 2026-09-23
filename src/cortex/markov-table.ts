@@ -10,8 +10,8 @@
  *       -> predict(pageType, lastTool) -> MarkovTransition[] (sorted by weight)
  *
  * Export:
- *   toJSON() -> MarkovTableJSON (normalised 0-1 weights, ~10KB community bundle)
- *   fromJSON() -> MarkovTable (imports community bundles)
+ *   toJSON() -> MarkovTableJSON (normalised 0-1 weights)
+ *   fromJSON() -> MarkovTable (imports the shipped starter table)
  *
  * ACO Decay:
  *   applyDecay() reduces weights of stale entries (0.95 per week),
@@ -185,7 +185,7 @@ export class MarkovTable {
   }
 
   /**
-   * Export to community bundle format (MarkovTableJSON).
+   * Export to the MarkovTableJSON format.
    *
    * Normalises weights to 0-1 per (pageType, lastTool) bucket.
    * Only includes transitions with weight > 0.
@@ -236,13 +236,13 @@ export class MarkovTable {
   }
 
   /**
-   * Import from community bundle format (MarkovTableJSON).
+   * Import from the MarkovTableJSON format (e.g. the shipped starter table).
    *
    * Validates pageType keys against PAGE_TYPES — unknown pageTypes are
    * skipped and debug-logged. Tool names are NOT validated (tool palette
    * may differ between versions).
    *
-   * count is set to 1 (community data has no local count).
+   * count is set to 1 (imported data has no local count).
    * lastSeen is set to Date.now().
    */
   static fromJSON(data: MarkovTableJSON): MarkovTable {
@@ -296,7 +296,7 @@ export class MarkovTable {
   }
 
   /**
-   * Merge another MarkovTable into this one (e.g. community + local).
+   * Merge another MarkovTable into this one (e.g. starter table + local).
    *
    * For each transition:
    *   weight = max(local.weight, other.weight)
@@ -398,8 +398,8 @@ export class MarkovTable {
 // ─── Module-level Singleton ─────────────────────────────────────────
 
 /**
- * Module-level singleton (same pattern as patternRecorder, hintMatcher,
- * telemetryUploader). Starts empty — populated via refreshFromStore()
+ * Module-level singleton (same pattern as patternRecorder, hintMatcher).
+ * Starts empty — populated via refreshFromStore()
  * on first pattern emission or explicit call.
  */
 export const markovTable = new MarkovTable();

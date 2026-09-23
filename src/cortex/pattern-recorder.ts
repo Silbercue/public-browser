@@ -220,18 +220,6 @@ export class PatternRecorder {
         );
       });
 
-    // Story 12.5: Opt-in telemetry upload after pattern emission.
-    // Dynamic import (same approach as hint-matcher) to avoid circular
-    // dependencies and lazy-load the module. Fire-and-forget.
-    import("./telemetry-upload.js")
-      .then((m) => m.telemetryUploader.maybeUpload(pattern))
-      .catch((err: unknown) => {
-        debug(
-          "[pattern-recorder] telemetry upload failed: %s",
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-
     // Story 12a.3: Update Markov table after pattern emission.
     // Dynamic import to break circular dependency. Fire-and-forget.
     import("./markov-table.js")

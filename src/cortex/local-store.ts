@@ -13,7 +13,7 @@
  *  - RFC-6962 Section 2.1 compliant hashing (0x00 leaf prefix, 0x01 interior prefix).
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile, appendFile, rename } from "node:fs/promises";
+import { mkdir, readFile, writeFile, appendFile, rename, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -27,6 +27,19 @@ import type {
 
 const PATTERNS_FILE = "patterns.jsonl";
 const TREE_HEAD_FILE = "tree-head.json";
+
+/**
+ * Temp files older than this are leftovers of a write that was cut off
+ * (process killed between writeFile and rename) and are swept on first
+ * access. Younger ones may belong to another process's in-flight write.
+ */
+const STALE_TMP_AGE_MS = 60_000;
+
+/** Temp files written by _writeAtomic: `<file>.<8 hex>.tmp`. */
+const TMP_FILE_RE = /^(patterns\.jsonl|tree-head\.json)\.[0-9a-f]{8}\.tmp$/;
+
+/** Data dirs already swept in this process (the store is instantiated often). */
+const _sweptDirs = new Set<string>();
 
 /**
  * RFC-6962: largest power of 2 strictly less than n.
@@ -95,10 +108,7 @@ export class LocalStore {
         // A crash during writeFile would corrupt the JSONL; rename() is atomic on POSIX.
         existing[dupIdx] = pattern;
         const content = existing.map((p) => JSON.stringify(p)).join("\n") + "\n";
-        const target = join(this._dataDir, PATTERNS_FILE);
-        const tmp = target + "." + randomBytes(4).toString("hex") + ".tmp";
-        await writeFile(tmp, content, "utf-8");
-        await rename(tmp, target);
+        await this._writeAtomic(join(this._dataDir, PATTERNS_FILE), content);
       } else {
         const line = JSON.stringify(pattern) + "\n";
         await appendFile(join(this._dataDir, PATTERNS_FILE), line, "utf-8");
@@ -373,6 +383,49 @@ export class LocalStore {
     if (this._dirEnsured) return;
     await mkdir(this._dataDir, { recursive: true });
     this._dirEnsured = true;
+    await this._sweepStaleTmpFiles();
+  }
+
+  /**
+   * Remove temp files left behind by writes that never reached rename()
+   * (process terminated mid-write). Once per data dir and process,
+   * best effort — never throws.
+   */
+  private async _sweepStaleTmpFiles(): Promise<void> {
+    if (_sweptDirs.has(this._dataDir)) return;
+    _sweptDirs.add(this._dataDir);
+    try {
+      const cutoff = Date.now() - STALE_TMP_AGE_MS;
+      for (const name of await readdir(this._dataDir)) {
+        if (!TMP_FILE_RE.test(name)) continue;
+        const file = join(this._dataDir, name);
+        try {
+          if ((await stat(file)).mtimeMs < cutoff) await unlink(file);
+        } catch {
+          /* raced with another process — ignore */
+        }
+      }
+    } catch (err) {
+      debug(
+        "[local-store] tmp sweep failed: %s",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  /**
+   * Atomic write: temp file + rename (rename() is atomic on POSIX).
+   * On failure the temp file is removed before the error propagates.
+   */
+  private async _writeAtomic(target: string, content: string): Promise<void> {
+    const tmp = target + "." + randomBytes(4).toString("hex") + ".tmp";
+    try {
+      await writeFile(tmp, content, "utf-8");
+      await rename(tmp, target);
+    } catch (err) {
+      await unlink(tmp).catch(() => {});
+      throw err;
+    }
   }
 
   /**
@@ -410,10 +463,10 @@ export class LocalStore {
 
   /** Atomically write the tree head (write to temp, then rename). */
   private async _writeTreeHead(head: SignedTreeHead): Promise<void> {
-    const target = join(this._dataDir, TREE_HEAD_FILE);
-    const tmp = target + "." + randomBytes(4).toString("hex") + ".tmp";
-    await writeFile(tmp, JSON.stringify(head, null, 2) + "\n", "utf-8");
-    await rename(tmp, target);
+    await this._writeAtomic(
+      join(this._dataDir, TREE_HEAD_FILE),
+      JSON.stringify(head, null, 2) + "\n",
+    );
   }
 
   /**

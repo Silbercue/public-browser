@@ -275,9 +275,10 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     new Promise((r) => setTimeout(r, 2000)),
   ]);
 
-  // 3a. Story 12a.6: Merge community Markov table after local data is loaded.
-  //     Local data has higher weights from usage and takes precedence via
-  //     merge semantics (max-weight). Community data fills gaps.
+  // 3a. Story 12a.6: Merge the hand-written starter Markov table
+  //     (community-markov.json) after local data is loaded. Local data has
+  //     higher weights from usage and takes precedence via merge semantics
+  //     (max-weight). The starter table fills gaps.
   const communityTable = loadCommunityMarkov();
   if (communityTable) {
     markovTable.merge(communityTable);

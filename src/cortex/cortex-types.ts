@@ -151,50 +151,6 @@ export interface HintMatchResult {
   matchCount: number;
 }
 
-/**
- * Story 12a.5: Telemetry Upload Types.
- *
- * Defines data structures for the opt-in telemetry upload that sends
- * anonymised pattern entries to a collection endpoint.
- * Privacy (NFR21): Seitentyp statt Domain, keine identifizierenden Informationen.
- * Only whitelisted fields: pageType, toolSequence, successRate, contentHash,
- * timestamp — no domain, no URLs.
- */
-
-/**
- * Anonymised payload sent to the collection endpoint.
- *
- * Uses an explicit whitelist of fields — no spread from CortexPattern.
- * This prevents accidental leakage of future fields (NFR21).
- */
-export interface TelemetryPayload {
-  /** Page type classification (e.g. "login", "data_table"). */
-  pageType: string;
-  /** Ordered list of tool names in the successful sequence. */
-  toolSequence: string[];
-  /** Fraction of patterns that succeeded (0-1). Phase 1: always 1.0. */
-  successRate: number;
-  /** Truncated SHA-256 content hash (16 hex chars). */
-  contentHash: string;
-  /** Unix timestamp (ms) when the pattern was emitted. */
-  timestamp: number;
-}
-
-/**
- * Configuration for the telemetry uploader.
- */
-export interface TelemetryConfig {
-  /** Whether telemetry upload is enabled. Default: false. */
-  enabled: boolean;
-  /** HTTPS endpoint for pattern collection. */
-  endpoint: string;
-  /** Minimum interval (ms) between uploads for the same pattern key. */
-  rateLimitMs: number;
-}
-
-/** Rate limit: at most 1 upload per minute per pattern key (AC #4). */
-export const TELEMETRY_RATE_LIMIT_MS = 60_000;
-
 /** Minimum number of tools in a sequence to be considered recordable. */
 export const MIN_SEQUENCE_LENGTH = 2;
 
@@ -228,11 +184,10 @@ export interface MarkovTransition {
 }
 
 /**
- * JSON export format for community bundles (~10KB).
+ * JSON import/export format of the Markov table.
  *
  * Three-level nested object: pageType → lastTool → nextTool → weight.
- * Only normalised weights (0-1), no count or lastSeen — this is the
- * format distributed via OCI in Epic 13.
+ * Only normalised weights (0-1), no count or lastSeen.
  */
 export interface MarkovTableJSON {
   [pageType: string]: {

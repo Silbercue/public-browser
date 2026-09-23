@@ -8,7 +8,7 @@
  *  - AC #4: RFC-6962-compatible hashing (0x00/0x01 prefixes)
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, mkdir, readdir, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -498,5 +498,37 @@ describe("LocalStore (Story 12.2)", () => {
     // Legacy entry should be skipped, only the new-format entry remains
     expect(all).toHaveLength(1);
     expect(all[0].pageType).toBe("login_0");
+  });
+
+  // =========================================================================
+  // Temp-file leak: orphaned *.tmp files from interrupted atomic writes
+  // =========================================================================
+
+  it("removes its temp file when the atomic rename fails", async () => {
+    // A directory at the tree-head path makes rename() fail with EISDIR.
+    await mkdir(join(tmpDir, "tree-head.json"));
+    await store.append(makePattern());
+
+    const files = await readdir(tmpDir);
+    expect(files.filter((f) => f.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("sweeps stale *.tmp files on first access, keeps fresh ones and data files", async () => {
+    const stale = ["patterns.jsonl.0bcc16c9.tmp", "tree-head.json.dc976c3c.tmp"];
+    const fresh = "patterns.jsonl.aaaaaaaa.tmp";
+    const old = new Date(Date.now() - 10 * 60_000);
+    for (const f of stale) {
+      await writeFile(join(tmpDir, f), "", "utf-8");
+      await utimes(join(tmpDir, f), old, old);
+    }
+    await writeFile(join(tmpDir, fresh), "", "utf-8");
+    await writeFile(join(tmpDir, "unrelated.tmp"), "", "utf-8");
+    await utimes(join(tmpDir, "unrelated.tmp"), old, old);
+    await store.append(makePattern());
+
+    const files = (await readdir(tmpDir)).sort();
+    expect(files).toEqual(
+      ["patterns.jsonl", fresh, "tree-head.json", "unrelated.tmp"].sort(),
+    );
   });
 });

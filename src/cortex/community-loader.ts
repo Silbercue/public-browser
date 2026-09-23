@@ -1,10 +1,11 @@
 /**
- * Story 12a.6: Community Markov Table Loader.
+ * Story 12a.6: Starter Markov Table Loader.
  *
  * Loads and verifies the static community-markov.json shipped in the npm
- * package. The file contains hand-curated transition probabilities for
- * common page types — every installation benefits from community knowledge
- * without a separate download.
+ * package. Despite the file name it contains no collected user data: the
+ * transition probabilities are hand-written starting values for common
+ * page types (every sampleCount is 0), so a fresh install has hints
+ * before any local pattern exists.
  *
  * Verification: SHA256 hash of the file content is compared against
  * COMMUNITY_MARKOV_HASH. On mismatch the file is ignored and a warning
