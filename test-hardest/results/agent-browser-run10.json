@@ -1,0 +1,1105 @@
+{
+  "name": "agent-browser",
+  "slug": "agent-browser",
+  "type": "mcp-llm",
+  "mcp_package": "agent-browser",
+  "mcp_version": "0.38.1",
+  "snapshot_tool": "snapshot",
+  "mcp_server_info": {
+    "name": "agent-browser",
+    "version": "0.38.1",
+    "instructions": null,
+    "skill_file": "/tmp/bench-clitools/node_modules/agent-browser/skills/agent-browser/SKILL.md",
+    "skill_sha256": "3a7520e64de2dfaa516b6721c001e84e06e3c06a187b82af029ae721540ebfac",
+    "skill_chars": 3455
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "153.0.8010.53",
+  "session_id": "10060fe2-0efc-48ef-bf48-ba313c31c443",
+  "timestamp": "2026-09-23T22:34:21.963Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true,
+    "test_ids": [
+      "T1.1",
+      "T1.2",
+      "T1.3",
+      "T1.4",
+      "T1.5",
+      "T1.6",
+      "T2.1",
+      "T2.2",
+      "T2.3",
+      "T2.4",
+      "T2.5",
+      "T2.6",
+      "T3.1",
+      "T3.2",
+      "T3.3",
+      "T3.4",
+      "T3.5",
+      "T3.6",
+      "T4.1",
+      "T4.2",
+      "T4.3",
+      "T4.4",
+      "T4.5",
+      "T4.6",
+      "T4.7",
+      "T5.1",
+      "T5.2",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6",
+      "T5.7",
+      "T5.8",
+      "T5.9",
+      "T5.10"
+    ]
+  },
+  "harness": {
+    "mode": "blind-print",
+    "kind": "cli",
+    "status": "ok",
+    "complete": true,
+    "headless": false,
+    "headless_requested": false,
+    "browser_binaries": [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    ],
+    "browser_non_chrome": [],
+    "local_build": false,
+    "git_head": null,
+    "git_dirty": null,
+    "claude_code_version": "2.1.281",
+    "os": "darwin 27.0.0",
+    "node": "v22.14.0",
+    "profile_isolation": "agent-browser default: fresh temp user-data-dir per launch, own session, headed, /Applications Chrome via AGENT_BROWSER_EXECUTABLE_PATH",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-agent-browser-20260923-2234-okR85J/mcp.json --permission-mode dontAsk --allowedTools Bash(agent-browser:*) Write --tools Bash,Write --settings {\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"\\\"/Users/silbercue/.nvm/versions/node/v22.14.0/bin/node\\\" \\\"/Users/silbercue/Documents/Cursor/Skills/SilbercueChrome/test-hardest/cli-guard.mjs\\\" agent-browser\"}]}]}} --append-system-prompt-file /tmp/bench-agent-browser-20260923-2234-okR85J/skill.md --max-turns 600",
+    "allowed_tools_form": "plain",
+    "chrome_version_source": "applications-binary",
+    "wall_clock_s": 415,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 112,
+    "run_dir": "/tmp/bench-agent-browser-20260923-2234-okR85J",
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    },
+    "session_jsonl_sha256": "fa8a52997073b31773bdfc907b208c72abe4d36a757a63a5b88140b05e6426bf",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "cli__agent-browser__skills",
+        "chars": 1919,
+        "ms": 950
+      },
+      {
+        "i": 2,
+        "tool": "cli__agent-browser__none",
+        "chars": 25296,
+        "ms": 113
+      },
+      {
+        "i": 3,
+        "tool": "cli__agent-browser__open",
+        "chars": 69,
+        "ms": 1116
+      },
+      {
+        "i": 4,
+        "tool": "cli__agent-browser__snapshot",
+        "chars": 2281,
+        "ms": 127
+      },
+      {
+        "i": 5,
+        "tool": "cli__agent-browser__eval",
+        "chars": 587,
+        "ms": 120
+      },
+      {
+        "i": 6,
+        "tool": "cli__agent-browser__eval",
+        "chars": 1259,
+        "ms": 121
+      },
+      {
+        "i": 7,
+        "tool": "cli__agent-browser__batch",
+        "chars": 144,
+        "ms": 148
+      },
+      {
+        "i": 8,
+        "tool": "cli__agent-browser__batch",
+        "chars": 194,
+        "ms": 202
+      },
+      {
+        "i": 9,
+        "tool": "cli__agent-browser__batch",
+        "chars": 361,
+        "ms": 475
+      },
+      {
+        "i": 10,
+        "tool": "cli__agent-browser__batch",
+        "chars": 339,
+        "ms": 352
+      },
+      {
+        "i": 11,
+        "tool": "cli__agent-browser__batch",
+        "chars": 255,
+        "ms": 310
+      },
+      {
+        "i": 12,
+        "tool": "cli__agent-browser__batch",
+        "chars": 255,
+        "ms": 211
+      },
+      {
+        "i": 13,
+        "tool": "cli__agent-browser__batch",
+        "chars": 221,
+        "ms": 122
+      },
+      {
+        "i": 14,
+        "tool": "cli__agent-browser__eval",
+        "chars": 151,
+        "ms": 119
+      },
+      {
+        "i": 15,
+        "tool": "cli__agent-browser__batch",
+        "chars": 1169,
+        "ms": 223
+      },
+      {
+        "i": 16,
+        "tool": "cli__agent-browser__snapshot",
+        "chars": 3066,
+        "ms": 137
+      },
+      {
+        "i": 17,
+        "tool": "cli__agent-browser__batch",
+        "chars": 184,
+        "ms": 2732
+      },
+      {
+        "i": 18,
+        "tool": "cli__agent-browser__batch",
+        "chars": 202,
+        "ms": 190
+      },
+      {
+        "i": 19,
+        "tool": "cli__agent-browser__eval",
+        "chars": 32,
+        "ms": 158
+      },
+      {
+        "i": 20,
+        "tool": "cli__agent-browser__batch",
+        "chars": 85,
+        "ms": 116
+      },
+      {
+        "i": 21,
+        "tool": "cli__agent-browser__batch",
+        "chars": 17,
+        "ms": 1135
+      },
+      {
+        "i": 22,
+        "tool": "cli__agent-browser__batch",
+        "chars": 195,
+        "ms": 2102
+      },
+      {
+        "i": 23,
+        "tool": "cli__agent-browser__batch",
+        "chars": 145,
+        "ms": 209
+      },
+      {
+        "i": 24,
+        "tool": "cli__agent-browser__batch",
+        "chars": 161,
+        "ms": 206
+      },
+      {
+        "i": 25,
+        "tool": "cli__agent-browser__snapshot",
+        "chars": 137,
+        "ms": 135
+      },
+      {
+        "i": 26,
+        "tool": "cli__agent-browser__eval",
+        "chars": 239,
+        "ms": 119
+      },
+      {
+        "i": 27,
+        "tool": "cli__agent-browser__batch",
+        "chars": 161,
+        "ms": 213
+      },
+      {
+        "i": 28,
+        "tool": "cli__agent-browser__batch",
+        "chars": 253,
+        "ms": 123
+      },
+      {
+        "i": 29,
+        "tool": "cli__agent-browser__batch",
+        "chars": 264,
+        "ms": 167
+      },
+      {
+        "i": 30,
+        "tool": "cli__agent-browser__snapshot",
+        "chars": 1961,
+        "ms": 146
+      },
+      {
+        "i": 31,
+        "tool": "cli__agent-browser__batch",
+        "chars": 181,
+        "ms": 165
+      },
+      {
+        "i": 32,
+        "tool": "cli__agent-browser__batch",
+        "chars": 181,
+        "ms": 164
+      },
+      {
+        "i": 33,
+        "tool": "cli__agent-browser__batch",
+        "chars": 145,
+        "ms": 638
+      },
+      {
+        "i": 34,
+        "tool": "cli__agent-browser__batch",
+        "chars": 138,
+        "ms": 146
+      },
+      {
+        "i": 35,
+        "tool": "cli__agent-browser__eval",
+        "chars": 1068,
+        "ms": 95
+      },
+      {
+        "i": 36,
+        "tool": "cli__agent-browser__batch",
+        "chars": 146,
+        "ms": 183
+      },
+      {
+        "i": 37,
+        "tool": "cli__agent-browser__batch",
+        "chars": 200,
+        "ms": 1787
+      },
+      {
+        "i": 38,
+        "tool": "cli__agent-browser__get",
+        "chars": 178,
+        "ms": 112
+      },
+      {
+        "i": 39,
+        "tool": "cli__agent-browser__batch",
+        "chars": 157,
+        "ms": 188
+      },
+      {
+        "i": 40,
+        "tool": "cli__agent-browser__batch",
+        "chars": 111,
+        "ms": 162
+      },
+      {
+        "i": 41,
+        "tool": "cli__agent-browser__batch",
+        "chars": 719,
+        "ms": 166
+      },
+      {
+        "i": 42,
+        "tool": "cli__agent-browser__batch",
+        "chars": 165,
+        "ms": 172
+      },
+      {
+        "i": 43,
+        "tool": "cli__agent-browser__snapshot",
+        "chars": 2645,
+        "ms": 135
+      },
+      {
+        "i": 44,
+        "tool": "cli__agent-browser__batch",
+        "chars": 188,
+        "ms": 537
+      },
+      {
+        "i": 45,
+        "tool": "cli__agent-browser__batch",
+        "chars": 188,
+        "ms": 521
+      },
+      {
+        "i": 46,
+        "tool": "cli__agent-browser__batch",
+        "chars": 171,
+        "ms": 213
+      },
+      {
+        "i": 47,
+        "tool": "cli__agent-browser__batch",
+        "chars": 930,
+        "ms": 207
+      },
+      {
+        "i": 48,
+        "tool": "cli__agent-browser__eval",
+        "chars": 362,
+        "ms": 121
+      },
+      {
+        "i": 49,
+        "tool": "cli__agent-browser__eval",
+        "chars": 671,
+        "ms": 122
+      },
+      {
+        "i": 50,
+        "tool": "cli__agent-browser__batch",
+        "chars": 184,
+        "ms": 257
+      },
+      {
+        "i": 51,
+        "tool": "cli__agent-browser__eval",
+        "chars": 1220,
+        "ms": 116
+      },
+      {
+        "i": 52,
+        "tool": "cli__agent-browser__batch",
+        "chars": 376,
+        "ms": 157
+      },
+      {
+        "i": 53,
+        "tool": "cli__agent-browser__batch",
+        "chars": 120,
+        "ms": 208
+      },
+      {
+        "i": 54,
+        "tool": "cli__agent-browser__eval",
+        "chars": 926,
+        "ms": 117
+      },
+      {
+        "i": 55,
+        "tool": "cli__agent-browser__batch",
+        "chars": 18,
+        "ms": 307
+      },
+      {
+        "i": 56,
+        "tool": "cli__agent-browser__batch",
+        "chars": 18,
+        "ms": 277
+      },
+      {
+        "i": 57,
+        "tool": "cli__agent-browser__batch",
+        "chars": 18,
+        "ms": 262
+      },
+      {
+        "i": 58,
+        "tool": "cli__agent-browser__batch",
+        "chars": 118,
+        "ms": 163
+      },
+      {
+        "i": 59,
+        "tool": "cli__agent-browser__eval",
+        "chars": 445,
+        "ms": 131
+      },
+      {
+        "i": 60,
+        "tool": "cli__agent-browser__eval",
+        "chars": 114,
+        "ms": 135
+      },
+      {
+        "i": 61,
+        "tool": "cli__agent-browser__eval",
+        "chars": 203,
+        "ms": 152
+      },
+      {
+        "i": 62,
+        "tool": "cli__agent-browser__eval",
+        "chars": 65,
+        "ms": 136
+      },
+      {
+        "i": 63,
+        "tool": "cli__agent-browser__batch",
+        "chars": 46,
+        "ms": 203
+      },
+      {
+        "i": 64,
+        "tool": "cli__agent-browser__batch",
+        "chars": 143,
+        "ms": 239
+      },
+      {
+        "i": 65,
+        "tool": "cli__agent-browser__eval",
+        "chars": 774,
+        "ms": 135
+      },
+      {
+        "i": 66,
+        "tool": "cli__agent-browser__batch",
+        "chars": 241,
+        "ms": 230
+      },
+      {
+        "i": 67,
+        "tool": "cli__agent-browser__eval",
+        "chars": 687,
+        "ms": 123
+      },
+      {
+        "i": 68,
+        "tool": "cli__agent-browser__batch",
+        "chars": 48,
+        "ms": 294
+      },
+      {
+        "i": 69,
+        "tool": "cli__agent-browser__batch",
+        "chars": 55,
+        "ms": 356
+      },
+      {
+        "i": 70,
+        "tool": "cli__agent-browser__eval",
+        "chars": 20,
+        "ms": 130
+      },
+      {
+        "i": 71,
+        "tool": "cli__agent-browser__batch",
+        "chars": 137,
+        "ms": 162
+      },
+      {
+        "i": 72,
+        "tool": "cli__agent-browser__batch",
+        "chars": 1511,
+        "ms": 208
+      },
+      {
+        "i": 73,
+        "tool": "cli__agent-browser__eval",
+        "chars": 649,
+        "ms": 102
+      },
+      {
+        "i": 74,
+        "tool": "cli__agent-browser__batch",
+        "chars": 126,
+        "ms": 5715
+      },
+      {
+        "i": 75,
+        "tool": "cli__agent-browser__batch",
+        "chars": 101,
+        "ms": 206
+      },
+      {
+        "i": 76,
+        "tool": "cli__agent-browser__eval",
+        "chars": 802,
+        "ms": 119
+      },
+      {
+        "i": 77,
+        "tool": "cli__agent-browser__batch",
+        "chars": 130,
+        "ms": 6280
+      },
+      {
+        "i": 78,
+        "tool": "cli__agent-browser__eval",
+        "chars": 807,
+        "ms": 121
+      },
+      {
+        "i": 79,
+        "tool": "cli__agent-browser__batch",
+        "chars": 31,
+        "ms": 1852
+      },
+      {
+        "i": 80,
+        "tool": "cli__agent-browser__batch",
+        "chars": 26,
+        "ms": 304
+      },
+      {
+        "i": 81,
+        "tool": "cli__agent-browser__batch",
+        "chars": 87,
+        "ms": 218
+      },
+      {
+        "i": 82,
+        "tool": "cli__agent-browser__eval",
+        "chars": 17,
+        "ms": 124
+      },
+      {
+        "i": 83,
+        "tool": "cli__agent-browser__batch",
+        "chars": 36,
+        "ms": 195
+      },
+      {
+        "i": 84,
+        "tool": "cli__agent-browser__eval",
+        "chars": 1400,
+        "ms": 116
+      },
+      {
+        "i": 85,
+        "tool": "cli__agent-browser__batch",
+        "chars": 16,
+        "ms": 197
+      },
+      {
+        "i": 86,
+        "tool": "cli__agent-browser__eval",
+        "chars": 24,
+        "ms": 113
+      },
+      {
+        "i": 87,
+        "tool": "cli__agent-browser__batch",
+        "chars": 56,
+        "ms": 204
+      },
+      {
+        "i": 88,
+        "tool": "cli__agent-browser__batch",
+        "chars": 44,
+        "ms": 214
+      },
+      {
+        "i": 89,
+        "tool": "cli__agent-browser__eval",
+        "chars": 821,
+        "ms": 127
+      },
+      {
+        "i": 90,
+        "tool": "cli__agent-browser__batch",
+        "chars": 47,
+        "ms": 4785
+      },
+      {
+        "i": 91,
+        "tool": "cli__agent-browser__batch",
+        "chars": 46,
+        "ms": 210
+      },
+      {
+        "i": 92,
+        "tool": "cli__agent-browser__eval",
+        "chars": 869,
+        "ms": 123
+      },
+      {
+        "i": 93,
+        "tool": "cli__agent-browser__batch",
+        "chars": 2122,
+        "ms": 1107
+      },
+      {
+        "i": 94,
+        "tool": "cli__agent-browser__batch",
+        "chars": 82,
+        "ms": 1016
+      },
+      {
+        "i": 95,
+        "tool": "cli__agent-browser__batch",
+        "chars": 59,
+        "ms": 223
+      },
+      {
+        "i": 96,
+        "tool": "cli__agent-browser__batch",
+        "chars": 2506,
+        "ms": 237
+      },
+      {
+        "i": 97,
+        "tool": "cli__agent-browser__eval",
+        "chars": 499,
+        "ms": 126
+      },
+      {
+        "i": 98,
+        "tool": "cli__agent-browser__batch",
+        "chars": 61,
+        "ms": 1043
+      },
+      {
+        "i": 99,
+        "tool": "cli__agent-browser__batch",
+        "chars": 105,
+        "ms": 1041
+      },
+      {
+        "i": 100,
+        "tool": "cli__agent-browser__batch",
+        "chars": 112,
+        "ms": 1044
+      },
+      {
+        "i": 101,
+        "tool": "cli__agent-browser__eval",
+        "chars": 2403,
+        "ms": 168
+      },
+      {
+        "i": 102,
+        "tool": "cli__agent-browser__eval",
+        "chars": 742,
+        "ms": 128
+      },
+      {
+        "i": 103,
+        "tool": "cli__agent-browser__batch",
+        "chars": 26,
+        "ms": 240
+      },
+      {
+        "i": 104,
+        "tool": "cli__agent-browser__batch",
+        "chars": 150,
+        "ms": 255
+      },
+      {
+        "i": 105,
+        "tool": "cli__agent-browser__batch",
+        "chars": 624,
+        "ms": 200
+      },
+      {
+        "i": 106,
+        "tool": "cli__agent-browser__batch",
+        "chars": 152,
+        "ms": 156
+      },
+      {
+        "i": 107,
+        "tool": "cli__agent-browser__eval",
+        "chars": 759,
+        "ms": 127
+      },
+      {
+        "i": 108,
+        "tool": "cli__agent-browser__batch",
+        "chars": 148,
+        "ms": 204
+      },
+      {
+        "i": 109,
+        "tool": "cli__agent-browser__batch",
+        "chars": 4615,
+        "ms": 795
+      },
+      {
+        "i": 110,
+        "tool": "cli__agent-browser__batch",
+        "chars": 4057,
+        "ms": 734
+      }
+    ]
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 29,
+    "failed": 1,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 96.7,
+    "duration_s": 372
+  },
+  "tokens": {
+    "start": 0,
+    "end": 4972628,
+    "delta": 4972628,
+    "rounds": 112,
+    "dedup": "message.id",
+    "result_usage_total": 4972628
+  },
+  "cost_usd_list": 3.8002054999999997,
+  "mqs": {
+    "score": 72.9,
+    "token_score": 100,
+    "reliability_score": 51.7,
+    "call_score": 55,
+    "speed_score": 75.7,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": null,
+  "tool_efficiency": {
+    "calls_total": 110,
+    "response_chars_total": 82990,
+    "avg_response_chars": 754,
+    "p50_response_chars": 181,
+    "p95_response_chars": 2506,
+    "p50_ms": 195,
+    "p95_ms": 1852,
+    "avg_response_tokens_est": 188,
+    "total_tokens_est": 43801,
+    "avg_tokens_est": 398,
+    "avg_ms": 482,
+    "total_ms": 53098,
+    "total_output_tokens": 23095,
+    "avg_output_tokens": 209,
+    "cache_read_tokens_total": 4799772,
+    "cache_creation_tokens_total": 71752,
+    "fresh_input_tokens_total": 222,
+    "cache_hit_rate": 98.52,
+    "by_tool": [
+      {
+        "name": "cli__agent-browser__batch",
+        "count": 72,
+        "total_chars": 26823,
+        "avg_chars": 372,
+        "p95_chars": 1511,
+        "max_chars": 4615,
+        "avg_ms": 645,
+        "p50_ms": 214,
+        "p95_ms": 2102,
+        "max_ms": 6280,
+        "total_ms": 46483,
+        "avg_output_tokens": 220,
+        "total_output_tokens": 15866,
+        "avg_total_tokens_est": 313,
+        "total_total_tokens_est": 22546
+      },
+      {
+        "name": "cli__agent-browser__eval",
+        "count": 29,
+        "total_chars": 18615,
+        "avg_chars": 641,
+        "p95_chars": 1259,
+        "max_chars": 2403,
+        "avg_ms": 125,
+        "p50_ms": 123,
+        "p95_ms": 152,
+        "max_ms": 168,
+        "total_ms": 3644,
+        "avg_output_tokens": 199,
+        "total_output_tokens": 5782,
+        "avg_total_tokens_est": 359,
+        "total_total_tokens_est": 10423
+      },
+      {
+        "name": "cli__agent-browser__snapshot",
+        "count": 5,
+        "total_chars": 10090,
+        "avg_chars": 2018,
+        "p95_chars": 2645,
+        "max_chars": 3066,
+        "avg_ms": 136,
+        "p50_ms": 135,
+        "p95_ms": 137,
+        "max_ms": 146,
+        "total_ms": 680,
+        "avg_output_tokens": 147,
+        "total_output_tokens": 737,
+        "avg_total_tokens_est": 651,
+        "total_total_tokens_est": 3258
+      },
+      {
+        "name": "cli__agent-browser__skills",
+        "count": 1,
+        "total_chars": 1919,
+        "avg_chars": 1919,
+        "p95_chars": 1919,
+        "max_chars": 1919,
+        "avg_ms": 950,
+        "p50_ms": 950,
+        "p95_ms": 950,
+        "max_ms": 950,
+        "total_ms": 950,
+        "avg_output_tokens": 105,
+        "total_output_tokens": 105,
+        "avg_total_tokens_est": 584,
+        "total_total_tokens_est": 584
+      },
+      {
+        "name": "cli__agent-browser__none",
+        "count": 1,
+        "total_chars": 25296,
+        "avg_chars": 25296,
+        "p95_chars": 25296,
+        "max_chars": 25296,
+        "avg_ms": 113,
+        "p50_ms": 113,
+        "p95_ms": 113,
+        "max_ms": 113,
+        "total_ms": 113,
+        "avg_output_tokens": 409,
+        "total_output_tokens": 409,
+        "avg_total_tokens_est": 6733,
+        "total_total_tokens_est": 6733
+      },
+      {
+        "name": "cli__agent-browser__open",
+        "count": 1,
+        "total_chars": 69,
+        "avg_chars": 69,
+        "p95_chars": 69,
+        "max_chars": 69,
+        "avg_ms": 1116,
+        "p50_ms": 1116,
+        "p95_ms": 1116,
+        "max_ms": 1116,
+        "total_ms": 1116,
+        "avg_output_tokens": 116,
+        "total_output_tokens": 116,
+        "avg_total_tokens_est": 133,
+        "total_total_tokens_est": 133
+      },
+      {
+        "name": "cli__agent-browser__get",
+        "count": 1,
+        "total_chars": 178,
+        "avg_chars": 178,
+        "p95_chars": 178,
+        "max_chars": 178,
+        "avg_ms": 112,
+        "p50_ms": 112,
+        "p95_ms": 112,
+        "max_ms": 112,
+        "total_ms": 112,
+        "avg_output_tokens": 80,
+        "total_output_tokens": 80,
+        "avg_total_tokens_est": 124,
+        "total_total_tokens_est": 124
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 3006,
+      "details": "Correct: E6AS-IS53"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 4059,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 2725,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 2562,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 2205,
+      "details": "Correct sum: 259"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 18366,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 23175,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 28140,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 13651,
+      "details": "Scala selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 16887,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 11847,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 12900,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 9767,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 18468,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 24872,
+      "details": "Hit! Distance: 0.9px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 5428,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 18281,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 16334,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 11393,
+      "details": "Captured at exactly 5!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 5351,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 13156,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 14135,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 12067,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 9385,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "fail",
+      "duration_ms": 18681,
+      "details": "navigator.webdriver: EXPOSED (true), chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 11847,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 4971,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 3416,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 5309,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 29,
+    "failed": 1
+  },
+  "notes": "",
+  "run_file": "agent-browser-run10.json"
+}

@@ -1,0 +1,248 @@
+{
+  "name": "Public Browser",
+  "slug": "public-browser",
+  "type": "real-sites-probe",
+  "task": "P3",
+  "task_title": "Lesen und Suchen (en.wikipedia.org)",
+  "mcp_package": "public-browser",
+  "mcp_version": "2.10.6",
+  "mcp_server_info": {
+    "name": "public-browser",
+    "version": "2.10.6",
+    "instructions": "Public Browser controls a real Chrome browser via CDP.\n\nWorkflow: virtual_desk → navigate (to open a page) → view_page (read) → click/type/fill_form (act) → view_page (verify the result).\n\nCRITICAL — view_page vs capture_image:\n- To see what is on the page: ALWAYS call view_page. It returns text + element refs for click/type.\n- capture_image is ONLY for CSS layout checks, canvas content, or when the user explicitly asks for a screenshot.\n- Do NOT call capture_image to read text, find buttons, check errors, or see page state — that is view_page.\n- capture_image cannot return element refs, so you cannot click anything you see in it.\n\nOther rules:\n- After every interaction, use view_page again to verify the result before proceeding.\n- Element targets: prefer the ref from the last view_page (e.g. 'e5'); a CSS selector is the fallback. Refs go stale after navigate, reload or switch_tab — call view_page again before acting on the new page.\n- fill_form beats multiple type calls for any form with 2+ fields.\n- For multi-step workflows, use run_plan to execute N steps in one call. Whenever the next 2+ actions are known (click → click, click → type → view_page), send them as ONE run_plan, not separate calls.\n- evaluate is for JS computation and style mutations (.style.X = ...) — not for CSS reading, element discovery, scrolling, dialogs or network capture: dom_snapshot, view_page, scroll, handle_dialog and network_monitor cover those.\n- Avoid evaluate as default recovery after click/type errors — call view_page for fresh refs and retry with the dedicated tool. Patching via evaluate (querySelector().click(), element.value = ...) bypasses the CDP pointer chain and framework listeners (React, Vue) and hides real bugs; the only exception is a test that deliberately targets synthetic JS events.\n- Responses of type and fill_form carry a DOM diff (NEW/REMOVED/CHANGED lines); click's diff arrives with the next response unless wait_for_diff: true. Read it as the success signal instead of re-checking state with evaluate.\n\nScript API: `pip install publicbrowser` gives you a Python library for deterministic browser automation without an LLM. Scripts route through the same tool handlers as MCP (Shared Core). Usage: `from publicbrowser import Chrome; chrome = Chrome.connect(); page = chrome.new_page()` — then `page.navigate()`, `page.click()`, `page.fill()`, `page.evaluate()` etc. Auto-starts the server. Add `--script` to the MCP args for parallel MCP + Script access.\nCortex: 93 patterns loaded."
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "153.0.8010.53",
+  "session_id": "83cbe084-8430-4a55-805c-d288242a065d",
+  "timestamp": "2026-09-23T22:48:52.050Z",
+  "harness": {
+    "mode": "real-sites-probe",
+    "status": "ok",
+    "local_build": false,
+    "git_head": null,
+    "git_dirty": null,
+    "claude_code_version": "2.1.281",
+    "os": "darwin 27.0.0",
+    "node": "v22.14.0",
+    "profile_isolation": "auto-launched Chrome, fresh temp user-data-dir, CDP port 9333",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/probe-public-browser-P3-20260923-2248-hROIDM/mcp.json --permission-mode dontAsk --allowedTools Write mcp__public-browser --tools Write --max-turns 150",
+    "browser_binaries": [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    ],
+    "browser_non_chrome": [],
+    "wall_clock_s": 36,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 12,
+    "run_dir": "/tmp/probe-public-browser-P3-20260923-2248-hROIDM",
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    },
+    "session_jsonl_sha256": "3b61731acff012558a3611d5ecebe9a844b808a0b063dec5489115fbbfd033da",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "mcp__public-browser__virtual_desk",
+        "chars": 180,
+        "ms": 510
+      },
+      {
+        "i": 2,
+        "tool": "mcp__public-browser__navigate",
+        "chars": 227,
+        "ms": 1675
+      },
+      {
+        "i": 3,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 7737,
+        "ms": 135
+      },
+      {
+        "i": 4,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 4780,
+        "ms": 147
+      },
+      {
+        "i": 5,
+        "tool": "mcp__public-browser__press_key",
+        "chars": 47,
+        "ms": 293
+      },
+      {
+        "i": 6,
+        "tool": "mcp__public-browser__tab_status",
+        "chars": 145,
+        "ms": 765
+      },
+      {
+        "i": 7,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 1316,
+        "ms": 1519
+      },
+      {
+        "i": 8,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 7366,
+        "ms": 1520
+      },
+      {
+        "i": 9,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 1529,
+        "ms": 1490
+      },
+      {
+        "i": 10,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 1464,
+        "ms": 1518
+      },
+      {
+        "i": 11,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 1699,
+        "ms": 1497
+      }
+    ]
+  },
+  "probe": {
+    "pass": true,
+    "answers": {
+      "P3-NAME": "Burj Khalifa",
+      "P3-HEIGHT-M": "828"
+    },
+    "problems": [],
+    "reference": {
+      "name": "Burj Khalifa",
+      "height_m": 828,
+      "recorded_from_session": "3dcb2774-d5ca-4056-a2bf-97f809560744",
+      "recorded_at": "2026-09-23T22:42:24.775Z"
+    },
+    "final_text": "Confirmed: the sub-header row is `m` / `ft`, so the `828` cell in the rank-1 row is metres.\n\nP3-NAME: Burj Khalifa\nP3-HEIGHT-M: 828"
+  },
+  "tokens": {
+    "start": 0,
+    "end": 246209,
+    "delta": 246209,
+    "rounds": 12,
+    "dedup": "message.id",
+    "result_usage_total": 246209
+  },
+  "cost_usd_list": 0.3319505,
+  "tool_efficiency": {
+    "calls_total": 11,
+    "response_chars_total": 26490,
+    "by_tool": [
+      {
+        "name": "mcp__public-browser__view_page",
+        "count": 6,
+        "total_chars": 21111,
+        "avg_chars": 3518,
+        "p95_chars": 7366,
+        "max_chars": 7737,
+        "avg_ms": 1279,
+        "p50_ms": 1497,
+        "p95_ms": 1519,
+        "max_ms": 1520,
+        "total_ms": 7679,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 879,
+        "total_total_tokens_est": 5276
+      },
+      {
+        "name": "mcp__public-browser__virtual_desk",
+        "count": 1,
+        "total_chars": 180,
+        "avg_chars": 180,
+        "p95_chars": 180,
+        "max_chars": 180,
+        "avg_ms": 510,
+        "p50_ms": 510,
+        "p95_ms": 510,
+        "max_ms": 510,
+        "total_ms": 510,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 45,
+        "total_total_tokens_est": 45
+      },
+      {
+        "name": "mcp__public-browser__navigate",
+        "count": 1,
+        "total_chars": 227,
+        "avg_chars": 227,
+        "p95_chars": 227,
+        "max_chars": 227,
+        "avg_ms": 1675,
+        "p50_ms": 1675,
+        "p95_ms": 1675,
+        "max_ms": 1675,
+        "total_ms": 1675,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 56,
+        "total_total_tokens_est": 56
+      },
+      {
+        "name": "mcp__public-browser__run_plan",
+        "count": 1,
+        "total_chars": 4780,
+        "avg_chars": 4780,
+        "p95_chars": 4780,
+        "max_chars": 4780,
+        "avg_ms": 147,
+        "p50_ms": 147,
+        "p95_ms": 147,
+        "max_ms": 147,
+        "total_ms": 147,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 1195,
+        "total_total_tokens_est": 1195
+      },
+      {
+        "name": "mcp__public-browser__press_key",
+        "count": 1,
+        "total_chars": 47,
+        "avg_chars": 47,
+        "p95_chars": 47,
+        "max_chars": 47,
+        "avg_ms": 293,
+        "p50_ms": 293,
+        "p95_ms": 293,
+        "max_ms": 293,
+        "total_ms": 293,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 11,
+        "total_total_tokens_est": 11
+      },
+      {
+        "name": "mcp__public-browser__tab_status",
+        "count": 1,
+        "total_chars": 145,
+        "avg_chars": 145,
+        "p95_chars": 145,
+        "max_chars": 145,
+        "avg_ms": 765,
+        "p50_ms": 765,
+        "p95_ms": 765,
+        "max_ms": 765,
+        "total_ms": 765,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 36,
+        "total_total_tokens_est": 36
+      }
+    ]
+  },
+  "notes": "",
+  "run_file": "real-sites-public-browser-run6.json"
+}

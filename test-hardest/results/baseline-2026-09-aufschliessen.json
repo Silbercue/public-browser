@@ -1,0 +1,212 @@
+{
+  "created_at": "2026-09-23T22:49:34.555Z",
+  "pins": {
+    "public-browser": "2.10.6",
+    "agent-browser": "0.38.1"
+  },
+  "versions": {
+    "chrome": [
+      "153.0.8010.53"
+    ],
+    "claude_code": [
+      "2.1.281"
+    ]
+  },
+  "version_filter": {
+    "chrome": "153.0.8010.53",
+    "claude_code": "2.1.281"
+  },
+  "public_browser": {
+    "n": 5,
+    "n_ok": 5,
+    "runs": [
+      "public-browser-run10.json",
+      "public-browser-run6.json",
+      "public-browser-run7.json",
+      "public-browser-run8.json",
+      "public-browser-run9.json"
+    ],
+    "failures": [],
+    "tokens": {
+      "median": 4308817,
+      "max": 5758744,
+      "max_run": "public-browser-run8.json",
+      "values": [
+        4308817,
+        4745239,
+        3575429,
+        5758744,
+        3761678
+      ]
+    },
+    "rounds": {
+      "median": 85,
+      "values": [
+        83,
+        88,
+        74,
+        107,
+        85
+      ]
+    },
+    "calls": {
+      "median": 83,
+      "values": [
+        81,
+        86,
+        73,
+        104,
+        83
+      ]
+    }
+  },
+  "agent_browser": {
+    "n": 7,
+    "n_ok": 5,
+    "runs": [
+      "agent-browser-run10.json",
+      "agent-browser-run4.json",
+      "agent-browser-run5.json",
+      "agent-browser-run6.json",
+      "agent-browser-run7.json",
+      "agent-browser-run8.json",
+      "agent-browser-run9.json"
+    ],
+    "failures": [
+      {
+        "run": "agent-browser-run10.json",
+        "reason": "29/30"
+      },
+      {
+        "run": "agent-browser-run4.json",
+        "reason": "29/30"
+      },
+      {
+        "run": "agent-browser-run5.json",
+        "reason": "status aborted: aborted: fairness violated, non-MCP tools executed: Read"
+      },
+      {
+        "run": "agent-browser-run6.json",
+        "reason": "29/30"
+      },
+      {
+        "run": "agent-browser-run7.json",
+        "reason": "29/30"
+      },
+      {
+        "run": "agent-browser-run8.json",
+        "reason": "29/30"
+      },
+      {
+        "run": "agent-browser-run9.json",
+        "reason": "status aborted: aborted: fairness violated, non-MCP tools executed: Read"
+      }
+    ],
+    "tokens": {
+      "median": 4525618,
+      "max": 5332721,
+      "max_run": "agent-browser-run6.json",
+      "values": [
+        4972628,
+        4404495,
+        5332721,
+        4483555,
+        4525618
+      ]
+    },
+    "rounds": {
+      "median": 107,
+      "values": [
+        112,
+        107,
+        123,
+        101,
+        104
+      ]
+    },
+    "calls": {
+      "median": 104,
+      "values": [
+        110,
+        104,
+        121,
+        99,
+        102
+      ]
+    }
+  },
+  "probe": {
+    "P1": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run2.json",
+        "real-sites-public-browser-run3.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 45,
+        "values": [
+          46,
+          44
+        ]
+      },
+      "tokens": {
+        "median": 1082479.5,
+        "values": [
+          1100385,
+          1064574
+        ]
+      }
+    },
+    "P2": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run4.json",
+        "real-sites-public-browser-run5.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 23,
+        "values": [
+          22,
+          24
+        ]
+      },
+      "tokens": {
+        "median": 384236,
+        "values": [
+          365749,
+          402723
+        ]
+      }
+    },
+    "P3": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run1.json",
+        "real-sites-public-browser-run6.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 13,
+        "values": [
+          14,
+          12
+        ]
+      },
+      "tokens": {
+        "median": 261791.5,
+        "values": [
+          277374,
+          246209
+        ]
+      }
+    }
+  }
+}
