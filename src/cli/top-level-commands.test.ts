@@ -156,6 +156,15 @@ describe("dispatchTopLevelCli", () => {
       expect(out).toContain("--attach");
       expect(out).toContain("attach-only mode");
     });
+
+    it("help text documents the Script API key (S1)", async () => {
+      await expect(
+        dispatchTopLevelCli(["node", "index.js", "help"], import.meta.url),
+      ).rejects.toThrow("__exit__");
+      const out = logSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(out).toContain("PUBLIC_BROWSER_SCRIPT_TOKEN");
+      expect(out).toContain("script-api-<port>.token");
+    });
   });
 
   // ---- --attach flag (Story 22.3) ----

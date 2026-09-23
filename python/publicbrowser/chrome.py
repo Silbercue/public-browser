@@ -48,6 +48,7 @@ class Chrome:
         server_path: str | None = None,
         auto_start: bool = True,
         profile: str | None = None,
+        token: str | None = None,
     ) -> Chrome:
         """Connect to the Public Browser Script API server.
 
@@ -64,18 +65,24 @@ class Chrome:
             profile: Chrome profile name (e.g. "Julian", "Business").
                 When auto-starting, passes --profile to the server.
                 When connecting to a running server, calls /config/profile.
+            token: Script API key. Default: ``PUBLIC_BROWSER_SCRIPT_TOKEN``,
+                else the key file a server started with ``--script`` writes
+                (``~/.public-browser/script-api-<port>.token``). An
+                auto-started server gets a fresh key.
 
         Returns:
             A connected Chrome instance.
 
         Raises:
             ConnectionError: If the server is not reachable and auto_start
-                is False.
+                is False, or if another program answers on the port.
+            PermissionError: If a Public Browser server on the port rejects
+                the key.
             FileNotFoundError: If auto_start is True but no server binary
                 can be found.
             TimeoutError: If the auto-started server does not become ready.
         """
-        client = ScriptApiClient(host, port)
+        client = ScriptApiClient(host, port, token=token)
 
         if not client._is_server_running():
             if auto_start:

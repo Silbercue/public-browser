@@ -1,19 +1,28 @@
 /**
  * Story 9.7: Script API Gateway (Server-Seite).
  *
- * HTTP-Server auf localhost:9223 der Python-Scripts Zugriff auf die
- * Public Browser Tool-Implementierungen gibt — selber Code-Pfad wie MCP.
+ * HTTP-Server auf 127.0.0.1 (Default-Port 9223), der Python-Scripts Zugriff
+ * auf die Public Browser Tool-Implementierungen gibt — selber Code-Pfad wie MCP.
  *
  * Routes:
+ *   GET  /health          → Kennung {server: "public-browser", version}
  *   POST /session/create  → neuen Tab erstellen, Session-Token zurückgeben
  *   POST /session/close   → Tab schließen, Session aufräumen
  *   POST /tool/{name}     → Tool via registry.executeTool() ausführen
+ *
+ * S1: Jede Anfrage braucht `Authorization: Bearer <key>`, sonst 401. Anfragen
+ * mit `Origin`-Header oder mit einem Host außer 127.0.0.1/localhost:<port>
+ * bekommen 403 — gegen Webseiten und DNS-Rebinding. Den Schlüssel liefert
+ * `script-api-token.ts`.
  *
  * Nur aktiv wenn `--script` Flag gesetzt ist.
  */
 
 import * as http from "node:http";
 import * as crypto from "node:crypto";
+import type { AddressInfo } from "node:net";
+import { VERSION } from "../version.js";
+import { SCRIPT_SERVER_ID } from "./script-api-token.js";
 import type { IBrowserSession } from "../cdp/browser-session.js";
 import type { ToolResponse } from "../types.js";
 
@@ -43,6 +52,8 @@ export interface ScriptApiServerOptions {
   port?: number;
   registry: ScriptApiToolRegistry;
   browserSession: IBrowserSession;
+  /** S1: key every request must present as `Authorization: Bearer <token>`. */
+  token: string;
 }
 
 // ── Session Store ──────────────────────────────────────────────────────
@@ -145,15 +156,22 @@ export class ScriptApiServer {
   private _server: http.Server | null = null;
   private _orphanTimer: ReturnType<typeof setInterval> | null = null;
   private readonly _port: number;
+  /** Port actually bound while listening — differs from `_port` when that is 0. */
+  private _listeningPort: number | null = null;
   private readonly _registry: ScriptApiToolRegistry;
   private readonly _browserSession: IBrowserSession;
+  private readonly _token: string;
   readonly sessionStore = new SessionStore();
   private readonly _queue = new SessionQueue();
 
   constructor(options: ScriptApiServerOptions) {
+    if (!options.token) {
+      throw new Error("ScriptApiServer needs a non-empty token (S1)");
+    }
     this._port = options.port ?? (Number(process.env.SILBERCUE_SCRIPT_PORT) || DEFAULT_PORT);
     this._registry = options.registry;
     this._browserSession = options.browserSession;
+    this._token = options.token;
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────
@@ -182,8 +200,9 @@ export class ScriptApiServer {
 
       server.listen(this._port, "127.0.0.1", () => {
         this._server = server;
+        this._listeningPort = (server.address() as AddressInfo).port;
         this._startOrphanCleanup();
-        console.error(`Public Browser --script: Script API listening on http://localhost:${this._port}`);
+        console.error(`Public Browser --script: Script API listening on http://localhost:${this._listeningPort}`);
         resolve();
       });
     });
@@ -207,11 +226,13 @@ export class ScriptApiServer {
         server.close(() => resolve());
         server.closeAllConnections();
       });
+      this._listeningPort = null;
     }
   }
 
+  /** Bound port while listening, otherwise the configured one. */
   get port(): number {
-    return this._port;
+    return this._listeningPort ?? this._port;
   }
 
   get listening(): boolean {
@@ -225,7 +246,19 @@ export class ScriptApiServer {
     const pathname = url.pathname;
     const method = req.method ?? "GET";
 
-    // Only POST is supported.
+    // S1: access check before any routing — /health, 404 and 405 included.
+    const denied = this._checkAccess(req);
+    if (denied) {
+      this._sendJson(res, denied.status, denied.body);
+      return;
+    }
+
+    if (method === "GET" && pathname === "/health") {
+      this._sendJson(res, 200, { server: SCRIPT_SERVER_ID, version: VERSION });
+      return;
+    }
+
+    // Everything else is POST.
     if (method !== "POST") {
       this._sendJson(res, 405, { error: "method_not_allowed" });
       return;
@@ -268,6 +301,26 @@ export class ScriptApiServer {
     }
 
     this._sendJson(res, 404, { error: "not_found" });
+  }
+
+  /**
+   * S1: A request from a web page (Origin header), a DNS-rebinding request
+   * (foreign Host) or one without the key never reaches a route.
+   */
+  private _checkAccess(
+    req: http.IncomingMessage,
+  ): { status: number; body: Record<string, string> } | null {
+    if (req.headers.origin !== undefined) {
+      return { status: 403, body: { error: "forbidden_origin" } };
+    }
+    const host = (req.headers.host ?? "").toLowerCase();
+    if (host !== `127.0.0.1:${this.port}` && host !== `localhost:${this.port}`) {
+      return { status: 403, body: { error: "forbidden_host" } };
+    }
+    if (!bearerMatches(req.headers.authorization, this._token)) {
+      return { status: 401, body: { error: "unauthorized", server: SCRIPT_SERVER_ID } };
+    }
+    return null;
   }
 
   // ── Session Create ─────────────────────────────────────────────────
@@ -494,4 +547,12 @@ export class ScriptApiServer {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(body));
   }
+}
+
+/** Constant-time check of `Authorization: Bearer <token>`. */
+function bearerMatches(header: string | undefined, token: string): boolean {
+  if (!header?.startsWith("Bearer ")) return false;
+  const given = Buffer.from(header.slice("Bearer ".length), "utf8");
+  const expected = Buffer.from(token, "utf8");
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }

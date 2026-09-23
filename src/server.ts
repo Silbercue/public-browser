@@ -9,6 +9,12 @@ import { ToolRegistry } from "./registry.js";
 import { installToolListCompaction } from "./tool-list-compact.js";
 import { VERSION } from "./version.js";
 import { ScriptApiServer } from "./transport/script-api-server.js";
+import {
+  SCRIPT_TOKEN_ENV,
+  generateScriptToken,
+  scriptTokenPath,
+  writeScriptTokenFile,
+} from "./transport/script-api-token.js";
 import { hintMatcher } from "./cortex/hint-matcher.js";
 import { loadCommunityMarkov } from "./cortex/community-loader.js";
 import { markovTable } from "./cortex/markov-table.js";
@@ -317,18 +323,40 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
   //     Only started when --script flag is active. Failure to bind the
   //     port is non-fatal: MCP continues to work, only the Script API
   //     is unavailable.
+  //     S1: a server started by the Python client gets its key through the
+  //     environment; one started on its own generates a key and writes it —
+  //     only after a successful bind, so a second server that loses the port
+  //     never overwrites the key of the one that holds it.
   let scriptApiServer: ScriptApiServer | null = null;
   if (scriptMode) {
+    const envToken = process.env[SCRIPT_TOKEN_ENV]?.trim() || undefined;
+    const token = envToken ?? generateScriptToken();
     scriptApiServer = new ScriptApiServer({
       registry,
       browserSession,
       port: scriptPort,
+      token,
     });
     try {
       await scriptApiServer.start();
     } catch {
       // Port-in-use or other bind error — already logged inside start().
       scriptApiServer = null;
+    }
+    if (scriptApiServer && !envToken) {
+      const tokenFile = scriptTokenPath(scriptApiServer.port);
+      try {
+        writeScriptTokenFile(tokenFile, token);
+        console.error(`Public Browser --script: Script API key written to ${tokenFile}`);
+      } catch (err) {
+        console.error(
+          `Public Browser --script: cannot write the Script API key to ${tokenFile} `
+          + `(${err instanceof Error ? err.message : String(err)}). Script API disabled — `
+          + `set ${SCRIPT_TOKEN_ENV} to pass a key instead.`,
+        );
+        await scriptApiServer.stop().catch(() => {});
+        scriptApiServer = null;
+      }
     }
   }
 

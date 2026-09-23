@@ -10,17 +10,17 @@ Tests are structured in groups:
 from __future__ import annotations
 
 import json
+import re
+import socket
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from publicbrowser.client import (
-    ScriptApiClient,
-)
+from publicbrowser.client import ScriptApiClient, token_file
 
 # ---------------------------------------------------------------------------
 # Helper: Fake HTTP server that mimics Script API responses
@@ -33,6 +33,23 @@ class _FakeScriptApiHandler(BaseHTTPRequestHandler):
     # Class-level response queue (set by tests)
     responses: list[tuple[int, dict[str, Any]]] = []
     received_requests: list[tuple[str, dict[str, str], bytes]] = []
+
+    # S1: answer to GET /health (set by tests)
+    health_response: tuple[int, dict[str, Any]] = (
+        200,
+        {"server": "public-browser", "version": "test"},
+    )
+
+    def do_GET(self) -> None:
+        headers_dict = {k: v for k, v in self.headers.items()}
+        _FakeScriptApiHandler.received_requests.append((self.path, headers_dict, b""))
+        status, response_body = _FakeScriptApiHandler.health_response
+        response_bytes = json.dumps(response_body).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response_bytes)))
+        self.end_headers()
+        self.wfile.write(response_bytes)
 
     def do_POST(self) -> None:
         content_length = int(self.headers.get("Content-Length", 0))
@@ -66,6 +83,7 @@ def fake_server():
     """Start a fake Script API HTTP server and return (client, server, port)."""
     _FakeScriptApiHandler.responses = []
     _FakeScriptApiHandler.received_requests = []
+    _FakeScriptApiHandler.health_response = (200, {"server": "public-browser", "version": "test"})
 
     server = HTTPServer(("127.0.0.1", 0), _FakeScriptApiHandler)
     port = server.server_address[1]
@@ -239,24 +257,132 @@ class TestScriptApiClientSession:
 
 
 class TestScriptApiClientServerProbe:
-    """Test _is_server_running() probe."""
+    """S1: _is_server_running() checks the identity via GET /health."""
 
-    def test_is_server_running_returns_true(self, fake_server: tuple) -> None:
-        """_is_server_running() returns True when server responds."""
+    def test_is_server_running_checks_identity(self, fake_server: tuple) -> None:
+        """A Public Browser that accepts the key counts as running."""
         client, server, port = fake_server
-        # The probe creates a session, so we need to respond with a token,
-        # then handle the close_session call
-        _FakeScriptApiHandler.responses = [
-            (200, {"session_token": "PROBE_TOK", "target_id": "T1"}),
-            (200, {"ok": True}),  # close_session
-        ]
-
         assert client._is_server_running() is True
+        path, _, _ = _FakeScriptApiHandler.received_requests[0]
+        assert path == "/health"
+
+    def test_probe_opens_no_session(self, fake_server: tuple) -> None:
+        """The probe no longer creates and closes a throwaway tab."""
+        client, server, port = fake_server
+        client._is_server_running()
+        paths = [p for p, _, _ in _FakeScriptApiHandler.received_requests]
+        assert paths == ["/health"]
 
     def test_is_server_running_returns_false_when_no_server(self) -> None:
         """_is_server_running() returns False when no server is listening."""
         client = ScriptApiClient("127.0.0.1", 19999)
         assert client._is_server_running() is False
+
+    def test_foreign_service_is_reported_not_used(self, fake_server: tuple) -> None:
+        """Another program on the port (e.g. a Chrome DevTools port) is an error."""
+        client, server, port = fake_server
+        _FakeScriptApiHandler.health_response = (404, {"message": "Unknown command"})
+        with pytest.raises(ConnectionError, match=r"not as a Public Browser Script API \(HTTP 404\)"):
+            client._is_server_running()
+
+    def test_other_json_service_is_reported(self, fake_server: tuple) -> None:
+        """A 200 without the Public Browser identity is not our server either."""
+        client, server, port = fake_server
+        _FakeScriptApiHandler.health_response = (200, {"status": "ok"})
+        with pytest.raises(ConnectionError, match="not as a Public Browser"):
+            client._is_server_running()
+
+    def test_old_server_without_health_is_reported(self, fake_server: tuple) -> None:
+        """A Public Browser before S1 answers GET with 405 — reported, not used."""
+        client, server, port = fake_server
+        _FakeScriptApiHandler.health_response = (405, {"error": "method_not_allowed"})
+        with pytest.raises(ConnectionError, match=r"HTTP 405\).*older than the Script API key"):
+            client._is_server_running()
+
+    def test_rejected_key_is_reported(self, fake_server: tuple) -> None:
+        """A Public Browser that rejects our key raises PermissionError."""
+        client, server, port = fake_server
+        _FakeScriptApiHandler.health_response = (
+            401,
+            {"error": "unauthorized", "server": "public-browser"},
+        )
+        with pytest.raises(PermissionError, match="rejected the Script API key") as exc:
+            client._is_server_running()
+        # P19: the parallel auto-start has no key file — the message names that case too.
+        assert "at the same moment" in str(exc.value)
+
+    def test_non_http_service_is_reported(self) -> None:
+        """P34: a service that does not speak HTTP (e.g. an SSH banner) is reported clearly."""
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+
+        def answer_with_banner() -> None:
+            conn, _ = listener.accept()
+            with conn:
+                conn.recv(1024)
+                conn.sendall(b"SSH-2.0-OpenSSH_9.0\r\n")
+
+        thread = threading.Thread(target=answer_with_banner, daemon=True)
+        thread.start()
+        try:
+            client = ScriptApiClient("127.0.0.1", port)
+            with pytest.raises(ConnectionError, match="answers, but not with HTTP"):
+                client._is_server_running()
+        finally:
+            thread.join(timeout=5)
+            listener.close()
+
+
+class TestScriptApiKey:
+    """S1: every request carries the key; where the key comes from."""
+
+    def test_post_sends_given_key(self, fake_server: tuple) -> None:
+        _, server, port = fake_server
+        client = ScriptApiClient("127.0.0.1", port, token="KEY-1")
+        client._post("/session/create", {})
+        _, headers, _ = _FakeScriptApiHandler.received_requests[0]
+        assert headers["Authorization"] == "Bearer KEY-1"
+
+    def test_key_from_token_file(self, fake_server: tuple) -> None:
+        _, server, port = fake_server
+        path = token_file(port)
+        path.parent.mkdir(parents=True)
+        path.write_text("FILE-KEY\n", encoding="utf-8")
+        client = ScriptApiClient("127.0.0.1", port)
+        client._post("/session/create", {})
+        _, headers, _ = _FakeScriptApiHandler.received_requests[0]
+        assert headers["Authorization"] == "Bearer FILE-KEY"
+
+    def test_env_key_wins_over_token_file(
+        self, fake_server: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, server, port = fake_server
+        path = token_file(port)
+        path.parent.mkdir(parents=True)
+        path.write_text("FILE-KEY", encoding="utf-8")
+        monkeypatch.setenv("PUBLIC_BROWSER_SCRIPT_TOKEN", "ENV-KEY")
+        client = ScriptApiClient("127.0.0.1", port)
+        client._post("/session/create", {})
+        _, headers, _ = _FakeScriptApiHandler.received_requests[0]
+        assert headers["Authorization"] == "Bearer ENV-KEY"
+
+    def test_blank_env_key_counts_as_unset(
+        self, fake_server: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, server, port = fake_server
+        monkeypatch.setenv("PUBLIC_BROWSER_SCRIPT_TOKEN", "   ")
+        client = ScriptApiClient("127.0.0.1", port)
+        client._post("/session/create", {})
+        _, headers, _ = _FakeScriptApiHandler.received_requests[0]
+        assert "Authorization" not in headers
+
+    def test_no_key_no_authorization_header(self, fake_server: tuple) -> None:
+        client, server, port = fake_server
+        client._post("/session/create", {})
+        _, headers, _ = _FakeScriptApiHandler.received_requests[0]
+        assert "Authorization" not in headers
 
 
 # ---------------------------------------------------------------------------
@@ -280,10 +406,11 @@ class TestScriptApiClientAutoStart:
             client.start_server(server_path="/usr/local/bin/public-browser")
 
             mock_popen.assert_called_once_with(
-                ["/usr/local/bin/public-browser", "--script"],
+                ["/usr/local/bin/public-browser", "--script", "--script-port", "19998"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=ANY,
             )
 
     def test_start_server_finds_binary_in_path(self) -> None:
@@ -300,10 +427,11 @@ class TestScriptApiClientAutoStart:
             client.start_server()
 
             mock_popen.assert_called_once_with(
-                ["/opt/bin/public-browser", "--script"],
+                ["/opt/bin/public-browser", "--script", "--script-port", "19998"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=ANY,
             )
 
     def test_start_server_falls_back_to_npx(self) -> None:
@@ -325,10 +453,12 @@ class TestScriptApiClientAutoStart:
             client.start_server()
 
             mock_popen.assert_called_once_with(
-                ["/usr/local/bin/npx", "-y", "public-browser@latest", "--", "--script"],
+                ["/usr/local/bin/npx", "-y", "public-browser@latest", "--", "--script",
+                 "--script-port", "19998"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=ANY,
             )
 
     def test_start_server_raises_when_no_binary(self) -> None:
@@ -356,6 +486,52 @@ class TestScriptApiClientAutoStart:
         client._server_proc.returncode = 1
 
         with pytest.raises(RuntimeError, match="exited with code 1"):
+            client._wait_for_server(timeout=2.0)
+
+    def test_start_server_hands_over_a_fresh_key_via_env(self) -> None:
+        """S1: the key travels in the environment, never on the command line."""
+        client = ScriptApiClient("127.0.0.1", 19998)
+        with patch("subprocess.Popen") as mock_popen, \
+             patch.object(client, "_wait_for_server"):
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_popen.return_value = mock_proc
+
+            client.start_server(server_path="/x/public-browser")
+
+        env = mock_popen.call_args.kwargs["env"]
+        key = env["PUBLIC_BROWSER_SCRIPT_TOKEN"]
+        assert re.fullmatch(r"[0-9a-f]{64}", key)
+        assert client._token == key
+        assert key not in mock_popen.call_args.args[0]
+
+    def test_start_server_uses_given_key(self) -> None:
+        client = ScriptApiClient("127.0.0.1", 19998, token="GIVEN")
+        with patch("subprocess.Popen") as mock_popen, \
+             patch.object(client, "_wait_for_server"):
+            mock_popen.return_value = MagicMock()
+            client.start_server(server_path="/x/public-browser")
+        assert mock_popen.call_args.kwargs["env"]["PUBLIC_BROWSER_SCRIPT_TOKEN"] == "GIVEN"
+
+    def test_start_server_stops_its_server_when_the_port_is_taken(self) -> None:
+        """A server that cannot serve the port is terminated, the error propagates."""
+        client = ScriptApiClient("127.0.0.1", 19998)
+        proc = MagicMock()
+        proc.poll.return_value = None
+        with patch("subprocess.Popen", return_value=proc), \
+             patch.object(client, "_wait_for_server",
+                          side_effect=ConnectionError("Port 19998 answers, but not as ...")):
+            with pytest.raises(ConnectionError):
+                client.start_server(server_path="/x/public-browser")
+        proc.terminate.assert_called_once()
+
+    def test_wait_for_server_accepts_only_public_browser(self, fake_server: tuple) -> None:
+        """_wait_for_server() does not take a foreign service for the started server."""
+        client, server, port = fake_server
+        client._server_proc = MagicMock()
+        client._server_proc.poll.return_value = None
+        _FakeScriptApiHandler.health_response = (404, {})
+        with pytest.raises(ConnectionError):
             client._wait_for_server(timeout=2.0)
 
 

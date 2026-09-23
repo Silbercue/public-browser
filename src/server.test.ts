@@ -120,7 +120,10 @@ describe("startServer integration (Story 12.4 — C1)", () => {
    * Returns a ref object whose `instructions` field is written by the
    * McpServer mock constructor, so the test can inspect it after await.
    */
-  function mockServerDeps(patternCount: number): { instructions?: string } {
+  function mockServerDeps(
+    patternCount: number,
+    scriptApi: () => unknown = () => ({ ScriptApiServer: vi.fn() }),
+  ): { instructions?: string } {
     const captured: { instructions?: string } = {};
 
     vi.doMock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
@@ -160,9 +163,7 @@ describe("startServer integration (Story 12.4 — C1)", () => {
       }),
     }));
 
-    vi.doMock("./transport/script-api-server.js", () => ({
-      ScriptApiServer: vi.fn(),
-    }));
+    vi.doMock("./transport/script-api-server.js", scriptApi);
 
     vi.doMock("./cortex/hint-matcher.js", () => ({
       hintMatcher: {
@@ -193,5 +194,116 @@ describe("startServer integration (Story 12.4 — C1)", () => {
     expect(captured.instructions).toBeDefined();
     expect(captured.instructions).not.toContain("Cortex:");
     expect(captured.instructions).not.toContain("patterns loaded");
+  });
+
+  // --- S1: Schluessel der Skript-Schnittstelle ---
+
+  interface ScriptApiMock {
+    opts: { token: string; port: number };
+    port: number;
+    start: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  }
+
+  /** Script-API-Mock plus Schluessel-Modul mit abgefangenem Schreiben. */
+  function mockScriptApi(startImpl: () => Promise<void> = async () => {}) {
+    const servers: ScriptApiMock[] = [];
+    const writes: Array<[string, string]> = [];
+    let writeError: Error | null = null;
+    // Handed to mockServerDeps: registering ./transport/script-api-server.js a second time
+    // with vi.doMock would make the winning factory random.
+    const scriptApi = () => ({
+      ScriptApiServer: vi.fn(function ScriptApiServerMock(opts: { token: string; port: number }) {
+        const server: ScriptApiMock = {
+          opts,
+          port: opts.port,
+          start: vi.fn(startImpl),
+          stop: vi.fn(async () => {}),
+        };
+        servers.push(server);
+        return server;
+      }),
+    });
+    vi.doMock("./transport/script-api-token.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("./transport/script-api-token.js")>()),
+      writeScriptTokenFile: vi.fn((path: string, token: string) => {
+        if (writeError) throw writeError;
+        writes.push([path, token]);
+      }),
+    }));
+    return {
+      servers,
+      writes,
+      scriptApi,
+      failWrites(err: Error) {
+        writeError = err;
+      },
+    };
+  }
+
+  it("S1: ohne vorgegebenen Schluessel erzeugt der Server einen und legt ihn nach dem Binden ab", async () => {
+    vi.stubEnv("PUBLIC_BROWSER_SCRIPT_TOKEN", "");
+    try {
+      const { servers, writes, scriptApi } = mockScriptApi();
+      mockServerDeps(0, scriptApi);
+      const { startServer } = await import("./server.js");
+      await startServer({ script: true, scriptPort: 9555 });
+
+      expect(servers).toHaveLength(1);
+      const token = servers[0].opts.token;
+      expect(token).toMatch(/^[0-9a-f]{64}$/);
+      expect(servers[0].start).toHaveBeenCalled();
+      expect(writes).toEqual([[expect.stringMatching(/script-api-9555\.token$/), token]]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("S1: einen vom Client vorgegebenen Schluessel benutzt der Server, ohne Datei", async () => {
+    vi.stubEnv("PUBLIC_BROWSER_SCRIPT_TOKEN", "from-client");
+    try {
+      const { servers, writes, scriptApi } = mockScriptApi();
+      mockServerDeps(0, scriptApi);
+      const { startServer } = await import("./server.js");
+      await startServer({ script: true, scriptPort: 9556 });
+
+      expect(servers[0].opts.token).toBe("from-client");
+      expect(writes).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("S1: belegt ein anderer Server den Port, bleibt dessen Schluesseldatei unangetastet", async () => {
+    vi.stubEnv("PUBLIC_BROWSER_SCRIPT_TOKEN", "");
+    try {
+      const { writes, scriptApi } = mockScriptApi(async () => {
+        throw Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" });
+      });
+      mockServerDeps(0, scriptApi);
+      const { startServer } = await import("./server.js");
+      await startServer({ script: true, scriptPort: 9557 });
+
+      expect(writes).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("S1: laesst sich der Schluessel nicht ablegen, wird die Skript-Schnittstelle wieder gestoppt", async () => {
+    vi.stubEnv("PUBLIC_BROWSER_SCRIPT_TOKEN", "");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const api = mockScriptApi();
+      mockServerDeps(0, api.scriptApi);
+      api.failWrites(new Error("EROFS: read-only file system"));
+      const { startServer } = await import("./server.js");
+      await startServer({ script: true, scriptPort: 9558 });
+
+      expect(api.servers[0].stop).toHaveBeenCalled();
+      expect(errors).toHaveBeenCalledWith(expect.stringMatching(/Script API disabled/));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

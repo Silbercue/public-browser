@@ -10,6 +10,7 @@ Tests are structured in groups:
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -415,35 +416,48 @@ class TestClosedState:
 
 @pytest.mark.integration
 class TestEscapeHatchIntegration:
-    """Integration tests — require a running Chrome + Script API server.
+    """Integration tests — start the server of this checkout on own ports >= 9340.
 
     Run with: pytest -m integration
     Skip with: pytest -m "not integration"
     """
 
-    def test_escape_hatch_roundtrip_integration(self) -> None:
+    def test_escape_hatch_roundtrip_integration(
+        self, local_script_server: dict[str, Any], isolated_chrome_env: dict[str, int]
+    ) -> None:
         """page.cdp.send() round-trip: Runtime.evaluate returns correct result."""
         from publicbrowser import Chrome
 
-        chrome = Chrome.connect()
-        with chrome.new_page() as page:
-            page.navigate("about:blank")
-            result = page.cdp.send(
-                "Runtime.evaluate", {"expression": "1+1", "returnByValue": True}
-            )
-            assert result["result"]["value"] == 2
+        chrome = Chrome.connect(**local_script_server)
+        try:
+            with chrome.new_page() as page:
+                # P19: the escape hatch must talk to our own Chrome, never to 9222.
+                assert f":{isolated_chrome_env['cdp_port']}/" in (page._cdp_ws_url or "")
+                page.navigate("about:blank")
+                result = page.cdp.send(
+                    "Runtime.evaluate", {"expression": "1+1", "returnByValue": True}
+                )
+                assert result["result"]["value"] == 2
+        finally:
+            chrome.close()
 
-    def test_mixed_path_integration(self) -> None:
+    def test_mixed_path_integration(
+        self, local_script_server: dict[str, Any], isolated_chrome_env: dict[str, int]
+    ) -> None:
         """Shared Core (navigate) + Escape Hatch (Runtime.evaluate) on same tab."""
         from publicbrowser import Chrome
 
-        chrome = Chrome.connect()
-        with chrome.new_page() as page:
-            # Shared Core path
-            page.navigate("about:blank")
-            # Escape Hatch path on the same tab
-            result = page.cdp.send(
-                "Runtime.evaluate",
-                {"expression": "document.URL", "returnByValue": True},
-            )
-            assert "about:blank" in result["result"]["value"]
+        chrome = Chrome.connect(**local_script_server)
+        try:
+            with chrome.new_page() as page:
+                assert f":{isolated_chrome_env['cdp_port']}/" in (page._cdp_ws_url or "")
+                # Shared Core path
+                page.navigate("about:blank")
+                # Escape Hatch path on the same tab
+                result = page.cdp.send(
+                    "Runtime.evaluate",
+                    {"expression": "document.URL", "returnByValue": True},
+                )
+                assert "about:blank" in result["result"]["value"]
+        finally:
+            chrome.close()

@@ -43,6 +43,16 @@ class _FakeScriptApiHandler(BaseHTTPRequestHandler):
     responses: list[tuple[int, dict[str, Any]]] = []
     received_requests: list[tuple[str, dict[str, str], bytes]] = []
 
+    def do_GET(self) -> None:
+        headers_dict = {k: v for k, v in self.headers.items()}
+        _FakeScriptApiHandler.received_requests.append((self.path, headers_dict, b""))
+        data = json.dumps({"server": "public-browser", "version": "test"}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_POST(self) -> None:
         global _session_counter
         content_length = int(self.headers.get("Content-Length", 0))
@@ -107,8 +117,7 @@ def fake_api():
 
 def make_chrome(port: int) -> Chrome:
     """Create a Chrome instance connected to the fake server."""
-    # _is_server_running will create+close a probe session, so we need
-    # the fake server to handle those requests (handled by default auto-responses)
+    # _is_server_running asks GET /health (S1) — it opens no probe session.
     return Chrome.connect(host="127.0.0.1", port=port, auto_start=False)
 
 
@@ -135,9 +144,10 @@ class TestScriptTabLifecycle:
 
         # Verify create + close requests were sent
         paths = [r[0] for r in _FakeScriptApiHandler.received_requests]
-        # First two are probe (create + close), then new_page (create), then exit (close)
-        assert paths.count("/session/create") >= 2  # probe + new_page
-        assert paths.count("/session/close") >= 2   # probe + new_page exit
+        # S1: the identity check comes first and opens no session
+        assert paths[0] == "/health"
+        assert paths.count("/session/create") == 1
+        assert paths.count("/session/close") == 1
 
         chrome.close()
 
@@ -158,7 +168,7 @@ class TestScriptTabLifecycle:
             r for r in _FakeScriptApiHandler.received_requests
             if r[0] == "/session/close"
         ]
-        assert len(close_requests) >= 2  # probe close + crash cleanup close
+        assert len(close_requests) == 1  # crash cleanup close (S1: no probe session)
 
         chrome.close()
 
@@ -170,13 +180,8 @@ class TestScriptTabLifecycle:
         """
         chrome = make_chrome(fake_api)
 
-        # After probe (2 auto-responses) and new_page create (1 auto-response),
-        # the exit close_session should get an error
+        # S1: no probe session — the queue feeds new_page create and the failing exit close
         _FakeScriptApiHandler.responses = [
-            # probe create
-            (200, {"session_token": "PROBE", "target_id": "T0", "cdp_ws_url": "ws://localhost:9222/devtools/page/T0", "cdp_session_id": "cdp-0"}),
-            # probe close
-            (200, {"ok": True}),
             # new_page create
             (200, {"session_token": "GONE-SESSION", "target_id": "GONE-TAB", "cdp_ws_url": "ws://localhost:9222/devtools/page/GONE-TAB", "cdp_session_id": "cdp-gone"}),
             # new_page exit close — server error
@@ -303,16 +308,19 @@ _SKIP_REASON = (
 @pytest.mark.integration
 @pytest.mark.skipif(not _CHROME_AVAILABLE, reason=_SKIP_REASON)
 class TestCoexistenceIntegration:
-    """End-to-end coexistence tests against a real SilbercueChrome server.
+    """End-to-end coexistence tests against a real Public Browser server.
 
     Prerequisites:
-      1. SilbercueChrome server running with ``--script`` flag
+      1. Chrome installed, ``npm run build`` done
       2. Run with: ``pytest -m integration tests/test_coexistence.py -v``
+
+    Each test starts the server of this checkout on its own ports >= 9340
+    (fixture ``local_script_server``) — never the default ports 9222/9223.
     """
 
-    def test_script_tab_lifecycle_real_chrome(self) -> None:
+    def test_script_tab_lifecycle_real_chrome(self, local_script_server: dict[str, Any]) -> None:
         """Create a session, navigate, evaluate, close — all against real server."""
-        chrome = Chrome.connect()
+        chrome = Chrome.connect(**local_script_server)
         try:
             with chrome.new_page() as page:
                 page.navigate("about:blank")
@@ -321,9 +329,11 @@ class TestCoexistenceIntegration:
         finally:
             chrome.close()
 
-    def test_context_manager_cleanup_on_exception_real_chrome(self) -> None:
+    def test_context_manager_cleanup_on_exception_real_chrome(
+        self, local_script_server: dict[str, Any]
+    ) -> None:
         """Verify session cleanup on exception with real server."""
-        chrome = Chrome.connect()
+        chrome = Chrome.connect(**local_script_server)
         try:
             with pytest.raises(ValueError, match="test exception"):
                 with chrome.new_page():
@@ -331,9 +341,11 @@ class TestCoexistenceIntegration:
         finally:
             chrome.close()
 
-    def test_parallel_pages_different_targets_real_chrome(self) -> None:
+    def test_parallel_pages_different_targets_real_chrome(
+        self, local_script_server: dict[str, Any]
+    ) -> None:
         """Two pages have different target IDs on real server."""
-        chrome = Chrome.connect()
+        chrome = Chrome.connect(**local_script_server)
         try:
             with chrome.new_page() as page_a:
                 with chrome.new_page() as page_b:

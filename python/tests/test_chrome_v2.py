@@ -31,6 +31,23 @@ class _FakeHandler(BaseHTTPRequestHandler):
     responses: list[tuple[int, dict[str, Any]]] = []
     received_requests: list[tuple[str, dict[str, str], bytes]] = []
 
+    # S1: answer to GET /health (set by tests)
+    health_response: tuple[int, dict[str, Any]] = (
+        200,
+        {"server": "public-browser", "version": "test"},
+    )
+
+    def do_GET(self) -> None:
+        headers_dict = {k: v for k, v in self.headers.items()}
+        _FakeHandler.received_requests.append((self.path, headers_dict, b""))
+        status, response_body = _FakeHandler.health_response
+        data = json.dumps(response_body).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_POST(self) -> None:
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
@@ -60,6 +77,7 @@ def fake_api():
     """Start a fake Script API server and return (port,)."""
     _FakeHandler.responses = []
     _FakeHandler.received_requests = []
+    _FakeHandler.health_response = (200, {"server": "public-browser", "version": "test"})
 
     server = HTTPServer(("127.0.0.1", 0), _FakeHandler)
     port = server.server_address[1]
@@ -82,12 +100,6 @@ class TestChromeConnect:
     def test_connect_to_running_server(self, fake_api: tuple) -> None:
         """Chrome.connect() connects to a running server without starting one."""
         port, server = fake_api
-        # _is_server_running probe: create_session + close_session
-        _FakeHandler.responses = [
-            (200, {"session_token": "PROBE_TOK", "target_id": "T1", "cdp_ws_url": "ws://localhost:9222/devtools/page/T1", "cdp_session_id": "cdp-1"}),
-            (200, {"ok": True}),  # close probe session
-        ]
-
         chrome = Chrome.connect(host="127.0.0.1", port=port, auto_start=False)
         assert isinstance(chrome, Chrome)
         assert not chrome.closed
@@ -134,11 +146,6 @@ class TestChromeConnect:
     def test_connect_skips_auto_start_when_server_running(self, fake_api: tuple) -> None:
         """Chrome.connect() does not start a server if one is already running."""
         port, server = fake_api
-        _FakeHandler.responses = [
-            (200, {"session_token": "PROBE_TOK", "target_id": "T1", "cdp_ws_url": "ws://localhost:9222/devtools/page/T1", "cdp_session_id": "cdp-1"}),
-            (200, {"ok": True}),
-        ]
-
         with patch.object(ScriptApiClient, "start_server") as mock_start:
             chrome = Chrome.connect(host="127.0.0.1", port=port)
             mock_start.assert_not_called()
@@ -151,6 +158,24 @@ class TestChromeConnect:
             chrome = Chrome.connect()
             assert chrome._client._port == 9223
             chrome.close()
+
+    def test_connect_sends_the_given_key(self, fake_api: tuple) -> None:
+        """S1: Chrome.connect(token=...) sends the key with the identity check."""
+        port, server = fake_api
+        chrome = Chrome.connect(host="127.0.0.1", port=port, auto_start=False, token="KEY-9")
+        path, headers, _ = _FakeHandler.received_requests[0]
+        assert path == "/health"
+        assert headers["Authorization"] == "Bearer KEY-9"
+        chrome.close()
+
+    def test_connect_refuses_a_foreign_service(self, fake_api: tuple) -> None:
+        """S1: another program on the port is reported, no server is started."""
+        port, server = fake_api
+        _FakeHandler.health_response = (404, {"message": "Unknown command"})
+        with patch.object(ScriptApiClient, "start_server") as mock_start:
+            with pytest.raises(ConnectionError, match="not as a Public Browser"):
+                Chrome.connect(host="127.0.0.1", port=port)
+            mock_start.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -165,9 +190,6 @@ class TestNewPage:
         """new_page() creates a session and yields a Page."""
         port, server = fake_api
         _FakeHandler.responses = [
-            # Probe: create_session + close for _is_server_running
-            (200, {"session_token": "PROBE_TOK", "target_id": "T0", "cdp_ws_url": "ws://localhost:9222/devtools/page/T0", "cdp_session_id": "cdp-0"}),
-            (200, {"ok": True}),
             # new_page: create_session
             (200, {"session_token": "SESSION_ABC", "target_id": "TARGET_123", "cdp_ws_url": "ws://localhost:9222/devtools/page/TARGET_123", "cdp_session_id": "cdp-abc"}),
             # new_page exit: close_session
@@ -193,9 +215,6 @@ class TestNewPage:
         """new_page() closes the session even if an exception occurs."""
         port, server = fake_api
         _FakeHandler.responses = [
-            # Probe
-            (200, {"session_token": "PROBE_TOK", "target_id": "T0", "cdp_ws_url": "ws://localhost:9222/devtools/page/T0", "cdp_session_id": "cdp-0"}),
-            (200, {"ok": True}),
             # new_page create
             (200, {"session_token": "SESSION_ERR", "target_id": "TARGET_ERR", "cdp_ws_url": "ws://localhost:9222/devtools/page/TARGET_ERR", "cdp_session_id": "cdp-err"}),
             # new_page close (on exception)
@@ -220,9 +239,6 @@ class TestNewPage:
         """new_page() does not propagate cleanup errors."""
         port, server = fake_api
         _FakeHandler.responses = [
-            # Probe
-            (200, {"session_token": "PROBE_TOK", "target_id": "T0", "cdp_ws_url": "ws://localhost:9222/devtools/page/T0", "cdp_session_id": "cdp-0"}),
-            (200, {"ok": True}),
             # new_page create
             (200, {"session_token": "SESSION_X", "target_id": "TARGET_X", "cdp_ws_url": "ws://localhost:9222/devtools/page/TARGET_X", "cdp_session_id": "cdp-x"}),
             # new_page close — server returns error

@@ -11,6 +11,10 @@ import { ScriptApiServer, SessionStore } from "./script-api-server.js";
 import type { ScriptApiToolRegistry } from "./script-api-server.js";
 import type { IBrowserSession } from "../cdp/browser-session.js";
 import type { ToolResponse } from "../types.js";
+import { VERSION } from "../version.js";
+
+const TEST_TOKEN = "test-token-0123456789abcdef0123456789abcdef";
+const AUTH = { Authorization: `Bearer ${TEST_TOKEN}` };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -95,6 +99,7 @@ async function request(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...AUTH,
           ...headers,
         },
       },
@@ -199,6 +204,7 @@ describe("ScriptApiServer", () => {
       port: 0,
       registry,
       browserSession,
+      token: TEST_TOKEN,
     });
     await server.start();
 
@@ -395,6 +401,7 @@ describe("ScriptApiServer", () => {
           port,
           path: "/session/create",
           method: "GET",
+          headers: { ...AUTH },
         },
         (res) => {
           let raw = "";
@@ -428,7 +435,7 @@ describe("ScriptApiServer", () => {
           port,
           path: "/session/create",
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...AUTH },
         },
         (res) => {
           let raw = "";
@@ -461,7 +468,7 @@ describe("ScriptApiServer", () => {
           port,
           path: "/session/create",
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...AUTH },
         },
         (res) => {
           let raw = "";
@@ -521,7 +528,7 @@ describe("ScriptApiServer — Shared Core tool dispatch (Story 9.10)", () => {
     registry = createMockRegistry();
     browserSession = createMockBrowserSession();
 
-    server = new ScriptApiServer({ port: 0, registry, browserSession });
+    server = new ScriptApiServer({ port: 0, registry, browserSession, token: TEST_TOKEN });
     await server.start();
     const addr = (server as unknown as { _server: http.Server })._server.address() as { port: number };
     port = addr.port;
@@ -682,6 +689,7 @@ describe("ScriptApiServer — session queue serialization", () => {
       port: 0,
       registry,
       browserSession,
+      token: TEST_TOKEN,
     });
     await server.start();
     const addr = (server as unknown as { _server: http.Server })._server.address() as { port: number };
@@ -742,7 +750,7 @@ describe("ScriptApiServer — scriptMode guard", () => {
     // Verify that ScriptApiServer can be instantiated and stopped without starting.
     const registry = createMockRegistry();
     const browserSession = createMockBrowserSession();
-    const srv = new ScriptApiServer({ port: 0, registry, browserSession });
+    const srv = new ScriptApiServer({ port: 0, registry, browserSession, token: TEST_TOKEN });
     expect(srv.listening).toBe(false);
     // Calling stop on a never-started server should be safe.
     await srv.stop();
@@ -756,7 +764,7 @@ describe("ScriptApiServer — shutdown", () => {
   it("stop() closes all open sessions and tabs", async () => {
     const registry = createMockRegistry();
     const browserSession = createMockBrowserSession();
-    const srv = new ScriptApiServer({ port: 0, registry, browserSession });
+    const srv = new ScriptApiServer({ port: 0, registry, browserSession, token: TEST_TOKEN });
     await srv.start();
     const addr = (srv as unknown as { _server: http.Server })._server.address() as { port: number };
     const p = addr.port;
@@ -777,5 +785,165 @@ describe("ScriptApiServer — shutdown", () => {
       (c: unknown[]) => c[0] === "Target.closeTarget",
     );
     expect(closeCalls).toHaveLength(2);
+  });
+});
+
+// ── S1: Zugriffsschutz ─────────────────────────────────────────────────
+
+/** Raw request with full control over method and headers (no default key). */
+function rawRequest(
+  port: number,
+  opts: { method?: string; path: string; headers?: Record<string, string>; body?: string },
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: opts.path,
+        method: opts.method ?? "POST",
+        headers: opts.headers ?? {},
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (chunk: Buffer) => {
+          raw += chunk.toString();
+        });
+        res.on("end", () => {
+          let parsed: Record<string, unknown>;
+          try {
+            parsed = JSON.parse(raw) as Record<string, unknown>;
+          } catch {
+            parsed = { _raw: raw };
+          }
+          resolve({ status: res.statusCode ?? 0, body: parsed });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end(opts.body ?? "");
+  });
+}
+
+describe("ScriptApiServer — Zugriffsschutz (S1)", () => {
+  let server: ScriptApiServer;
+  let registry: ScriptApiToolRegistry;
+  let port: number;
+
+  beforeEach(async () => {
+    registry = createMockRegistry();
+    server = new ScriptApiServer({
+      port: 0,
+      registry,
+      browserSession: createMockBrowserSession(),
+      token: TEST_TOKEN,
+    });
+    await server.start();
+    port = server.port;
+  });
+
+  afterEach(async () => {
+    await server.stop();
+  });
+
+  it("meldet waehrend des Lauschens den gebundenen Port", () => {
+    expect(port).toBeGreaterThan(0);
+  });
+
+  it("401 ohne Schluessel — kein Werkzeug laeuft", async () => {
+    const create = await rawRequest(port, { path: "/session/create", body: "{}" });
+    expect(create.status).toBe(401);
+    expect(create.body).toEqual({ error: "unauthorized", server: "public-browser" });
+
+    const tool = await rawRequest(port, {
+      path: "/tool/evaluate",
+      headers: { "X-Session": "irgendwas" },
+      body: '{"expression":"1"}',
+    });
+    expect(tool.status).toBe(401);
+    expect(registry.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("401 mit falschem Schluessel, auch bei anderer Laenge oder anderem Schema", async () => {
+    for (const authorization of [
+      `Bearer ${TEST_TOKEN.slice(0, -1)}x`,
+      "Bearer kurz",
+      `Basic ${TEST_TOKEN}`,
+      TEST_TOKEN,
+    ]) {
+      const res = await rawRequest(port, {
+        path: "/session/create",
+        headers: { Authorization: authorization },
+        body: "{}",
+      });
+      expect(res.status, authorization).toBe(401);
+    }
+  });
+
+  it("200 mit dem richtigen Schluessel", async () => {
+    const res = await rawRequest(port, { path: "/session/create", headers: AUTH, body: "{}" });
+    expect(res.status).toBe(200);
+  });
+
+  it("403 bei jedem Origin-Header, auch mit Schluessel", async () => {
+    for (const origin of ["https://evil.example", "null", `http://127.0.0.1:${port}`]) {
+      const res = await rawRequest(port, {
+        path: "/session/create",
+        headers: { ...AUTH, Origin: origin },
+        body: "{}",
+      });
+      expect(res.status, origin).toBe(403);
+      expect(res.body.error).toBe("forbidden_origin");
+    }
+  });
+
+  it("403 bei fremdem Host (DNS-Rebinding), 127.0.0.1 und localhost mit Port gehen", async () => {
+    for (const host of ["evil.example", `evil.example:${port}`, "127.0.0.1", `127.0.0.1:${port + 1}`, `[::1]:${port}`]) {
+      const res = await rawRequest(port, {
+        path: "/session/create",
+        headers: { ...AUTH, Host: host },
+        body: "{}",
+      });
+      expect(res.status, host).toBe(403);
+      expect(res.body.error).toBe("forbidden_host");
+    }
+    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `LOCALHOST:${port}`]) {
+      const res = await rawRequest(port, {
+        path: "/session/create",
+        headers: { ...AUTH, Host: host },
+        body: "{}",
+      });
+      expect(res.status, host).toBe(200);
+    }
+  });
+
+  it("GET /health meldet die Kennung, aber nur mit Schluessel", async () => {
+    const ok = await rawRequest(port, { method: "GET", path: "/health", headers: AUTH });
+    expect(ok.status).toBe(200);
+    expect(ok.body).toEqual({ server: "public-browser", version: VERSION });
+
+    const denied = await rawRequest(port, { method: "GET", path: "/health" });
+    expect(denied.status).toBe(401);
+  });
+
+  it("405 fuer andere Methoden kommt erst nach der Pruefung", async () => {
+    expect((await rawRequest(port, { method: "GET", path: "/session/create" })).status).toBe(401);
+    expect(
+      (await rawRequest(port, { method: "GET", path: "/session/create", headers: AUTH })).status,
+    ).toBe(405);
+  });
+});
+
+describe("ScriptApiServer — Konstruktor (S1)", () => {
+  it("verweigert einen leeren Schluessel", () => {
+    expect(
+      () =>
+        new ScriptApiServer({
+          port: 0,
+          registry: createMockRegistry(),
+          browserSession: createMockBrowserSession(),
+          token: "",
+        }),
+    ).toThrow(/non-empty token/);
   });
 });

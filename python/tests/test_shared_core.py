@@ -24,7 +24,7 @@ import shutil
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -49,6 +49,16 @@ class _TrackingHandler(BaseHTTPRequestHandler):
 
     responses: list[tuple[int, dict[str, Any]]] = []
     received_requests: list[tuple[str, dict[str, str], dict[str, Any] | bytes]] = []
+
+    def do_GET(self) -> None:
+        headers_dict = {k: v for k, v in self.headers.items()}
+        _TrackingHandler.received_requests.append((self.path, headers_dict, {}))
+        data = json.dumps({"server": "public-browser", "version": "test"}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self) -> None:
         global _session_counter
@@ -494,10 +504,11 @@ class TestAutoStartVerification:
 
             # PATH binary is used, NOT npx
             mock_popen.assert_called_once_with(
-                ["/opt/bin/public-browser", "--script"],
+                ["/opt/bin/public-browser", "--script", "--script-port", "19997"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=ANY,
             )
 
     def test_auto_start_falls_back_to_npx(self) -> None:
@@ -521,10 +532,12 @@ class TestAutoStartVerification:
             client.start_server()
 
             mock_popen.assert_called_once_with(
-                ["/usr/local/bin/npx", "-y", "public-browser@latest", "--", "--script"],
+                ["/usr/local/bin/npx", "-y", "public-browser@latest", "--", "--script",
+                 "--script-port", "19997"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=ANY,
             )
 
     def test_auto_start_passes_script_flag(self) -> None:
@@ -623,8 +636,8 @@ class TestContextManagerCleanup:
         chrome.close()
 
         close_reqs = [r for r in _TrackingHandler.received_requests if r[0] == "/session/close"]
-        # At least 2: one from probe, one from new_page exit
-        assert len(close_reqs) >= 2
+        # S1: the identity check (GET /health) opens no session — only new_page closes one
+        assert len(close_reqs) == 1
 
     def test_context_manager_closes_on_exception(self, tracking_server: int) -> None:
         """new_page() context manager sends /session/close on exception."""
@@ -637,8 +650,8 @@ class TestContextManagerCleanup:
         chrome.close()
 
         close_reqs = [r for r in _TrackingHandler.received_requests if r[0] == "/session/close"]
-        # At least 2: one from probe, one from exception cleanup
-        assert len(close_reqs) >= 2
+        # S1: the identity check (GET /health) opens no session — only new_page closes one
+        assert len(close_reqs) == 1
 
     def test_parallel_pages_both_cleaned_up(self, tracking_server: int) -> None:
         """Two nested context managers both send /session/close."""
@@ -652,8 +665,8 @@ class TestContextManagerCleanup:
         chrome.close()
 
         close_reqs = [r for r in _TrackingHandler.received_requests if r[0] == "/session/close"]
-        # At least 3: probe close + page_b close + page_a close
-        assert len(close_reqs) >= 3
+        # S1: page_b close + page_a close, the identity check opens no session
+        assert len(close_reqs) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -674,19 +687,22 @@ _SKIP_REASON = (
 @pytest.mark.integration
 @pytest.mark.skipif(not _CHROME_AVAILABLE, reason=_SKIP_REASON)
 class TestSharedCoreIntegration:
-    """Full roundtrip integration tests against a real SilbercueChrome server.
+    """Full roundtrip integration tests against a real Public Browser server.
 
     Prerequisites:
-      1. Chrome installed
+      1. Chrome installed, ``npm run build`` done
       2. Run with: ``pytest -m integration python/tests/test_shared_core.py -v``
+
+    Each test starts the server of this checkout on its own ports >= 9340
+    (fixture ``local_script_server``) — never the default ports 9222/9223.
     """
 
-    def test_auto_start_and_evaluate(self) -> None:
+    def test_auto_start_and_evaluate(self, local_script_server: dict[str, Any]) -> None:
         """Full roundtrip: Chrome.connect() auto-start, evaluate, result.
 
         AC #4: Auto-start works and first tool call succeeds within 10s.
         """
-        chrome = Chrome.connect()
+        chrome = Chrome.connect(**local_script_server)
         try:
             with chrome.new_page() as page:
                 page.navigate("about:blank")
@@ -695,14 +711,19 @@ class TestSharedCoreIntegration:
         finally:
             chrome.close()
 
-    def test_shared_core_plus_escape_hatch_same_tab(self) -> None:
+    def test_shared_core_plus_escape_hatch_same_tab(
+        self, local_script_server: dict[str, Any], isolated_chrome_env: dict[str, int]
+    ) -> None:
         """HTTP path (navigate) + WebSocket path (Runtime.evaluate) on same tab.
 
         AC #7: refs remain consistent when mixing HTTP and WS paths.
         """
-        chrome = Chrome.connect()
+        chrome = Chrome.connect(**local_script_server)
         try:
             with chrome.new_page() as page:
+                # P19: the escape hatch must talk to our own Chrome, never to 9222.
+                assert f":{isolated_chrome_env['cdp_port']}/" in (page._cdp_ws_url or "")
+
                 # Shared Core path (HTTP to /tool/navigate)
                 page.navigate("about:blank")
 
@@ -719,41 +740,44 @@ class TestSharedCoreIntegration:
         finally:
             chrome.close()
 
-    def test_two_scripts_parallel(self) -> None:
-        """Two threads each run evaluate() on their own page.
+    def test_two_scripts_parallel(self, local_script_server: dict[str, Any]) -> None:
+        """One connection, two threads, each on its own page.
 
         AC #6: parallel scripts get separate sessions, no interference.
+        S1: connect first, then open the pages in parallel. Two auto-starts at
+        the same moment would each generate their own key, and the one that
+        loses the port gets a PermissionError (README "Access key").
         """
         results: list[Any] = [None, None]
         errors: list[Exception | None] = [None, None]
+        chrome = Chrome.connect(**local_script_server)
 
         def worker(index: int) -> None:
             try:
-                chrome = Chrome.connect()
-                try:
-                    with chrome.new_page() as page:
-                        page.navigate("about:blank")
-                        results[index] = page.evaluate(f"{index} + 100")
-                finally:
-                    chrome.close()
+                with chrome.new_page() as page:
+                    page.navigate("about:blank")
+                    results[index] = page.evaluate(f"{index} + 100")
             except Exception as e:
                 errors[index] = e
 
-        t1 = threading.Thread(target=worker, args=(0,))
-        t2 = threading.Thread(target=worker, args=(1,))
-        t1.start()
-        t2.start()
-        t1.join(timeout=30)
-        t2.join(timeout=30)
+        try:
+            t1 = threading.Thread(target=worker, args=(0,))
+            t2 = threading.Thread(target=worker, args=(1,))
+            t1.start()
+            t2.start()
+            t1.join(timeout=30)
+            t2.join(timeout=30)
+        finally:
+            chrome.close()
 
         assert errors[0] is None, f"Thread 0 error: {errors[0]}"
         assert errors[1] is None, f"Thread 1 error: {errors[1]}"
         assert results[0] == 100
         assert results[1] == 101
 
-    def test_all_seven_tools_roundtrip(self) -> None:
+    def test_all_seven_tools_roundtrip(self, local_script_server: dict[str, Any]) -> None:
         """All 7 tool methods work end-to-end against real server."""
-        chrome = Chrome.connect()
+        chrome = Chrome.connect(**local_script_server)
         try:
             with chrome.new_page() as page:
                 # navigate

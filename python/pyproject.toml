@@ -61,7 +61,7 @@ include = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "integration: requires running Chrome with --remote-debugging-port=9222",
+    "integration: starts Public Browser from this checkout (npm run build) with its own headless Chrome on free ports >= 9340, never 9222/9223; needs Chrome",
 ]
 addopts = "-m 'not integration'"
 

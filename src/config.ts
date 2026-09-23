@@ -15,6 +15,7 @@
  * | CDP port       | `--port`            | `SILBERCUE_CHROME_PORT`  | `PUBLIC_BROWSER_CHROME_PORT` |
  * | CDP host       | `--host`            | `SILBERCUE_CHROME_HOST`  | `PUBLIC_BROWSER_CHROME_HOST` |
  * | Script API port| `--script-port`     | `SILBERCUE_SCRIPT_PORT`  | `PUBLIC_BROWSER_SCRIPT_PORT` |
+ * | Script API key | —                   | `PUBLIC_BROWSER_SCRIPT_TOKEN` (read in server.ts) | — |
  * | Download dir   | `--download-dir`    | `PUBLIC_BROWSER_DOWNLOAD_DIR` | —                       |
  * | Download hash  | `--download-hash`   | `PUBLIC_BROWSER_DOWNLOAD_HASH` | —                      |
  * | Download naming| `--download-naming` | `PUBLIC_BROWSER_DOWNLOAD_NAMING` | —                    |

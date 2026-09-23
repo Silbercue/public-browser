@@ -228,6 +228,8 @@ function printHelp(): void {
   console.log("                                    Alias: PUBLIC_BROWSER_CHROME_HOST");
   console.log("  SILBERCUE_SCRIPT_PORT=<port>      Script API port (default: 9223)");
   console.log("                                    Alias: PUBLIC_BROWSER_SCRIPT_PORT");
+  console.log("  PUBLIC_BROWSER_SCRIPT_TOKEN=<key> Script API key. Unset: --script generates one and");
+  console.log("                                    writes ~/.public-browser/script-api-<port>.token");
   console.log("  SILBERCUE_STEALTH=0               Same as --no-stealth");
   console.log("                                    Alias: PUBLIC_BROWSER_STEALTH");
   console.log("  SILBERCUE_CHROME_HEADLESS=true    Run in headless mode");

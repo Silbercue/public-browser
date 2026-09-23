@@ -1,46 +1,54 @@
 """End-to-end coexistence test — Story 9.4 (Task 3).
 
-Tests MCP server and Python Script API operating against the SAME Chrome
-instance simultaneously. This is the strongest verification of NFR19.
+Tests a server started by one client and a second Python client operating
+against the SAME Chrome instance simultaneously. This is the strongest
+verification of NFR19.
 
 **Prerequisites:**
-  1. Build the MCP server: ``npm run build``
-  2. Start the server with: ``node build/index.js --script``
-  3. Run: ``pytest -m integration tests/test_e2e_coexistence.py -v``
+  1. Build the server: ``npm run build``
+  2. Run: ``pytest -m integration tests/test_e2e_coexistence.py -v``
+
+The fixture ``running_server`` starts the server of this checkout on its own
+ports >= 9340 with its own headless Chrome (never 9222/9223); the tests attach
+to it with ``auto_start=False``, sharing the key through the environment.
 
 **What this tests:**
-  - MCP server owns its tab and operates on it via CDP
-  - Python script creates its own tab via the Script API, navigates, reads data, closes it
-  - After the script tab lifecycle, the MCP tab's URL is unchanged
-  - Both operate on the same Chrome without interference
+  - A Python script creates its own tab via the Script API, navigates, reads data, closes it
+  - Two script tabs on the same Chrome do not interfere
+  - The tab is closed even when the script raises
 
 This file is skipped by default (``-m integration`` marker).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import Any
+
 import pytest
 
 from publicbrowser import Chrome
 
-_SKIP_REASON = (
-    "E2E test requires a running Public Browser server with --script flag. "
-    "Start it and run with: pytest -m integration"
-)
+
+@pytest.fixture
+def running_server(local_script_server: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Start the server of this checkout; tests attach to it with auto_start=False."""
+    owner = Chrome.connect(**local_script_server)
+    try:
+        yield {"host": local_script_server["host"], "port": local_script_server["port"]}
+    finally:
+        owner.close()
 
 
 @pytest.mark.integration
 class TestE2ECoexistence:
-    """Full end-to-end test: MCP + Script API on the same Chrome."""
+    """Full end-to-end test: two clients on the same server and Chrome."""
 
-    def test_script_tab_does_not_affect_existing_tabs(self) -> None:
-        """Script API creates a tab, operates, closes it — existing tabs unchanged.
-
-        Simulates the scenario where an MCP server has a tab open and a
-        Python script runs in parallel. After the script finishes, the
-        original tab list should be unchanged.
-        """
-        chrome = Chrome.connect(auto_start=False)
+    def test_script_tab_does_not_affect_existing_tabs(
+        self, running_server: dict[str, Any]
+    ) -> None:
+        """Script API creates a tab, operates, closes it — existing tabs unchanged."""
+        chrome = Chrome.connect(**running_server, auto_start=False)
         try:
             # Script creates a tab, does work, closes it
             with chrome.new_page() as page:
@@ -55,9 +63,9 @@ class TestE2ECoexistence:
         finally:
             chrome.close()
 
-    def test_parallel_script_tabs_isolated(self) -> None:
+    def test_parallel_script_tabs_isolated(self, running_server: dict[str, Any]) -> None:
         """Two script tabs operate independently on the same Chrome."""
-        chrome = Chrome.connect(auto_start=False)
+        chrome = Chrome.connect(**running_server, auto_start=False)
         try:
             with chrome.new_page() as page_a:
                 page_a.navigate("about:blank")
@@ -78,9 +86,9 @@ class TestE2ECoexistence:
         finally:
             chrome.close()
 
-    def test_script_tab_exception_cleanup(self) -> None:
+    def test_script_tab_exception_cleanup(self, running_server: dict[str, Any]) -> None:
         """Tab is closed even when an exception occurs in the script."""
-        chrome = Chrome.connect(auto_start=False)
+        chrome = Chrome.connect(**running_server, auto_start=False)
         try:
             with pytest.raises(ValueError, match="intentional"):
                 with chrome.new_page() as page:

@@ -217,10 +217,22 @@ Your script sends HTTP requests to the Public Browser server on port 9223. The s
 
 `Chrome.connect()` finds and starts the server automatically:
 
-1. **Running server** — checks if port 9223 already responds, connects immediately
+1. **Running server** — asks `GET /health` on port 9223 and connects only if a Public Browser server answers and accepts the key; any other program on that port is reported, never used
 2. **PATH binary** — finds `public-browser` in PATH, starts it with `--script`
 3. **npx fallback** — runs `npx -y public-browser@latest -- --script`
 4. **Explicit path** — `Chrome.connect(server_path="/path/to/public-browser")` for custom setups
+
+### Access key
+
+The Script API only answers requests that carry its key (`Authorization: Bearer <key>`), so web pages and programs running under another user account cannot drive your browser through it. Programs running under your own user account can read the key file, just as they can read your browser profile — the key does not protect against them. You rarely see the key:
+
+- When `Chrome.connect()` starts the server itself, it generates a key and hands it over in the `PUBLIC_BROWSER_SCRIPT_TOKEN` environment variable.
+- A server started with `--script` (for example from your MCP config) generates its own key and writes it to `~/.public-browser/script-api-<port>.token`, readable only by your user. `Chrome.connect()` reads it from there.
+- To use a key of your own, set `PUBLIC_BROWSER_SCRIPT_TOKEN` for both sides or pass `Chrome.connect(token=...)`.
+
+Two scripts that call `Chrome.connect()` at the same moment while no server runs each start a server with their own key. One of them gets the port, the other gets a `PermissionError`. Connect once and open one page per task from that connection (`chrome.new_page()` can be called from several threads), or start the server beforehand with `public-browser --script`, so that every script reads the same key file.
+
+Requests without the key get `401`. Requests from a browser (with an `Origin` header) or with a `Host` other than `127.0.0.1:<port>` / `localhost:<port>` get `403` — that blocks web pages and DNS rebinding even if they guess the port.
 
 ### Example: Login + Data Extraction
 
@@ -773,6 +785,7 @@ Connection priority:
 | `SILBERCUE_CHROME_PORT` | `1`–`65535` | `9222` | CDP debugging port. Non-default values spawn an isolated Chrome instance (separate `--user-data-dir`) that won't conflict with the user's browser. Alias: `PUBLIC_BROWSER_CHROME_PORT` |
 | `SILBERCUE_CHROME_HOST` | host | `127.0.0.1` | CDP host. Alias: `PUBLIC_BROWSER_CHROME_HOST` |
 | `SILBERCUE_SCRIPT_PORT` | `1`–`65535` | `9223` | Script API port (needs `--script`). Alias: `PUBLIC_BROWSER_SCRIPT_PORT` |
+| `PUBLIC_BROWSER_SCRIPT_TOKEN` | string | — (random) | Script API key. Unset: a server started with `--script` generates one and writes it to `~/.public-browser/script-api-<port>.token` (mode 0600) |
 | `SILBERCUE_STEALTH` | `0` / `1` | `1` | `0` disables the `navigator.webdriver` masking. Alias: `PUBLIC_BROWSER_STEALTH` |
 | `PUBLIC_BROWSER_DOWNLOAD_DIR` | path | — (temp dir) | Directory downloads are written to. Created if missing, never deleted |
 | `PUBLIC_BROWSER_DOWNLOAD_HASH` | `1` / `true` | — (off) | Report a `sha256` for every completed download |
