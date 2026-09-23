@@ -1099,8 +1099,14 @@
   },
   "tokens": {
     "start": 0,
-    "end": 13122004,
-    "delta": 13122004
+    "end": 9996086,
+    "delta": 9996086,
+    "rounds": 166,
+    "dedup": "message.id",
+    "recomputed": {
+      "at": "2026-09-23T20:37:45.702Z",
+      "previous_delta": 13122004
+    }
   },
   "cost_usd_list": 6.702970500000001,
   "mqs": {

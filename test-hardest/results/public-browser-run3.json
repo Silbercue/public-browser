@@ -655,8 +655,14 @@
   },
   "tokens": {
     "start": 0,
-    "end": 7031415,
-    "delta": 7031415
+    "end": 4885869,
+    "delta": 4885869,
+    "rounds": 92,
+    "dedup": "message.id",
+    "recomputed": {
+      "at": "2026-09-23T20:37:46.131Z",
+      "previous_delta": 7031415
+    }
   },
   "cost_usd_list": 3.7511819999999996,
   "mqs": {
