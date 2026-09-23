@@ -494,3 +494,44 @@ test('CLI: check --chrome-version wertet nur die neuen Laeufe am selben Head, au
   assert.equal(s2raw.status, 4, s2raw.stderr);
   assert.match(s2raw.stdout, /^Versionsdrift: Chrome gemischt in Stufe 1: 153\.0\.8010\.53, 154\.0\.7000\.1$/m);
 });
+
+test('CLI: Stufe 2 ohne gewertete Stufe-1-Laeufe ist ein Fehler (Exit 2), keine Versionsdrift (I1)', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'acceptance-nostage1-'));
+  const results = join(tmp, 'results');
+  const local = join(tmp, 'results-local');
+  mkdirSync(results);
+  mkdirSync(local);
+  const put = (dir, runs) => runs.forEach((r) => writeFileSync(join(dir, r.run_file), `${JSON.stringify(r, null, 2)}\n`));
+  put(results, [
+    ...[4.89, 7.92, 4.51, 4.60, 5.10].map((t) => bench(t, 92)),
+    ...[4.45, 4.22, 3.95, 4.30, 4.10].map((t) => bench(t, 96, { slug: 'agent-browser', version: '0.38.1', passed: 29 })),
+    ...probeSet(12, 20, 8),
+  ]);
+  const cli = (...args) => spawnSync(process.execPath, [SCRIPT, ...args, '--results', results, '--local-results', local], { encoding: 'utf8' });
+  assert.equal(cli('baseline').status, 0);
+  put(local, [
+    ...[3.7, 3.9, 4.05, 3.6, 4.1].map((t) => bench(t, 88, { head: 'aaa1111' })), ...probeSet(12, 22, 9, { head: 'aaa1111' }),
+    ...[3.2, 3.3, 3.4, 3.1, 3.0].map((t) => bench(t, 85, { head: 'bbb2222' })), ...probeSet(12, 22, 9, { head: 'bbb2222' }),
+    bench(3.5, 85, { head: 'ddd4444', dirty: true }),
+  ]);
+  const check2 = (stage1Head, ...extra) => cli('check', '--stage', '2', '--head', 'bbb2222', '--stage1-head', stage1Head, '--skip-code', ...extra);
+  // Tippfehler im SHA
+  const typo = check2('aaX1111');
+  assert.equal(typo.status, 2, typo.stdout);
+  assert.match(typo.stderr, /no counted stage-1 runs at head aaX1111/);
+  assert.doesNotMatch(typo.stdout, /Versionsdrift/);
+  assert.throws(() => readFileSync(join(local, 'acceptance-stage2-bbb2222.json')), /ENOENT/);
+  // alle Stufe-1-Laeufe dirty: der Hinweis steht in der Meldung
+  const dirty = check2('ddd4444');
+  assert.equal(dirty.status, 2, dirty.stdout);
+  assert.match(dirty.stderr, /no counted stage-1 runs at head ddd4444 .*git_dirty=true, nicht gewertet/);
+  // Filter trifft keinen Stufe-1-Lauf
+  const filtered = check2('aaa1111', '--chrome-version', '154.0.7000.1');
+  assert.equal(filtered.status, 2, filtered.stdout);
+  assert.match(filtered.stderr, /no counted stage-1 runs at head aaa1111 \(filter Chrome 154\.0\.7000\.1\)/);
+  // Gegenprobe: richtiger Stufe-1-Head -> normales Urteil (nur code offen), keine Drift
+  const ok = check2('aaa1111');
+  assert.equal(ok.status, 1, ok.stderr);
+  assert.doesNotMatch(ok.stdout, /Versionsdrift/);
+  assert.match(ok.stdout, /^Urteil: FAIL — nicht erfuellt: code$/m);
+});

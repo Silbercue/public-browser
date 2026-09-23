@@ -370,6 +370,13 @@ function main(argv) {
   const runs = readRuns(localDir);
   const current = selectStageRuns(runs, a.head, a.exclusions, filter);
   const stage1 = a.stage === 2 ? selectStageRuns(runs, a.stage1Head, {}, filter) : null;
+  // Leere Stufe-1-Auswahl (Tippfehler im SHA, alles dirty, Filter trifft nichts) ist ein Aufruffehler (Exit 2),
+  // keine Versionsdrift: sonst wuerde eine unnoetige Baseline-Neumessung ausgeloest.
+  if (stage1 && stage1.benchmark.n === 0 && PROBE_TASKS.every((t) => stage1.probe[t].n === 0)) {
+    const f = filterText(filter);
+    throw new Error(`no counted stage-1 runs at head ${a.stage1Head}${f ? ` (filter ${f})` : ''}`
+      + `${stage1.warnings.length ? ` — ${stage1.warnings.join('; ')}` : ''}`);
+  }
   const baselinePath = join(resultsDir, BASELINE_FILE);
   if (!existsSync(baselinePath)) throw new Error(`baseline missing: ${baselinePath} (node check-acceptance.mjs baseline)`);
   const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
