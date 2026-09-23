@@ -125,3 +125,42 @@ describe("removeOrphanedWrappers (S2)", () => {
     expect(existsSync(orphan)).toBe(true);
   });
 });
+
+// Review M1: ein Leerzeichen im Temp-Pfad darf weder den Profil-Schutz noch das
+// Aufraeumen aushebeln. Gegenprobe: derselbe Fall ohne Leerzeichen.
+describe.each([
+  { label: "mit Leerzeichen", prefix: "pb space " },
+  { label: "ohne Leerzeichen", prefix: "pb-nospace-" },
+])("Wrapper-Pfad $label im Temp-Ordner (S2)", ({ prefix }) => {
+  const NOW = Date.now();
+  let base: string;
+  let profile: string;
+  let wrapper: string;
+
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), prefix));
+    profile = join(base, "real", "Profile 1");
+    mkdirSync(profile, { recursive: true });
+    wrapper = join(base, "public-browser-profile-0000ffff");
+    mkdirSync(wrapper);
+    symlinkSync(profile, join(wrapper, "Profile 1"));
+    const old = new Date(NOW - 10 * 60_000);
+    utimesSync(wrapper, old, old);
+  });
+
+  afterEach(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  const ps = () =>
+    ` 4242 ${CHROME} --remote-debugging-pipe --user-data-dir=${wrapper} --profile-directory=Profile 1\n`;
+
+  it("findChromeUsingProfile meldet die PID des laufenden Chrome", () => {
+    expect(findChromeUsingProfile(profile, "Profile 1", ps)).toBe(4242);
+  });
+
+  it("removeOrphanedWrappers laesst den Wrapper des laufenden Chrome stehen", () => {
+    expect(removeOrphanedWrappers(base, ps, NOW)).toEqual([]);
+    expect(existsSync(wrapper)).toBe(true);
+  });
+});

@@ -13,8 +13,12 @@ import { lstatSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-/** The wrapper dirs launchChrome() creates: `<tmp>/public-browser-profile-<8 hex>`. */
-const WRAPPER_ARG = /--user-data-dir=(\S*public-browser-profile-[0-9a-f]{8})(?=\s|$)/;
+/**
+ * The wrapper dirs launchChrome() creates: `<tmp>/public-browser-profile-<8 hex>`.
+ * Lazy `.*?`, not `\S*`: the temp path may contain spaces, and `ps` prints the
+ * arguments unquoted.
+ */
+const WRAPPER_ARG = /--user-data-dir=(.*?public-browser-profile-[0-9a-f]{8})(?=\s|$)/;
 const WRAPPER_NAME = /^public-browser-profile-[0-9a-f]{8}$/;
 
 /** A younger wrapper may belong to a launch that has not spawned Chrome yet. */
