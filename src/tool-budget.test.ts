@@ -3,10 +3,11 @@ import { listToolsOverWire, schemaProperties, withToolServer } from "./test-util
 
 /**
  * NFR4: Die Tool-Definitionen, die ein MCP-Client beim Verbinden bekommt,
- * duerfen zusammen unter 5000 Token bleiben. Gemessen wird exakt wie in
- * `scripts/token-count.mjs`: Laenge des JSON-Dumps von `tools/list` / 4.
+ * kosten zusammen hoechstens 4990 Token (Plan Aufschliessen). Gemessen wird
+ * exakt wie in `scripts/token-count.mjs`: Laenge des JSON-Dumps von
+ * `tools/list` / 4.
  */
-const BUDGET_TOKENS = 5000;
+const BUDGET_TOKENS = 4990;
 
 function wireTokens(tools: unknown): number {
   return Math.ceil(JSON.stringify(tools).length / 4);
@@ -19,10 +20,10 @@ describe("NFR4 tool-definition budget", () => {
     expect(JSON.stringify(tools)).not.toMatch(/\$schema|taskSupport|"additionalProperties":false/);
   });
 
-  it("bleibt unter 5000 Token (chars/4) auf der Leitung", async () => {
+  it("kostet hoechstens 4990 Token (chars/4) auf der Leitung", async () => {
     const tools = await listToolsOverWire();
     const tokens = wireTokens(tools);
-    expect(tokens, `tools/list kostet ${tokens} Token`).toBeLessThan(BUDGET_TOKENS);
+    expect(tokens, `tools/list kostet ${tokens} Token`).toBeLessThanOrEqual(BUDGET_TOKENS);
   });
 
   it("jede Description ist englisch und ohne Selector-Beispiel", async () => {
