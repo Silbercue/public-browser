@@ -176,7 +176,9 @@ export async function switchTabHandler(
   // H3: Serialise session-switching to prevent race conditions
   return withSwitchLock(async () => {
     try {
-      switch (params.action) {
+      // S5: run_plan passes step params without the zod schema, so the
+      // `.default("switch")` above never applies there — default here too.
+      switch (params.action ?? "switch") {
         case "open":
           return await handleOpen(params, cdpClient, tabStateCache, onSessionChange, start, method, sessionManager, tabOwnership);
         case "switch":

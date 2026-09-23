@@ -1177,6 +1177,114 @@ describe("ToolRegistry", () => {
     expect(result.content[0]).toHaveProperty("text", expect.stringContaining("not allowed in parallel plan groups"));
   });
 
+  // --- S5: run_plan passes raw step params (no zod defaults) ---
+
+  it("S5: run_plan runs switch_tab without 'action' instead of failing on 'isError'", async () => {
+    const send = vi.fn(async (method: string) => {
+      switch (method) {
+        case "Target.getTargets":
+          return {
+            targetInfos: [
+              { targetId: "T1", type: "page", url: "https://a.test/", title: "A" },
+              { targetId: "T2", type: "page", url: "https://b.test/", title: "B" },
+            ],
+          };
+        case "Target.attachToTarget":
+          return { sessionId: "session-T2" };
+        case "Page.getNavigationHistory":
+          return { currentIndex: 0, entries: [{ url: "https://b.test/", title: "B" }] };
+        case "Runtime.evaluate":
+          return { result: { value: "complete" } };
+        default:
+          return {};
+      }
+    });
+    const toolFn = vi.fn();
+    const registry = new ToolRegistry(
+      { tool: toolFn } as never,
+      { send, on: vi.fn(), off: vi.fn(), once: vi.fn() } as never,
+      "session-T1",
+      undefined as never,
+    );
+    registry.registerAll();
+
+    const runPlanCall = toolFn.mock.calls.find((call: unknown[]) => call[0] === "run_plan");
+    expect(runPlanCall).toBeDefined();
+    const runPlan = runPlanCall![runPlanCall!.length - 1] as (
+      params: Record<string, unknown>,
+    ) => Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean }>;
+
+    const result = await runPlan({ steps: [{ tool: "switch_tab", params: { tab: "T2" } }] });
+
+    const text = result.content.map((c) => c.text ?? "").join("\n");
+    expect(text).not.toContain("reading 'isError'");
+    expect(text).toContain("[1/1] OK switch_tab");
+    expect(result.isError).toBeFalsy();
+  });
+
+  it("S5: a handler that returns nothing yields a clear error instead of a TypeError", async () => {
+    const registry = new ToolRegistry(
+      { tool: vi.fn() } as never,
+      { send: vi.fn().mockResolvedValue({}) } as never,
+      "session-1",
+      {} as never,
+    );
+    registry.registerAll();
+
+    // wait_for without `condition` matches no case and returns undefined —
+    // the same shape as switch_tab without `action` before the S5 fix.
+    const result = await registry.executeTool("wait_for", {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toHaveProperty(
+      "text",
+      expect.stringContaining("wait_for returned no result"),
+    );
+  });
+
+  // Anhang B, Review Focus 4: models often drop 'action' in plans. The commit
+  // message names handle_dialog, so pin it: clear error, no handler armed.
+  it("S5: handle_dialog without 'action' gets the clear error and arms no dialog handler", async () => {
+    const dialogHandler = { pushHandler: vi.fn(), consumeNotifications: vi.fn(() => []) };
+    const registry = new ToolRegistry(
+      { tool: vi.fn() } as never,
+      { send: vi.fn().mockResolvedValue({}) } as never,
+      "session-1",
+      undefined as never,
+      undefined,
+      undefined,
+      dialogHandler as never,
+    );
+    registry.registerAll();
+
+    const result = await registry.executeTool("handle_dialog", {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toHaveProperty("text", expect.stringContaining("handle_dialog returned no result"));
+    expect(dialogHandler.pushHandler).not.toHaveBeenCalled();
+  });
+
+  // Positive counterpart to the test above: the same setup with 'action'
+  // does arm the handler, so the negative check there is not vacuous.
+  it("S5: handle_dialog with 'action' arms the dialog handler (counterpart)", async () => {
+    const dialogHandler = { pushHandler: vi.fn(), consumeNotifications: vi.fn(() => []) };
+    const registry = new ToolRegistry(
+      { tool: vi.fn() } as never,
+      { send: vi.fn().mockResolvedValue({}) } as never,
+      "session-1",
+      undefined as never,
+      undefined,
+      undefined,
+      dialogHandler as never,
+    );
+    registry.registerAll();
+
+    const result = await registry.executeTool("handle_dialog", { action: "accept" });
+
+    expect(result.isError).toBeFalsy();
+    expect(dialogHandler.pushHandler).toHaveBeenCalledTimes(1);
+  });
+
   // --- Story 11.1: switch_tab, virtual_desk, dom_snapshot are always executable ---
 
   it("Story 11.1: switch_tab via executeTool executes without feature gate block", async () => {

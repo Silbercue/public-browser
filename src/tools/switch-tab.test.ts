@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { switchTabHandler, _resetSwitchLock, _resetOriginTab, _getOriginTabId } from "./switch-tab.js";
-import type { TabOwnership } from "./switch-tab.js";
+import type { SwitchTabParams, TabOwnership } from "./switch-tab.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { DEVICE_METRICS_OVERRIDE } from "../cdp/emulation.js";
@@ -322,6 +322,25 @@ describe("switchTabHandler — action: switch", () => {
     expect(text).toContain("Switched to tab: T2");
     expect(text).toContain("URL:");
     expect(result._meta?.method).toBe("switch_tab");
+  });
+
+  // S5: run_plan hands step params to the handler without the zod schema,
+  // so the `.default("switch")` of `action` never applies there.
+  it("S5: switches when 'action' is missing (raw run_plan params)", async () => {
+    const { cdpClient } = createMockCdp(defaultCdpResponses);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+
+    const result = await switchTabHandler(
+      { tab: "T2" } as SwitchTabParams,
+      cdpClient,
+      "session-old",
+      cache,
+      vi.fn(),
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("Switched to tab: T2");
   });
 
   it("returns error for non-existent tab", async () => {

@@ -642,7 +642,18 @@ export class ToolRegistry implements ToolRegistryPublic {
     // yet, `drainPendingDiff()` returns null and we move on.
     const piggybackDiff = drainPendingDiff();
 
-    const result = await handler(resolvedParams, sessionIdOverride);
+    // S5: run_plan and the Script API pass raw params — no zod defaults and
+    // no required-field check. A handler whose `switch` then matches no case
+    // (switch_tab without `action`, wait_for without `condition`) returns
+    // nothing; report that instead of crashing on `result.isError` below.
+    const result: ToolResponse = (await handler(resolvedParams, sessionIdOverride)) ?? {
+      content: [{
+        type: "text",
+        text: `${name} returned no result — a required parameter (for example 'action' or 'condition') is missing or has an invalid value.`,
+      }],
+      isError: true,
+      _meta: { elapsedMs: 0, method: name },
+    };
     this._injectDialogNotifications(result);
     this._injectDownloadNotifications(result);
     this._injectRelaunchNotice(result);
