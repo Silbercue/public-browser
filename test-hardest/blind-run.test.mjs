@@ -12,6 +12,7 @@ import {
   runParticipant, registerParticipant, probeServerInfo, cortexPatternCount,
   localParticipant, parseRunArgs,
   scrubProviderKeys, cliCommandAllowed, cliCallsFromJsonl, byToolFromCalls, toolLockFromJsonl, browserBinaries,
+  usageTotal,
 } from './blind-run.mjs';
 
 // --- Fixture-Session (A1.1/A1.6): 2 MCP-Calls + 1 verweigerter Bash-Call ---
@@ -973,4 +974,81 @@ test('pipeline: die Claude-Session und die Probe sehen keinen OPENAI_API_KEY', a
   const seen = JSON.parse(readFileSync(join(dir, 'fake-claude-env.json'), 'utf8'));
   assert.equal(seen.OPENAI_API_KEY, null);
   assert.equal(seen.FAKECLI_X, '1');   // Gegenprobe: gewollte Env kommt an
+});
+
+// --- M1 (Spec aufschliessen): Token-Summe einmal pro Modellantwort (message.id), nicht pro JSONL-Zeile ---
+
+const costUsage = (input, output, read, create) => ({
+  input_tokens: input, output_tokens: output, cache_read_input_tokens: read, cache_creation_input_tokens: create,
+});
+// Claude Code schreibt eine Antwort mit mehreren Inhaltsbloecken als mehrere Zeilen: eigene uuid,
+// gleiche message.id, identische usage. msg_1 = thinking + tool_use, msg_2 = eine Zeile.
+const COST_JSONL = [
+  { type: 'assistant', uuid: 'u-1a', message: { id: 'msg_1', model: 'claude-opus-5', usage: costUsage(3, 7, 100, 0),
+    content: [{ type: 'thinking', thinking: '' }] } },
+  { type: 'assistant', uuid: 'u-1b', message: { id: 'msg_1', model: 'claude-opus-5', usage: costUsage(3, 7, 100, 0),
+    content: [{ type: 'tool_use', id: 't1', name: 'mcp__x__click', input: {} }] } },
+  { type: 'user', uuid: 'r-1', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } },
+  { type: 'assistant', uuid: 'u-2', message: { id: 'msg_2', model: 'claude-opus-5', usage: costUsage(1, 5, 200, 50),
+    content: [{ type: 'text', text: 'done' }] } },
+  // usage ohne message.id zaehlt nicht (Formel aus Spec M1)
+  { type: 'assistant', uuid: 'u-3', message: { model: 'claude-opus-5', usage: costUsage(1000, 1000, 1000, 1000), content: [] } },
+].map((o) => JSON.stringify(o)).join('\n');
+
+function measureCost(jsonl) {
+  const home = mkdtempSync(join(tmpdir(), 'blind-run-cost-'));
+  const uuid = '99999999-2222-3333-4444-555555555555';
+  const dir = join(home, '.claude', 'projects', '-cost-slug');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${uuid}.jsonl`), jsonl);
+  const script = fileURLToPath(new URL('./measure-session-cost.sh', import.meta.url));
+  return JSON.parse(execFileSync('bash', [script, '-cost-slug', uuid], { env: { ...process.env, HOME: home }, encoding: 'utf8' }));
+}
+
+test('measure-session-cost.sh zaehlt eine mehrzeilige Antwort einmal (Entdopplung ueber message.id)', () => {
+  const m = measureCost(COST_JSONL);
+  assert.deepEqual(m.total, { input: 4, output: 12, cache_creation: 50, cache_read: 300, all: 366 });
+  assert.equal(m.rounds, 2);
+  assert.equal(m.dedup, 'message.id');
+  assert.deepEqual(m.by_model.map((b) => b.model), ['claude-opus-5']);
+});
+
+test('usageTotal: Summe der vier usage-Felder aus Claude Codes Ergebnis-JSON, null ohne usage', () => {
+  assert.equal(usageTotal({ input_tokens: 726, output_tokens: 43346, cache_creation_input_tokens: 257216, cache_read_input_tokens: 52567546 }), 52868834);
+  assert.equal(usageTotal({ output_tokens: 5 }), 5);
+  assert.equal(usageTotal(undefined), null);
+  assert.equal(usageTotal(null), null);
+});
+
+test('pipeline: tokens kommen entdoppelt aus measure-session-cost.sh, mit Runden und Claude-Code-Gegenprobe', async () => {
+  const { deps, rundir } = pipeEnv('ok');
+  const { run } = await runParticipant('fake', { rundir: rundir() }, deps);
+  // fake-claude: 3 Antworten (msg-tu1 als zwei Zeilen thinking + tool_use), je usage 3 + 7 + 100 + 0
+  assert.equal(run.tokens.delta, 330);
+  assert.equal(run.tokens.end, 330);
+  assert.equal(run.tokens.rounds, 3);
+  assert.equal(run.tokens.dedup, 'message.id');
+  assert.equal(run.tokens.result_usage_total, 330);
+});
+
+test('pipeline: ohne Ergebnis-JSON bleibt cost_usd_list leer statt geratener Preise', async () => {
+  const { deps, rundir } = pipeEnv('noresult');
+  const { run } = await runParticipant('fake', { rundir: rundir() }, deps);
+  assert.equal(run.cost_usd_list, null);
+  assert.match(run.notes, /cost unknown: no result usage/);
+  assert.equal(run.tokens.delta, 330);                 // Token kommen weiter aus dem Transkript
+  assert.equal(run.tokens.result_usage_total, null);
+  const ok = pipeEnv('ok');                            // Gegenprobe: mit Ergebnis-JSON gilt Claude Codes Preis
+  const { run: withResult } = await runParticipant('fake', { rundir: ok.rundir() }, ok.deps);
+  assert.equal(withResult.cost_usd_list, 1.23);
+  assert.doesNotMatch(withResult.notes, /cost unknown/);
+});
+
+test('compareTable: zeigt korrigierte Token und Runden, unkorrigierte als Strich', () => {
+  const md = compareTable([fakeRun({ tokens: { start: 0, end: 4885869, delta: 4885869, rounds: 92, dedup: 'message.id' } })]);
+  assert.match(md.split('\n')[0], /\| Duration \| Rounds \| Tokens \| MCP calls \|/);
+  assert.equal(md.split('\n')[0].split('|').length, md.split('\n')[1].split('|').length);   // Trennzeile passt
+  assert.match(md.split('\n').find((l) => l.startsWith('| Playwright')), /\| 500s \| 92 \| 4\.89M \| 110 \|/);
+  const old = compareTable([fakeRun({ tokens: { start: 0, end: 7031415, delta: 7031415 } })]);
+  assert.match(old.split('\n').find((l) => l.startsWith('| Playwright')), /\| 500s \| — \| — \| 110 \|/);
 });

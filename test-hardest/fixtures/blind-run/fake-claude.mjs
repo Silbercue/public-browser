@@ -10,6 +10,10 @@
 //   bashexec — wie ok, aber der Bash-Call wurde AUSGEFUEHRT (Ergebnis "probe")
 //   cli      — CLI-Teilnehmer: 3 erlaubte `fakecli`-Bash-Calls + 2 gesperrte Fremdbefehle; schreibt
 //              PATH und FAKECLI_X nach fake-claude-env.json im cwd
+//   noresult — wie ok, aber ohne Ergebnis-JSON auf stdout (Claude endet ohne result/usage/total_cost_usd)
+// Jede Assistant-Zeile traegt eine message.id; die erste Antwort (tu1) steht wie bei Claude Code als zwei
+// Zeilen (thinking + tool_use) mit gleicher message.id und gleicher usage. FAKE_CLAUDE_RESULT setzt den
+// Ergebnistext (result) im stdout-JSON.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -27,11 +31,11 @@ else {
 
   const t = (offsetMs) => new Date(Date.now() + offsetMs).toISOString();
   const model = mode === 'badmodel' ? 'claude-sonnet-4-5' : 'claude-opus-5-20260514';
-  const A = (ts, id, name) => JSON.stringify({
-    type: 'assistant', timestamp: ts, uuid: `u-${id}`,
-    message: { ...(mode === 'nomodel' ? {} : { model }),
+  const A = (ts, id, name, content) => JSON.stringify({
+    type: 'assistant', timestamp: ts, uuid: `u-${id}${content ? '-thinking' : ''}`,
+    message: { id: `msg-${id}`, ...(mode === 'nomodel' ? {} : { model }),
       usage: { output_tokens: 7, input_tokens: 3, cache_read_input_tokens: 100, cache_creation_input_tokens: 0 },
-      content: [{ type: 'tool_use', id, name, input: {} }] },
+      content: content ?? [{ type: 'tool_use', id, name, input: {} }] },
   });
   const U = (ts, id, content) => JSON.stringify({
     type: 'user', timestamp: ts, uuid: `r-${id}`,
@@ -39,7 +43,7 @@ else {
   });
   const B = (ts, id, command) => JSON.stringify({
     type: 'assistant', timestamp: ts, uuid: `u-${id}`,
-    message: { model, usage: { output_tokens: 5, input_tokens: 1, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 },
+    message: { id: `msg-${id}`, model, usage: { output_tokens: 5, input_tokens: 1, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 },
       content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] },
   });
   const denied = 'blocked by benchmark harness: only fakecli commands are allowed';
@@ -50,6 +54,7 @@ else {
     B(t(1600), 'c4', 'echo probe'), U(t(1650), 'c4', denied),
     B(t(1700), 'c5', 'fakecli snapshot | head'), U(t(1750), 'c5', denied),
   ].join('\n') + '\n' : [
+    A(t(0), 'tu1', null, [{ type: 'thinking', thinking: '' }]),
     A(t(0), 'tu1', 'mcp__fake__view_page'),
     U(t(1500), 'tu1', '0123456789'),
     A(t(2000), 'tu2', 'mcp__fake__click'),
@@ -79,6 +84,13 @@ else {
   } else if (mode === 'badexport') {
     writeFileSync(join(process.cwd(), 'run-export.json'), '{"tests":[]}');
   }
-  console.log(JSON.stringify({ session_id: sessionId, num_turns: 5, total_cost_usd: 1.23 }));
+  // usage = Summe der JSONL-Antworten: 3 x (3 + 7 + 100) bzw. im CLI-Modus 5 x (1 + 5 + 10)
+  const usage = mode === 'cli'
+    ? { input_tokens: 5, output_tokens: 25, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 }
+    : { input_tokens: 9, output_tokens: 21, cache_read_input_tokens: 300, cache_creation_input_tokens: 0 };
+  if (mode !== 'noresult') {
+    console.log(JSON.stringify({ session_id: sessionId, num_turns: 5, total_cost_usd: 1.23, usage,
+      result: process.env.FAKE_CLAUDE_RESULT ?? 'passed: 3\nfailed: 0\nskipped: 5' }));
+  }
   process.exit(0);
 }

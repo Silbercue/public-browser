@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # measure-session-cost.sh — liest die aktuelle Claude-Code-Session-JSONL,
-# dedupliziert per UUID und berechnet kumulierte Tokens + USD-Kosten.
+# dedupliziert per message.id (eine Modellantwort = ein Eintrag) und berechnet kumulierte Tokens + USD-Kosten.
 #
 # Benutzung:
 #   bash measure-session-cost.sh                    # neueste JSONL im aktuellen Projekt-Dir
@@ -15,7 +15,9 @@
 #   "total": {"input": N, "output": N, "cache_creation": N, "cache_read": N, "all": N},
 #   "by_model": [{"model": "...", "input": N, ...}, ...],
 #   "cost_usd": 1.23,
-#   "cost_breakdown": [{"model": "...", "cost": 0.12}, ...]
+#   "cost_breakdown": [{"model": "...", "cost": 0.12}, ...],
+#   "rounds": N,              # Zahl der Modellantworten (eindeutige message.id mit usage)
+#   "dedup": "message.id"     # Kennung der Zaehlweise; Werte vor 2026-09-23 zaehlten pro JSONL-Zeile
 # }
 #
 # Preise Stand April 2026 (pro 1M Tokens):
@@ -66,7 +68,7 @@ fi
 
 MEASURED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# jq-Pipeline: slurp, dedup by uuid, aggregate by model, compute cost
+# jq-Pipeline: slurp, dedup by message.id, aggregate by model, compute cost
 jq -s --arg session_file "$JSONL" --arg measured_at "$MEASURED_AT" '
   # Preistabelle pro 1M Tokens (USD)
   def prices:
@@ -92,9 +94,11 @@ jq -s --arg session_file "$JSONL" --arg measured_at "$MEASURED_AT" '
          + (entry.cache_read    * $p.cache_read   / 1000000)
       end;
 
-  # 1. Dedup nach uuid, nur Eintraege mit usage behalten
-  map(select(.message.usage != null and .uuid != null))
-  | group_by(.uuid)
+  # 1. Dedup nach message.id, nur Eintraege mit usage behalten. Claude Code schreibt eine Antwort mit
+  #    mehreren Inhaltsbloecken (thinking, text, tool_use) als mehrere JSONL-Zeilen mit eigener uuid, aber
+  #    gleicher message.id und identischer usage — gezaehlt wird einmal pro Antwort.
+  map(select(.message.usage != null and .message.id != null))
+  | group_by(.message.id)
   | map(.[0])
 
   # 2. Auf (model, tokens) runterbrechen
@@ -129,6 +133,8 @@ jq -s --arg session_file "$JSONL" --arg measured_at "$MEASURED_AT" '
       total:          $total,
       by_model:       $by_model,
       cost_usd:       (([$by_model[].cost] | add) // 0),
-      cost_breakdown: ($by_model | map({model: .model, cost: .cost}))
+      cost_breakdown: ($by_model | map({model: .model, cost: .cost})),
+      rounds:         ($entries | length),
+      dedup:          "message.id"
     }
 ' "$JSONL"

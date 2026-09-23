@@ -164,6 +164,14 @@ export function mcpOnly(byTool, prefix) {
   };
 }
 
+// Claude Codes eigene Session-Summe (result.usage aus --output-format json): Gegenprobe zu tokens.delta.
+// Stimmt, solange das Transkript jede Modellantwort enthaelt (browser-use-run7: beide 52.868.834).
+export function usageTotal(u) {
+  if (!u || typeof u !== 'object') return null;
+  return (Number(u.input_tokens) || 0) + (Number(u.output_tokens) || 0)
+    + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0);
+}
+
 export function mqs({ chars, pass_rate, calls, duration_s }) {
   const cap = (v) => Math.min(100, v);
   const r1 = (v) => Math.round(v * 10) / 10;
@@ -400,14 +408,18 @@ export function compareTable(runs) {
   const broken = blind.filter((r) => r.harness.status !== 'ok' && r.harness.status !== 'smoke').sort(byName);
   const runName = (r) => String(r.run_file || '').replace(/\.json$/, '');
   const head = [
-    '| MCP | Version | Model | Date | Run | Status | Passed | Duration | MCP calls | Response total | Ø response | P95 | Snapshot tool Ø |',
-    '|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|',
+    '| MCP | Version | Model | Date | Run | Status | Passed | Duration | Rounds | Tokens | MCP calls | Response total | Ø response | P95 | Snapshot tool Ø |',
+    '|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
   ];
   const lines = rows.map((r) => {
     const te = r.tool_efficiency || {};
     const snap = (te.by_tool || []).find((t) => t.name.endsWith('__' + r.snapshot_tool));
     const snapCell = snap ? `${snap.avg_chars} (${snap.count}×)` : '—';
-    return `| ${r.name} | ${r.mcp_version} | ${r.model} | ${String(r.timestamp).slice(0, 10)} | ${runName(r)} | ${r.harness.status} | ${r.summary.passed}/${r.summary.counted} | ${r.summary.duration_s}s | ${te.calls_total} | ${Math.round((te.response_chars_total || 0) / 1000)}k | ${te.avg_response_chars} | ${te.p95_response_chars} | ${snapCell} |`;
+    // Nur entdoppelte Werte zeigen (tokens.dedup): die alte Zaehlung pro JSONL-Zeile lag 24–73 % zu hoch.
+    const tk = r.tokens?.dedup === 'message.id' ? r.tokens : null;
+    const rounds = Number.isFinite(tk?.rounds) ? tk.rounds : '—';
+    const tokens = Number.isFinite(tk?.delta) ? `${(tk.delta / 1e6).toFixed(2)}M` : '—';
+    return `| ${r.name} | ${r.mcp_version} | ${r.model} | ${String(r.timestamp).slice(0, 10)} | ${runName(r)} | ${r.harness.status} | ${r.summary.passed}/${r.summary.counted} | ${r.summary.duration_s}s | ${rounds} | ${tokens} | ${te.calls_total} | ${Math.round((te.response_chars_total || 0) / 1000)}k | ${te.avg_response_chars} | ${te.p95_response_chars} | ${snapCell} |`;
   });
   const aborted = broken.length
     ? ['\n**Aborted or incomplete runs**', '| Run | MCP | Status | Note |', '|---|---|---|---|',
@@ -903,6 +915,10 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
     }
     const charsOf = mcpCalls.map((c) => c.chars);
     const msOf = mcpCalls.map((c) => c.ms).filter((x) => Number.isFinite(x));
+    // Kosten nur aus Claude Codes Ergebnis-JSON (total_cost_usd). Fehlt es (Timeout, Absturz), bleibt der Wert
+    // leer: measure-session-cost.sh rechnet mit festen April-Preisen und wuerde raten.
+    const costKnown = Number.isFinite(result?.total_cost_usd);
+    if (!costKnown) notes.push('cost unknown: no result usage');
 
     const run = {
       name: p.display, slug, type: 'mcp-llm',
@@ -932,8 +948,13 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
         })),
       },
       summary,
-      tokens: { start: 0, end: cost?.total?.all ?? null, delta: cost?.total?.all ?? null },
-      cost_usd_list: result?.total_cost_usd ?? cost?.cost_usd ?? null,
+      // Aus measure-session-cost.sh (entdoppelt ueber message.id). cost_usd_list kommt aus Claude Codes
+      // total_cost_usd, mqs.token_score aus Antwort-Zeichen — beide haengen nicht an dieser Zaehlung.
+      tokens: {
+        start: 0, end: cost?.total?.all ?? null, delta: cost?.total?.all ?? null,
+        rounds: cost?.rounds ?? null, dedup: cost?.dedup ?? null, result_usage_total: usageTotal(result?.usage),
+      },
+      cost_usd_list: costKnown ? result.total_cost_usd : null,
       mqs: mqs({ chars: eff.response_chars_total, pass_rate: summary.pass_rate, calls: eff.calls_total, duration_s: summary.duration_s }),
       cortex: slug === 'public-browser'
         ? { mode: 'kalt', dir: env.PUBLIC_BROWSER_CORTEX_DIR, patternCount: cortexCount, note: 'community package only, fresh dir' }
