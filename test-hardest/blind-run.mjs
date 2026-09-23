@@ -474,7 +474,7 @@ export function verifyRunJson(run) {
 // ---------------------------------------------------------------------------
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const MODEL_PIN = 'claude-opus-5';
+export const MODEL_PIN = 'claude-opus-5';
 
 export function defaultDeps() {
   return {
@@ -518,16 +518,16 @@ export function localParticipant(repoRoot) {
   };
 }
 
-function sh(file, args, opts = {}) {
+export function sh(file, args, opts = {}) {
   return execFileSync(file, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...opts });
 }
 
-function killGroup(pid, sig) {
+export function killGroup(pid, sig) {
   if (!pid) return;
   try { process.kill(-pid, sig); } catch { try { process.kill(pid, sig); } catch { /* schon weg */ } }
 }
 
-function isAlive(pid) {
+export function isAlive(pid) {
   if (!pid) return false;
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
@@ -541,24 +541,24 @@ function pgrep(args) {
   }
 }
 
-function chromeMainProcesses() {
+export function chromeMainProcesses() {
   return pgrep(['-fl', '--', 'Google Chrome']).split('\n')
     .filter((l) => l.trim() && !l.includes('Helper') && !l.includes('--type='))
     .map((l) => { const m = l.match(/^(\d+)\s+(.*)$/); return m ? { pid: Number(m[1]), cmd: m[2].slice(0, 200) } : null; })
     .filter(Boolean);
 }
 
-function chromeProcessesOnPort(port) {
+export function chromeProcessesOnPort(port) {
   return pgrep(['-f', '--', `--remote-debugging-port=${port}`]).split('\n').filter(Boolean);
 }
 
-function killChromeOnPort(port) {
+export function killChromeOnPort(port) {
   try { sh('pkill', ['-f', '--', `--remote-debugging-port=${port}`]); } catch (e) {
     if (e.status !== 1) console.error(`[blind-run] pkill Port ${port} fehlgeschlagen (exit ${e.status})`);
   }
 }
 
-function spawnWithTimeout(file, args, { cwd, env, timeoutMs, stderrFile }) {
+export function spawnWithTimeout(file, args, { cwd, env, timeoutMs, stderrFile }) {
   return new Promise((resolve) => {
     const child = spawn(file, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const errStream = createWriteStream(stderrFile, { flags: 'a' });
@@ -678,7 +678,7 @@ export function toolLockFromJsonl(jsonlText, mcpPrefix, cli) {
 }
 
 // build(basename) liefert den Inhalt: so steht run_file schon im einzigen, atomaren wx-Schreibvorgang.
-function writeResultFile(dir, slug, build) {
+export function writeResultFile(dir, slug, build) {
   let n = nextRunNumber(readdirSync(dir), slug);
   for (let i = 0; i < 20; i++, n++) {
     const out = join(dir, `${slug}-run${n}.json`);

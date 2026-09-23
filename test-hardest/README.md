@@ -63,6 +63,8 @@ Add `--headless` to run Public Browser without a visible Chrome window (sets `SI
 for the server; the run JSON records `harness.headless: true`). The published September runs and the
 acceptance runs in `results-local/` were headed; do not mix headed and headless runs in one series.
 
+**Real-site probe.** `node real-sites-probe.mjs run public-browser --task P1|P2|P3 [--local]` runs one short task on a public site in the same blind setup (fresh print-mode session, one MCP server plus `Write`, `claude-opus-5`, Google Chrome with a fresh profile): P1 logs in and checks out on saucedemo.com, P2 handles dynamic loading, HTML5 drag and drop, nested frames and a confirm dialog on the-internet.herokuapp.com, P3 searches Wikipedia for "List of tallest buildings" and reads rank 1. The session has to end with fixed `LABEL: value` lines, which the script grades against known values; P3 is graded against `real-sites-reference.json`, recorded once with `--record-reference` and checked against the article's wikitext. Results go to `results/real-sites-<slug>-runN.json` (`--local`: `results-local/`) with `harness.mode: "real-sites-probe"`, so `compare` leaves them out.
+
 ## Environment (September runs)
 
 macOS `darwin 25.6.0` · Claude Code `2.1.259` · Node `v22.14.0` · Google Chrome `152.0.7977.65` (the `/Applications` binary the harness measured; browser-use launches its own browser, whose version is not captured) · model `claude-opus-5` · authenticated through a Claude subscription, not an API key. The harness has only been tested on macOS. All values come from the run JSONs (`harness.os`, `harness.claude_code_version`, `harness.node`, `chrome_version`, `model`).

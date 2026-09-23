@@ -64,6 +64,9 @@ test-hardest/results-local/*
 !test-hardest/blind-prompt.md
 !test-hardest/recompute-tokens.mjs
 !test-hardest/recompute-tokens.test.mjs
+!test-hardest/real-sites-probe.mjs
+!test-hardest/real-sites-probe.test.mjs
+!test-hardest/real-sites-reference.json
 !test-hardest/fixtures/
 test-hardest/fixtures/*
 !test-hardest/fixtures/blind-run/
