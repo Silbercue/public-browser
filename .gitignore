@@ -67,6 +67,8 @@ test-hardest/results-local/*
 !test-hardest/real-sites-probe.mjs
 !test-hardest/real-sites-probe.test.mjs
 !test-hardest/real-sites-reference.json
+!test-hardest/check-acceptance.mjs
+!test-hardest/check-acceptance.test.mjs
 !test-hardest/fixtures/
 test-hardest/fixtures/*
 !test-hardest/fixtures/blind-run/

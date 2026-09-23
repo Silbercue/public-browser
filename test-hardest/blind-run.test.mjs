@@ -12,7 +12,7 @@ import {
   runParticipant, registerParticipant, probeServerInfo, cortexPatternCount,
   localParticipant, parseRunArgs,
   scrubProviderKeys, cliCommandAllowed, cliCallsFromJsonl, byToolFromCalls, toolLockFromJsonl, browserBinaries,
-  usageTotal,
+  usageTotal, RESULT_PATHSPEC,
 } from './blind-run.mjs';
 
 // --- Fixture-Session (A1.1/A1.6): 2 MCP-Calls + 1 verweigerter Bash-Call ---
@@ -614,7 +614,7 @@ test('localParticipant liest den git-Kopf und den Dirty-Zustand des Repos', () =
   const root = join(HERE_T, '..');
   const p = localParticipant(root);
   const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-  const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim() !== '';
+  const dirty = execFileSync('git', ['status', '--porcelain', ...RESULT_PATHSPEC], { cwd: root, encoding: 'utf8' }).trim() !== '';
   assert.equal(p.git_head, head);
   assert.equal(p.git_dirty, dirty);
 });
@@ -1051,4 +1051,23 @@ test('compareTable: zeigt korrigierte Token und Runden, unkorrigierte als Strich
   assert.match(md.split('\n').find((l) => l.startsWith('| Playwright')), /\| 500s \| 92 \| 4\.89M \| 110 \|/);
   const old = compareTable([fakeRun({ tokens: { start: 0, end: 7031415, delta: 7031415 } })]);
   assert.match(old.split('\n').find((l) => l.startsWith('| Playwright')), /\| 500s \| — \| — \| 110 \|/);
+});
+
+test('localParticipant: Ergebnis-JSONs machen die Arbeitskopie nicht dirty, Quellaenderungen schon', () => {
+  const root = mkdtempSync(join(tmpdir(), 'blind-run-git-'));
+  mkdirSync(join(root, 'build'));
+  writeFileSync(join(root, 'build', 'index.js'), '// build\n');
+  writeFileSync(join(root, 'package.json'), '{"version":"9.9.9"}\n');
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '-A');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init');
+  assert.equal(localParticipant(root).git_dirty, false);
+  for (const d of ['results', 'results-local']) {
+    mkdirSync(join(root, 'test-hardest', d), { recursive: true });
+    writeFileSync(join(root, 'test-hardest', d, 'public-browser-run8.json'), '{}\n');
+  }
+  assert.equal(localParticipant(root).git_dirty, false);
+  writeFileSync(join(root, 'src.ts'), 'export {};\n');
+  assert.equal(localParticipant(root).git_dirty, true);
 });

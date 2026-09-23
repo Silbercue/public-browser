@@ -495,6 +495,9 @@ export function registerParticipant(slug, def) {
   return PARTICIPANTS[slug];
 }
 
+// Ergebnis-JSONs einer laufenden Messserie machen die Arbeitskopie nicht "dirty": git_dirty meint den Quellstand.
+export const RESULT_PATHSPEC = ['--', '.', ':(exclude)test-hardest/results', ':(exclude)test-hardest/results-local'];
+
 // Lokaler Build statt npm-Pin: fuer die Abnahme einer ungekuerzten/gekuerzten Arbeitskopie.
 // Gleicher Slug, gleicher MCP-Name — alle public-browser-Pruefungen (Port 9333, Cortex-Zaehler) greifen.
 export function localParticipant(repoRoot) {
@@ -504,7 +507,7 @@ export function localParticipant(repoRoot) {
   let gitHead = null, gitDirty = null;
   try {
     gitHead = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
-    gitDirty = execFileSync('git', ['status', '--porcelain'], { cwd: repoRoot, encoding: 'utf8' }).trim() !== '';
+    gitDirty = execFileSync('git', ['status', '--porcelain', ...RESULT_PATHSPEC], { cwd: repoRoot, encoding: 'utf8' }).trim() !== '';
   } catch { /* kein git */ }
   return {
     ...PARTICIPANTS['public-browser'],
