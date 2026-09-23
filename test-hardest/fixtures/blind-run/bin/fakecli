@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+// Fake-CLI fuer die CLI-Pipeline-Tests: --version meldet 3.2.1, `close` hinterlaesst eine Marke im cwd.
+import { writeFileSync } from 'node:fs';
+const [cmd] = process.argv.slice(2);
+if (cmd === '--version') { console.log('fakecli 3.2.1'); process.exit(0); }
+if (cmd === 'close') { writeFileSync('fakecli-closed', 'x'); console.log('closed'); process.exit(0); }
+console.log(`fakecli ${process.argv.slice(2).join(' ')}`);

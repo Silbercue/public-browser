@@ -11,6 +11,7 @@ import {
   mcpCallsFromJsonl, percentile, validateExport,
   runParticipant, registerParticipant, probeServerInfo, cortexPatternCount,
   localParticipant, parseRunArgs,
+  scrubProviderKeys, cliCommandAllowed, cliCallsFromJsonl, byToolFromCalls, toolLockFromJsonl, browserBinaries,
 } from './blind-run.mjs';
 
 // --- Fixture-Session (A1.1/A1.6): 2 MCP-Calls + 1 verweigerter Bash-Call ---
@@ -102,11 +103,15 @@ test('renderPrompt substitutes all placeholders and appends smoke suffix only in
   assert.match(smoke, /SMOKE MODE/); assert.match(smoke, /T1\.1 and T1\.2/); assert.match(smoke, /echo probe/);
 });
 
-test('PARTICIPANTS: four slugs, pinned versions, env is a function', () => {
-  assert.deepEqual(Object.keys(PARTICIPANTS), ['public-browser', 'playwright-mcp', 'chrome-devtools-mcp', 'browser-use']);
-  assert.equal(PARTICIPANTS['public-browser'].version, '2.10.4');
-  assert.ok(PARTICIPANTS['playwright-mcp'].args.join(' ').includes('@playwright/mcp@0.0.80'));
-  assert.ok(PARTICIPANTS['chrome-devtools-mcp'].args.join(' ').includes('chrome-devtools-mcp@1.8.0'));
+test('PARTICIPANTS: six slugs, pinned versions, env is a function', () => {
+  assert.deepEqual(Object.keys(PARTICIPANTS),
+    ['public-browser', 'playwright-mcp', 'chrome-devtools-mcp', 'browser-use', 'agent-browser', 'playwright-cli']);
+  assert.equal(PARTICIPANTS['public-browser'].version, '2.10.6');
+  assert.ok(PARTICIPANTS['public-browser'].args.join(' ').includes('public-browser@2.10.6'));
+  assert.ok(PARTICIPANTS['playwright-mcp'].args.join(' ').includes('@playwright/mcp@0.0.82'));
+  assert.equal(PARTICIPANTS['playwright-mcp'].serverVersion, '1.64.0-alpha-1789764292000');
+  assert.ok(PARTICIPANTS['chrome-devtools-mcp'].args.join(' ').includes('chrome-devtools-mcp@1.9.0'));
+  assert.equal(PARTICIPANTS['chrome-devtools-mcp'].version, '1.9.0');
   const rundir = mkdtempSync(join(tmpdir(), 'blind-run-env-'));
   const env = PARTICIPANTS['public-browser'].env(rundir);
   assert.equal(env.PUBLIC_BROWSER_TELEMETRY, '0'); assert.equal(env.PUBLIC_BROWSER_CHROME_PORT, '9333');
@@ -121,21 +126,21 @@ test('PARTICIPANTS: every entry documents its profile isolation', () => {
     assert.ok(p.profile_isolation.length > 0, `${slug} profile_isolation empty`);
   }
   assert.match(PARTICIPANTS['playwright-mcp'].profile_isolation, /--isolated/);
-  assert.match(PARTICIPANTS['browser-use'].profile_isolation, /not isolated/);
+  assert.match(PARTICIPANTS['browser-use'].profile_isolation, /Google Chrome, fresh empty user_data_dir/);
 });
 
-// Task 6: browser-use meldet im Handshake die Wrapper-Version, nicht die Paketversion.
-test('PARTICIPANTS: browser-use pins package 0.12.5 and handshake version 0.1.0', () => {
-  assert.equal(PARTICIPANTS['browser-use'].version, '0.12.5');
-  assert.equal(PARTICIPANTS['browser-use'].serverVersion, '0.1.0');
-  assert.equal(PARTICIPANTS['playwright-mcp'].version, '0.0.80');   // Gegenprobe: gleiches Muster beim Nachbarn
+// Task 6: browser-use 0.12.5 meldete im Handshake die Wrapper-Version 0.1.0; seit 0.13 die Paketversion.
+test('PARTICIPANTS: browser-use pins package 0.13.10, handshake reports the package version', () => {
+  assert.equal(PARTICIPANTS['browser-use'].version, '0.13.10');
+  assert.equal(PARTICIPANTS['browser-use'].serverVersion, undefined);
+  assert.equal(PARTICIPANTS['playwright-mcp'].version, '0.0.82');   // Gegenprobe: gleiches Muster beim Nachbarn
 });
 
 test('PARTICIPANTS: browser-use command is overridable via env', async () => {
   // Ohne gesetzte Variable greift der Default; mit gesetzter Variable (der dokumentierte Reproduktionsweg) deren Wert.
   assert.equal(
     PARTICIPANTS['browser-use'].command,
-    process.env.BLIND_RUN_BROWSER_USE_BIN || '/Users/silbercue/.browser-use-env/bin/browser-use',
+    process.env.BLIND_RUN_BROWSER_USE_BIN || '/Users/silbercue/.browser-use-0.13.10-env/bin/browser-use',
   );
   const before = process.env.BLIND_RUN_BROWSER_USE_BIN;
   process.env.BLIND_RUN_BROWSER_USE_BIN = '/x/fake-bu';
@@ -341,6 +346,7 @@ function pipeEnv(mode) {
       projectsDir: join(home, '.claude', 'projects'),
       suiteFetch: async () => ALL_TESTS.join(' '),
       envOverrides: { HOME: home, FAKE_CLAUDE_MODE: mode },
+      psList: () => '',
     },
   };
 }
@@ -713,4 +719,258 @@ test('pipeline: ein Teilnehmer ohne headless-Schalter ignoriert --headless mit N
   assert.equal(mcp.mcpServers['fake'].env.SILBERCUE_CHROME_HEADLESS, undefined);
   assert.ok(run.notes.includes('--headless ignored: participant has no headless switch'),
     JSON.stringify(run.notes));
+});
+
+// --- CLI-Teilnehmer (agent-browser, Playwright CLI): Bash nur fuer genau einen Befehl ---
+
+test('cliCommandAllowed: nur Befehle, deren jedes Segment der CLI-Befehl ist', () => {
+  const ok = [
+    'agent-browser open https://x.test',
+    '  agent-browser snapshot -i',
+    'agent-browser click @e1 && agent-browser snapshot',
+    'agent-browser eval "a; b | c > d"',
+    "agent-browser eval 'x && `y` $(z) > 1'",
+    'agent-browser snapshot 2>&1',
+    'agent-browser get text @e3 | agent-browser eval --stdin',
+    'agent-browser',
+  ];
+  const bad = [
+    'echo probe', 'ls /', '', '   ',
+    'agent-browser snapshot | head -5',
+    'agent-browser open x; cat /etc/hosts',
+    'agent-browser open x & ls',
+    'agent-browser open x || rm -rf y',
+    'FOO=1 agent-browser open x',
+    'agent-browser eval "$(cat secret)"',
+    'agent-browser eval `whoami`',
+    'agent-browser screenshot > shot.png',
+    'agent-browser eval < input.js',
+    'agent-browserx open',
+    'agent-browser open x\nls',
+    'agent-browser eval "unterminated',
+  ];
+  for (const c of ok) assert.equal(cliCommandAllowed(c, 'agent-browser'), true, `sollte erlaubt sein: ${c}`);
+  for (const c of bad) assert.equal(cliCommandAllowed(c, 'agent-browser'), false, `sollte gesperrt sein: ${c}`);
+  assert.equal(cliCommandAllowed('playwright-cli click e3', 'playwright-cli'), true);
+  assert.equal(cliCommandAllowed('playwright-cli click e3', 'agent-browser'), false);
+});
+
+const B = (ts, id, command) => JSON.stringify({
+  type: 'assistant', timestamp: ts, uuid: `u-${id}`,
+  message: { model: 'claude-opus-5', usage: { output_tokens: 11, input_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] },
+});
+const CLI_JSONL = [
+  B('2026-09-23T10:00:00.000Z', 'c1', 'fakecli open https://x.test'),
+  U('2026-09-23T10:00:02.000Z', 'c1', 'opened'),
+  B('2026-09-23T10:00:03.000Z', 'c2', 'fakecli --session s1 snapshot'),
+  U('2026-09-23T10:00:03.500Z', 'c2', 'x'.repeat(40)),
+  B('2026-09-23T10:00:04.000Z', 'c3', 'fakecli click @e1 && fakecli snapshot'),
+  U('2026-09-23T10:00:04.100Z', 'c3', 'ok'),
+  B('2026-09-23T10:00:05.000Z', 'c4', 'echo probe'),
+  U('2026-09-23T10:00:05.050Z', 'c4', 'blocked by benchmark harness: only fakecli commands are allowed'),
+  B('2026-09-23T10:00:06.000Z', 'c5', 'fakecli snapshot | head -3'),
+  U('2026-09-23T10:00:06.050Z', 'c5', 'blocked by benchmark harness: only fakecli commands are allowed'),
+  A('2026-09-23T10:00:07.000Z', 'c6', 'Write'),
+  U('2026-09-23T10:00:07.100Z', 'c6', 'File created'),
+].join('\n');
+
+test('cliCallsFromJsonl: zaehlt nur erlaubte CLI-Aufrufe, benannt nach Unterbefehl', () => {
+  const calls = cliCallsFromJsonl(CLI_JSONL, 'fakecli');
+  assert.deepEqual(calls.map((c) => c.name), ['cli__fakecli__open', 'cli__fakecli__snapshot', 'cli__fakecli__batch']);
+  assert.equal(calls[0].ms, 2000);
+  assert.equal(calls[1].chars, 40);
+  assert.equal(calls[1].ms, 500);
+  assert.equal(calls[2].output_tokens, 11);
+  assert.equal(cliCallsFromJsonl(CLI_JSONL, 'othercli').length, 0);   // Gegenprobe: anderer Befehl
+});
+
+test('byToolFromCalls: gruppiert wie measure-tool-calls.sh', () => {
+  const rows = byToolFromCalls([
+    { name: 'cli__x__snapshot', chars: 100, ms: 10, output_tokens: 4 },
+    { name: 'cli__x__snapshot', chars: 300, ms: 30, output_tokens: 8 },
+    { name: 'cli__x__open', chars: 7, ms: null, output_tokens: 2 },
+  ]);
+  assert.deepEqual(rows.map((r) => [r.name, r.count]), [['cli__x__snapshot', 2], ['cli__x__open', 1]]);
+  const s = rows[0];
+  assert.equal(s.total_chars, 400); assert.equal(s.avg_chars, 200); assert.equal(s.p95_chars, 100);
+  assert.equal(s.total_ms, 40); assert.equal(s.avg_ms, 20); assert.equal(s.max_ms, 30);
+  assert.equal(s.total_output_tokens, 12); assert.equal(s.avg_output_tokens, 6);
+  assert.equal(s.total_total_tokens_est, 12 + 100);
+  assert.equal(rows[1].total_ms, 0);
+  const agg = mcpOnly(rows, 'cli__x__');
+  assert.equal(agg.calls_total, 3); assert.equal(agg.response_chars_total, 407);
+});
+
+test('toolLockFromJsonl mit CLI: gesperrte Fremdbefehle zaehlen als Versuch, nicht als Ausfuehrung', () => {
+  const lock = toolLockFromJsonl(CLI_JSONL, 'cli__fakecli__', 'fakecli');
+  assert.equal(lock.bash_attempted, 2);
+  assert.equal(lock.bash_denied, true);
+  assert.deepEqual(lock.non_mcp_executed, []);
+  const leaked = CLI_JSONL.replace('"blocked by benchmark harness: only fakecli commands are allowed"}]}}', '"probe"}]}}');
+  assert.deepEqual(toolLockFromJsonl(leaked, 'cli__fakecli__', 'fakecli').non_mcp_executed, ['Bash']);
+});
+
+test('verifyRunJson: cli__-Zeilen sind erlaubt, nackte Bash-Zeilen nicht', () => {
+  const mk = (name) => ({
+    slug: 'agent-browser', mcp_version: '1', model: 'claude-opus-5', chrome_version: '1', harness: { mode: 'blind-print' },
+    summary: { counted: 30 }, mqs: { score: 1 }, suite: { tests: 1, test_ids: ['T1.1'] },
+    tool_efficiency: { calls_total: 1, by_tool: [{ name, count: 1 }] },
+  });
+  assert.deepEqual(verifyRunJson(mk('cli__agent-browser__open')), []);
+  assert.ok(verifyRunJson(mk('Bash')).some((m) => /Non-MCP/.test(m)));
+});
+
+test('browserBinaries: meldet neue Browser-Prozesse und markiert alles ausser echtem Chrome', () => {
+  const chrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const ps = [
+    `  100 ${chrome} --user-data-dir=/Users/x/old`,
+    `  200 ${chrome} --remote-debugging-port=0 --user-data-dir=/var/folders/tmp`,
+    `  201 ${chrome.replace('Google Chrome.app/Contents/MacOS/Google Chrome', 'Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper')} --type=renderer`,
+    '  300 /Users/x/Library/Caches/ms-playwright/chromium-1243/chrome-mac/Chromium.app/Contents/MacOS/Chromium --headless',
+    '  400 /usr/bin/vim notes-about-chrome.txt',
+  ].join('\n');
+  const r = browserBinaries(ps, [100], chrome);
+  assert.deepEqual(r.binaries.sort(), [chrome, '/Users/x/Library/Caches/ms-playwright/chromium-1243/chrome-mac/Chromium.app/Contents/MacOS/Chromium'].sort());
+  assert.deepEqual(r.non_chrome, ['/Users/x/Library/Caches/ms-playwright/chromium-1243/chrome-mac/Chromium.app/Contents/MacOS/Chromium']);
+  assert.deepEqual(r.pids.sort(), [200, 300]);
+  const clean = browserBinaries(ps.split('\n').slice(0, 2).join('\n'), [100], chrome);
+  assert.deepEqual(clean.non_chrome, []);                 // Gegenprobe: nur echtes Chrome
+  assert.deepEqual(clean.binaries, [chrome]);
+});
+
+test('PARTICIPANTS: CLI-Teilnehmer agent-browser und Playwright CLI sind gepinnt', () => {
+  const ab = PARTICIPANTS['agent-browser'];
+  assert.equal(ab.kind, 'cli'); assert.equal(ab.cli, 'agent-browser'); assert.equal(ab.version, '0.38.1');
+  assert.equal(ab.snapshotTool, 'snapshot');
+  const env = ab.env('/tmp/bench-agent-browser-x', { chromeBin: '/C/chrome' });
+  assert.equal(env.AGENT_BROWSER_EXECUTABLE_PATH, '/C/chrome');
+  assert.equal(env.AGENT_BROWSER_HEADED, '1');
+  assert.equal(env.AGENT_BROWSER_SESSION, 'bench-agent-browser-x');
+  const pw = PARTICIPANTS['playwright-cli'];
+  assert.equal(pw.kind, 'cli'); assert.equal(pw.cli, 'playwright-cli'); assert.equal(pw.version, '0.1.21');
+  const dir = mkdtempSync(join(tmpdir(), 'blind-run-pwcli-'));
+  pw.setup(dir);
+  const cfg = JSON.parse(readFileSync(join(dir, '.playwright', 'cli.config.json'), 'utf8'));
+  assert.equal(cfg.browser.launchOptions.channel, 'chrome');
+  assert.equal(cfg.browser.launchOptions.headless, false);
+  assert.equal(cfg.browser.isolated, true);
+  assert.equal(PARTICIPANTS['playwright-mcp'].kind, undefined);   // Gegenprobe: MCP-Teilnehmer bleiben MCP
+});
+
+test('der CLI-Prompt rendert ohne Platzhalter und nennt den Befehl', () => {
+  const tpl = readFileSync(join(HERE_T, 'blind-prompt-cli.md'), 'utf8');
+  const rendered = renderPrompt(tpl, { mcpName: 'agent-browser', cliCommand: 'agent-browser', exportPath: '/tmp/x/e.json', smoke: false });
+  assert.ok(tpl.includes('{{CLI_COMMAND}}'));
+  assert.ok(!rendered.includes('{{'), `Platzhalter uebrig: ${rendered.match(/\{\{[A-Z_]+\}\}/g)}`);
+  assert.match(rendered, /`agent-browser`/);
+  // Gleiche Testliste und gleiches Finish wie der MCP-Prompt
+  const mcpTpl = readFileSync(join(HERE_T, 'blind-prompt.md'), 'utf8');
+  const tail = (t) => t.slice(t.indexOf('- Work through the tests'), t.indexOf('- For every test'));
+  assert.equal(tail(tpl), tail(mcpTpl));
+  assert.equal(tpl.slice(tpl.indexOf('Finish')), mcpTpl.slice(mcpTpl.indexOf('Finish')));
+});
+
+function registerCliFake() {
+  registerFakes();
+  const bin = join(FIXT, 'bin');
+  const base = {
+    kind: 'cli', name: 'fakecli', cli: 'fakecli', display: 'Fake CLI', package: 'fakecli', binDir: bin,
+    skillPath: join(FIXT, 'fake-skill.md'), env: (_rundir) => ({ FAKECLI_X: '1' }),
+    snapshotTool: 'snapshot', profile_isolation: 'none (fake cli)', cleanupArgs: ['close'],
+  };
+  registerParticipant('fakecli', { ...base, version: '3.2.1' });
+  registerParticipant('fakecli-mismatch', { ...base, version: '3.2.0' });
+}
+
+test('pipeline: ein CLI-Lauf zaehlt die CLI-Aufrufe, sperrt Fremdbefehle und reicht den Skill durch', async () => {
+  registerCliFake();
+  const { deps, rundir } = pipeEnv('cli');
+  const dir = rundir('cli');
+  const { run, problems } = await runParticipant('fakecli', { rundir: dir }, deps);
+  assert.deepEqual(problems, []);
+  assert.equal(run.harness.status, 'ok', run.notes);
+  assert.equal(run.harness.kind, 'cli');
+  assert.equal(run.tool_efficiency.calls_total, 3);
+  assert.deepEqual(run.tool_efficiency.by_tool.map((t) => t.name).sort(),
+    ['cli__fakecli__batch', 'cli__fakecli__open', 'cli__fakecli__snapshot']);
+  assert.equal(run.harness.calls_ledger.length, 3);
+  assert.equal(run.harness.tool_lock.bash_attempted, 2);
+  assert.deepEqual(run.harness.tool_lock.non_mcp_executed, []);
+  assert.deepEqual(run.tool_efficiency.non_mcp_calls, [{ name: 'Bash', count: 2 }]);
+  assert.equal(run.mcp_server_info.version, '3.2.1');
+  assert.equal(run.mcp_server_info.skill_chars, readFileSync(join(FIXT, 'fake-skill.md'), 'utf8').length);
+  assert.match(run.harness.flags, /--tools Bash,Write/);
+  assert.match(run.harness.flags, /--allowedTools Bash\(fakecli:\*\) Write/);
+  assert.match(run.harness.flags, /--append-system-prompt-file/);
+  assert.match(run.harness.flags, /cli-guard\.mjs/);
+  const prompt = readFileSync(join(dir, 'prompt.md'), 'utf8');
+  assert.match(prompt, /`fakecli`/);
+  assert.equal(readFileSync(join(dir, 'skill.md'), 'utf8'), readFileSync(join(FIXT, 'fake-skill.md'), 'utf8'));
+  // Die Fake-Claude-Session sieht PATH mit dem CLI-Verzeichnis vorn und die Teilnehmer-Env
+  const seen = JSON.parse(readFileSync(join(dir, 'fake-claude-env.json'), 'utf8'));
+  assert.equal(seen.PATH.split(':')[0], join(FIXT, 'bin'));
+  assert.equal(seen.FAKECLI_X, '1');
+  // Aufraeumen: der Harness ruft `fakecli close` im Rundir
+  assert.ok(existsSync(join(dir, 'fakecli-closed')), 'cleanup lief');
+});
+
+test('pipeline: eine abweichende CLI-Version bricht den Lauf ab', async () => {
+  registerCliFake();
+  const { deps, rundir } = pipeEnv('cli');
+  const { run } = await runParticipant('fakecli-mismatch', { rundir: rundir('clim') }, deps);
+  assert.equal(run.harness.status, 'aborted');
+  assert.match(run.notes, /version mismatch: fakecli reports 3\.2\.1, pinned 3\.2\.0/);
+});
+
+test('cli-guard.mjs: verweigert Fremdbefehle per Hook-JSON und laesst den CLI-Befehl durch', () => {
+  const guard = join(HERE_T, 'cli-guard.mjs');
+  const run = (command) => execFileSync(process.execPath, [guard, 'agent-browser'],
+    { input: JSON.stringify({ tool_name: 'Bash', tool_input: { command } }), encoding: 'utf8' });
+  const denied = JSON.parse(run('echo probe'));
+  assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /blocked/);
+  assert.equal(run('agent-browser open https://x.test'), '');
+});
+
+test('pipeline: ein Chromium-Prozess waehrend des Laufs bricht ab, echtes Chrome wird nur protokolliert', async () => {
+  const chromium = '/x/ms-playwright/chromium-1243/chrome-mac/Chromium.app/Contents/MacOS/Chromium';
+  const mk = (extra) => {
+    let n = 0;
+    return () => (n++ === 0 ? '  1 /bin/zsh' : `  1 /bin/zsh\n  77 ${extra} --user-data-dir=/tmp/p`);
+  };
+  const a = pipeEnv('ok');
+  a.deps.chromeBin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  a.deps.psList = mk(chromium);
+  const bad = await runParticipant('fake', { rundir: a.rundir() }, a.deps);
+  assert.equal(bad.run.harness.status, 'aborted');
+  assert.match(bad.run.notes, /non-Google-Chrome browser process seen: .*Chromium/);
+  assert.deepEqual(bad.run.harness.browser_non_chrome, [chromium]);
+  const b = pipeEnv('ok');
+  b.deps.chromeBin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  b.deps.psList = mk(b.deps.chromeBin);
+  const good = await runParticipant('fake', { rundir: b.rundir() }, b.deps);
+  assert.equal(good.run.harness.status, 'ok', good.run.notes);
+  assert.deepEqual(good.run.harness.browser_binaries, [b.deps.chromeBin]);
+  assert.deepEqual(good.run.harness.browser_non_chrome, []);
+});
+
+test('scrubProviderKeys: Provider-Keys raus, alles andere bleibt', () => {
+  const env = { OPENAI_API_KEY: 'x', ANTHROPIC_API_KEY: 'x', GOOGLE_API_KEY: 'x', GEMINI_API_KEY: 'x',
+    BROWSERBASE_PROJECT_ID: 'x', AI_GATEWAY_API_KEY: 'x', MISTRAL_API_KEY: 'x', ANTHROPIC_AUTH_TOKEN: 'x',
+    PATH: '/bin', HOME: '/h', CLAUDE_CODE_MESSAGING_TOKEN: 'keep', PUBLIC_BROWSER_TELEMETRY: '0' };
+  const out = scrubProviderKeys(env);
+  assert.deepEqual(Object.keys(out).sort(), ['CLAUDE_CODE_MESSAGING_TOKEN', 'HOME', 'PATH', 'PUBLIC_BROWSER_TELEMETRY']);
+  assert.equal(env.OPENAI_API_KEY, 'x');   // Eingabe unveraendert
+});
+
+test('pipeline: die Claude-Session und die Probe sehen keinen OPENAI_API_KEY', async () => {
+  registerCliFake();
+  const { deps, rundir } = pipeEnv('cli');
+  deps.envOverrides.OPENAI_API_KEY = 'sk-should-not-leak';
+  const dir = rundir('scrub');
+  await runParticipant('fakecli', { rundir: dir }, deps);
+  const seen = JSON.parse(readFileSync(join(dir, 'fake-claude-env.json'), 'utf8'));
+  assert.equal(seen.OPENAI_API_KEY, null);
+  assert.equal(seen.FAKECLI_X, '1');   // Gegenprobe: gewollte Env kommt an
 });

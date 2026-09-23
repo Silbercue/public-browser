@@ -22,11 +22,12 @@ export const ALL_TESTS = [
 export const EXCLUDED = ['T4.7', 'T5.3', 'T5.4', 'T5.5', 'T5.6'];
 export const SCORABLE = ALL_TESTS.filter((id) => !EXCLUDED.includes(id));
 export const SUITE_URL = 'https://mcp-test.second-truth.com';
+const CHROME_BIN = process.env.BLIND_RUN_CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 export const PARTICIPANTS = {
   'public-browser': {
-    name: 'public-browser', display: 'Public Browser', package: 'public-browser', version: '2.10.4',
-    command: 'npx', args: ['-y', 'public-browser@2.10.4'],
+    name: 'public-browser', display: 'Public Browser', package: 'public-browser', version: '2.10.6',
+    command: 'npx', args: ['-y', 'public-browser@2.10.6'],
     env: (rundir) => {
       const cortex = join(rundir, 'cortex');
       mkdirSync(cortex, { recursive: true });
@@ -42,34 +43,91 @@ export const PARTICIPANTS = {
     profile_isolation: 'auto-launched Chrome, fresh temp user-data-dir, CDP port 9333',
   },
   'playwright-mcp': {
-    name: 'playwright', display: 'Playwright MCP', package: '@playwright/mcp', version: '0.0.80',
-    command: 'npx', args: ['-y', '@playwright/mcp@0.0.80', '--browser', 'chrome', '--isolated'],
+    name: 'playwright', display: 'Playwright MCP', package: '@playwright/mcp', version: '0.0.82',
+    command: 'npx', args: ['-y', '@playwright/mcp@0.0.82', '--browser', 'chrome', '--isolated'],
     // Der Server meldet im initialize-Handshake seine Playwright-Version, nicht die Paketversion.
-    serverVersion: '1.63.0-alpha-2026-08-31',
+    serverVersion: '1.64.0-alpha-1789764292000',
     env: (_rundir) => ({}),
     snapshotTool: 'browser_snapshot',
     profile_isolation: '--isolated (in-memory profile)',
   },
   'chrome-devtools-mcp': {
-    name: 'chrome-devtools', display: 'Chrome DevTools MCP', package: 'chrome-devtools-mcp', version: '1.8.0',
-    command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.8.0', '--isolated'],
+    name: 'chrome-devtools', display: 'Chrome DevTools MCP', package: 'chrome-devtools-mcp', version: '1.9.0',
+    command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.9.0', '--isolated'],
     env: (_rundir) => ({ CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: '1' }),
     snapshotTool: 'take_snapshot',
     profile_isolation: '--isolated (temp user-data-dir)',
   },
   'browser-use': {
-    name: 'browser-use', display: 'browser-use', package: 'browser-use', version: '0.12.5',
-    command: process.env.BLIND_RUN_BROWSER_USE_BIN || '/Users/silbercue/.browser-use-env/bin/browser-use',
+    name: 'browser-use', display: 'browser-use', package: 'browser-use', version: '0.13.10',
+    // Eigene venv je gepinnter Version: ~/.browser-use-env (0.12.5, Lauf 2026-09-03) bleibt unangetastet.
+    command: process.env.BLIND_RUN_BROWSER_USE_BIN || '/Users/silbercue/.browser-use-0.13.10-env/bin/browser-use',
     args: ['--mcp'],
-    // Der MCP-Server meldet im Handshake die Version seines MCP-Wrappers, nicht die des pip-Pakets (0.12.5).
-    serverVersion: '0.1.0',
-    env: (_rundir) => ({}),
+    // Seit 0.13 meldet der MCP-Server im Handshake die pip-Paketversion (0.12.5 meldete fest 0.1.0),
+    // damit prueft der Handshake-Check jetzt die echte Paketversion — kein serverVersion-Alias mehr noetig.
+    // --mcp wird vor dem Argparse abgefangen (0.12: skill_cli/main.py, 0.13: cli.py), CLI-Flags wie --profile
+    // wirken dort nicht. Der Hebel ist die Config-Datei: BROWSER_USE_CONFIG_PATH zeigt auf eine Lauf-eigene
+    // config.json, deren Default-Profil die Server-Defaults ueberschreibt. Seit 0.13 bevorzugt browser-use ohne
+    // executable_path das Playwright-Chromium (0.12.5 nahm zuerst /Applications/Google Chrome) — deshalb Chrome
+    // fest vorgeben wie bei den anderen Teilnehmern, dazu ein frisches user_data_dir im Rundir.
+    env: (rundir) => {
+      const configPath = join(rundir, 'browser-use-config.json');
+      writeFileSync(configPath, `${JSON.stringify({
+        browser_profile: {
+          'blind-run': {
+            id: 'blind-run', default: true, created_at: '1970-01-01T00:00:00',
+            headless: false, executable_path: CHROME_BIN, user_data_dir: join(rundir, 'browser-use-profile'),
+          },
+        },
+        llm: {}, agent: {},
+      }, null, 2)}\n`);
+      return { BROWSER_USE_CONFIG_PATH: configPath };
+    },
     snapshotTool: 'browser_get_state',
-    // --mcp wird in skill_cli/main.py vor dem Argparse abgefangen, alle anderen Flags (--profile, --session)
-    // wirken dort nicht; mcp/server.py setzt user_data_dir fest auf ~/.config/browseruse/profiles/default.
-    profile_isolation: 'default browser-use profile (not isolated)',
+    profile_isolation: 'executable_path /Applications Google Chrome, fresh empty user_data_dir (browser-use copies it to a temp dir), via BROWSER_USE_CONFIG_PATH',
+  },
+  // CLI-Teilnehmer: kein MCP-Server, sondern ein Kommandozeilenwerkzeug plus offizielle Skill-Datei.
+  // Das Modell bekommt Bash, aber ein PreToolUse-Hook (cli-guard.mjs) laesst nur diesen einen Befehl durch;
+  // die Skill-Datei geht per --append-system-prompt-file in den Systemprompt (Gegenstueck zu den
+  // MCP-Handshake-Instructions). Binaries kommen aus BLIND_RUN_CLI_BIN_DIR (node_modules/.bin einer
+  // Wegwerf-Installation), die Skill-Datei liegt relativ dazu im Paket.
+  'agent-browser': {
+    kind: 'cli', name: 'agent-browser', cli: 'agent-browser', display: 'agent-browser', package: 'agent-browser', version: '0.38.1',
+    skillPath: ['agent-browser', 'skills', 'agent-browser', 'SKILL.md'],
+    env: (rundir, deps = defaultDeps()) => ({
+      AGENT_BROWSER_EXECUTABLE_PATH: deps.chromeBin,
+      AGENT_BROWSER_HEADED: '1',
+      AGENT_BROWSER_SESSION: basename(rundir),
+    }),
+    cleanupArgs: ['close'],
+    snapshotTool: 'snapshot',
+    profile_isolation: 'agent-browser default: fresh temp user-data-dir per launch, own session, headed, /Applications Chrome via AGENT_BROWSER_EXECUTABLE_PATH',
+  },
+  'playwright-cli': {
+    kind: 'cli', name: 'playwright-cli', cli: 'playwright-cli', display: 'Playwright CLI', package: '@playwright/cli', version: '0.1.21',
+    skillPath: ['@playwright', 'cli', 'skills', 'playwright-cli', 'SKILL.md'],
+    env: (rundir) => ({ PLAYWRIGHT_CLI_SESSION: basename(rundir) }),
+    // Die CLI liest .playwright/cli.config.json aus dem cwd (= Rundir): Chrome-Channel, headed, In-Memory-Profil
+    // wie beim MCP-Geschwister (--browser chrome --isolated).
+    setup: (rundir) => {
+      mkdirSync(join(rundir, '.playwright'), { recursive: true });
+      writeFileSync(join(rundir, '.playwright', 'cli.config.json'), `${JSON.stringify({
+        browser: { browserName: 'chromium', isolated: true, launchOptions: { channel: 'chrome', headless: false } },
+      }, null, 2)}\n`);
+    },
+    cleanupArgs: ['close'],
+    snapshotTool: 'snapshot',
+    profile_isolation: 'isolated in-memory profile, channel chrome, headed (.playwright/cli.config.json in the run dir)',
   },
 };
+
+// LLM-Provider-Keys duerfen weder die Claude-Session (laeuft ueber das Abo) noch die Teilnehmer erreichen:
+// sonst ruft ein Werkzeug still ein fremdes Modell auf (browser-use nutzte 2026-09-23 so GPT-4o), das kostet
+// und verfaelscht den Vergleich.
+const PROVIDER_KEY = /^(BROWSERBASE_.*|.*_API_KEY|ANTHROPIC_AUTH_TOKEN|AZURE_OPENAI_.*|OPENAI_.*KEY.*)$/;
+export function scrubProviderKeys(env) {
+  return Object.fromEntries(Object.entries(env || {}).filter(([k]) => !PROVIDER_KEY.test(k)));
+}
 
 export const MQS_BASELINE = { chars: 175319, pass_rate: 93.5, calls: 121, duration_s: 563, id: 'playwright-mcp-run2-2026-04-09' };
 
@@ -128,9 +186,10 @@ export function nextRunNumber(files, slug) {
   return max + 1;
 }
 
-export function renderPrompt(template, { mcpName, exportPath, smoke }) {
+export function renderPrompt(template, { mcpName, exportPath, smoke, cliCommand }) {
   let p = template
     .replaceAll('{{MCP_NAME}}', mcpName)
+    .replaceAll('{{CLI_COMMAND}}', cliCommand ?? '')
     .replaceAll('{{EXPORT_PATH}}', exportPath)
     .replaceAll('{{SUITE_URL}}', SUITE_URL);
   if (smoke) {
@@ -167,7 +226,7 @@ const resultText = (content) => {
 
 // Parst eine Claude-Code-Session-JSONL. Feldform siehe measure-tool-calls.sh (dort massgeblich):
 // tool_use in assistant-Zeilen, tool_result in user-Zeilen, Zuordnung ueber tool_use_id.
-export function mcpCallsFromJsonl(jsonlText, prefix) {
+function parseToolCalls(jsonlText) {
   const calls = [];
   const results = new Map();
   for (const line of String(jsonlText || '').split('\n')) {
@@ -178,8 +237,9 @@ export function mcpCallsFromJsonl(jsonlText, prefix) {
     if (!Array.isArray(content)) continue;
     if (obj.type === 'assistant') {
       for (const c of content) {
-        if (c?.type === 'tool_use' && typeof c.name === 'string' && c.name.startsWith(prefix)) {
-          calls.push({ tool_use_id: c.id, name: c.name, timestamp: obj.timestamp || '' });
+        if (c?.type === 'tool_use' && typeof c.name === 'string') {
+          calls.push({ tool_use_id: c.id, name: c.name, input: c.input ?? null, timestamp: obj.timestamp || '',
+            output_tokens: Number(obj.message?.usage?.output_tokens) || 0 });
         }
       }
     } else if (obj.type === 'user') {
@@ -195,13 +255,118 @@ export function mcpCallsFromJsonl(jsonlText, prefix) {
     const t0 = Date.parse(c.timestamp);
     const t1 = r ? Date.parse(r.timestamp) : NaN;
     return {
-      tool_use_id: c.tool_use_id,
-      name: c.name,
+      ...c,
       chars: r ? resultChars(r.content) : 0,
       ms: Number.isFinite(t0) && Number.isFinite(t1) ? Math.trunc(t1 - t0) : null,
       result_text: r ? resultText(r.content) : '',
     };
   });
+}
+
+export function mcpCallsFromJsonl(jsonlText, prefix) {
+  return parseToolCalls(jsonlText).filter((c) => c.name.startsWith(prefix)).map((c) => ({
+    tool_use_id: c.tool_use_id, name: c.name, chars: c.chars, ms: c.ms, result_text: c.result_text,
+  }));
+}
+
+// CLI-Teilnehmer: eine Bash-Zeile ist nur erlaubt, wenn JEDES Segment (getrennt durch &&, ||, |, &, ;
+// oder Zeilenumbruch) mit dem CLI-Befehl beginnt. Kommando-Substitution und Datei-Umleitungen sind
+// gesperrt (ausser 2>&1), Env-Praefixe auch — sonst liesse sich z. B. das Browser-Binary umbiegen.
+export function cliCommandAllowed(command, cli) {
+  const text = String(command ?? '');
+  const segments = [];
+  let cur = '';
+  let q = null;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (q === "'") { cur += ch; if (ch === "'") q = null; continue; }
+    if (ch === '\\') { cur += ch + (next ?? ''); i++; continue; }
+    if (ch === '`' || (ch === '$' && next === '(')) return false;
+    if (q === '"') { cur += ch; if (ch === '"') q = null; continue; }
+    if (ch === "'" || ch === '"') { q = ch; cur += ch; continue; }
+    if (ch === '>' && next === '&' && /\d/.test(text[i + 2] ?? '')) { cur += text.slice(i, i + 3); i += 2; continue; }
+    if (ch === '>' || ch === '<') return false;
+    if ((ch === '&' || ch === '|') && next === ch) { segments.push(cur); cur = ''; i++; continue; }
+    if (ch === '&' || ch === '|' || ch === ';' || ch === '\n') { segments.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  if (q) return false;
+  segments.push(cur);
+  const head = new RegExp(`^${cli.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`);
+  return segments.every((s) => head.test(s.trim()));
+}
+
+const CLI_VALUE_FLAGS = new Set(['--session', '-s', '--profile', '--config', '--executable-path', '--cdp', '--state', '--engine', '-p']);
+
+function cliSubcommand(command) {
+  if (/&&|\|\||[|;&\n]/.test(String(command).replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, '').replace(/\d>&\d/g, ''))) return 'batch';
+  const tokens = String(command).trim().split(/\s+/).slice(1);
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.startsWith('-')) { if (!t.includes('=') && CLI_VALUE_FLAGS.has(t)) i++; continue; }
+    return /^[a-z][a-z0-9_-]*$/i.test(t) ? t.toLowerCase() : 'other';
+  }
+  return 'none';
+}
+
+export function cliCallsFromJsonl(jsonlText, cli) {
+  return parseToolCalls(jsonlText)
+    .filter((c) => c.name === 'Bash' && cliCommandAllowed(c.input?.command, cli))
+    .map((c) => ({
+      tool_use_id: c.tool_use_id, name: `cli__${cli}__${cliSubcommand(c.input.command)}`,
+      chars: c.chars, ms: c.ms, output_tokens: c.output_tokens, result_text: c.result_text,
+    }));
+}
+
+// by_tool-Zeilen aus Einzel-Calls, Felder und Perzentil-Definition wie measure-tool-calls.sh
+// (floor((n-1) * p) auf der sortierten Liste). Fuer CLI-Teilnehmer, deren Calls alle "Bash" heissen.
+export function byToolFromCalls(calls) {
+  const groups = new Map();
+  for (const c of calls || []) {
+    if (!groups.has(c.name)) groups.set(c.name, []);
+    groups.get(c.name).push(c);
+  }
+  const pct = (vals, p) => { const v = [...vals].sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) * p)] : 0; };
+  const rows = [...groups.entries()].map(([name, g]) => {
+    const n = g.length;
+    const chars = g.map((c) => Number(c.chars) || 0);
+    const ms = g.map((c) => (Number.isFinite(c.ms) ? c.ms : 0));
+    const out = g.map((c) => Number(c.output_tokens) || 0);
+    const sum = (a) => a.reduce((x, y) => x + y, 0);
+    const est = g.map((c, i) => out[i] + Math.floor(chars[i] / 4));
+    return {
+      name, count: n,
+      total_chars: sum(chars), avg_chars: Math.floor(sum(chars) / n), p95_chars: pct(chars, 0.95), max_chars: Math.max(...chars),
+      avg_ms: Math.floor(sum(ms) / n), p50_ms: pct(ms, 0.5), p95_ms: pct(ms, 0.95), max_ms: Math.max(...ms), total_ms: sum(ms),
+      avg_output_tokens: Math.floor(sum(out) / n), total_output_tokens: sum(out),
+      avg_total_tokens_est: Math.floor(sum(est) / n), total_total_tokens_est: sum(est),
+    };
+  });
+  return rows.sort((a, b) => b.count - a.count);
+}
+
+// Neue Browser-Hauptprozesse aus `ps -axo pid=,command=`. Belegt je Lauf, welches Binary lief;
+// alles ausser dem /Applications-Chrome landet in non_chrome.
+export function browserBinaries(psText, beforePids, chromeBin) {
+  const before = new Set(beforePids || []);
+  const pids = [];
+  const bins = new Set();
+  const browserName = /^(Google Chrome( Beta| Dev| Canary| for Testing)?|Chromium|chrome|chromium|chrome-headless-shell|headless_shell)$/;
+  for (const line of String(psText || '').split('\n')) {
+    const m = line.match(/^\s*(\d+)\s+(.*)$/);
+    if (!m || m[2].includes('--type=')) continue;
+    const cmd = m[2];
+    const app = cmd.match(/^(.*?\.app\/Contents\/MacOS\/[^/]+?)(?=\s+-|\s*$)/);
+    const exe = app ? app[1] : cmd.split(/\s+/)[0];
+    if (!browserName.test(basename(exe))) continue;
+    const pid = Number(m[1]);
+    if (before.has(pid)) continue;
+    pids.push(pid);
+    bins.add(exe);
+  }
+  const binaries = [...bins];
+  return { pids, binaries, non_chrome: binaries.filter((b) => b !== chromeBin) };
 }
 
 // Prueft das Run-Export-JSON der Benchmark-Seite. Leeres Array = gueltig.
@@ -272,7 +437,7 @@ export function verifyRunJson(run) {
   if (!Array.isArray(ids)) problems.push('suite.test_ids missing');
   else if (ids.length !== run.suite?.tests) problems.push(`suite.test_ids (${ids.length}) != suite.tests (${run.suite?.tests})`);
   const byTool = run.tool_efficiency?.by_tool || [];
-  const nonMcp = byTool.filter((t) => !String(t.name).startsWith('mcp__')).map((t) => t.name);
+  const nonMcp = byTool.filter((t) => !/^(mcp|cli)__/.test(String(t.name))).map((t) => t.name);
   if (nonMcp.length) problems.push(`Non-MCP tools in by_tool: ${nonMcp.join(', ')}`);
   const expected = byTool.reduce((a, t) => a + (Number(t.count) || 0), 0);
   if (run.tool_efficiency && expected !== run.tool_efficiency.calls_total) {
@@ -302,7 +467,7 @@ const MODEL_PIN = 'claude-opus-5';
 export function defaultDeps() {
   return {
     claude: { file: process.env.BLIND_RUN_CLAUDE_BIN || join(homedir(), '.local', 'bin', 'claude'), argsPrefix: [] },
-    chromeBin: process.env.BLIND_RUN_CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    chromeBin: CHROME_BIN,
     measureDir: HERE,
     resultsDir: process.env.BLIND_RUN_RESULTS_DIR || join(HERE, 'results'),
     projectsDir: null,          // null → aus envOverrides.HOME bzw. homedir() abgeleitet
@@ -439,7 +604,7 @@ export function probeServerInfo(participant, env = {}, deps = defaultDeps(), { t
   return new Promise((resolve, reject) => {
     const child = spawn(participant.command, participant.args, {
       cwd: cwd || tmpdir(),          // nie im Repo-Root: npx wuerde sonst das lokale Paket ziehen
-      env: { ...process.env, ...(deps?.envOverrides || {}), ...env },
+      env: scrubProviderKeys({ ...process.env, ...(deps?.envOverrides || {}), ...env }),
       detached: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     let buf = '';
@@ -488,9 +653,11 @@ export function probeServerInfo(participant, env = {}, deps = defaultDeps(), { t
 }
 
 // A2.11: Sperr-Nachweis. Alles ausserhalb Write und mcp__<name>__* muss verweigert worden sein.
-export function toolLockFromJsonl(jsonlText, mcpPrefix) {
+// Mit `cli` (CLI-Teilnehmer) zaehlt als eigen nur ein Bash-Call, den cliCommandAllowed durchlaesst.
+export function toolLockFromJsonl(jsonlText, mcpPrefix, cli) {
   const denied = (t) => /denied|not allowed|permission|blocked/i.test(t || '');
-  const outside = mcpCallsFromJsonl(jsonlText, '').filter((c) => c.name !== 'Write' && !c.name.startsWith(mcpPrefix));
+  const own = (c) => (cli ? c.name === 'Bash' && cliCommandAllowed(c.input?.command, cli) : c.name.startsWith(mcpPrefix));
+  const outside = parseToolCalls(jsonlText).filter((c) => c.name !== 'Write' && !own(c));
   return {
     bash_attempted: outside.length,
     bash_denied: outside.length > 0 && outside.every((c) => denied(c.result_text)),
@@ -511,6 +678,7 @@ function writeResultFile(dir, slug, build) {
 export async function runParticipant(slug, opts = {}, deps = {}) {
   const p = PARTICIPANTS[slug];
   if (!p) throw new Error(`unknown slug ${slug}; known: ${Object.keys(PARTICIPANTS).join(', ')}`);
+  const isCli = p.kind === 'cli';
   const d = { ...defaultDeps(), ...deps };
   if (!deps.projectsDir) d.projectsDir = join(d.envOverrides?.HOME ?? homedir(), '.claude', 'projects');
   const smoke = !!opts.smoke;
@@ -526,15 +694,29 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
     rundir = mkdtempSync(join('/tmp', `bench-${slug}-${stamp}-`));
   }
 
-  const childEnv = { ...process.env, ...(d.envOverrides || {}) };
+  const childEnv = scrubProviderKeys({ ...process.env, ...(d.envOverrides || {}) });
   const headlessRequested = !!opts.headless;
   // headless ist wahr, wenn die Env wirklich gesetzt wurde — nicht schon, wenn sie gewuenscht war.
   const headless = headlessRequested && !!p.headlessEnv;
   // genau einmal je Lauf gebaut, danach wiederverwendet (Probe, mcp.json, Cortex-Block)
-  const env = { ...p.env(rundir), ...(headless ? p.headlessEnv : {}) };
+  const env = { ...p.env(rundir, d), ...(headless ? p.headlessEnv : {}) };
+  // CLI-Teilnehmer: das Werkzeug laeuft in der Bash der Claude-Session, also gehoeren Env und PATH dorthin.
+  const cliBinDir = isCli ? (p.binDir || process.env.BLIND_RUN_CLI_BIN_DIR || null) : null;
+  const cliBin = cliBinDir ? join(cliBinDir, p.cli) : null;
+  const sessionEnv = isCli ? { ...childEnv, ...env, PATH: `${cliBinDir}:${childEnv.PATH ?? ''}` } : childEnv;
+  const psList = d.psList || (() => sh('ps', ['-axo', 'pid=,command=']));
+  const browsersSeen = { pids: new Set(), binaries: new Set() };
+  let browserBefore = [];
+  const sampleBrowsers = () => {
+    try {
+      const r = browserBinaries(psList(), browserBefore, d.chromeBin);
+      r.pids.forEach((x) => browsersSeen.pids.add(x));
+      r.binaries.forEach((x) => browsersSeen.binaries.add(x));
+    } catch { /* ps nicht verfuegbar — Beleg fehlt dann, Lauf geht weiter */ }
+  };
   const sessionId = randomUUID();
   const exportPath = join(rundir, 'run-export.json');
-  const mcpPrefix = `mcp__${p.name}__`;
+  const mcpPrefix = isCli ? `cli__${p.cli}__` : `mcp__${p.name}__`;
   const notes = [];
   if (headlessRequested && !headless) notes.push('--headless ignored: participant has no headless switch');
   // status.json-Phasen: starting → running → measuring → terminal. Terminal ist genau eine von
@@ -562,6 +744,7 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
     console.log(`[blind-run] ${slug} → ${rundir} (session ${sessionId}, smoke=${smoke})`);
     statusWrite('starting', { started_at: startedAt.toISOString() });
     chromeBefore = chromeMainProcesses();          // Bestandsaufnahme vor allem, was wir selbst starten
+    try { browserBefore = browserBinaries(psList(), [], d.chromeBin).pids; } catch { browserBefore = []; }
 
     try {
       if (slug === 'public-browser' && chromeProcessesOnPort(9333).length) {
@@ -573,10 +756,24 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
       if (!claudeVer) throw new Error('claude --version returned nothing');
       try { chromeVer = sh(d.chromeBin, ['--version']).trim().replace(/^Google Chrome /, ''); } catch { chromeVer = null; }
 
-      writeFileSync(join(rundir, 'mcp.json'),
-        `${JSON.stringify({ mcpServers: { [p.name]: { command: p.command, args: p.args, env } } }, null, 2)}\n`);
-
-      serverInfo = await probeServerInfo(p, env, d, { cwd: rundir });
+      if (isCli) {
+        if (!cliBinDir) throw new Error(`${slug}: set BLIND_RUN_CLI_BIN_DIR to the node_modules/.bin holding ${p.cli}@${p.version}`);
+        if (!existsSync(cliBin)) throw new Error(`cli binary not found: ${cliBin}`);
+        const verOut = sh(cliBin, ['--version'], { env: sessionEnv, cwd: rundir }).trim();
+        const skillFile = typeof p.skillPath === 'string' ? p.skillPath : join(dirname(cliBinDir), ...p.skillPath);
+        const skillText = readFileSync(skillFile, 'utf8');
+        writeFileSync(join(rundir, 'skill.md'), skillText);
+        serverInfo = {
+          name: p.cli, version: (verOut.match(/\d+\.\d+\.\d+[^\s]*/g) || []).pop() ?? null, instructions: null,
+          skill_file: skillFile, skill_sha256: createHash('sha256').update(skillText).digest('hex'), skill_chars: skillText.length,
+        };
+        p.setup?.(rundir, d);
+        writeFileSync(join(rundir, 'mcp.json'), `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`);
+      } else {
+        writeFileSync(join(rundir, 'mcp.json'),
+          `${JSON.stringify({ mcpServers: { [p.name]: { command: p.command, args: p.args, env } } }, null, 2)}\n`);
+        serverInfo = await probeServerInfo(p, env, d, { cwd: rundir });
+      }
       const expectVersion = p.serverVersion ?? p.version;
       if (serverInfo.version !== expectVersion) {
         throw new Error(`version mismatch: ${p.name} reports ${serverInfo.version}, pinned ${expectVersion}`);
@@ -595,23 +792,40 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
         notes.push(`suite fingerprint not verified: ${e.message}`);
       }
 
-      const prompt = renderPrompt(readFileSync(join(HERE, 'blind-prompt.md'), 'utf8'),
-        { mcpName: p.display, exportPath, smoke });
+      const prompt = renderPrompt(readFileSync(join(HERE, isCli ? 'blind-prompt-cli.md' : 'blind-prompt.md'), 'utf8'),
+        { mcpName: p.display, exportPath, smoke, cliCommand: p.cli });
       if (prompt.includes('{{')) throw new Error(`prompt still contains placeholders: ${prompt.match(/\{\{[A-Z_]+\}\}/g)}`);
       writeFileSync(join(rundir, 'prompt.md'), prompt);
 
       // Tool-Sperre: --allowedTools allein sperrt nichts (auf dieser Maschine fuehrt die CLI
       // Bash auch unter --permission-mode dontAsk/manual aus). --tools Write nimmt das Werkzeug
       // aus dem Werkzeugkasten: das Modell bekommt neben den MCP-Tools nur noch Write.
-      flags = ['--model', model_requested, '--output-format', 'json', '--session-id', sessionId,
-        '--setting-sources', 'project', '--strict-mcp-config', '--mcp-config', join(rundir, 'mcp.json'),
-        '--permission-mode', 'dontAsk', '--allowedTools', ...allowed, '--tools', 'Write',
-        '--max-turns', '600'];
+      // CLI: --allowedTools allein reicht nicht (Claude Code gibt "read-only"-Befehle wie echo/cat/ls auch
+      // unter dontAsk frei, gemessen 2026-09-23). Der PreToolUse-Hook verweigert jede Bash-Zeile, die nicht
+      // ausschliesslich aus dem CLI-Befehl besteht.
+      const guard = { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command',
+        command: `"${process.execPath}" "${join(HERE, 'cli-guard.mjs')}" ${p.cli}` }] }] } };
+      flags = isCli
+        ? ['--model', model_requested, '--output-format', 'json', '--session-id', sessionId,
+          '--setting-sources', 'project', '--strict-mcp-config', '--mcp-config', join(rundir, 'mcp.json'),
+          '--permission-mode', 'dontAsk', '--allowedTools', `Bash(${p.cli}:*)`, 'Write', '--tools', 'Bash,Write',
+          '--settings', JSON.stringify(guard), '--append-system-prompt-file', join(rundir, 'skill.md'),
+          '--max-turns', '600']
+        : ['--model', model_requested, '--output-format', 'json', '--session-id', sessionId,
+          '--setting-sources', 'project', '--strict-mcp-config', '--mcp-config', join(rundir, 'mcp.json'),
+          '--permission-mode', 'dontAsk', '--allowedTools', ...allowed, '--tools', 'Write',
+          '--max-turns', '600'];
 
       spawnedAt = Date.now();
       statusWrite('running', { started_at: startedAt.toISOString(), flags: flags.join(' ') });
-      res = await spawnWithTimeout(d.claude.file, [...d.claude.argsPrefix, '-p', prompt, ...flags],
-        { cwd: rundir, env: childEnv, timeoutMs, stderrFile: join(rundir, 'claude.log') });
+      const sampler = setInterval(sampleBrowsers, 3000);
+      try {
+        res = await spawnWithTimeout(d.claude.file, [...d.claude.argsPrefix, '-p', prompt, ...flags],
+          { cwd: rundir, env: sessionEnv, timeoutMs, stderrFile: join(rundir, 'claude.log') });
+      } finally {
+        clearInterval(sampler);
+        sampleBrowsers();
+      }
       wallClockS = Math.round((Date.now() - spawnedAt) / 1000);
       writeFileSync(join(rundir, 'result.json'), res.stdout || '');
       try { result = JSON.parse(res.stdout); } catch { result = null; }
@@ -625,8 +839,8 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
       jsonlSha = jsonlText ? createHash('sha256').update(jsonlText).digest('hex') : null;
       if (!jsonlText) notes.push(`aborted: session JSONL missing (${jsonlPath})`);
       model = readModelFromJsonl(jsonlText);
-      mcpCalls = mcpCallsFromJsonl(jsonlText, mcpPrefix);
-      toolLock = toolLockFromJsonl(jsonlText, mcpPrefix);
+      mcpCalls = isCli ? cliCallsFromJsonl(jsonlText, p.cli) : mcpCallsFromJsonl(jsonlText, mcpPrefix);
+      toolLock = toolLockFromJsonl(jsonlText, mcpPrefix, isCli ? p.cli : undefined);
 
       if (existsSync(exportPath)) {
         try { exp = JSON.parse(readFileSync(exportPath, 'utf8')); } catch (e) { exp = null; notes.push(`aborted: export is not valid JSON: ${e.message}`); }
@@ -658,9 +872,19 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
         setTimeout(() => killGroup(res.pid, 'SIGKILL'), 10_000).unref();
       }
       if (slug === 'public-browser') killChromeOnPort(9333);
+      if (isCli && cliBin && existsSync(cliBin) && p.cleanupArgs) {
+        try { sh(cliBin, p.cleanupArgs, { cwd: rundir, env: sessionEnv, timeout: 30_000 }); } catch (e) {
+          notes.push(`cli cleanup failed: ${String(e.message).slice(0, 120)}`);
+        }
+      }
     }
 
-    const eff = mcpOnly(tools?.by_tool, mcpPrefix);
+    const eff = mcpOnly(isCli ? byToolFromCalls(mcpCalls) : tools?.by_tool, mcpPrefix);
+    // Harte Regel: gemessen wird nur mit echtem Google Chrome. browser-use bringt seinen Browser selbst mit
+    // und wird hier nur protokolliert.
+    const browserSeen = { binaries: [...browsersSeen.binaries], non_chrome: [...browsersSeen.binaries].filter((b) => b !== d.chromeBin) };
+    const browserOk = browserSeen.non_chrome.length === 0 || slug === 'browser-use';
+    if (!browserOk) notes.push(`aborted: non-Google-Chrome browser process seen: ${browserSeen.non_chrome.join(', ')}`);
     const summary = { ...score(exp?.tests), duration_s: exp?.elapsed_s > 0 ? exp.elapsed_s : wallClockS };
     // Der Pin gilt auch auf dem Fallback-Pfad (--model opus): die JSONL muss claude-opus-5 melden.
     const modelOk = typeof model === 'string' && model.startsWith(MODEL_PIN);
@@ -671,7 +895,7 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
     const lockOk = toolLock.non_mcp_executed.length === 0;
     if (!lockOk) notes.push(`aborted: fairness violated, non-MCP tools executed: ${toolLock.non_mcp_executed.join(', ')}`);
     const executionOk = res?.code === 0 && !res?.timedOut && expProblems.length === 0 && !staleExport
-      && modelOk && measureOk && lockOk && (smoke || suiteOk);
+      && modelOk && measureOk && lockOk && browserOk && (smoke || suiteOk);
     const runStatus = executionOk ? (smoke ? 'smoke' : 'ok') : 'aborted';
     const complete = summary.not_run === 0;
     if (runStatus === 'ok' && !complete) {          // im Smoke sind 28 nicht gelaufene Tests der Normalfall
@@ -685,19 +909,20 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
       mcp_package: p.package, mcp_version: p.version, snapshot_tool: p.snapshotTool,
       mcp_server_info: serverInfo,
       model: model || 'unknown',
-      chrome_version: slug === 'browser-use' ? null : chromeVer,
+      chrome_version: chromeVer,
       session_id: sessionId, timestamp: startedAt.toISOString(),
       suite: { url: SUITE_URL, tests: ALL_TESTS.length, scorable: SCORABLE.length, excluded: EXCLUDED, schema_fallback: true,
         html_sha256: suite?.html_sha256 ?? null, html_bytes: suite?.html_bytes ?? null, fingerprint_ok: suiteOk,
         test_ids: suite?.test_ids ?? null },
       harness: {
-        mode: 'blind-print', status: runStatus, complete, headless, headless_requested: headlessRequested,
+        mode: 'blind-print', kind: p.kind ?? 'mcp', status: runStatus, complete, headless, headless_requested: headlessRequested,
+        browser_binaries: browserSeen.binaries, browser_non_chrome: browserSeen.non_chrome,
         local_build: !!p.local, git_head: p.git_head ?? null, git_dirty: p.git_dirty ?? null,
         claude_code_version: claudeVer, os: `${process.platform} ${release()}`, node: process.version,
         profile_isolation: p.profile_isolation, model_requested,
         flags: flags.join(' ').split(sessionId).join('<session_id>'), allowed_tools_form: allowedForm,
         chrome_version_source: slug === 'browser-use'
-          ? 'not-captured (browser-use launches its own browser)' : 'applications-binary',
+          ? 'applications-binary (browser-use executable_path pinned)' : 'applications-binary',
         wall_clock_s: wallClockS, exit_code: res?.code ?? null, timed_out: res?.timedOut ?? false,
         num_turns: result?.num_turns ?? null, run_dir: rundir,
         tool_lock: toolLock,
@@ -728,7 +953,8 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
         cache_hit_rate: tools?.summary?.cache_hit_rate ?? null,
         by_tool: eff.by_tool, per_test: null, segment: 'full',
         non_mcp_calls: (tools?.by_tool || []).filter((t) => !String(t.name).startsWith(mcpPrefix))
-          .map((t) => ({ name: t.name, count: t.count })),
+          .map((t) => ({ name: t.name, count: isCli && t.name === 'Bash' ? t.count - mcpCalls.length : t.count }))
+          .filter((t) => t.count > 0),
       },
       tests: exp?.tests ?? {},
       export_summary: exp?.summary ?? null,

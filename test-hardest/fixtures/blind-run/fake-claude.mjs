@@ -8,6 +8,8 @@
 //   badmodel — wie ok, aber die JSONL meldet claude-sonnet-4-5
 //   nomodel  — wie ok, aber die Assistant-Zeilen tragen kein message.model
 //   bashexec — wie ok, aber der Bash-Call wurde AUSGEFUEHRT (Ergebnis "probe")
+//   cli      — CLI-Teilnehmer: 3 erlaubte `fakecli`-Bash-Calls + 2 gesperrte Fremdbefehle; schreibt
+//              PATH und FAKECLI_X nach fake-claude-env.json im cwd
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -35,7 +37,19 @@ else {
     type: 'user', timestamp: ts, uuid: `r-${id}`,
     message: { content: [{ type: 'tool_result', tool_use_id: id, content }] },
   });
-  const jsonl = [
+  const B = (ts, id, command) => JSON.stringify({
+    type: 'assistant', timestamp: ts, uuid: `u-${id}`,
+    message: { model, usage: { output_tokens: 5, input_tokens: 1, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 },
+      content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] },
+  });
+  const denied = 'blocked by benchmark harness: only fakecli commands are allowed';
+  const jsonl = mode === 'cli' ? [
+    B(t(0), 'c1', 'fakecli open https://x.test'), U(t(1000), 'c1', 'opened'),
+    B(t(1100), 'c2', 'fakecli snapshot'), U(t(1300), 'c2', 'x'.repeat(40)),
+    B(t(1400), 'c3', 'fakecli click @e1 && fakecli snapshot'), U(t(1500), 'c3', 'ok'),
+    B(t(1600), 'c4', 'echo probe'), U(t(1650), 'c4', denied),
+    B(t(1700), 'c5', 'fakecli snapshot | head'), U(t(1750), 'c5', denied),
+  ].join('\n') + '\n' : [
     A(t(0), 'tu1', 'mcp__fake__view_page'),
     U(t(1500), 'tu1', '0123456789'),
     A(t(2000), 'tu2', 'mcp__fake__click'),
@@ -46,6 +60,11 @@ else {
       : 'Claude requested permissions to use Bash, but you have not granted it yet.'),
   ].join('\n') + '\n';
 
+  if (mode === 'cli') {
+    writeFileSync(join(process.cwd(), 'fake-claude-env.json'),
+      JSON.stringify({ PATH: process.env.PATH, FAKECLI_X: process.env.FAKECLI_X ?? null,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? null }));
+  }
   const slug = realpathSync(process.cwd()).replace(/[^A-Za-z0-9]/g, '-');
   const dir = join(process.env.HOME, '.claude', 'projects', slug);
   mkdirSync(dir, { recursive: true });
