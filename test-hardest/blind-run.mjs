@@ -253,7 +253,7 @@ function parseToolCalls(jsonlText) {
     } else if (obj.type === 'user') {
       for (const c of content) {
         if (c?.type === 'tool_result' && c.tool_use_id) {
-          results.set(c.tool_use_id, { content: c.content, timestamp: obj.timestamp || '' });
+          results.set(c.tool_use_id, { content: c.content, is_error: c.is_error === true, timestamp: obj.timestamp || '' });
         }
       }
     }
@@ -267,6 +267,7 @@ function parseToolCalls(jsonlText) {
       chars: r ? resultChars(r.content) : 0,
       ms: Number.isFinite(t0) && Number.isFinite(t1) ? Math.trunc(t1 - t0) : null,
       result_text: r ? resultText(r.content) : '',
+      is_error: r ? r.is_error : false,
     };
   });
 }
@@ -669,14 +670,19 @@ export function probeServerInfo(participant, env = {}, deps = defaultDeps(), { t
 
 // A2.11: Sperr-Nachweis. Alles ausserhalb Write und mcp__<name>__* muss verweigert worden sein.
 // Mit `cli` (CLI-Teilnehmer) zaehlt als eigen nur ein Bash-Call, den cliCommandAllowed durchlaesst.
+// Claude Code 2.1.281 weist ein per --tools gesperrtes Werkzeug mit is_error und dem Text
+// "<tool_use_error>Error: No such tool available: Read. Read is disabled …" ab. Erkannt wird nur dieser
+// Wortlaut am Textanfang fuer genau das aufgerufene Werkzeug; ein eigener Fehler des Werkzeugs zaehlt als ausgefuehrt.
+const unavailable = (c) => c.is_error === true
+  && c.result_text.startsWith(`<tool_use_error>Error: No such tool available: ${c.name}. `);
 export function toolLockFromJsonl(jsonlText, mcpPrefix, cli) {
-  const denied = (t) => /denied|not allowed|permission|blocked/i.test(t || '');
+  const denied = (c) => /denied|not allowed|permission|blocked/i.test(c.result_text || '') || unavailable(c);
   const own = (c) => (cli ? c.name === 'Bash' && cliCommandAllowed(c.input?.command, cli) : c.name.startsWith(mcpPrefix));
   const outside = parseToolCalls(jsonlText).filter((c) => c.name !== 'Write' && !own(c));
   return {
     bash_attempted: outside.length,
-    bash_denied: outside.length > 0 && outside.every((c) => denied(c.result_text)),
-    non_mcp_executed: outside.filter((c) => !denied(c.result_text)).map((c) => c.name),
+    bash_denied: outside.length > 0 && outside.every(denied),
+    non_mcp_executed: outside.filter((c) => !denied(c)).map((c) => c.name),
   };
 }
 

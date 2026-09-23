@@ -812,6 +812,48 @@ test('toolLockFromJsonl mit CLI: gesperrte Fremdbefehle zaehlen als Versuch, nic
   assert.deepEqual(toolLockFromJsonl(leaked, 'cli__fakecli__', 'fakecli').non_mcp_executed, ['Bash']);
 });
 
+// Claude Code 2.1.281 weist ein per --tools gesperrtes Werkzeug so ab (gekuerzt aus dem Transkript
+// von agent-browser run5, Session 938f367b-…, 23.09.2026 21:56; run9 identisch).
+const NO_SUCH_TOOL_READ = '<tool_use_error>Error: No such tool available: Read. Read is disabled for this session, in subagents as well as here.</tool_use_error>';
+const R = (ts, id, content, isError) => JSON.stringify({
+  type: 'user', timestamp: ts, uuid: `r-${id}`,
+  message: { role: 'user', content: [{ type: 'tool_result', content, ...(isError === undefined ? {} : { is_error: isError }), tool_use_id: id }] },
+});
+const readLockJsonl = (content, isError) => [
+  B('2026-09-23T21:56:30.000Z', 'k1', 'fakecli snapshot'),
+  U('2026-09-23T21:56:31.000Z', 'k1', 'snapshot'),
+  A('2026-09-23T21:56:32.000Z', 'k2', 'Read'),
+  R('2026-09-23T21:56:32.840Z', 'k2', content, isError),
+].join('\n');
+const readLock = (content, isError) => toolLockFromJsonl(readLockJsonl(content, isError), 'cli__fakecli__', 'fakecli');
+
+test('toolLockFromJsonl: Ablehnung „No such tool available … disabled“ (Claude Code 2.1.281) zaehlt nicht als Ausfuehrung', () => {
+  const lock = readLock(NO_SUCH_TOOL_READ, true);
+  assert.equal(lock.bash_attempted, 1);
+  assert.deepEqual(lock.non_mcp_executed, []);
+  assert.equal(lock.bash_denied, true);
+});
+
+test('toolLockFromJsonl: ausgefuehrtes gesperrtes Read bleibt ein Verstoss (Gegenprobe)', () => {
+  assert.deepEqual(readLock('     1\tsnapshot line', undefined).non_mcp_executed, ['Read']);
+});
+
+test('toolLockFromJsonl: gesperrtes Read mit eigenem Fehler zaehlt als ausgefuehrt', () => {
+  assert.deepEqual(readLock('<tool_use_error>File does not exist.</tool_use_error>', true).non_mcp_executed, ['Read']);
+});
+
+test('toolLockFromJsonl: Ablehnungs-Wortlaut ohne is_error zaehlt als ausgefuehrt', () => {
+  assert.deepEqual(readLock(NO_SUCH_TOOL_READ, undefined).non_mcp_executed, ['Read']);
+});
+
+test('toolLockFromJsonl: Ablehnungs-Wortlaut fuer ein anderes Werkzeug zaehlt als ausgefuehrt', () => {
+  assert.deepEqual(readLock(NO_SUCH_TOOL_READ.replaceAll('Read', 'Grep'), true).non_mcp_executed, ['Read']);
+});
+
+test('toolLockFromJsonl: Ablehnungs-Wortlaut mitten im Ergebnistext zaehlt als ausgefuehrt', () => {
+  assert.deepEqual(readLock(`<tool_use_error>line 1: ${NO_SUCH_TOOL_READ}</tool_use_error>`, true).non_mcp_executed, ['Read']);
+});
+
 test('verifyRunJson: cli__-Zeilen sind erlaubt, nackte Bash-Zeilen nicht', () => {
   const mk = (name) => ({
     slug: 'agent-browser', mcp_version: '1', model: 'claude-opus-5', chrome_version: '1', harness: { mode: 'blind-print' },
