@@ -112,9 +112,11 @@ export interface PublicBrowserSession {
   /** OS process id of the session — only set for `isolation: "process"`. */
   readonly pid: number | undefined;
   /**
-   * CDP port this session drives. `undefined` with `transport: "pipe"` —
-   * there is no listening port, and the default would name the user's own
-   * Chrome on 9222.
+   * CDP port Chrome listens on. `undefined` when nothing listens —
+   * `transport: "pipe"`, or a named profile, which runs over the pipe — and
+   * the default would name the user's own Chrome on 9222. Inline sessions
+   * follow the actual connection; worker and process sessions report the
+   * state at `ready` (with `eager: true` that is after the launch).
    */
   readonly cdpPort: number | undefined;
   /** CDP host this session drives. */
@@ -123,7 +125,7 @@ export interface PublicBrowserSession {
   readonly stealth: boolean;
   /**
    * CDP transport in use. `"pipe"` means no port is listening, so no other
-   * local process can attach to this browser.
+   * local process can attach to this browser. Reported like `cdpPort`.
    */
   readonly transport: "port" | "pipe";
   /** Directory downloads land in (temp dir when none was configured). */
@@ -218,10 +220,15 @@ async function createInlineSession(
     id,
     isolation: "inline",
     pid: undefined,
-    cdpPort: core.cdpPort,
+    // Live: the real-profile fallback port only exists once Chrome runs.
+    get cdpPort() {
+      return core.cdpPort;
+    },
     cdpHost: core.cdpHost,
     stealth: core.stealth,
-    transport: core.transport,
+    get transport() {
+      return core.transport;
+    },
     get downloadDir() {
       return core.downloadDir;
     },

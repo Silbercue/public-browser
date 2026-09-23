@@ -484,6 +484,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         untrackOwnedTarget: () => { /* legacy: no-op */ },
         cdpPort: 9222,
         cdpHost: "127.0.0.1",
+        listeningCdpPort: 9222,
         shutdown: async () => { /* legacy: no-op */ },
         restart: async () => { /* legacy: no-op */ },
       };

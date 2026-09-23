@@ -136,11 +136,13 @@ PUBLIC_BROWSER_PROFILE="Julian" npx public-browser
 configure_session({ profile: "Julian" })
 ```
 
-When using a real profile, Public Browser preserves extensions, cookies, logins, and sync. It creates a lightweight wrapper directory with a symlink to your real profile data — Chrome gets a "non-default" data dir (required for remote debugging) while using your actual profile.
+When using a real profile, Public Browser preserves extensions, cookies, logins, and sync. It creates a lightweight wrapper directory with a symlink to your real profile data — Chrome gets a "non-default" data dir (required for remote debugging) while using your actual profile. The wrapper is removed when Public Browser closes Chrome, and wrappers left behind by a crash are removed on the next start; your profile folder itself is never deleted.
+
+**No open debugging port.** A real profile is driven over `--remote-debugging-pipe`: CDP runs through a pipe that only Public Browser holds, and nothing listens on a TCP port — other programs on your machine cannot take over your logged-in browser. The flip side: `--attach` and the Script API escape hatch (`page.cdp`) do not work with a real profile. Should Chrome ever refuse the pipe, Public Browser restarts it with a random debugging port (never 9222) and says so on stderr and once in the next tool response: while that Chrome runs, the profile is reachable for local programs.
 
 ### If Chrome is already open
 
-Public Browser detects this via lock-file inspection. If Chrome is running with remote debugging enabled, it attaches via CDP. If not, it shows a clear error asking you to close Chrome first.
+Public Browser detects this via lock-file inspection. If Chrome is running with remote debugging enabled, it attaches via CDP. If not, it shows a clear error asking you to close Chrome first. A profile can be open in only one Public Browser at a time: a second instance stops with an error naming the PID of the Chrome that holds it.
 
 ## Perfect for Jev — a decision model needs a menu, Public Browser hands it one
 
@@ -291,7 +293,7 @@ with chrome.new_page() as page:
     page.cdp.send("Tracing.start", {"categories": "-*,devtools.timeline"})
 ```
 
-The Escape Hatch communicates directly with Chrome via WebSocket (port 9222), bypassing the server. It connects lazily on the first `send()` call and reuses the connection for subsequent calls. Each page gets its own WebSocket routed to the correct tab.
+The Escape Hatch communicates directly with Chrome via WebSocket (port 9222), bypassing the server. It connects lazily on the first `send()` call and reuses the connection for subsequent calls. Each page gets its own WebSocket routed to the correct tab. It needs Chrome's debugging port, so it is not available when the server drives a real profile (`--profile`), which runs without one: `/session/create` then returns `cdp_ws_url: null` plus a `cdp_ws_note`, and `page.cdp` raises `RuntimeError`.
 
 ### MCP Coexistence
 
@@ -401,11 +403,13 @@ const action = await createSession({
 CDP then travels over the child's stdio pipe, which only Public Browser holds:
 `lsof` shows nothing listening and a second process finds no way in. The price
 is everything the port paid for — no reconnect after a Chrome crash, no second
-client, no `attach`, and no named `profile` (Chrome rejects the pipe with a
-real user profile). Both contradictions fail at `createSession()` rather than
-at the first tool call. `session.transport` reports which mode is in use, and
-`session.cdpPort` is `undefined` — there is no port, and reporting the default
-would name whatever Chrome the user has open on 9222.
+client and no `attach`; combining `"pipe"` with `attach` fails at
+`createSession()` rather than at the first tool call. A named `profile` always
+runs over the pipe, whatever `transport` says — `"pipe"` only forbids the
+random-port fallback Public Browser would otherwise use if Chrome refused the
+pipe. `session.transport` reports the actual connection, and `session.cdpPort`
+is `undefined` when nothing listens — reporting the default would name
+whatever Chrome the user has open on 9222.
 
 **Environment.** A session does **not** start from the host environment. It
 starts from a documented minimum and you widen it deliberately — an
@@ -453,9 +457,9 @@ user-data-dir — whenever `downloadDir` matters.
 | Option | Default | Description |
 |---|---|---|
 | `cdpUrl` | — | `http://host:port`, `host:port` or a bare port. Wins over `cdpPort`/`cdpHost` |
-| `cdpPort` / `cdpHost` | `9222` / `127.0.0.1` | CDP endpoint this session drives. `session.cdpPort` is `undefined` with `transport: "pipe"` |
+| `cdpPort` / `cdpHost` | `9222` / `127.0.0.1` | CDP endpoint this session drives. `session.cdpPort` is `undefined` when nothing listens (`transport: "pipe"`, or a named `profile`) |
 | `userDataDir` | — | Chrome `--user-data-dir` for auto-launch. One directory per instance |
-| `profile` | — | Named Chrome profile instead of a raw directory |
+| `profile` | — | Named Chrome profile instead of a raw directory. Runs over the pipe — no CDP port |
 | `headless` | `false` | Launch Chrome headless |
 | `stealth` | `true` | `false` disables all `navigator.webdriver` masking |
 | `attach` | `false` | Never auto-launch; attach to a running Chrome and fail fast if there is none |
@@ -463,7 +467,7 @@ user-data-dir — whenever `downloadDir` matters.
 | `downloadHash` | `false` | Report `sha256` for every completed download |
 | `downloadNaming` | `"guid"` | `"suggested"` renames finished files to the server-supplied name |
 | `cortexDir` | `~/.public-browser/cortex` | Per-instance cortex store |
-| `transport` | `"port"` | `"pipe"` launches Chrome with no listening CDP port (no attach/reconnect/profile) |
+| `transport` | `"port"` | `"pipe"` launches Chrome with no listening CDP port (no attach/reconnect) |
 | `inheritEnv` | `false` | Essentials only. Array = essentials + allowlist, `true` = whole host env |
 | `env` | — | Extra environment variables for the session, applied last |
 | `isolation` | `"worker"` | `"process"` for an OS-process boundary, `"inline"` for none |
@@ -478,6 +482,8 @@ The same thing without a Node host — one process per Chrome, each on its own p
 public-browser --port 9333 --profile research --download-dir /q/research
 public-browser --port 9334 --profile action   --download-dir /q/action
 ```
+
+With `--profile` Chrome runs over the pipe and `--port` stays unused; only if Chrome refused the pipe would it get a random port, with a warning.
 
 `--profile <name>` uses one of your real Chrome profiles. For a throwaway
 per-agent Chrome, point at a raw directory instead — it is created if missing:

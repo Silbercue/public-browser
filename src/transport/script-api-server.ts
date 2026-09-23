@@ -350,16 +350,27 @@ export class ScriptApiServer {
       // 4. Store session.
       const session = this.sessionStore.create(targetId, cdpSessionId);
 
-      // 5. Build CDP WebSocket URL for Escape Hatch (Story 9.9).
-      const cdpPort = this._browserSession.cdpPort;
+      // 5. Build CDP WebSocket URL for Escape Hatch (Story 9.9). S2: from the
+      // port Chrome actually listens on. Over the pipe there is none — the
+      // configured port would reach nothing or somebody else's browser.
+      const cdpPort = this._browserSession.listeningCdpPort;
       const cdpHost = this._browserSession.cdpHost ?? "localhost";
-      const cdpWsUrl = `ws://${cdpHost}:${cdpPort}/devtools/page/${targetId}`;
+      const cdpWsUrl = cdpPort === null
+        ? null
+        : `ws://${cdpHost}:${cdpPort}/devtools/page/${targetId}`;
 
       this._sendJson(res, 200, {
         session_token: session.sessionToken,
         target_id: session.targetId,
         cdp_ws_url: cdpWsUrl,
         cdp_session_id: cdpSessionId,
+        ...(cdpWsUrl === null
+          ? {
+            cdp_ws_note:
+              "No CDP WebSocket: Chrome runs over --remote-debugging-pipe (real profile or transport "
+              + "\"pipe\"), so no port is open for page.cdp. All tools work as usual.",
+          }
+          : {}),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

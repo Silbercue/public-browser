@@ -150,7 +150,7 @@ with chrome.new_page() as page:
     page.cdp.on("Network.requestWillBeSent", lambda e: print(e["request"]["url"]))
 ```
 
-The Escape Hatch communicates directly with Chrome via WebSocket (port 9222), bypassing the server entirely. It connects lazily on the first `send()` call and reuses the connection. Each page gets its own WebSocket routed to the correct tab.
+The Escape Hatch communicates directly with Chrome via WebSocket (port 9222), bypassing the server entirely. It connects lazily on the first `send()` call and reuses the connection. Each page gets its own WebSocket routed to the correct tab. It needs Chrome's debugging port, so it is not available when the server drives a real profile (`--profile`), which runs without one: the server then returns `cdp_ws_url: null` plus a `cdp_ws_note`, and `page.cdp` raises `RuntimeError`.
 
 | Method | Description |
 |---|---|

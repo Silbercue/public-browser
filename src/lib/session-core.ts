@@ -88,7 +88,8 @@ export interface SessionCoreOptions {
    * How this session reaches the Chrome it launches. `"port"` (default) opens
    * `--remote-debugging-port`; `"pipe"` omits it, so no other local process
    * can attach to a browser that may hold real logins. `"pipe"` rules out
-   * reconnect-after-crash, `attach`, the Script API and named profiles.
+   * reconnect-after-crash, `attach` and the Script API. A named profile always
+   * runs over the pipe (S2); there `"pipe"` only rules out the port fallback.
    */
   transport?: CdpTransportMode;
 }
@@ -96,11 +97,15 @@ export interface SessionCoreOptions {
 export interface SessionCore {
   readonly browserSession: BrowserSession;
   readonly registry: ToolRegistry;
-  /** CDP port this session drives; `undefined` with `transport: "pipe"` — nothing listens. */
+  /**
+   * CDP port Chrome listens on; `undefined` when nothing listens (`transport:
+   * "pipe"`, or a real profile over the pipe). Follows the actual connection
+   * once Chrome runs — after the real-profile fallback it is the random port.
+   */
   readonly cdpPort: number | undefined;
   readonly cdpHost: string;
   readonly stealth: boolean;
-  /** CDP transport in use — `"pipe"` means no port is listening. */
+  /** CDP transport of the actual connection — `"pipe"` means no port is listening. */
   readonly transport: CdpTransportMode;
   readonly downloadDir: string | undefined;
   /** Execute a tool through the shared dispatch path. Lazily launches Chrome. */
@@ -140,25 +145,14 @@ export function createSessionCore(
   const attach = options.attach ?? false;
   const transport = options.transport ?? "port";
 
-  // Fail here rather than at the first tool call: both combinations are
-  // contradictions, not edge cases, and the launcher's error would surface
-  // minutes later with no obvious link to the option that caused it. This
-  // runs before the profile is resolved on purpose — with an unknown profile
-  // name the caller should hear that pipe and profile do not mix, not that
-  // the profile does not exist.
-  if (transport === "pipe") {
-    if (attach) {
-      throw new Error(
-        'createSession: transport "pipe" cannot be combined with attach — a pipe belongs '
-        + "to the process that spawned Chrome, so there is nothing to attach to.",
-      );
-    }
-    if (options.profile) {
-      throw new Error(
-        'createSession: transport "pipe" cannot be combined with a named profile — Chrome '
-        + "rejects --remote-debugging-pipe with a real user profile. Use userDataDir instead.",
-      );
-    }
+  // Fail here rather than at the first tool call: this combination is a
+  // contradiction, not an edge case, and the launcher's error would surface
+  // minutes later with no obvious link to the option that caused it.
+  if (transport === "pipe" && attach) {
+    throw new Error(
+      'createSession: transport "pipe" cannot be combined with attach — a pipe belongs '
+      + "to the process that spawned Chrome, so there is nothing to attach to.",
+    );
   }
 
   // --- profile / user-data-dir ---
@@ -212,10 +206,16 @@ export function createSessionCore(
     registry,
     // Over a pipe nothing listens anywhere. Reporting the resolved default
     // (9222) would point at whatever Chrome the user has open on that port.
-    cdpPort: transport === "pipe" ? undefined : cdpPort,
+    // S2: both follow the actual connection — a real profile runs over the
+    // pipe, and after its fallback the random port shows up here.
+    get cdpPort() {
+      return browserSession.listeningCdpPort ?? undefined;
+    },
     cdpHost,
     stealth: browserSession.stealth,
-    transport,
+    get transport(): CdpTransportMode {
+      return browserSession.listeningCdpPort === null ? "pipe" : "port";
+    },
     get downloadDir() {
       return browserSession.downloadDir;
     },

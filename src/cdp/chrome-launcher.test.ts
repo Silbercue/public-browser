@@ -4,6 +4,19 @@ import { createHash } from "node:crypto";
 import type { Socket } from "node:net";
 import { EventEmitter } from "node:events";
 import { Readable, Writable, PassThrough } from "node:stream";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  symlinkSync,
+  lstatSync,
+  readlinkSync,
+  utimesSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ── Mock child_process ─────────────────────────────────────────────────
 
@@ -26,7 +39,7 @@ vi.mock("./debug.js", () => ({
   debug: (...args: unknown[]) => mockDebug(...args),
 }));
 
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { rm, mkdir } from "node:fs/promises";
 import {
@@ -35,6 +48,7 @@ import {
   ChromeLauncher,
   ChromeConnection,
   resolveAutoLaunch,
+  REAL_PROFILE_STARTUP_TIMEOUT_MS,
 } from "./chrome-launcher.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -1677,18 +1691,6 @@ describe('launchChrome — transport "pipe"', () => {
 
     await result.cdpClient.close();
   });
-
-  it("refuses a real profile — Chrome rejects the pipe with one", async () => {
-    process.env.CHROME_PATH = "/bin/sh";
-    await expect(
-      launchChrome({
-        transport: "pipe",
-        isRealProfile: true,
-        profilePath: "/tmp",
-        profileDirectory: "Default",
-      }),
-    ).rejects.toThrow(/cannot be used with a real Chrome profile/);
-  });
 });
 
 describe('ChromeLauncher — transport "pipe"', () => {
@@ -1715,4 +1717,372 @@ describe('ChromeLauncher — transport "pipe"', () => {
     const launcher = new ChromeLauncher({ transport: "pipe", port: 9333, autoLaunch: false });
     await expect(launcher.connect()).rejects.toThrow(/cannot attach to an existing Chrome/);
   });
+});
+
+// ── S2: echtes Profil ueber die Pipe, ohne offenen Port ────────────────
+
+/** Chromes stderr-Zeile bei Ablehnung (chrome/browser/browser_process_impl.cc). */
+const CHROME_PIPE_REFUSAL =
+  "\nDevTools remote debugging requires a non-default data directory. Specify this using --user-data-dir.\n";
+
+/** Port, auf dem garantiert nichts lauscht: vom System vergeben, gemerkt, wieder geschlossen (P6). */
+async function deadPort(): Promise<number> {
+  const srv = createServer();
+  await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", () => resolve()));
+  const { port } = srv.address() as { port: number };
+  await new Promise<void>((resolve) => srv.close(() => resolve()));
+  if (port < 9340) throw new Error(`ephemeral port ${port} is below 9340`);
+  return port;
+}
+
+/** CDP-WebSocket-Server fuer den Port-Rueckfall; zaehlt /json/version-Abfragen. */
+function startCdpWebSocketServer(): Promise<{ port: number; hits: { jsonVersion: number } }> {
+  const hits = { jsonVersion: 0 };
+  return new Promise((resolve) => {
+    wsServer = createServer((req, res) => {
+      if (req.url === "/json/version") {
+        hits.jsonVersion++;
+        const addr = wsServer!.address() as { port: number };
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            webSocketDebuggerUrl: `ws://127.0.0.1:${addr.port}/devtools/browser/s2-fallback`,
+          }),
+        );
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+
+    wsServer.on("upgrade", (req, socket) => {
+      const key = req.headers["sec-websocket-key"] as string;
+      const accept = createHash("sha1")
+        .update(key + "258EAFA5-E914-47DA-95CA-5AB0DC85B411")
+        .digest("base64");
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\n" +
+          "Upgrade: websocket\r\n" +
+          "Connection: Upgrade\r\n" +
+          `Sec-WebSocket-Accept: ${accept}\r\n` +
+          "\r\n",
+      );
+      wsSockets.push(socket as Socket);
+      socket.on("data", (data: Buffer) => {
+        const cdpMsg = decodeWsFrame(data);
+        if (!cdpMsg) return;
+        const parsed = JSON.parse(cdpMsg) as { id: number; method: string };
+        if (parsed.method === "Browser.getVersion") {
+          socket.write(
+            encodeServerFrame(0x1, JSON.stringify({ id: parsed.id, result: { product: "Chrome/153.0" } })),
+          );
+        }
+      });
+    });
+
+    wsServer.listen(0, "127.0.0.1", () => {
+      resolve({ port: (wsServer!.address() as { port: number }).port, hits });
+    });
+  });
+}
+
+/** Mock-Chrome, der wie ein laufender Prozess exitCode/signalCode = null meldet. */
+function runningChild(): ChildProcess {
+  const child = createMockChildProcess();
+  (child as { exitCode: number | null }).exitCode = null;
+  (child as { signalCode: NodeJS.Signals | null }).signalCode = null;
+  return child;
+}
+
+function userDataDirArg(args: readonly string[]): string {
+  const arg = args.find((a) => a.startsWith("--user-data-dir="));
+  if (!arg) throw new Error("no --user-data-dir in spawn args");
+  return arg.slice("--user-data-dir=".length);
+}
+
+async function waitForSpawnCalls(n: number): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if (vi.mocked(spawn).mock.calls.length >= n) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(`spawn was not called ${n}x`);
+}
+
+/** Chrome lehnt ab: dieselbe Zeile, die Chrome auf stderr schreibt. */
+function refuse(child: ChildProcess): void {
+  (child.stdio![2] as PassThrough).write(CHROME_PIPE_REFUSAL);
+}
+
+describe("S2 — echtes Profil ueber die Pipe", () => {
+  let base: string;
+  let profileRoot: string;
+  let port: number; // tot — der alte Code in der Rot-Phase pollt nur diesen (P6)
+  let savedTmpdir: string | undefined;
+  const realProfile = { headless: true, isRealProfile: true, profileDirectory: "Profile 1" } as const;
+
+  beforeEach(async () => {
+    vi.mocked(spawn).mockReset();
+    vi.mocked(execFileSync).mockReset();
+    process.env.CHROME_PATH = "/bin/sh";
+    base = mkdtempSync(join(tmpdir(), "pb-s2-"));
+    savedTmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = base; // os.tmpdir() liest TMPDIR bei jedem Aufruf
+    profileRoot = join(base, "Chrome");
+    mkdirSync(join(profileRoot, "Profile 1"), { recursive: true });
+    writeFileSync(join(profileRoot, "Local State"), "{}");
+    port = await deadPort();
+    // Der Wrapper-Ordner muss wirklich entstehen — copyFileSync/symlinkSync sind hier echt.
+    const realFsp = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    vi.mocked(mkdir).mockImplementation(realFsp.mkdir as never);
+  });
+
+  afterEach(() => {
+    vi.mocked(mkdir).mockImplementation(async () => undefined);
+    if (savedTmpdir === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = savedTmpdir;
+    // `rm` ist gemockt; alle Wrapper liegen unter base und gehen mit ihm.
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it("das Startbudget beim echten Profil bleibt 15 s", () => {
+    expect(REAL_PROFILE_STARTUP_TIMEOUT_MS).toBe(15_000);
+  });
+
+  it("launchChrome startet das Profil mit --remote-debugging-pipe und ohne Port", async () => {
+    const child = runningChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const launching = launchChrome({ ...realProfile, profilePath: profileRoot, port, startupTimeoutMs: 2000 });
+    await waitForSpawnCalls(1);
+    simulateCdpResponse(child, 1, { product: "Chrome/153.0" });
+    const result = await launching;
+
+    const [, args, opts] = vi.mocked(spawn).mock.calls[0] as unknown as [
+      string,
+      string[],
+      { stdio: string[] },
+    ];
+    expect(args).toContain("--remote-debugging-pipe");
+    expect(args.some((a) => a.startsWith("--remote-debugging-port"))).toBe(false);
+    expect(args).toContain("--profile-directory=Profile 1");
+    expect(userDataDirArg(args)).toBe(result.wrapperDir);
+    expect(opts.stdio).toEqual(["ignore", "ignore", "pipe", "pipe", "pipe"]);
+    expect(result.transportType).toBe("pipe");
+    expect(result.debugPort).toBeNull();
+    // Im Wrapper liegt nur ein Verweis auf das Profil — geloescht wird spaeter nur der Wrapper.
+    const link = join(result.wrapperDir!, "Profile 1");
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(link)).toBe(join(profileRoot, "Profile 1"));
+
+    await result.cdpClient.close();
+  });
+
+  it("faellt bei Chromes Ablehnung sofort auf einen Zufallsport aus DevToolsActivePort zurueck und warnt", async () => {
+    const { port: fallbackPort, hits } = await startCdpWebSocketServer();
+    const refused = runningChild();
+    const viaPort = runningChild();
+    vi.mocked(spawn).mockReturnValueOnce(refused as never).mockReturnValueOnce(viaPort as never);
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const started = Date.now();
+      // 10 s Budget: Die Ablehnung wird an stderr erkannt, nicht am Timeout.
+      const launching = launchChrome({ ...realProfile, profilePath: profileRoot, port, startupTimeoutMs: 10_000 });
+      launching.catch(() => {});
+      await waitForSpawnCalls(1);
+      refuse(refused);
+      await waitForSpawnCalls(2);
+      const retryArgs = vi.mocked(spawn).mock.calls[1][1] as string[];
+      // So meldet Chrome den gewaehlten Port: "<port>\n/devtools/browser/<id>" im user-data-dir.
+      writeFileSync(
+        join(userDataDirArg(retryArgs), "DevToolsActivePort"),
+        `${fallbackPort}\n/devtools/browser/s2-fallback`,
+      );
+      const result = await launching;
+
+      expect(Date.now() - started).toBeLessThan(5_000);
+      // Erst muss der erste Chrome weg sein, dann oeffnet der zweite dasselbe Profil.
+      expect(refused.kill).toHaveBeenCalledWith("SIGTERM");
+      // Nur Port 0 — nie der konfigurierte (tote) Port.
+      expect(retryArgs.filter((a) => a.startsWith("--remote-debugging-port"))).toEqual([
+        "--remote-debugging-port=0",
+      ]);
+      expect(retryArgs).not.toContain("--remote-debugging-pipe");
+      expect(userDataDirArg(retryArgs)).toBe(result.wrapperDir);
+      expect(result.transportType).toBe("websocket");
+      expect(result.debugPort).toBe(fallbackPort);
+      // Verbunden ueber die Datei im eigenen Wrapper, nicht ueber eine Port-Suche.
+      expect(hits.jsonVersion).toBe(0);
+      expect(result.warning).toMatch(
+        /any local program can control the logged-in profile via 127\.0\.0\.1:\d+/,
+      );
+      expect(warn).toHaveBeenCalledWith(result.warning);
+      await result.cdpClient.close();
+    } finally {
+      warn.mockRestore();
+    }
+  }, 15_000);
+
+  it("bricht laut ab, wenn der Rueckfall-Chrome keinen Port meldet — kein Raten, kein 9222", async () => {
+    const refused = runningChild();
+    const silent = runningChild();
+    vi.mocked(spawn).mockReturnValueOnce(refused as never).mockReturnValueOnce(silent as never);
+
+    const launching = launchChrome({ ...realProfile, profilePath: profileRoot, port, startupTimeoutMs: 300 });
+    launching.catch(() => {});
+    await waitForSpawnCalls(1);
+    refuse(refused);
+
+    await expect(launching).rejects.toThrow(/did not report its debugging port.*DevToolsActivePort/);
+    expect(silent.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(vi.mocked(rm)).toHaveBeenCalledWith(
+      expect.stringMatching(/public-browser-profile-[0-9a-f]{8}$/),
+      { recursive: true, force: true },
+    );
+  });
+
+  it("ein langsamer Start ist keine Ablehnung: Timeout-Fehler, kein Port-Rueckfall", async () => {
+    const slow = runningChild(); // antwortet nicht, schreibt nichts auf stderr
+    vi.mocked(spawn).mockReturnValue(slow as never);
+
+    await expect(
+      launchChrome({ ...realProfile, profilePath: profileRoot, port, startupTimeoutMs: 100 }),
+    ).rejects.toThrow(/timed out after 100 ms/);
+    expect(vi.mocked(spawn)).toHaveBeenCalledTimes(1);
+    expect(slow.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it('mit transport "pipe" gibt es bei Ablehnung keinen Port-Rueckfall', async () => {
+    const refused = runningChild();
+    vi.mocked(spawn).mockReturnValue(refused as never);
+
+    const launching = launchChrome({
+      ...realProfile,
+      profilePath: profileRoot,
+      port,
+      transport: "pipe",
+      startupTimeoutMs: 10_000,
+    });
+    launching.catch(() => {});
+    await waitForSpawnCalls(1);
+    refuse(refused);
+
+    await expect(launching).rejects.toThrow(/transport "pipe" rules out the port fallback/);
+    expect(vi.mocked(spawn)).toHaveBeenCalledTimes(1);
+    expect(refused.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(vi.mocked(rm)).toHaveBeenCalledWith(
+      expect.stringMatching(/public-browser-profile-[0-9a-f]{8}$/),
+      { recursive: true, force: true },
+    );
+  });
+
+  it("weist ein Profil ab, das ein anderer Public-Browser-Chrome offen hat", async () => {
+    const otherWrapper = join(base, "public-browser-profile-ab12cd34");
+    mkdirSync(otherWrapper);
+    symlinkSync(join(profileRoot, "Profile 1"), join(otherWrapper, "Profile 1"));
+    vi.mocked(execFileSync).mockReturnValueOnce(
+      ` 4242 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-pipe --user-data-dir=${otherWrapper} --profile-directory=Profile 1\n` as never,
+    );
+
+    await expect(launchChrome({ ...realProfile, profilePath: profileRoot, port })).rejects.toThrow(
+      /already open in a Chrome started by Public Browser \(PID 4242\)/,
+    );
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+    expect(vi.mocked(mkdir)).not.toHaveBeenCalled();
+  });
+
+  it("raeumt beim Start verwaiste Wrapper weg (SIGKILL-Reste), nie das Profil dahinter", async () => {
+    const orphan = join(base, "public-browser-profile-dead0001");
+    mkdirSync(orphan);
+    symlinkSync(join(profileRoot, "Profile 1"), join(orphan, "Profile 1"));
+    const old = new Date(Date.now() - 10 * 60_000);
+    utimesSync(orphan, old, old);
+    vi.mocked(execFileSync).mockReturnValue("" as never); // ps: kein Chrome laeuft
+    const child = runningChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const launching = launchChrome({ ...realProfile, profilePath: profileRoot, port, startupTimeoutMs: 2000 });
+    await waitForSpawnCalls(1);
+    simulateCdpResponse(child, 1, { product: "Chrome/153.0" });
+    const result = await launching;
+
+    expect(existsSync(orphan)).toBe(false);
+    expect(existsSync(join(profileRoot, "Profile 1"))).toBe(true);
+    expect(existsSync(result.wrapperDir!)).toBe(true); // der eigene, frische Wrapper bleibt
+    await result.cdpClient.close();
+  });
+
+  it("ChromeLauncher fragt beim echten Profil keinen Port ab und loescht beim Beenden nur den Wrapper", async () => {
+    let probes = 0;
+    const probePort = await startMockHttpServer((_req, res) => {
+      probes++;
+      res.writeHead(404);
+      res.end();
+    });
+    const child = runningChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const launcher = new ChromeLauncher({
+      ...realProfile,
+      profilePath: profileRoot,
+      port: probePort,
+      autoLaunch: true,
+      autoReconnect: false,
+    });
+    const connecting = launcher.connect();
+    await waitForSpawnCalls(1);
+    simulateCdpResponse(child, 1, { product: "Chrome/153.0" });
+    const connection = await connecting;
+    const wrapper = userDataDirArg(vi.mocked(spawn).mock.calls[0][1] as string[]);
+
+    expect(probes).toBe(0);
+    expect(connection.transportType).toBe("pipe");
+    expect(connection.debugPort).toBeNull();
+    // Ohne Port gibt es nichts zum Wiederverbinden — auch keinen fremden Chrome auf dem Port.
+    await expect(launcher.connectToExistingChrome()).rejects.toThrow(/no debugging port/);
+    expect(probes).toBe(0);
+
+    vi.mocked(rm).mockClear();
+    await connection.close();
+    expect(rm).toHaveBeenCalledWith(wrapper, { recursive: true, force: true });
+    expect(vi.mocked(rm).mock.calls.every(([p]) => !String(p).startsWith(profileRoot))).toBe(true);
+  });
+
+  it("ChromeLauncher verbindet nach dem Rueckfall nur mit dem eigenen Zufallsport, nie mit dem konfigurierten", async () => {
+    const { port: fallbackPort } = await startCdpWebSocketServer();
+    const refused = runningChild();
+    const viaPort = runningChild();
+    vi.mocked(spawn).mockReturnValueOnce(refused as never).mockReturnValueOnce(viaPort as never);
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const launcher = new ChromeLauncher({
+        ...realProfile,
+        profilePath: profileRoot,
+        port, // tot: wer hierhin verbindet, haette in Wahrheit einen fremden Chrome erwischt
+        autoLaunch: true,
+        autoReconnect: false,
+      });
+      const connecting = launcher.connect();
+      connecting.catch(() => {});
+      await waitForSpawnCalls(1);
+      refuse(refused);
+      await waitForSpawnCalls(2);
+      writeFileSync(
+        join(userDataDirArg(vi.mocked(spawn).mock.calls[1][1] as string[]), "DevToolsActivePort"),
+        `${fallbackPort}\n/devtools/browser/s2-fallback`,
+      );
+      const connection = await connecting;
+
+      expect(connection.debugPort).toBe(fallbackPort);
+      expect(connection.launchWarning).toMatch(/any local program can control the logged-in profile/);
+      const again = await launcher.connectToExistingChrome();
+      expect(again.debugPort).toBe(fallbackPort);
+
+      await again.close();
+      await connection.close();
+    } finally {
+      warn.mockRestore();
+    }
+  }, 15_000);
 });

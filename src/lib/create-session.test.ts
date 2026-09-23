@@ -348,23 +348,50 @@ describe("createSession — transport", () => {
     ).rejects.toThrow(/cannot be combined with attach/);
   });
 
-  it('rejects transport "pipe" together with a named profile', async () => {
-    await expect(
-      createSession({ isolation: "inline", transport: "pipe", profile: "Default" }),
-    ).rejects.toThrow(/cannot be combined with a named profile/);
+  it('nimmt transport "pipe" zusammen mit einem echten Profil an (S2)', async () => {
+    // Ein absoluter Pfad wird als echtes Profil aufgeloest — ohne den Chrome-Ordner des Nutzers.
+    const session = await createSession({
+      isolation: "inline",
+      transport: "pipe",
+      profile: tempDir("pb-pipe-profile-"),
+    });
+    openSessions.push(session);
+    expect(session.transport).toBe("pipe");
+    expect(session.cdpPort).toBeUndefined();
   });
 
-  it('names the pipe conflict even when the profile does not exist', async () => {
-    // The transport check runs before profile resolution: a caller who
-    // combined the two should hear about the contradiction, not chase a
-    // "profile not found" that fixing the name would not resolve.
-    await expect(
-      createSession({
-        isolation: "inline",
-        transport: "pipe",
-        profile: "no-such-profile-8f3a1c",
-      }),
-    ).rejects.toThrow(/cannot be combined with a named profile/);
+  it("meldet fuer ein echtes Profil keinen Port, auch mit dem Standard-Transport (S2)", async () => {
+    const session = await createSession({
+      isolation: "inline",
+      profile: tempDir("pb-profile-noport-"),
+      cdpPort: 9451,
+    });
+    openSessions.push(session);
+    expect(session.transport).toBe("pipe");
+    expect(session.cdpPort).toBeUndefined();
+  });
+
+  it("echtes Profil mit attach oder autoLaunch: false bleibt beim Port (P20 d)", async () => {
+    // Kein Start: beide verbinden sich spaeter per WebSocket mit dem konfigurierten Port.
+    const attached = await createSession({
+      isolation: "inline",
+      profile: tempDir("pb-profile-attach-"),
+      attach: true,
+      cdpPort: 9452,
+    });
+    openSessions.push(attached);
+    expect(attached.transport).toBe("port");
+    expect(attached.cdpPort).toBe(9452);
+
+    const noLaunch = await createSession({
+      isolation: "inline",
+      profile: tempDir("pb-profile-nolaunch-"),
+      autoLaunch: false,
+      cdpPort: 9453,
+    });
+    openSessions.push(noLaunch);
+    expect(noLaunch.transport).toBe("port");
+    expect(noLaunch.cdpPort).toBe(9453);
   });
 
   it('reports cdpPort as undefined with transport "pipe"', async () => {

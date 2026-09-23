@@ -63,6 +63,7 @@ function createMockBrowserSession(): IBrowserSession {
     headless: false,
     scriptMode: true,
     cdpPort: 9222,
+    listeningCdpPort: 9222,
     tabStateCache: {} as never,
     sessionDefaults: {} as never,
     sessionManager: undefined,
@@ -945,5 +946,39 @@ describe("ScriptApiServer — Konstruktor (S1)", () => {
           token: "",
         }),
     ).toThrow(/non-empty token/);
+  });
+});
+
+// ── S2: Escape Hatch ohne CDP-Port ─────────────────────────────────────
+
+describe("ScriptApiServer — Escape Hatch nach dem tatsaechlichen Port (S2)", () => {
+  async function createWith(listeningCdpPort: number | null): Promise<{ status: number; body: Record<string, unknown> }> {
+    const browserSession = Object.assign(createMockBrowserSession(), { listeningCdpPort });
+    const srv = new ScriptApiServer({
+      port: 0,
+      registry: createMockRegistry(),
+      browserSession,
+      token: TEST_TOKEN,
+    });
+    await srv.start();
+    try {
+      return await request(srv.port, "/session/create");
+    } finally {
+      await srv.stop();
+    }
+  }
+
+  it("liefert cdp_ws_url null mit Hinweis, wenn Chrome nur ueber die Pipe laeuft", async () => {
+    const res = await createWith(null);
+    expect(res.status).toBe(200);
+    expect(res.body.session_token).toBeTruthy();
+    expect(res.body.cdp_ws_url).toBeNull();
+    expect(res.body.cdp_ws_note).toMatch(/remote-debugging-pipe/);
+  });
+
+  it("nennt den tatsaechlichen Port, nicht den konfigurierten (Rueckfall mit Zufallsport)", async () => {
+    const res = await createWith(50123);
+    expect(res.body.cdp_ws_url).toBe("ws://localhost:50123/devtools/page/tab-1");
+    expect(res.body).not.toHaveProperty("cdp_ws_note");
   });
 });

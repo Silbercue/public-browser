@@ -15,6 +15,9 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BrowserSession } from "./browser-session.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // --- Test helpers ---------------------------------------------------------
 
@@ -695,5 +698,70 @@ describe("BrowserSession — deferred profile (BUG-019)", () => {
     await session.ensureReady();
 
     expect(reconnectCalls.count).toBe(1);
+  });
+});
+
+// S2: configure_session auf ein echtes Profil uebernimmt den Transport der
+// Session, statt fest auf den Port umzuschalten.
+describe("BrowserSession — Profil ueber configure_session (S2)", () => {
+  it("baut den Profil-Launcher mit dem Transport der Session", () => {
+    // Ein absoluter Pfad gilt als echtes Profil ("Default" darin) — ohne Julians Chrome-Ordner.
+    const dir = mkdtempSync(join(tmpdir(), "pb-bs-profile-"));
+    try {
+      const session = new BrowserSession({ transport: "pipe" });
+      session.sessionDefaults.setDefault("_profile", dir);
+
+      const changed = (session as unknown as { _applyDeferredProfile: () => boolean })._applyDeferredProfile();
+
+      expect(changed).toBe(true);
+      const launcher = (session as unknown as {
+        _launcher: { _transport: string; _isRealProfile: boolean };
+      })._launcher;
+      expect(launcher._isRealProfile).toBe(true);
+      expect(launcher._transport).toBe("pipe");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// S2 / Plancheck P20: Port der tatsaechlichen Verbindung und die Warnung fuers Modell.
+describe("BrowserSession — tatsaechlicher Port und Start-Warnung (S2)", () => {
+  it("gibt die Warnung des Port-Rueckfalls genau einmal als Notiz in der naechsten Tool-Antwort aus", async () => {
+    const { session } = buildSession({ connectSequence: ["ok"] });
+    await session.ensureReady();
+    const connection = (session as unknown as { _connection: { launchWarning?: string } })._connection;
+    connection.launchWarning =
+      "Public Browser: Chrome refused --remote-debugging-pipe for profile \"Default\" and was restarted with a "
+      + "random debugging port. While this Chrome runs, any local program can control the logged-in profile "
+      + "via 127.0.0.1:50123.";
+
+    expect(session.consumeRelaunchNotice()).toBe(connection.launchWarning);
+    expect(session.consumeRelaunchNotice()).toBeNull();
+  });
+
+  it("meldet vor dem Start die Prognose, danach den Port der Verbindung", async () => {
+    const profile = { isRealProfile: true, profilePath: "/nonexistent-pb-profile", profileDirectory: "Default" };
+    expect(new BrowserSession({ ...profile, cdpPort: 9451 }).listeningCdpPort).toBeNull();
+    expect(
+      new BrowserSession({ ...profile, cdpPort: 9451, attachMode: true, autoLaunch: false }).listeningCdpPort,
+    ).toBe(9451);
+    expect(new BrowserSession({ transport: "pipe", cdpPort: 9451 }).listeningCdpPort).toBeNull();
+    expect(new BrowserSession({ cdpPort: 9451 }).listeningCdpPort).toBe(9451);
+
+    const { session } = buildSession({ connectSequence: ["ok"] });
+    await session.ensureReady();
+    const connection = (session as unknown as { _connection: { debugPort: number | null } })._connection;
+    connection.debugPort = 50123; // Rueckfall: Zufallsport statt des konfigurierten
+    expect(session.listeningCdpPort).toBe(50123);
+    connection.debugPort = null; // reine Pipe
+    expect(session.listeningCdpPort).toBeNull();
+  });
+
+  it("attachMode allein meldet den konfigurierten Port (kein eigener Start)", () => {
+    const profile = { isRealProfile: true, profilePath: "/nonexistent-pb-profile", profileDirectory: "Default" };
+    expect(new BrowserSession({ ...profile, cdpPort: 9451, attachMode: true }).listeningCdpPort).toBe(9451);
+    // Gegenprobe: ohne attachMode startet das echte Profil selbst, ueber die Pipe.
+    expect(new BrowserSession({ ...profile, cdpPort: 9451 }).listeningCdpPort).toBeNull();
   });
 });

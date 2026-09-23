@@ -103,6 +103,11 @@ export interface IBrowserSession {
   readonly cdpPort: number;
   /** CDP host (default: "127.0.0.1"). Used by Script API for Escape Hatch WebSocket URLs. */
   readonly cdpHost: string;
+  /**
+   * S2: port the connected Chrome actually listens on for CDP, `null` when it
+   * runs over the pipe only. Before the first connect: the expected value.
+   */
+  readonly listeningCdpPort: number | null;
   shutdown(): Promise<void>;
   restart(): Promise<void>;
 }
@@ -169,7 +174,8 @@ export interface BrowserSessionOptions {
    * CDP transport for a self-launched Chrome. `"pipe"` omits
    * `--remote-debugging-port`, so no other process can reach the browser —
    * at the price of reconnect, `--attach` and the Script API. Default:
-   * `"port"`. See `cdp/chrome-launcher.ts`.
+   * `"port"`. A real profile runs over the pipe either way; `"pipe"` only
+   * rules out its port fallback. See `cdp/chrome-launcher.ts`.
    */
   transport?: CdpTransportMode;
   /** Retry timings in milliseconds — exposed for tests; see class-level doc. */
@@ -269,6 +275,8 @@ export class BrowserSession implements IBrowserSession {
   private _profileAttachName: string | null = null;
   /** Profile spec the current launcher was built for; null until one is set. */
   private _appliedProfileSpec: string | null = null;
+  /** Connection whose launch warning was already handed to the model (S2). */
+  private _warnedConnection: ChromeConnection | null = null;
 
   constructor(options: BrowserSessionOptions = {}) {
     this._options = options;
@@ -358,10 +366,9 @@ export class BrowserSession implements IBrowserSession {
       port: this._cdpPort,
       host: this._cdpHost,
       stealth: this._stealth,
-      // A named profile is a real Chrome profile, and Chrome rejects
-      // --remote-debugging-pipe with those. configure_session switching to a
-      // profile therefore falls back to the port transport.
-      transport: resolved.isRealProfile ? "port" : this._transport,
+      // S2: a real profile runs over the pipe anyway (see launchChrome); the
+      // session's transport only decides whether a port fallback is allowed.
+      transport: this._transport,
       autoReconnect: false,
     });
 
@@ -458,6 +465,19 @@ export class BrowserSession implements IBrowserSession {
     return this._cdpHost;
   }
 
+  /**
+   * S2: port the connected Chrome listens on, `null` for pipe only. Before
+   * the first connect it is the forecast: an auto-launched real profile and
+   * transport "pipe" run without a port, everything else uses `cdpPort`.
+   */
+  get listeningCdpPort(): number | null {
+    if (this._connection) return this._connection.debugPort;
+    if (this._transport === "pipe") return null;
+    const launchesRealProfile =
+      (this._options.isRealProfile ?? false) && !this._attachMode && (this._options.autoLaunch ?? true);
+    return launchesRealProfile ? null : this._cdpPort;
+  }
+
   /** Whether `navigator.webdriver` masking is active for this session. */
   get stealth(): boolean {
     return this._stealth;
@@ -503,12 +523,23 @@ export class BrowserSession implements IBrowserSession {
    * knows its previous tab references are stale.
    */
   consumeRelaunchNotice(): string | null {
-    if (!this._relaunchedAfterLoss) return null;
-    this._relaunchedAfterLoss = false;
-    return [
-      "Note: Chrome was not reachable — Public Browser silently launched a fresh browser.",
-      "Previous tabs and references are gone. Call virtual_desk or tab_status to re-orient.",
-    ].join("\n");
+    const notices: string[] = [];
+    // S2: Chrome refused the pipe for a real profile, so its debugging port is
+    // open. stderr alone is not enough — the Python autostart discards it — so
+    // the model hears it once per connection, with the next tool response.
+    const connection = this._connection;
+    if (connection?.launchWarning && this._warnedConnection !== connection) {
+      this._warnedConnection = connection;
+      notices.push(connection.launchWarning);
+    }
+    if (this._relaunchedAfterLoss) {
+      this._relaunchedAfterLoss = false;
+      notices.push(
+        "Note: Chrome was not reachable — Public Browser silently launched a fresh browser.",
+        "Previous tabs and references are gone. Call virtual_desk or tab_status to re-orient.",
+      );
+    }
+    return notices.length > 0 ? notices.join("\n") : null;
   }
 
   // ── Lazy-launch entry point ─────────────────────────────────────────

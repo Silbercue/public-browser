@@ -1,5 +1,5 @@
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
-import { existsSync, copyFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, copyFileSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { rm, mkdir } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import type { CdpTransport } from "../transport/transport.js";
 import { PipeTransport } from "../transport/pipe-transport.js";
 import { WebSocketTransport } from "../transport/websocket-transport.js";
 import { debug } from "./debug.js";
+import { findChromeUsingProfile, removeOrphanedWrappers } from "./profile-in-use.js";
 import type { ConnectionStatus, TransportType } from "../types.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -28,8 +29,9 @@ import type { ConnectionStatus, TransportType } from "../types.js";
  * `"pipe"` omits the flag: CDP travels over the child's stdio pipe, which
  * only the parent process holds. Nothing listens, so nothing else can attach.
  * The cost is everything that needed the port: no reconnect after a Chrome
- * crash, no second client, no `attach`. Chrome also rejects the pipe with a
- * real user profile, so `"pipe"` requires a temp or raw user-data-dir.
+ * crash, no second client, no `attach`. A real user profile always runs over
+ * the pipe (S2, see `launchChrome`); `"pipe"` there only rules out the port
+ * fallback.
  */
 export type CdpTransportMode = "port" | "pipe";
 
@@ -96,6 +98,12 @@ export interface LaunchOptions {
    * pipe — see `CdpTransportMode`.
    */
   transport?: CdpTransportMode;
+  /**
+   * Startup budget in ms: for the answer over the pipe and, in the real-profile
+   * fallback, for DevToolsActivePort. Default 5000 for temp/raw profiles,
+   * `REAL_PROFILE_STARTUP_TIMEOUT_MS` for a real profile. Exposed for tests.
+   */
+  startupTimeoutMs?: number;
 }
 
 interface LaunchResult {
@@ -103,6 +111,12 @@ interface LaunchResult {
   transport: CdpTransport;
   process: ChildProcess;
   transportType: TransportType;
+  /** Wrapper user-data-dir of a real profile; the owner removes it after Chrome exits. */
+  wrapperDir?: string;
+  /** Port Chrome actually listens on for CDP; `null`: pipe only, nothing listens. */
+  debugPort: number | null;
+  /** One-time warning for the model (real-profile port fallback). Already printed to stderr. */
+  warning?: string;
 }
 
 // ── AutoLaunch Resolution (Story 10.2) ────────────────────────────────
@@ -284,35 +298,112 @@ const CHROME_FLAGS_ISOLATED = [
   "--disable-sync",
 ];
 
+/** Temp or raw profile: how long Chrome gets to answer over the pipe. */
+const PIPE_STARTUP_TIMEOUT_MS = 5_000;
 /**
- * Poll /json/version until Chrome responds, then connect via WebSocket.
- * Used for real profile launches where --remote-debugging-pipe is not available.
+ * Real profile: startup budget for the answer over the pipe and, in the
+ * fallback, for DevToolsActivePort. Opening a big profile can take long; a
+ * refusal is recognised on stderr, so a slow start never opens a port.
  */
-async function pollAndConnectWebSocket(
-  port: number,
+export const REAL_PROFILE_STARTUP_TIMEOUT_MS = 15_000;
+const PIPE_STDIO: ("ignore" | "pipe")[] = ["ignore", "ignore", "pipe", "pipe", "pipe"];
+const PORT_STDIO: ("ignore" | "pipe")[] = ["ignore", "ignore", "pipe"];
+
+/**
+ * What Chrome prints to stderr when it refuses remote debugging — pipe and
+ * port alike — on its default user-data-dir, then keeps running without CDP
+ * (chrome/browser/browser_process_impl.cc, CreateDevToolsProtocolHandler).
+ */
+const PIPE_REFUSAL_PATTERN = /DevTools remote debugging requires a non-default data directory/;
+
+/** Chrome refused remote debugging — the only failure the port fallback handles. */
+class PipeRefusedError extends Error {}
+
+/**
+ * CDP over the child's fds 3/4. Fails fast when Chrome exits or prints its
+ * refusal on stderr, and after `timeoutMs` when it keeps running silently.
+ */
+async function connectOverPipe(
   child: ChildProcess,
   timeoutMs: number,
-): Promise<CdpTransport> {
-  const start = Date.now();
-  const pollInterval = 500;
-  let lastError: Error | undefined;
+): Promise<{ cdpClient: CdpClient; transport: CdpTransport }> {
+  const transport = new PipeTransport(child.stdio[4] as Readable, child.stdio[3] as Writable);
+  const cdpClient = new CdpClient(transport);
+  const stderr = (child.stdio[2] ?? null) as Readable | null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onExit: (() => void) | undefined;
+  let onStderr: ((chunk: Buffer | string) => void) | undefined;
+  try {
+    await Promise.race([
+      cdpClient.send("Browser.getVersion"),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Chrome startup timed out after ${timeoutMs} ms`)),
+          timeoutMs,
+        );
+      }),
+      new Promise<never>((_, reject) => {
+        onExit = () => reject(new Error("Chrome exited before CDP was ready"));
+        child.once("exit", onExit);
+      }),
+      new Promise<never>((_, reject) => {
+        if (!stderr) return;
+        let seen = "";
+        onStderr = (chunk) => {
+          // Keep a tail so a line split across chunks still matches.
+          seen = (seen + chunk.toString()).slice(-4096);
+          if (PIPE_REFUSAL_PATTERN.test(seen)) {
+            reject(new PipeRefusedError("Chrome requires a non-default data directory for remote debugging"));
+          }
+        };
+        stderr.on("data", onStderr);
+      }),
+    ]);
+  } catch (err) {
+    await cdpClient.close().catch(() => {});
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (onExit) child.off("exit", onExit);
+    if (onStderr && stderr) stderr.off("data", onStderr);
+  }
+  return { cdpClient, transport };
+}
 
-  while (Date.now() - start < timeoutMs) {
-    if (child.exitCode !== null) {
-      throw new Error(`Chrome exited with code ${child.exitCode} before CDP was ready`);
+/**
+ * S2 fallback: Chrome started with `--remote-debugging-port=0` picks a free
+ * port and writes `<port>\n/devtools/browser/<id>` to DevToolsActivePort in
+ * its user-data-dir (content/browser/devtools/devtools_http_handler.cc).
+ * Reading it from OUR wrapper dir is what guarantees we reach our own Chrome —
+ * a well-known port may belong to somebody else's browser.
+ */
+async function waitForDevToolsActivePort(
+  userDataDir: string,
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<{ port: number; browserPath: string }> {
+  const file = join(userDataDir, "DevToolsActivePort");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error("Chrome exited before reporting its debugging port");
     }
     try {
-      const versionInfo = await fetchJsonVersion(port, 2000);
-      if (versionInfo.webSocketDebuggerUrl) {
-        return WebSocketTransport.connect(versionInfo.webSocketDebuggerUrl as string, { timeoutMs: 5000 });
+      const [portLine, pathLine] = readFileSync(file, "utf-8").split("\n");
+      const port = Number(portLine);
+      const browserPath = (pathLine ?? "").trim();
+      if (Number.isInteger(port) && port > 0 && port < 65536 && browserPath.startsWith("/devtools/browser/")) {
+        return { port, browserPath };
       }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
+    } catch {
+      // not written yet
     }
-    await new Promise((r) => setTimeout(r, pollInterval));
+    await new Promise((r) => setTimeout(r, 50));
   }
-
-  throw lastError ?? new Error(`Chrome did not respond on port ${port} within ${timeoutMs}ms`);
+  throw new Error(
+    `Chrome did not report its debugging port within ${timeoutMs} ms (no usable DevToolsActivePort in `
+    + `${userDataDir}). Refusing to guess a port — 9222 may belong to another browser.`,
+  );
 }
 
 export async function launchChrome(
@@ -330,21 +421,13 @@ export async function launchChrome(
   const isRealProfile = options?.isRealProfile ?? false;
   const transport: CdpTransportMode = options?.transport ?? "port";
 
-  // Checked before any filesystem work: this is a contradiction in the
-  // configuration, and reporting it as a missing profile directory would send
-  // the caller looking in the wrong place.
-  if (transport === "pipe" && isRealProfile) {
-    throw new Error(
-      'transport: "pipe" cannot be used with a real Chrome profile — Chrome rejects '
-      + "--remote-debugging-pipe with the default user-data-dir. Use a raw userDataDir "
-      + 'or transport: "port".',
-    );
-  }
-
   if (isRealProfile && options?.profilePath && options?.profileDirectory) {
-    // Real profile: Chrome rejects --remote-debugging-port on the default
-    // user-data-dir. Workaround: create a wrapper dir that symlinks the
-    // profile folder. Chrome sees a "non-default" dir but uses the real data.
+    // Real profile: Chrome ignores both remote-debugging switches on its
+    // default user-data-dir (Chrome 136+). Workaround: a wrapper dir that
+    // symlinks the profile folder — Chrome sees a "non-default" dir but uses
+    // the real data. Chrome compares only the user-data-dir itself with its
+    // default (IsRemoteDebuggingAllowed), so this works for the pipe exactly
+    // as for the port.
     if (!existsSync(options.profilePath)) {
       throw new Error(
         `Chrome profile path does not exist: ${options.profilePath}`,
@@ -355,6 +438,23 @@ export async function launchChrome(
       throw new Error(
         `Chrome profile directory does not exist: ${profileSubdir}`,
       );
+    }
+    // S2: over the pipe a second Public Browser can no longer find this Chrome
+    // and share it — it would open the same profile directory a second time,
+    // and Chrome's own lock lives in the (different) wrapper dirs.
+    const holderPid = findChromeUsingProfile(profileSubdir, options.profileDirectory);
+    if (holderPid !== null) {
+      throw new Error(
+        `Chrome profile "${options.profileDirectory}" is already open in a Chrome started by `
+        + `Public Browser (PID ${holderPid}). Two Chrome processes on one profile directory can `
+        + "corrupt it — close the other Public Browser session first.",
+      );
+    }
+    // Wrappers of a Chrome killed by SIGKILL were never removed, and each one
+    // still links to a real profile.
+    const orphans = removeOrphanedWrappers();
+    if (orphans.length > 0) {
+      debug("Removed orphaned profile wrappers: %s", orphans.join(", "));
     }
     tmpDir = join(
       tmpdir(),
@@ -400,69 +500,109 @@ export async function launchChrome(
     ? coreFlags
     : [...coreFlags, ...CHROME_FLAGS_ISOLATED];
 
-  // Real profiles: WebSocket only (Chrome rejects --remote-debugging-pipe
-  // with the default user-data-dir). Temp profiles: pipe for lower latency.
-  if (!isRealProfile) {
-    baseFlags.unshift("--remote-debugging-pipe");
-  }
+  const flagsFor = (pipe: boolean, portFlag: number | null): string[] => {
+    const flags = [
+      ...(pipe ? ["--remote-debugging-pipe"] : []),
+      ...baseFlags,
+      ...(portFlag !== null ? [`--remote-debugging-port=${portFlag}`] : []),
+      `--user-data-dir=${userDataDir}`,
+    ];
+    if (options?.profileDirectory) {
+      flags.push(`--profile-directory=${options.profileDirectory}`);
+    }
+    if (options?.headless !== false) {
+      flags.unshift("--headless=new");
+    }
+    return flags;
+  };
 
-  // transport: "pipe" omits the port flag, so nothing listens on the machine.
-  // The pipe carries CDP either way — the port was only ever the *additional*
-  // door, for reconnect, --attach and the Script API.
-  const flags = [
-    ...baseFlags,
-    ...(transport === "pipe" ? [] : [`--remote-debugging-port=${port}`]),
-    `--user-data-dir=${userDataDir}`,
-  ];
-
-  if (options?.profileDirectory) {
-    flags.push(`--profile-directory=${options.profileDirectory}`);
-  }
-
-  if (options?.headless !== false) {
-    flags.unshift("--headless=new");
-  }
-
-  debug("Spawning Chrome: %s %s", chromePath, flags.join(" "));
-
-  // stdio layout: real profiles don't use pipe FDs 3/4
-  const stdioConfig: ("ignore" | "pipe")[] = isRealProfile
-    ? ["ignore", "ignore", "pipe"]
-    : ["ignore", "ignore", "pipe", "pipe", "pipe"];
-
-  const child = spawn(chromePath, flags, {
-    stdio: stdioConfig,
-  });
+  const spawnChrome = (flags: string[], stdio: ("ignore" | "pipe")[]): ChildProcess => {
+    debug("Spawning Chrome: %s %s", chromePath, flags.join(" "));
+    return spawn(chromePath, flags, { stdio });
+  };
 
   try {
-    if (isRealProfile) {
-      // WebSocket path: poll /json/version until Chrome is ready, then connect
-      const wsTransport = await pollAndConnectWebSocket(port, child, 15_000);
-      const cdpClient = new CdpClient(wsTransport);
-      await cdpClient.send("Browser.getVersion");
-      return { cdpClient, transport: wsTransport, process: child, transportType: "websocket" as TransportType };
+    if (!isRealProfile) {
+      // Temp/raw profile: CDP always over the pipe; the port is only the
+      // additional door for reconnect, --attach and the Script API.
+      const portFlag = transport === "pipe" ? null : port;
+      const child = spawnChrome(flagsFor(true, portFlag), PIPE_STDIO);
+      try {
+        const { cdpClient, transport: pipe } = await connectOverPipe(
+          child,
+          options?.startupTimeoutMs ?? PIPE_STARTUP_TIMEOUT_MS,
+        );
+        return { cdpClient, transport: pipe, process: child, transportType: "pipe", debugPort: portFlag };
+      } catch (err) {
+        child.kill();
+        throw err;
+      }
     }
 
-    // Pipe path (default for temp profiles)
-    const cdpReadable = child.stdio[4] as Readable;
-    const cdpWritable = child.stdio[3] as Writable;
-    const transport = new PipeTransport(cdpReadable, cdpWritable);
-    const cdpClient = new CdpClient(transport);
+    const startupTimeoutMs = options?.startupTimeoutMs ?? REAL_PROFILE_STARTUP_TIMEOUT_MS;
 
-    await Promise.race([
-      cdpClient.send("Browser.getVersion"),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("Chrome startup timed out after 5s")),
-          5_000,
-        ),
-      ),
-    ]);
+    // S2: real profile — pipe only, nothing listens for other local programs.
+    const pipeChild = spawnChrome(flagsFor(true, null), PIPE_STDIO);
+    try {
+      const { cdpClient, transport: pipe } = await connectOverPipe(pipeChild, startupTimeoutMs);
+      return {
+        cdpClient,
+        transport: pipe,
+        process: pipeChild,
+        transportType: "pipe",
+        wrapperDir: tmpDir,
+        debugPort: null,
+      };
+    } catch (err) {
+      // This Chrome has to go either way — and before a fallback opens the
+      // same profile a second time.
+      await terminateAndWait(pipeChild, KILL_GRACE_MS);
+      // A slow or crashed start is no refusal: a port would not help there.
+      if (!(err instanceof PipeRefusedError)) throw err;
+      if (transport === "pipe" || !tmpDir) {
+        throw new Error(
+          `Chrome refused --remote-debugging-pipe for profile "${options?.profileDirectory}" (${err.message}); `
+          + (transport === "pipe"
+            ? 'transport "pipe" rules out the port fallback.'
+            : "without a wrapper dir there is no port fallback."),
+        );
+      }
+    }
 
-    return { cdpClient, transport, process: child, transportType: "pipe" };
+    // Fallback: a random port, read back from OUR wrapper dir. Never a
+    // well-known port — 9222 may belong to another browser, and probing it
+    // would silently attach us there.
+    const wrapper = tmpDir ?? userDataDir; // tmpDir is set here (checked above)
+    rmSync(join(wrapper, "DevToolsActivePort"), { force: true });
+    const portChild = spawnChrome(flagsFor(false, 0), PORT_STDIO);
+    try {
+      const active = await waitForDevToolsActivePort(wrapper, portChild, startupTimeoutMs);
+      const wsTransport = await WebSocketTransport.connect(
+        `ws://127.0.0.1:${active.port}${active.browserPath}`,
+        { timeoutMs: 5000 },
+      );
+      const cdpClient = new CdpClient(wsTransport);
+      await cdpClient.send("Browser.getVersion");
+      const warning =
+        `Public Browser: Chrome refused --remote-debugging-pipe for profile "${options?.profileDirectory}" `
+        + "and was restarted with a random debugging port. While this Chrome runs, any local program "
+        + `can control the logged-in profile via 127.0.0.1:${active.port}.`;
+      console.error(warning);
+      return {
+        cdpClient,
+        transport: wsTransport,
+        process: portChild,
+        transportType: "websocket" as TransportType,
+        wrapperDir: tmpDir,
+        debugPort: active.port,
+        warning,
+      };
+    } catch (err) {
+      await terminateAndWait(portChild, KILL_GRACE_MS);
+      throw err;
+    }
   } catch (err) {
-    // Cleanup on failure — only delete temp directories, NEVER profile directories
-    child.kill();
+    // Cleanup on failure — only delete temp/wrapper directories, NEVER profile directories
     if (tmpDir) {
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -555,6 +695,46 @@ export const KILL_GRACE_MS = 5000;
 /** Extra budget after SIGKILL before `close()` stops waiting for the reap. */
 export const KILL_HARD_TIMEOUT_MS = 2000;
 
+/**
+ * SIGTERM, escalate to SIGKILL after `graceMs`, resolve once the process is
+ * reaped — or after `graceMs + KILL_HARD_TIMEOUT_MS`, because a process stuck
+ * in uninterruptible sleep cannot be reaped at all. The timers exist before
+ * the kill, so an exit that fires synchronously still clears them.
+ */
+function terminateAndWait(child: ChildProcess, graceMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(forceTimer);
+      clearTimeout(hardTimer);
+      child.off("exit", finish);
+      resolve();
+    };
+    const forceTimer = setTimeout(() => {
+      if (!settled) child.kill("SIGKILL");
+    }, graceMs);
+    forceTimer.unref();
+    const hardTimer = setTimeout(() => {
+      debug("ChromeConnection: child did not exit, giving up on the wait");
+      finish();
+    }, graceMs + KILL_HARD_TIMEOUT_MS);
+    hardTimer.unref();
+
+    child.once("exit", finish);
+    if (globalThis.process.platform === "win32") {
+      // H3 fix: On Windows, kill() sends taskkill — no SIGTERM/SIGKILL distinction
+      child.kill();
+    } else {
+      child.kill("SIGTERM");
+    }
+  });
+}
+
 export class ChromeConnection {
   public status: ConnectionStatus = "connected";
   /**
@@ -562,6 +742,14 @@ export class ChromeConnection {
    * shorten it; nothing in production changes it.
    */
   public killGraceMs = KILL_GRACE_MS;
+  /**
+   * Port this Chrome listens on for CDP, `null` when it runs over the pipe
+   * only (S2). ChromeLauncher sets it after a launch; otherwise it is the port
+   * the connection was made on.
+   */
+  public debugPort: number | null;
+  /** One-time warning for the model from the launch (S2 port fallback). */
+  public launchWarning: string | undefined;
 
   private _exitHandler: (() => void) | null = null;
   private _closed = false;
@@ -606,6 +794,7 @@ export class ChromeConnection {
     this._autoReconnect = autoReconnect ?? true;
     this._stealth = stealth ?? true;
     this._host = host ?? DEFAULT_CDP_HOST;
+    this.debugPort = this._port;
 
     // C1 fix: Passive status tracking via CdpClient.onClose —
     // detects unexpected transport close (WebSocket drop, pipe break)
@@ -790,43 +979,8 @@ export class ChromeConnection {
    */
   private _terminateChildProcess(): Promise<void> {
     const child = this._childProcess;
-    if (!child || child.exitCode !== null || child.signalCode !== null) {
-      return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(forceTimer);
-        clearTimeout(hardTimer);
-        child.off("exit", finish);
-        resolve();
-      };
-
-      child.once("exit", finish);
-
-      if (globalThis.process.platform === "win32") {
-        // H3 fix: On Windows, kill() sends taskkill — no SIGTERM/SIGKILL distinction
-        child.kill();
-      } else {
-        child.kill("SIGTERM");
-      }
-
-      const forceTimer = setTimeout(() => {
-        if (!settled) child.kill("SIGKILL");
-      }, this.killGraceMs);
-      forceTimer.unref();
-
-      // Last resort: a process stuck in uninterruptible sleep cannot be
-      // reaped at all. Resolving is better than never returning from close().
-      const hardTimer = setTimeout(() => {
-        debug("ChromeConnection: child did not exit, giving up on the wait");
-        finish();
-      }, this.killGraceMs + KILL_HARD_TIMEOUT_MS);
-      hardTimer.unref();
-    });
+    if (!child) return Promise.resolve();
+    return terminateAndWait(child, this.killGraceMs);
   }
 
   /** Register onClose callback on a CdpClient to trigger reconnect on unexpected disconnect.
@@ -881,6 +1035,11 @@ export class ChromeLauncher {
   private readonly _autoReconnect: boolean;
   private readonly _stealth: boolean;
   private readonly _host: string;
+  /**
+   * Debugging port of the Chrome this launcher started last: `null` = pipe
+   * only, `undefined` = none started yet (then the configured port applies).
+   */
+  private _launchedDebugPort: number | null | undefined;
 
   constructor(options?: ChromeConnectionOptions) {
     this._port = options?.port ?? 9222;
@@ -904,16 +1063,27 @@ export class ChromeLauncher {
    * (statt eine frische zu launchen und damit die User-Session zu verlieren).
    */
   async connectToExistingChrome(): Promise<ChromeConnection> {
-    debug("Trying WebSocket-only on %s:%d...", this._host, this._port);
-    return this._connectViaWebSocket(this._port);
+    // S2: a Chrome we launched over the pipe has no port. Probing one anyway
+    // could only find somebody else's browser — and silently continue there.
+    if (this._launchedDebugPort === null) {
+      throw new Error(
+        "The Chrome this session launched has no debugging port (pipe only) — there is nothing to reconnect to.",
+      );
+    }
+    // After the real-profile fallback Chrome listens on a random port, not ours.
+    const port = this._launchedDebugPort ?? this._port;
+    debug("Trying WebSocket-only on %s:%d...", this._host, port);
+    return this._connectViaWebSocket(port);
   }
 
   async connect(): Promise<ChromeConnection> {
-    // transport: "pipe" — there is no endpoint to discover, by design. Skip
-    // straight to launching our own Chrome; probing a port here would either
-    // waste a timeout or, worse, attach us to somebody else's browser.
+    // No endpoint to discover: transport "pipe" by design, and an auto-launched
+    // real profile since S2. Skip straight to launching our own Chrome; probing
+    // a port here would either waste a timeout or, worse, attach us to
+    // somebody else's browser.
     let wsError: Error | undefined;
-    if (this._transport === "pipe") {
+    const skipProbe = this._transport === "pipe" || (this._isRealProfile && this._autoLaunch);
+    if (skipProbe) {
       if (!this._autoLaunch) {
         throw new Error(
           'transport: "pipe" cannot attach to an existing Chrome — the pipe belongs to '
@@ -949,9 +1119,13 @@ export class ChromeLauncher {
       transport: this._transport,
     });
 
-    // Extract tmpDir from the spawn args — only for temp profiles (no profilePath)
-    let tmpDir: string | undefined;
-    if (!this._profilePath) {
+    this._launchedDebugPort = result.debugPort;
+
+    // Temp profiles: the dir from the spawn args. Real profiles: the wrapper
+    // dir, which only holds a symlink to the profile — removing it after
+    // Chrome exits leaves the profile untouched (fs.rm does not follow it).
+    let tmpDir: string | undefined = result.wrapperDir;
+    if (!tmpDir && !this._profilePath) {
       const tmpDirFlag = result.process.spawnargs.find((a) =>
         a.startsWith("--user-data-dir="),
       );
@@ -965,16 +1139,20 @@ export class ChromeLauncher {
       result.process,
       tmpDir,
       this,
-      this._port,
+      // The port Chrome really listens on (random after the real-profile
+      // fallback) — the configured one could belong to another browser.
+      result.debugPort ?? this._port,
       this._headless,
       this._profilePath,
-      // A pipe cannot be re-opened: the reconnect path rediscovers Chrome over
-      // the port, and with transport "pipe" there is none. A lost pipe means a
-      // lost session — surfacing that beats retrying against nothing.
-      this._transport === "pipe" ? false : this._autoReconnect,
+      // Without a port there is nothing to reconnect to: the reconnect path
+      // rediscovers Chrome over the port. A lost pipe means a lost session —
+      // surfacing that beats retrying against nothing.
+      result.debugPort !== null ? this._autoReconnect : false,
       this._stealth,
       this._host,
     );
+    connection.debugPort = result.debugPort;
+    connection.launchWarning = result.warning;
 
     debug("Connected via %s", result.transportType);
     return connection;
