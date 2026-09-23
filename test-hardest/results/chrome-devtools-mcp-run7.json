@@ -1,0 +1,1593 @@
+{
+  "name": "Chrome DevTools MCP",
+  "slug": "chrome-devtools-mcp",
+  "type": "mcp-llm",
+  "mcp_package": "chrome-devtools-mcp",
+  "mcp_version": "1.9.0",
+  "snapshot_tool": "take_snapshot",
+  "mcp_server_info": {
+    "name": "chrome_devtools",
+    "version": "1.9.0",
+    "instructions": null
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "153.0.8010.53",
+  "session_id": "cc81275b-04f3-499f-8591-2d0f596171ac",
+  "timestamp": "2026-09-23T12:15:47.423Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true,
+    "test_ids": [
+      "T1.1",
+      "T1.2",
+      "T1.3",
+      "T1.4",
+      "T1.5",
+      "T1.6",
+      "T2.1",
+      "T2.2",
+      "T2.3",
+      "T2.4",
+      "T2.5",
+      "T2.6",
+      "T3.1",
+      "T3.2",
+      "T3.3",
+      "T3.4",
+      "T3.5",
+      "T3.6",
+      "T4.1",
+      "T4.2",
+      "T4.3",
+      "T4.4",
+      "T4.5",
+      "T4.6",
+      "T4.7",
+      "T5.1",
+      "T5.2",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6",
+      "T5.7",
+      "T5.8",
+      "T5.9",
+      "T5.10"
+    ]
+  },
+  "harness": {
+    "mode": "blind-print",
+    "kind": "mcp",
+    "status": "ok",
+    "complete": true,
+    "headless": false,
+    "headless_requested": false,
+    "browser_binaries": [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    ],
+    "browser_non_chrome": [],
+    "local_build": false,
+    "git_head": null,
+    "git_dirty": null,
+    "claude_code_version": "2.1.280",
+    "os": "darwin 27.0.0",
+    "node": "v22.14.0",
+    "profile_isolation": "--isolated (temp user-data-dir)",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-chrome-devtools-mcp-20260923-1215-A3X3MD/mcp.json --permission-mode dontAsk --allowedTools Write mcp__chrome-devtools --tools Write --max-turns 600",
+    "allowed_tools_form": "plain",
+    "chrome_version_source": "applications-binary",
+    "wall_clock_s": 548,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 183,
+    "run_dir": "/tmp/bench-chrome-devtools-mcp-20260923-1215-A3X3MD",
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    },
+    "session_jsonl_sha256": "c349e5601bc4504c5ac5c448b9536838cb0045a2616afd85233ca5206e1da6ad",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "mcp__chrome-devtools__new_page",
+        "chars": 134,
+        "ms": 1095
+      },
+      {
+        "i": 2,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 5038,
+        "ms": 24
+      },
+      {
+        "i": 3,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 236
+      },
+      {
+        "i": 4,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 232
+      },
+      {
+        "i": 5,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 228
+      },
+      {
+        "i": 6,
+        "tool": "mcp__chrome-devtools__fill_form",
+        "chars": 59,
+        "ms": 1430
+      },
+      {
+        "i": 7,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 258
+      },
+      {
+        "i": 8,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 332
+      },
+      {
+        "i": 9,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 240
+      },
+      {
+        "i": 10,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 226
+      },
+      {
+        "i": 11,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 238
+      },
+      {
+        "i": 12,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 231
+      },
+      {
+        "i": 13,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 128,
+        "ms": 242
+      },
+      {
+        "i": 14,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 127,
+        "ms": 225
+      },
+      {
+        "i": 15,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 128,
+        "ms": 231
+      },
+      {
+        "i": 16,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 231
+      },
+      {
+        "i": 17,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 252
+      },
+      {
+        "i": 18,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 5704,
+        "ms": 249
+      },
+      {
+        "i": 19,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 5686,
+        "ms": 236
+      },
+      {
+        "i": 20,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 5611,
+        "ms": 18
+      },
+      {
+        "i": 21,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 238
+      },
+      {
+        "i": 22,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 299,
+        "ms": 106
+      },
+      {
+        "i": 23,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 528,
+        "ms": 108
+      },
+      {
+        "i": 24,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 95,
+        "ms": 108
+      },
+      {
+        "i": 25,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 101,
+        "ms": 209
+      },
+      {
+        "i": 26,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 4343,
+        "ms": 15
+      },
+      {
+        "i": 27,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 237
+      },
+      {
+        "i": 28,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 259,
+        "ms": 2814
+      },
+      {
+        "i": 29,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 4446,
+        "ms": 16
+      },
+      {
+        "i": 30,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 227
+      },
+      {
+        "i": 31,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 229
+      },
+      {
+        "i": 32,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 442,
+        "ms": 111
+      },
+      {
+        "i": 33,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 105,
+        "ms": 713
+      },
+      {
+        "i": 34,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 235
+      },
+      {
+        "i": 35,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 1641,
+        "ms": 109
+      },
+      {
+        "i": 36,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 409,
+        "ms": 112
+      },
+      {
+        "i": 37,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 114,
+        "ms": 29
+      },
+      {
+        "i": 38,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 186,
+        "ms": 114
+      },
+      {
+        "i": 39,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 347,
+        "ms": 108
+      },
+      {
+        "i": 40,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 368,
+        "ms": 109
+      },
+      {
+        "i": 41,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 81,
+        "ms": 210
+      },
+      {
+        "i": 42,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 230
+      },
+      {
+        "i": 43,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 93,
+        "ms": 106
+      },
+      {
+        "i": 44,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 1866,
+        "ms": 209
+      },
+      {
+        "i": 45,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 237
+      },
+      {
+        "i": 46,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 231
+      },
+      {
+        "i": 47,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 466,
+        "ms": 108
+      },
+      {
+        "i": 48,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 115,
+        "ms": 24
+      },
+      {
+        "i": 49,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 5663,
+        "ms": 21
+      },
+      {
+        "i": 50,
+        "tool": "mcp__chrome-devtools__fill_form",
+        "chars": 59,
+        "ms": 448
+      },
+      {
+        "i": 51,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 233
+      },
+      {
+        "i": 52,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 177,
+        "ms": 213
+      },
+      {
+        "i": 53,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 5624,
+        "ms": 20
+      },
+      {
+        "i": 54,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 238
+      },
+      {
+        "i": 55,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 1212,
+        "ms": 259
+      },
+      {
+        "i": 56,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 232
+      },
+      {
+        "i": 57,
+        "tool": "mcp__chrome-devtools__type_text",
+        "chars": 46,
+        "ms": 214
+      },
+      {
+        "i": 58,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 255,
+        "ms": 110
+      },
+      {
+        "i": 59,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 5680,
+        "ms": 17
+      },
+      {
+        "i": 60,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 243
+      },
+      {
+        "i": 61,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 140,
+        "ms": 107
+      },
+      {
+        "i": 62,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 302
+      },
+      {
+        "i": 63,
+        "tool": "mcp__chrome-devtools__list_pages",
+        "chars": 212,
+        "ms": 11
+      },
+      {
+        "i": 64,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 273,
+        "ms": 109
+      },
+      {
+        "i": 65,
+        "tool": "mcp__chrome-devtools__close_page",
+        "chars": 145,
+        "ms": 27
+      },
+      {
+        "i": 66,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 247
+      },
+      {
+        "i": 67,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 237
+      },
+      {
+        "i": 68,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 1106,
+        "ms": 213
+      },
+      {
+        "i": 69,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 450,
+        "ms": 106
+      },
+      {
+        "i": 70,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 235
+      },
+      {
+        "i": 71,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 212,
+        "ms": 109
+      },
+      {
+        "i": 72,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 246
+      },
+      {
+        "i": 73,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 212,
+        "ms": 110
+      },
+      {
+        "i": 74,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 231
+      },
+      {
+        "i": 75,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 236
+      },
+      {
+        "i": 76,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 93,
+        "ms": 222
+      },
+      {
+        "i": 77,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 3796,
+        "ms": 18
+      },
+      {
+        "i": 78,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 411,
+        "ms": 107
+      },
+      {
+        "i": 79,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 243
+      },
+      {
+        "i": 80,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 278
+      },
+      {
+        "i": 81,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 231
+      },
+      {
+        "i": 82,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 237
+      },
+      {
+        "i": 83,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 232
+      },
+      {
+        "i": 84,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 233
+      },
+      {
+        "i": 85,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 1166,
+        "ms": 111
+      },
+      {
+        "i": 86,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 502,
+        "ms": 110
+      },
+      {
+        "i": 87,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 106,
+        "ms": 210
+      },
+      {
+        "i": 88,
+        "tool": "mcp__chrome-devtools__drag",
+        "chars": 58,
+        "ms": 325
+      },
+      {
+        "i": 89,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 106,
+        "ms": 110
+      },
+      {
+        "i": 90,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 3936,
+        "ms": 22
+      },
+      {
+        "i": 91,
+        "tool": "mcp__chrome-devtools__drag",
+        "chars": 58,
+        "ms": 325
+      },
+      {
+        "i": 92,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 106,
+        "ms": 106
+      },
+      {
+        "i": 93,
+        "tool": "mcp__chrome-devtools__drag",
+        "chars": 58,
+        "ms": 393
+      },
+      {
+        "i": 94,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 106,
+        "ms": 106
+      },
+      {
+        "i": 95,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 233
+      },
+      {
+        "i": 96,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 611,
+        "ms": 209
+      },
+      {
+        "i": 97,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 901,
+        "ms": 106
+      },
+      {
+        "i": 98,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 238,
+        "ms": 146
+      },
+      {
+        "i": 99,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 276,
+        "ms": 155
+      },
+      {
+        "i": 100,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 210,
+        "ms": 111
+      },
+      {
+        "i": 101,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 106,
+        "ms": 209
+      },
+      {
+        "i": 102,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 81,
+        "ms": 209
+      },
+      {
+        "i": 103,
+        "tool": "mcp__chrome-devtools__press_key",
+        "chars": 62,
+        "ms": 209
+      },
+      {
+        "i": 104,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 277,
+        "ms": 106
+      },
+      {
+        "i": 105,
+        "tool": "mcp__chrome-devtools__press_key",
+        "chars": 59,
+        "ms": 216
+      },
+      {
+        "i": 106,
+        "tool": "mcp__chrome-devtools__press_key",
+        "chars": 58,
+        "ms": 295
+      },
+      {
+        "i": 107,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 1386,
+        "ms": 219
+      },
+      {
+        "i": 108,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 4098,
+        "ms": 17
+      },
+      {
+        "i": 109,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 231
+      },
+      {
+        "i": 110,
+        "tool": "mcp__chrome-devtools__type_text",
+        "chars": 48,
+        "ms": 214
+      },
+      {
+        "i": 111,
+        "tool": "mcp__chrome-devtools__press_key",
+        "chars": 62,
+        "ms": 208
+      },
+      {
+        "i": 112,
+        "tool": "mcp__chrome-devtools__type_text",
+        "chars": 47,
+        "ms": 211
+      },
+      {
+        "i": 113,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 90,
+        "ms": 106
+      },
+      {
+        "i": 114,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 84,
+        "ms": 108
+      },
+      {
+        "i": 115,
+        "tool": "mcp__chrome-devtools__press_key",
+        "chars": 59,
+        "ms": 211
+      },
+      {
+        "i": 116,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 97,
+        "ms": 106
+      },
+      {
+        "i": 117,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 231
+      },
+      {
+        "i": 118,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 83,
+        "ms": 208
+      },
+      {
+        "i": 119,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 4045,
+        "ms": 46
+      },
+      {
+        "i": 120,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 231
+      },
+      {
+        "i": 121,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 199,
+        "ms": 218
+      },
+      {
+        "i": 122,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 4101,
+        "ms": 17
+      },
+      {
+        "i": 123,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 305
+      },
+      {
+        "i": 124,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 100,
+        "ms": 111
+      },
+      {
+        "i": 125,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 254,
+        "ms": 7
+      },
+      {
+        "i": 126,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 1031,
+        "ms": 108
+      },
+      {
+        "i": 127,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 238
+      },
+      {
+        "i": 128,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 108,
+        "ms": 1684
+      },
+      {
+        "i": 129,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 333
+      },
+      {
+        "i": 130,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 94,
+        "ms": 115
+      },
+      {
+        "i": 131,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 236
+      },
+      {
+        "i": 132,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 234
+      },
+      {
+        "i": 133,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 99,
+        "ms": 106
+      },
+      {
+        "i": 134,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 109,
+        "ms": 208
+      },
+      {
+        "i": 135,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 234
+      },
+      {
+        "i": 136,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 239
+      },
+      {
+        "i": 137,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 247
+      },
+      {
+        "i": 138,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 227
+      },
+      {
+        "i": 139,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 107,
+        "ms": 106
+      },
+      {
+        "i": 140,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 857,
+        "ms": 108
+      },
+      {
+        "i": 141,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 226
+      },
+      {
+        "i": 142,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 77,
+        "ms": 3814
+      },
+      {
+        "i": 143,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 84,
+        "ms": 109
+      },
+      {
+        "i": 144,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 251
+      },
+      {
+        "i": 145,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 112,
+        "ms": 3717
+      },
+      {
+        "i": 146,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 258
+      },
+      {
+        "i": 147,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 247
+      },
+      {
+        "i": 148,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 109,
+        "ms": 113
+      },
+      {
+        "i": 149,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 244
+      },
+      {
+        "i": 150,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 1411,
+        "ms": 763
+      },
+      {
+        "i": 151,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 101,
+        "ms": 111
+      },
+      {
+        "i": 152,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 5131,
+        "ms": 14
+      },
+      {
+        "i": 153,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 1190,
+        "ms": 106
+      },
+      {
+        "i": 154,
+        "tool": "mcp__chrome-devtools__fill_form",
+        "chars": 59,
+        "ms": 676
+      },
+      {
+        "i": 155,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 239
+      },
+      {
+        "i": 156,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 117,
+        "ms": 110
+      },
+      {
+        "i": 157,
+        "tool": "mcp__chrome-devtools__fill",
+        "chars": 62,
+        "ms": 248
+      },
+      {
+        "i": 158,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 237
+      },
+      {
+        "i": 159,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 122,
+        "ms": 261
+      },
+      {
+        "i": 160,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 4747,
+        "ms": 28
+      },
+      {
+        "i": 161,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 237
+      },
+      {
+        "i": 162,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 300,
+        "ms": 111
+      },
+      {
+        "i": 163,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 305
+      },
+      {
+        "i": 164,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 352,
+        "ms": 107
+      },
+      {
+        "i": 165,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 3019,
+        "ms": 105
+      },
+      {
+        "i": 166,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 5271,
+        "ms": 254
+      },
+      {
+        "i": 167,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 233
+      },
+      {
+        "i": 168,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 182,
+        "ms": 108
+      },
+      {
+        "i": 169,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 255
+      },
+      {
+        "i": 170,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 191,
+        "ms": 114
+      },
+      {
+        "i": 171,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 238
+      },
+      {
+        "i": 172,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 111,
+        "ms": 112
+      },
+      {
+        "i": 173,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 5818,
+        "ms": 261
+      },
+      {
+        "i": 174,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 328
+      },
+      {
+        "i": 175,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 168,
+        "ms": 107
+      },
+      {
+        "i": 176,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 226
+      },
+      {
+        "i": 177,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 168,
+        "ms": 213
+      },
+      {
+        "i": 178,
+        "tool": "mcp__chrome-devtools__take_snapshot",
+        "chars": 6446,
+        "ms": 32
+      },
+      {
+        "i": 179,
+        "tool": "mcp__chrome-devtools__click",
+        "chars": 62,
+        "ms": 264
+      },
+      {
+        "i": 180,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 81,
+        "ms": 111
+      },
+      {
+        "i": 181,
+        "tool": "mcp__chrome-devtools__evaluate_script",
+        "chars": 5675,
+        "ms": 108
+      }
+    ]
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 29,
+    "failed": 1,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 96.7,
+    "duration_s": 510
+  },
+  "tokens": {
+    "start": 0,
+    "end": 14606785,
+    "delta": 14606785
+  },
+  "cost_usd_list": 7.292776999999998,
+  "mqs": {
+    "score": 53,
+    "token_score": 64.5,
+    "reliability_score": 51.7,
+    "call_score": 33.4,
+    "speed_score": 55.2,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": null,
+  "tool_efficiency": {
+    "calls_total": 181,
+    "response_chars_total": 135996,
+    "avg_response_chars": 751,
+    "p50_response_chars": 95,
+    "p95_response_chars": 5271,
+    "p50_ms": 218,
+    "p95_ms": 448,
+    "avg_response_tokens_est": 187,
+    "total_tokens_est": 61207,
+    "avg_tokens_est": 338,
+    "avg_ms": 261,
+    "total_ms": 47382,
+    "total_output_tokens": 27288,
+    "avg_output_tokens": 150,
+    "cache_read_tokens_total": 10997899,
+    "cache_creation_tokens_total": 97543,
+    "fresh_input_tokens_total": 364,
+    "cache_hit_rate": 99.11,
+    "by_tool": [
+      {
+        "name": "mcp__chrome-devtools__evaluate_script",
+        "count": 74,
+        "total_chars": 33476,
+        "avg_chars": 452,
+        "p95_chars": 1386,
+        "max_chars": 5675,
+        "avg_ms": 298,
+        "p50_ms": 110,
+        "p95_ms": 713,
+        "max_ms": 3814,
+        "total_ms": 22078,
+        "avg_output_tokens": 212,
+        "total_output_tokens": 15760,
+        "avg_total_tokens_est": 325,
+        "total_total_tokens_est": 24101
+      },
+      {
+        "name": "mcp__chrome-devtools__click",
+        "count": 61,
+        "total_chars": 26210,
+        "avg_chars": 429,
+        "p95_chars": 5271,
+        "max_chars": 5818,
+        "avg_ms": 245,
+        "p50_ms": 237,
+        "p95_ms": 305,
+        "max_ms": 333,
+        "total_ms": 14967,
+        "avg_output_tokens": 102,
+        "total_output_tokens": 6266,
+        "avg_total_tokens_est": 209,
+        "total_total_tokens_est": 12789
+      },
+      {
+        "name": "mcp__chrome-devtools__take_snapshot",
+        "count": 18,
+        "total_chars": 74345,
+        "avg_chars": 4130,
+        "p95_chars": 5680,
+        "max_chars": 6446,
+        "avg_ms": 63,
+        "p50_ms": 20,
+        "p95_ms": 46,
+        "max_ms": 763,
+        "total_ms": 1141,
+        "avg_output_tokens": 113,
+        "total_output_tokens": 2051,
+        "avg_total_tokens_est": 1146,
+        "total_total_tokens_est": 20629
+      },
+      {
+        "name": "mcp__chrome-devtools__fill",
+        "count": 11,
+        "total_chars": 682,
+        "avg_chars": 62,
+        "p95_chars": 62,
+        "max_chars": 62,
+        "avg_ms": 244,
+        "p50_ms": 247,
+        "p95_ms": 258,
+        "max_ms": 278,
+        "total_ms": 2688,
+        "avg_output_tokens": 119,
+        "total_output_tokens": 1319,
+        "avg_total_tokens_est": 134,
+        "total_total_tokens_est": 1484
+      },
+      {
+        "name": "mcp__chrome-devtools__press_key",
+        "count": 5,
+        "total_chars": 300,
+        "avg_chars": 60,
+        "p95_chars": 62,
+        "max_chars": 62,
+        "avg_ms": 227,
+        "p50_ms": 211,
+        "p95_ms": 216,
+        "max_ms": 295,
+        "total_ms": 1139,
+        "avg_output_tokens": 84,
+        "total_output_tokens": 424,
+        "avg_total_tokens_est": 99,
+        "total_total_tokens_est": 496
+      },
+      {
+        "name": "mcp__chrome-devtools__drag",
+        "count": 3,
+        "total_chars": 174,
+        "avg_chars": 58,
+        "p95_chars": 58,
+        "max_chars": 58,
+        "avg_ms": 347,
+        "p50_ms": 325,
+        "p95_ms": 325,
+        "max_ms": 393,
+        "total_ms": 1043,
+        "avg_output_tokens": 180,
+        "total_output_tokens": 541,
+        "avg_total_tokens_est": 194,
+        "total_total_tokens_est": 583
+      },
+      {
+        "name": "mcp__chrome-devtools__fill_form",
+        "count": 3,
+        "total_chars": 177,
+        "avg_chars": 59,
+        "p95_chars": 59,
+        "max_chars": 59,
+        "avg_ms": 851,
+        "p50_ms": 676,
+        "p95_ms": 676,
+        "max_ms": 1430,
+        "total_ms": 2554,
+        "avg_output_tokens": 164,
+        "total_output_tokens": 494,
+        "avg_total_tokens_est": 178,
+        "total_total_tokens_est": 536
+      },
+      {
+        "name": "mcp__chrome-devtools__type_text",
+        "count": 3,
+        "total_chars": 141,
+        "avg_chars": 47,
+        "p95_chars": 47,
+        "max_chars": 48,
+        "avg_ms": 213,
+        "p50_ms": 214,
+        "p95_ms": 214,
+        "max_ms": 214,
+        "total_ms": 639,
+        "avg_output_tokens": 83,
+        "total_output_tokens": 249,
+        "avg_total_tokens_est": 94,
+        "total_total_tokens_est": 283
+      },
+      {
+        "name": "mcp__chrome-devtools__close_page",
+        "count": 1,
+        "total_chars": 145,
+        "avg_chars": 145,
+        "p95_chars": 145,
+        "max_chars": 145,
+        "avg_ms": 27,
+        "p50_ms": 27,
+        "p95_ms": 27,
+        "max_ms": 27,
+        "total_ms": 27,
+        "avg_output_tokens": 61,
+        "total_output_tokens": 61,
+        "avg_total_tokens_est": 97,
+        "total_total_tokens_est": 97
+      },
+      {
+        "name": "mcp__chrome-devtools__list_pages",
+        "count": 1,
+        "total_chars": 212,
+        "avg_chars": 212,
+        "p95_chars": 212,
+        "max_chars": 212,
+        "avg_ms": 11,
+        "p50_ms": 11,
+        "p95_ms": 11,
+        "max_ms": 11,
+        "total_ms": 11,
+        "avg_output_tokens": 39,
+        "total_output_tokens": 39,
+        "avg_total_tokens_est": 92,
+        "total_total_tokens_est": 92
+      },
+      {
+        "name": "mcp__chrome-devtools__new_page",
+        "count": 1,
+        "total_chars": 134,
+        "avg_chars": 134,
+        "p95_chars": 134,
+        "max_chars": 134,
+        "avg_ms": 1095,
+        "p50_ms": 1095,
+        "p95_ms": 1095,
+        "max_ms": 1095,
+        "total_ms": 1095,
+        "avg_output_tokens": 84,
+        "total_output_tokens": 84,
+        "avg_total_tokens_est": 117,
+        "total_total_tokens_est": 117
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 1,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 4111,
+      "details": "Correct: BXK0-NDE3"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 6468,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 10936,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 8784,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 5009,
+      "details": "Correct sum: 272"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 38407,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 41279,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 31068,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 14552,
+      "details": "Java selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 14832,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 21874,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 13834,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 11924,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 1,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 27317,
+      "details": "Hit! Distance: 0.5px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 12489,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 27920,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 15093,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 19037,
+      "details": "Captured at exactly 9!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 9618,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 16139,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 34936,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 30470,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 6982,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "fail",
+      "duration_ms": 5459,
+      "details": "navigator.webdriver: EXPOSED (true), chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 12324,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 3025,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 5790,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 6430,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 29,
+    "failed": 1
+  },
+  "notes": "",
+  "run_file": "chrome-devtools-mcp-run7.json"
+}

@@ -1,0 +1,1007 @@
+{
+  "name": "Playwright CLI",
+  "slug": "playwright-cli",
+  "type": "mcp-llm",
+  "mcp_package": "@playwright/cli",
+  "mcp_version": "0.1.21",
+  "snapshot_tool": "snapshot",
+  "mcp_server_info": {
+    "name": "playwright-cli",
+    "version": "0.1.21",
+    "instructions": null,
+    "skill_file": "/tmp/bench-clitools/node_modules/@playwright/cli/skills/playwright-cli/SKILL.md",
+    "skill_sha256": "85ef187460f776a4e9b44ffbf4a0293e5585d4192d0858c23fb011c72784f347",
+    "skill_chars": 15173
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "153.0.8010.53",
+  "session_id": "517e424d-4d82-4950-873b-435fb70d9485",
+  "timestamp": "2026-09-23T11:54:05.570Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true,
+    "test_ids": [
+      "T1.1",
+      "T1.2",
+      "T1.3",
+      "T1.4",
+      "T1.5",
+      "T1.6",
+      "T2.1",
+      "T2.2",
+      "T2.3",
+      "T2.4",
+      "T2.5",
+      "T2.6",
+      "T3.1",
+      "T3.2",
+      "T3.3",
+      "T3.4",
+      "T3.5",
+      "T3.6",
+      "T4.1",
+      "T4.2",
+      "T4.3",
+      "T4.4",
+      "T4.5",
+      "T4.6",
+      "T4.7",
+      "T5.1",
+      "T5.2",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6",
+      "T5.7",
+      "T5.8",
+      "T5.9",
+      "T5.10"
+    ]
+  },
+  "harness": {
+    "mode": "blind-print",
+    "kind": "cli",
+    "status": "ok",
+    "complete": true,
+    "headless": false,
+    "headless_requested": false,
+    "browser_binaries": [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    ],
+    "browser_non_chrome": [],
+    "local_build": false,
+    "git_head": null,
+    "git_dirty": null,
+    "claude_code_version": "2.1.280",
+    "os": "darwin 27.0.0",
+    "node": "v22.14.0",
+    "profile_isolation": "isolated in-memory profile, channel chrome, headed (.playwright/cli.config.json in the run dir)",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-playwright-cli-20260923-1154-pYMbh1/mcp.json --permission-mode dontAsk --allowedTools Bash(playwright-cli:*) Write --tools Bash,Write --settings {\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"\\\"/Users/silbercue/.nvm/versions/node/v22.14.0/bin/node\\\" \\\"/Users/silbercue/Documents/Cursor/Skills/SilbercueChrome/test-hardest/cli-guard.mjs\\\" playwright-cli\"}]}]}} --append-system-prompt-file /tmp/bench-playwright-cli-20260923-1154-pYMbh1/skill.md --max-turns 600",
+    "allowed_tools_form": "plain",
+    "chrome_version_source": "applications-binary",
+    "wall_clock_s": 454,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 99,
+    "run_dir": "/tmp/bench-playwright-cli-20260923-1154-pYMbh1",
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    },
+    "session_jsonl_sha256": "9c72d1f5457181e514d259310641c5fa6166cb434fcc1eae165cd4b4c7bf6eca",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "cli__playwright-cli__open",
+        "chars": 376,
+        "ms": 2166
+      },
+      {
+        "i": 2,
+        "tool": "cli__playwright-cli__snapshot",
+        "chars": 5826,
+        "ms": 271
+      },
+      {
+        "i": 3,
+        "tool": "cli__playwright-cli__click",
+        "chars": 63,
+        "ms": 816
+      },
+      {
+        "i": 4,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 303,
+        "ms": 782
+      },
+      {
+        "i": 5,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1466,
+        "ms": 763
+      },
+      {
+        "i": 6,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 63,
+        "ms": 990
+      },
+      {
+        "i": 7,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 43,
+        "ms": 760
+      },
+      {
+        "i": 8,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 2243,
+        "ms": 959
+      },
+      {
+        "i": 9,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 129,
+        "ms": 2097
+      },
+      {
+        "i": 10,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 36,
+        "ms": 759
+      },
+      {
+        "i": 11,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 319,
+        "ms": 3701
+      },
+      {
+        "i": 12,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 6,
+        "ms": 762
+      },
+      {
+        "i": 13,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 262,
+        "ms": 3750
+      },
+      {
+        "i": 14,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 120,
+        "ms": 768
+      },
+      {
+        "i": 15,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1740
+      },
+      {
+        "i": 16,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 6007,
+        "ms": 1815
+      },
+      {
+        "i": 17,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 66,
+        "ms": 4016
+      },
+      {
+        "i": 18,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 170,
+        "ms": 769
+      },
+      {
+        "i": 19,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1719
+      },
+      {
+        "i": 20,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 961,
+        "ms": 764
+      },
+      {
+        "i": 21,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 2,
+        "ms": 1081
+      },
+      {
+        "i": 22,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 207,
+        "ms": 259
+      },
+      {
+        "i": 23,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 75,
+        "ms": 2245
+      },
+      {
+        "i": 24,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 275,
+        "ms": 2228
+      },
+      {
+        "i": 25,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1606,
+        "ms": 778
+      },
+      {
+        "i": 26,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 367,
+        "ms": 1943
+      },
+      {
+        "i": 27,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1507
+      },
+      {
+        "i": 28,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 642,
+        "ms": 1004
+      },
+      {
+        "i": 29,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 79,
+        "ms": 1522
+      },
+      {
+        "i": 30,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 238,
+        "ms": 1195
+      },
+      {
+        "i": 31,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 352,
+        "ms": 975
+      },
+      {
+        "i": 32,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 169,
+        "ms": 1181
+      },
+      {
+        "i": 33,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 448,
+        "ms": 772
+      },
+      {
+        "i": 34,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 107,
+        "ms": 2218
+      },
+      {
+        "i": 35,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 393,
+        "ms": 982
+      },
+      {
+        "i": 36,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 280,
+        "ms": 2278
+      },
+      {
+        "i": 37,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1732
+      },
+      {
+        "i": 38,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 980,
+        "ms": 1586
+      },
+      {
+        "i": 39,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 671,
+        "ms": 770
+      },
+      {
+        "i": 40,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 344,
+        "ms": 755
+      },
+      {
+        "i": 41,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 162,
+        "ms": 2434
+      },
+      {
+        "i": 42,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 917,
+        "ms": 771
+      },
+      {
+        "i": 43,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 365,
+        "ms": 808
+      },
+      {
+        "i": 44,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 14,
+        "ms": 769
+      },
+      {
+        "i": 45,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1725
+      },
+      {
+        "i": 46,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1332,
+        "ms": 1506
+      },
+      {
+        "i": 47,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 369,
+        "ms": 1005
+      },
+      {
+        "i": 48,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 75,
+        "ms": 1586
+      },
+      {
+        "i": 49,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 75,
+        "ms": 1572
+      },
+      {
+        "i": 50,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 75,
+        "ms": 1553
+      },
+      {
+        "i": 51,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1495
+      },
+      {
+        "i": 52,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 458,
+        "ms": 1506
+      },
+      {
+        "i": 53,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1583,
+        "ms": 764
+      },
+      {
+        "i": 54,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 143,
+        "ms": 801
+      },
+      {
+        "i": 55,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 48,
+        "ms": 841
+      },
+      {
+        "i": 56,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 29,
+        "ms": 1374
+      },
+      {
+        "i": 57,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 85,
+        "ms": 783
+      },
+      {
+        "i": 58,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 971,
+        "ms": 807
+      },
+      {
+        "i": 59,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1885
+      },
+      {
+        "i": 60,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1192,
+        "ms": 1466
+      },
+      {
+        "i": 61,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 87,
+        "ms": 2170
+      },
+      {
+        "i": 62,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1588
+      },
+      {
+        "i": 63,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1320,
+        "ms": 2343
+      },
+      {
+        "i": 64,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 866,
+        "ms": 779
+      },
+      {
+        "i": 65,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 71,
+        "ms": 3543
+      },
+      {
+        "i": 66,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1551
+      },
+      {
+        "i": 67,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 429,
+        "ms": 284
+      },
+      {
+        "i": 68,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 943,
+        "ms": 810
+      },
+      {
+        "i": 69,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 73,
+        "ms": 4866
+      },
+      {
+        "i": 70,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 31,
+        "ms": 791
+      },
+      {
+        "i": 71,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 81,
+        "ms": 1827
+      },
+      {
+        "i": 72,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 70,
+        "ms": 1966
+      },
+      {
+        "i": 73,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1400,
+        "ms": 782
+      },
+      {
+        "i": 74,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 156,
+        "ms": 3064
+      },
+      {
+        "i": 75,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 94,
+        "ms": 1925
+      },
+      {
+        "i": 76,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 346,
+        "ms": 789
+      },
+      {
+        "i": 77,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 25,
+        "ms": 3829
+      },
+      {
+        "i": 78,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 96,
+        "ms": 1961
+      },
+      {
+        "i": 79,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 933,
+        "ms": 1755
+      },
+      {
+        "i": 80,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1141,
+        "ms": 791
+      },
+      {
+        "i": 81,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 490,
+        "ms": 783
+      },
+      {
+        "i": 82,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 165,
+        "ms": 2584
+      },
+      {
+        "i": 83,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 109,
+        "ms": 1914
+      },
+      {
+        "i": 84,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1345,
+        "ms": 2399
+      },
+      {
+        "i": 85,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 474,
+        "ms": 290
+      },
+      {
+        "i": 86,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 111,
+        "ms": 1584
+      },
+      {
+        "i": 87,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 146,
+        "ms": 1646
+      },
+      {
+        "i": 88,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 2408,
+        "ms": 790
+      },
+      {
+        "i": 89,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 847,
+        "ms": 1277
+      },
+      {
+        "i": 90,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1922,
+        "ms": 1309
+      },
+      {
+        "i": 91,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1066,
+        "ms": 1254
+      },
+      {
+        "i": 92,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 764,
+        "ms": 1390
+      },
+      {
+        "i": 93,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 272,
+        "ms": 882
+      },
+      {
+        "i": 94,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 596,
+        "ms": 1915
+      },
+      {
+        "i": 95,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 72,
+        "ms": 1590
+      },
+      {
+        "i": 96,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 4615,
+        "ms": 784
+      },
+      {
+        "i": 97,
+        "tool": "cli__playwright-cli__close",
+        "chars": 58,
+        "ms": 340
+      }
+    ]
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 30,
+    "failed": 0,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 100,
+    "duration_s": 411
+  },
+  "tokens": {
+    "start": 0,
+    "end": 5560371,
+    "delta": 5560371
+  },
+  "cost_usd_list": 2.9804245000000003,
+  "mqs": {
+    "score": 73.8,
+    "token_score": 100,
+    "reliability_score": 53.5,
+    "call_score": 62.4,
+    "speed_score": 68.5,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": null,
+  "tool_efficiency": {
+    "calls_total": 97,
+    "response_chars_total": 57839,
+    "avg_response_chars": 596,
+    "p50_response_chars": 207,
+    "p95_response_chars": 2243,
+    "p50_ms": 1374,
+    "p95_ms": 3701,
+    "avg_response_tokens_est": 149,
+    "total_tokens_est": 33307,
+    "avg_tokens_est": 343,
+    "avg_ms": 1471,
+    "total_ms": 142774,
+    "total_output_tokens": 18888,
+    "avg_output_tokens": 194,
+    "cache_read_tokens_total": 3607215,
+    "cache_creation_tokens_total": 62237,
+    "fresh_input_tokens_total": 196,
+    "cache_hit_rate": 98.29,
+    "by_tool": [
+      {
+        "name": "cli__playwright-cli__batch",
+        "count": 60,
+        "total_chars": 28248,
+        "avg_chars": 470,
+        "p95_chars": 1345,
+        "max_chars": 6007,
+        "avg_ms": 1841,
+        "p50_ms": 1646,
+        "p95_ms": 3701,
+        "max_ms": 4866,
+        "total_ms": 110460,
+        "avg_output_tokens": 202,
+        "total_output_tokens": 12134,
+        "avg_total_tokens_est": 319,
+        "total_total_tokens_est": 19170
+      },
+      {
+        "name": "cli__playwright-cli__eval",
+        "count": 33,
+        "total_chars": 23268,
+        "avg_chars": 705,
+        "p95_chars": 1606,
+        "max_chars": 4615,
+        "avg_ms": 870,
+        "p50_ms": 782,
+        "p95_ms": 882,
+        "max_ms": 3829,
+        "total_ms": 28721,
+        "avg_output_tokens": 182,
+        "total_output_tokens": 6020,
+        "avg_total_tokens_est": 358,
+        "total_total_tokens_est": 11824
+      },
+      {
+        "name": "cli__playwright-cli__open",
+        "count": 1,
+        "total_chars": 376,
+        "avg_chars": 376,
+        "p95_chars": 376,
+        "max_chars": 376,
+        "avg_ms": 2166,
+        "p50_ms": 2166,
+        "p95_ms": 2166,
+        "max_ms": 2166,
+        "total_ms": 2166,
+        "avg_output_tokens": 112,
+        "total_output_tokens": 112,
+        "avg_total_tokens_est": 206,
+        "total_total_tokens_est": 206
+      },
+      {
+        "name": "cli__playwright-cli__snapshot",
+        "count": 1,
+        "total_chars": 5826,
+        "avg_chars": 5826,
+        "p95_chars": 5826,
+        "max_chars": 5826,
+        "avg_ms": 271,
+        "p50_ms": 271,
+        "p95_ms": 271,
+        "max_ms": 271,
+        "total_ms": 271,
+        "avg_output_tokens": 406,
+        "total_output_tokens": 406,
+        "avg_total_tokens_est": 1862,
+        "total_total_tokens_est": 1862
+      },
+      {
+        "name": "cli__playwright-cli__click",
+        "count": 1,
+        "total_chars": 63,
+        "avg_chars": 63,
+        "p95_chars": 63,
+        "max_chars": 63,
+        "avg_ms": 816,
+        "p50_ms": 816,
+        "p95_ms": 816,
+        "max_ms": 816,
+        "total_ms": 816,
+        "avg_output_tokens": 135,
+        "total_output_tokens": 135,
+        "avg_total_tokens_est": 150,
+        "total_total_tokens_est": 150
+      },
+      {
+        "name": "cli__playwright-cli__close",
+        "count": 1,
+        "total_chars": 58,
+        "avg_chars": 58,
+        "p95_chars": 58,
+        "max_chars": 58,
+        "avg_ms": 340,
+        "p50_ms": 340,
+        "p95_ms": 340,
+        "max_ms": 340,
+        "total_ms": 340,
+        "avg_output_tokens": 81,
+        "total_output_tokens": 81,
+        "avg_total_tokens_est": 95,
+        "total_total_tokens_est": 95
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 13161,
+      "details": "Correct: 84YS-Y9BI"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 14520,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 9018,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 8151,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 7638,
+      "details": "Correct sum: 297"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 17685,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 15727,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 17029,
+      "details": "Wizard completed: starter"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 7684,
+      "details": "Elixir selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 19079,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 14174,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 18114,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 17095,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 29471,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 25875,
+      "details": "Hit! Distance: 0.3px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 9479,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 16359,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 18000,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 20403,
+      "details": "Captured at exactly 8!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 11087,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 14565,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 15342,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 21085,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 12465,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "pass",
+      "duration_ms": 5850,
+      "details": "navigator.webdriver: clean, chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 8425,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 3992,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 3953,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 4015,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 30,
+    "failed": 0
+  },
+  "notes": "",
+  "run_file": "playwright-cli-run4.json"
+}

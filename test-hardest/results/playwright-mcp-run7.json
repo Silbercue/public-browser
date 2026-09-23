@@ -1,0 +1,1478 @@
+{
+  "name": "Playwright MCP",
+  "slug": "playwright-mcp",
+  "type": "mcp-llm",
+  "mcp_package": "@playwright/mcp",
+  "mcp_version": "0.0.82",
+  "snapshot_tool": "browser_snapshot",
+  "mcp_server_info": {
+    "name": "Playwright",
+    "version": "1.64.0-alpha-1789764292000",
+    "instructions": null
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "153.0.8010.53",
+  "session_id": "ba7ea67c-6bdc-4963-ad2b-281f75adc82a",
+  "timestamp": "2026-09-23T10:49:08.849Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true,
+    "test_ids": [
+      "T1.1",
+      "T1.2",
+      "T1.3",
+      "T1.4",
+      "T1.5",
+      "T1.6",
+      "T2.1",
+      "T2.2",
+      "T2.3",
+      "T2.4",
+      "T2.5",
+      "T2.6",
+      "T3.1",
+      "T3.2",
+      "T3.3",
+      "T3.4",
+      "T3.5",
+      "T3.6",
+      "T4.1",
+      "T4.2",
+      "T4.3",
+      "T4.4",
+      "T4.5",
+      "T4.6",
+      "T4.7",
+      "T5.1",
+      "T5.2",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6",
+      "T5.7",
+      "T5.8",
+      "T5.9",
+      "T5.10"
+    ]
+  },
+  "harness": {
+    "mode": "blind-print",
+    "kind": "mcp",
+    "status": "ok",
+    "complete": true,
+    "headless": false,
+    "headless_requested": false,
+    "browser_binaries": [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    ],
+    "browser_non_chrome": [],
+    "local_build": false,
+    "git_head": null,
+    "git_dirty": null,
+    "claude_code_version": "2.1.280",
+    "os": "darwin 27.0.0",
+    "node": "v22.14.0",
+    "profile_isolation": "--isolated (in-memory profile)",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-playwright-mcp-20260923-1049-3n14aD/mcp.json --permission-mode dontAsk --allowedTools Write mcp__playwright --tools Write --max-turns 600",
+    "allowed_tools_form": "plain",
+    "chrome_version_source": "applications-binary",
+    "wall_clock_s": 468,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 161,
+    "run_dir": "/tmp/bench-playwright-mcp-20260923-1049-3n14aD",
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    },
+    "session_jsonl_sha256": "4304b72e2bc5ccf7f47e9a2c5376dc03136a0872aad77012127ed630c0895866",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "mcp__playwright__browser_navigate",
+        "chars": 333,
+        "ms": 952
+      },
+      {
+        "i": 2,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 7527,
+        "ms": 38
+      },
+      {
+        "i": 3,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 341,
+        "ms": 590
+      },
+      {
+        "i": 4,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 1016,
+        "ms": 20
+      },
+      {
+        "i": 5,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 578,
+        "ms": 28
+      },
+      {
+        "i": 6,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 92,
+        "ms": 20
+      },
+      {
+        "i": 7,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 92,
+        "ms": 5
+      },
+      {
+        "i": 8,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 539,
+        "ms": 32
+      },
+      {
+        "i": 9,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 149,
+        "ms": 18
+      },
+      {
+        "i": 10,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 370,
+        "ms": 564
+      },
+      {
+        "i": 11,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 960,
+        "ms": 513
+      },
+      {
+        "i": 12,
+        "tool": "mcp__playwright__browser_fill_form",
+        "chars": 647,
+        "ms": 96
+      },
+      {
+        "i": 13,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 344,
+        "ms": 565
+      },
+      {
+        "i": 14,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 343,
+        "ms": 549
+      },
+      {
+        "i": 15,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 346,
+        "ms": 543
+      },
+      {
+        "i": 16,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 355,
+        "ms": 582
+      },
+      {
+        "i": 17,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 353,
+        "ms": 576
+      },
+      {
+        "i": 18,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 352,
+        "ms": 562
+      },
+      {
+        "i": 19,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 352,
+        "ms": 570
+      },
+      {
+        "i": 20,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 350,
+        "ms": 552
+      },
+      {
+        "i": 21,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 352,
+        "ms": 577
+      },
+      {
+        "i": 22,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 359,
+        "ms": 557
+      },
+      {
+        "i": 23,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 141,
+        "ms": 19
+      },
+      {
+        "i": 24,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 354,
+        "ms": 541
+      },
+      {
+        "i": 25,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 565,
+        "ms": 509
+      },
+      {
+        "i": 26,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 366,
+        "ms": 1353
+      },
+      {
+        "i": 27,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 7081,
+        "ms": 17
+      },
+      {
+        "i": 28,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 353,
+        "ms": 558
+      },
+      {
+        "i": 29,
+        "tool": "mcp__playwright__browser_wait_for",
+        "chars": 365,
+        "ms": 3024
+      },
+      {
+        "i": 30,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 823,
+        "ms": 25
+      },
+      {
+        "i": 31,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 152,
+        "ms": 16
+      },
+      {
+        "i": 32,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 564
+      },
+      {
+        "i": 33,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 653,
+        "ms": 526
+      },
+      {
+        "i": 34,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 677,
+        "ms": 1121
+      },
+      {
+        "i": 35,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 701,
+        "ms": 523
+      },
+      {
+        "i": 36,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 365,
+        "ms": 560
+      },
+      {
+        "i": 37,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 577,
+        "ms": 519
+      },
+      {
+        "i": 38,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 358,
+        "ms": 554
+      },
+      {
+        "i": 39,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 537
+      },
+      {
+        "i": 40,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 850,
+        "ms": 23
+      },
+      {
+        "i": 41,
+        "tool": "mcp__playwright__browser_fill_form",
+        "chars": 216,
+        "ms": 30
+      },
+      {
+        "i": 42,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 551
+      },
+      {
+        "i": 43,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 725,
+        "ms": 23
+      },
+      {
+        "i": 44,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 358,
+        "ms": 577
+      },
+      {
+        "i": 45,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 380,
+        "ms": 531
+      },
+      {
+        "i": 46,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 777,
+        "ms": 22
+      },
+      {
+        "i": 47,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 336,
+        "ms": 547
+      },
+      {
+        "i": 48,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 743,
+        "ms": 10
+      },
+      {
+        "i": 49,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 93,
+        "ms": 4
+      },
+      {
+        "i": 50,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 643,
+        "ms": 31
+      },
+      {
+        "i": 51,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 538,
+        "ms": 635
+      },
+      {
+        "i": 52,
+        "tool": "mcp__playwright__browser_tabs",
+        "chars": 203,
+        "ms": 31
+      },
+      {
+        "i": 53,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 707,
+        "ms": 26
+      },
+      {
+        "i": 54,
+        "tool": "mcp__playwright__browser_tabs",
+        "chars": 203,
+        "ms": 25
+      },
+      {
+        "i": 55,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 155,
+        "ms": 31
+      },
+      {
+        "i": 56,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 562,
+        "ms": 558
+      },
+      {
+        "i": 57,
+        "tool": "mcp__playwright__browser_tabs",
+        "chars": 133,
+        "ms": 18
+      },
+      {
+        "i": 58,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 357,
+        "ms": 571
+      },
+      {
+        "i": 59,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 383,
+        "ms": 509
+      },
+      {
+        "i": 60,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 357,
+        "ms": 552
+      },
+      {
+        "i": 61,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 304,
+        "ms": 513
+      },
+      {
+        "i": 62,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 154,
+        "ms": 17
+      },
+      {
+        "i": 63,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 557
+      },
+      {
+        "i": 64,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 565,
+        "ms": 520
+      },
+      {
+        "i": 65,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 362,
+        "ms": 626
+      },
+      {
+        "i": 66,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 3976,
+        "ms": 25
+      },
+      {
+        "i": 67,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 359,
+        "ms": 548
+      },
+      {
+        "i": 68,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 154,
+        "ms": 28
+      },
+      {
+        "i": 69,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 563
+      },
+      {
+        "i": 70,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 427,
+        "ms": 603
+      },
+      {
+        "i": 71,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 156,
+        "ms": 21
+      },
+      {
+        "i": 72,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 564
+      },
+      {
+        "i": 73,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1050,
+        "ms": 511
+      },
+      {
+        "i": 74,
+        "tool": "mcp__playwright__browser_drag",
+        "chars": 386,
+        "ms": 598
+      },
+      {
+        "i": 75,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 221,
+        "ms": 513
+      },
+      {
+        "i": 76,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 386,
+        "ms": 13
+      },
+      {
+        "i": 77,
+        "tool": "mcp__playwright__browser_drag",
+        "chars": 386,
+        "ms": 597
+      },
+      {
+        "i": 78,
+        "tool": "mcp__playwright__browser_drag",
+        "chars": 355,
+        "ms": 600
+      },
+      {
+        "i": 79,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 221,
+        "ms": 530
+      },
+      {
+        "i": 80,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 356,
+        "ms": 558
+      },
+      {
+        "i": 81,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 574,
+        "ms": 519
+      },
+      {
+        "i": 82,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1068,
+        "ms": 527
+      },
+      {
+        "i": 83,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 1057,
+        "ms": 565
+      },
+      {
+        "i": 84,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 840,
+        "ms": 519
+      },
+      {
+        "i": 85,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 228,
+        "ms": 534
+      },
+      {
+        "i": 86,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 332,
+        "ms": 517
+      },
+      {
+        "i": 87,
+        "tool": "mcp__playwright__browser_press_key",
+        "chars": 123,
+        "ms": 19
+      },
+      {
+        "i": 88,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 369,
+        "ms": 516
+      },
+      {
+        "i": 89,
+        "tool": "mcp__playwright__browser_press_key",
+        "chars": 117,
+        "ms": 16
+      },
+      {
+        "i": 90,
+        "tool": "mcp__playwright__browser_press_key",
+        "chars": 342,
+        "ms": 548
+      },
+      {
+        "i": 91,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 398,
+        "ms": 523
+      },
+      {
+        "i": 92,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 576,
+        "ms": 60
+      },
+      {
+        "i": 93,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 507,
+        "ms": 528
+      },
+      {
+        "i": 94,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 334,
+        "ms": 552
+      },
+      {
+        "i": 95,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 354,
+        "ms": 557
+      },
+      {
+        "i": 96,
+        "tool": "mcp__playwright__browser_press_key",
+        "chars": 123,
+        "ms": 8
+      },
+      {
+        "i": 97,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 353,
+        "ms": 548
+      },
+      {
+        "i": 98,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 180,
+        "ms": 519
+      },
+      {
+        "i": 99,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 571,
+        "ms": 543
+      },
+      {
+        "i": 100,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 724,
+        "ms": 571
+      },
+      {
+        "i": 101,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 549,
+        "ms": 518
+      },
+      {
+        "i": 102,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 358,
+        "ms": 558
+      },
+      {
+        "i": 103,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 565,
+        "ms": 519
+      },
+      {
+        "i": 104,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 361,
+        "ms": 1365
+      },
+      {
+        "i": 105,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 5035,
+        "ms": 26
+      },
+      {
+        "i": 106,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 359,
+        "ms": 560
+      },
+      {
+        "i": 107,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 842,
+        "ms": 524
+      },
+      {
+        "i": 108,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 491,
+        "ms": 25
+      },
+      {
+        "i": 109,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 372,
+        "ms": 553
+      },
+      {
+        "i": 110,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 356,
+        "ms": 514
+      },
+      {
+        "i": 111,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 357,
+        "ms": 552
+      },
+      {
+        "i": 112,
+        "tool": "mcp__playwright__browser_run_code_unsafe",
+        "chars": 721,
+        "ms": 2262
+      },
+      {
+        "i": 113,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 627,
+        "ms": 1453
+      },
+      {
+        "i": 114,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 355,
+        "ms": 518
+      },
+      {
+        "i": 115,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 365,
+        "ms": 839
+      },
+      {
+        "i": 116,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 245,
+        "ms": 522
+      },
+      {
+        "i": 117,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 148,
+        "ms": 22
+      },
+      {
+        "i": 118,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 800
+      },
+      {
+        "i": 119,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 218,
+        "ms": 520
+      },
+      {
+        "i": 120,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 362,
+        "ms": 746
+      },
+      {
+        "i": 121,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 209,
+        "ms": 519
+      },
+      {
+        "i": 122,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 356,
+        "ms": 746
+      },
+      {
+        "i": 123,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 1186,
+        "ms": 16
+      },
+      {
+        "i": 124,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 147,
+        "ms": 23
+      },
+      {
+        "i": 125,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 791
+      },
+      {
+        "i": 126,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 773,
+        "ms": 5525
+      },
+      {
+        "i": 127,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 162,
+        "ms": 41
+      },
+      {
+        "i": 128,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 381,
+        "ms": 798
+      },
+      {
+        "i": 129,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 583,
+        "ms": 518
+      },
+      {
+        "i": 130,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 362,
+        "ms": 764
+      },
+      {
+        "i": 131,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 2484,
+        "ms": 188
+      },
+      {
+        "i": 132,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 1166,
+        "ms": 49
+      },
+      {
+        "i": 133,
+        "tool": "mcp__playwright__browser_fill_form",
+        "chars": 343,
+        "ms": 97
+      },
+      {
+        "i": 134,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 358,
+        "ms": 757
+      },
+      {
+        "i": 135,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 416,
+        "ms": 522
+      },
+      {
+        "i": 136,
+        "tool": "mcp__playwright__browser_type",
+        "chars": 181,
+        "ms": 30
+      },
+      {
+        "i": 137,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 387,
+        "ms": 752
+      },
+      {
+        "i": 138,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 305,
+        "ms": 515
+      },
+      {
+        "i": 139,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 368,
+        "ms": 1431
+      },
+      {
+        "i": 140,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 5557,
+        "ms": 79
+      },
+      {
+        "i": 141,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 360,
+        "ms": 619
+      },
+      {
+        "i": 142,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 392,
+        "ms": 523
+      },
+      {
+        "i": 143,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 364,
+        "ms": 651
+      },
+      {
+        "i": 144,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 435,
+        "ms": 519
+      },
+      {
+        "i": 145,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 362,
+        "ms": 636
+      },
+      {
+        "i": 146,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 2716,
+        "ms": 73
+      },
+      {
+        "i": 147,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 360,
+        "ms": 614
+      },
+      {
+        "i": 148,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 856,
+        "ms": 34
+      },
+      {
+        "i": 149,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 95,
+        "ms": 12
+      },
+      {
+        "i": 150,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 348,
+        "ms": 626
+      },
+      {
+        "i": 151,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 957,
+        "ms": 17
+      },
+      {
+        "i": 152,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 349,
+        "ms": 631
+      },
+      {
+        "i": 153,
+        "tool": "mcp__playwright__browser_snapshot",
+        "chars": 843,
+        "ms": 23
+      },
+      {
+        "i": 154,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 886,
+        "ms": 528
+      },
+      {
+        "i": 155,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 92,
+        "ms": 15
+      },
+      {
+        "i": 156,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 354,
+        "ms": 1440
+      },
+      {
+        "i": 157,
+        "tool": "mcp__playwright__browser_find",
+        "chars": 584,
+        "ms": 90
+      },
+      {
+        "i": 158,
+        "tool": "mcp__playwright__browser_click",
+        "chars": 358,
+        "ms": 629
+      },
+      {
+        "i": 159,
+        "tool": "mcp__playwright__browser_evaluate",
+        "chars": 5837,
+        "ms": 524
+      }
+    ]
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 30,
+    "failed": 0,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 100,
+    "duration_s": 438
+  },
+  "tokens": {
+    "start": 0,
+    "end": 9665707,
+    "delta": 9665707
+  },
+  "cost_usd_list": 5.190107499999997,
+  "mqs": {
+    "score": 62.4,
+    "token_score": 83.2,
+    "reliability_score": 53.5,
+    "call_score": 38.1,
+    "speed_score": 64.3,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": null,
+  "tool_efficiency": {
+    "calls_total": 159,
+    "response_chars_total": 105328,
+    "avg_response_chars": 662,
+    "p50_response_chars": 362,
+    "p95_response_chars": 2484,
+    "p50_ms": 524,
+    "p95_ms": 1353,
+    "avg_response_tokens_est": 165,
+    "total_tokens_est": 47444,
+    "avg_tokens_est": 298,
+    "avg_ms": 488,
+    "total_ms": 77735,
+    "total_output_tokens": 21167,
+    "avg_output_tokens": 133,
+    "cache_read_tokens_total": 7423595,
+    "cache_creation_tokens_total": 83840,
+    "fresh_input_tokens_total": 320,
+    "cache_hit_rate": 98.87,
+    "by_tool": [
+      {
+        "name": "mcp__playwright__browser_click",
+        "count": 61,
+        "total_chars": 21713,
+        "avg_chars": 355,
+        "p95_chars": 427,
+        "max_chars": 562,
+        "avg_ms": 621,
+        "p50_ms": 565,
+        "p95_ms": 1353,
+        "max_ms": 1440,
+        "total_ms": 37930,
+        "avg_output_tokens": 101,
+        "total_output_tokens": 6215,
+        "avg_total_tokens_est": 190,
+        "total_total_tokens_est": 11623
+      },
+      {
+        "name": "mcp__playwright__browser_evaluate",
+        "count": 37,
+        "total_chars": 24953,
+        "avg_chars": 674,
+        "p95_chars": 1057,
+        "max_chars": 5837,
+        "avg_ms": 697,
+        "p50_ms": 519,
+        "p95_ms": 1121,
+        "max_ms": 5525,
+        "total_ms": 25797,
+        "avg_output_tokens": 184,
+        "total_output_tokens": 6815,
+        "avg_total_tokens_est": 352,
+        "total_total_tokens_est": 13042
+      },
+      {
+        "name": "mcp__playwright__browser_snapshot",
+        "count": 20,
+        "total_chars": 40441,
+        "avg_chars": 2022,
+        "p95_chars": 7081,
+        "max_chars": 7527,
+        "avg_ms": 27,
+        "p50_ms": 23,
+        "p95_ms": 60,
+        "max_ms": 79,
+        "total_ms": 559,
+        "avg_output_tokens": 67,
+        "total_output_tokens": 1345,
+        "avg_total_tokens_est": 572,
+        "total_total_tokens_est": 11447
+      },
+      {
+        "name": "mcp__playwright__browser_type",
+        "count": 15,
+        "total_chars": 2878,
+        "avg_chars": 191,
+        "p95_chars": 354,
+        "max_chars": 380,
+        "avg_ms": 128,
+        "p50_ms": 23,
+        "p95_ms": 548,
+        "max_ms": 557,
+        "total_ms": 1922,
+        "avg_output_tokens": 123,
+        "total_output_tokens": 1847,
+        "avg_total_tokens_est": 170,
+        "total_total_tokens_est": 2562
+      },
+      {
+        "name": "mcp__playwright__browser_find",
+        "count": 6,
+        "total_chars": 7982,
+        "avg_chars": 1330,
+        "p95_chars": 2484,
+        "max_chars": 2716,
+        "avg_ms": 72,
+        "p50_ms": 32,
+        "p95_ms": 90,
+        "max_ms": 188,
+        "total_ms": 434,
+        "avg_output_tokens": 61,
+        "total_output_tokens": 368,
+        "avg_total_tokens_est": 393,
+        "total_total_tokens_est": 2362
+      },
+      {
+        "name": "mcp__playwright__browser_run_code_unsafe",
+        "count": 5,
+        "total_chars": 3086,
+        "avg_chars": 617,
+        "p95_chars": 724,
+        "max_chars": 842,
+        "avg_ms": 886,
+        "p50_ms": 543,
+        "p95_ms": 571,
+        "max_ms": 2262,
+        "total_ms": 4434,
+        "avg_output_tokens": 498,
+        "total_output_tokens": 2494,
+        "avg_total_tokens_est": 652,
+        "total_total_tokens_est": 3264
+      },
+      {
+        "name": "mcp__playwright__browser_press_key",
+        "count": 4,
+        "total_chars": 705,
+        "avg_chars": 176,
+        "p95_chars": 123,
+        "max_chars": 342,
+        "avg_ms": 147,
+        "p50_ms": 16,
+        "p95_ms": 19,
+        "max_ms": 548,
+        "total_ms": 591,
+        "avg_output_tokens": 67,
+        "total_output_tokens": 270,
+        "avg_total_tokens_est": 111,
+        "total_total_tokens_est": 444
+      },
+      {
+        "name": "mcp__playwright__browser_drag",
+        "count": 3,
+        "total_chars": 1127,
+        "avg_chars": 375,
+        "p95_chars": 386,
+        "max_chars": 386,
+        "avg_ms": 598,
+        "p50_ms": 598,
+        "p95_ms": 598,
+        "max_ms": 600,
+        "total_ms": 1795,
+        "avg_output_tokens": 219,
+        "total_output_tokens": 659,
+        "avg_total_tokens_est": 313,
+        "total_total_tokens_est": 939
+      },
+      {
+        "name": "mcp__playwright__browser_fill_form",
+        "count": 3,
+        "total_chars": 1206,
+        "avg_chars": 402,
+        "p95_chars": 343,
+        "max_chars": 647,
+        "avg_ms": 74,
+        "p50_ms": 96,
+        "p95_ms": 96,
+        "max_ms": 97,
+        "total_ms": 223,
+        "avg_output_tokens": 219,
+        "total_output_tokens": 658,
+        "avg_total_tokens_est": 319,
+        "total_total_tokens_est": 958
+      },
+      {
+        "name": "mcp__playwright__browser_tabs",
+        "count": 3,
+        "total_chars": 539,
+        "avg_chars": 179,
+        "p95_chars": 203,
+        "max_chars": 203,
+        "avg_ms": 24,
+        "p50_ms": 25,
+        "p95_ms": 25,
+        "max_ms": 31,
+        "total_ms": 74,
+        "avg_output_tokens": 118,
+        "total_output_tokens": 354,
+        "avg_total_tokens_est": 162,
+        "total_total_tokens_est": 487
+      },
+      {
+        "name": "mcp__playwright__browser_navigate",
+        "count": 1,
+        "total_chars": 333,
+        "avg_chars": 333,
+        "p95_chars": 333,
+        "max_chars": 333,
+        "avg_ms": 952,
+        "p50_ms": 952,
+        "p95_ms": 952,
+        "max_ms": 952,
+        "total_ms": 952,
+        "avg_output_tokens": 83,
+        "total_output_tokens": 83,
+        "avg_total_tokens_est": 166,
+        "total_total_tokens_est": 166
+      },
+      {
+        "name": "mcp__playwright__browser_wait_for",
+        "count": 1,
+        "total_chars": 365,
+        "avg_chars": 365,
+        "p95_chars": 365,
+        "max_chars": 365,
+        "avg_ms": 3024,
+        "p50_ms": 3024,
+        "p95_ms": 3024,
+        "max_ms": 3024,
+        "total_ms": 3024,
+        "avg_output_tokens": 59,
+        "total_output_tokens": 59,
+        "avg_total_tokens_est": 150,
+        "total_total_tokens_est": 150
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 12482,
+      "details": "Correct: 21VD-335X"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 10786,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 12069,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 9676,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 4552,
+      "details": "Correct sum: 338"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 20387,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 16251,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 17635,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 6506,
+      "details": "PHP selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 17887,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 16945,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 14606,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 7303,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 24480,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 28039,
+      "details": "Hit! Distance: 0.6px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 11130,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 48156,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 19736,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 19259,
+      "details": "Captured at exactly 3!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 12676,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 17381,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 14205,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 22812,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 11088,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "pass",
+      "duration_ms": 4997,
+      "details": "navigator.webdriver: clean, chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 6283,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 4775,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 6754,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 4547,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 30,
+    "failed": 0
+  },
+  "notes": "",
+  "run_file": "playwright-mcp-run7.json"
+}

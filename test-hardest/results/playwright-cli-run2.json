@@ -1,0 +1,1118 @@
+{
+  "name": "Playwright CLI",
+  "slug": "playwright-cli",
+  "type": "mcp-llm",
+  "mcp_package": "@playwright/cli",
+  "mcp_version": "0.1.21",
+  "snapshot_tool": "snapshot",
+  "mcp_server_info": {
+    "name": "playwright-cli",
+    "version": "0.1.21",
+    "instructions": null,
+    "skill_file": "/tmp/bench-clitools/node_modules/@playwright/cli/skills/playwright-cli/SKILL.md",
+    "skill_sha256": "85ef187460f776a4e9b44ffbf4a0293e5585d4192d0858c23fb011c72784f347",
+    "skill_chars": 15173
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "153.0.8010.53",
+  "session_id": "3ea3f825-f8ac-49d6-96a9-c233e94e10eb",
+  "timestamp": "2026-09-23T10:36:11.757Z",
+  "suite": {
+    "url": "https://mcp-test.second-truth.com",
+    "tests": 35,
+    "scorable": 30,
+    "excluded": [
+      "T4.7",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6"
+    ],
+    "schema_fallback": true,
+    "html_sha256": "81e4b7aaf6201b537da6c66f918ffa6c75fe70e10a43c57449a0e277e966bed2",
+    "html_bytes": 101149,
+    "fingerprint_ok": true,
+    "test_ids": [
+      "T1.1",
+      "T1.2",
+      "T1.3",
+      "T1.4",
+      "T1.5",
+      "T1.6",
+      "T2.1",
+      "T2.2",
+      "T2.3",
+      "T2.4",
+      "T2.5",
+      "T2.6",
+      "T3.1",
+      "T3.2",
+      "T3.3",
+      "T3.4",
+      "T3.5",
+      "T3.6",
+      "T4.1",
+      "T4.2",
+      "T4.3",
+      "T4.4",
+      "T4.5",
+      "T4.6",
+      "T4.7",
+      "T5.1",
+      "T5.2",
+      "T5.3",
+      "T5.4",
+      "T5.5",
+      "T5.6",
+      "T5.7",
+      "T5.8",
+      "T5.9",
+      "T5.10"
+    ]
+  },
+  "harness": {
+    "mode": "blind-print",
+    "kind": "cli",
+    "status": "ok",
+    "complete": true,
+    "headless": false,
+    "headless_requested": false,
+    "browser_binaries": [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    ],
+    "browser_non_chrome": [],
+    "local_build": false,
+    "git_head": null,
+    "git_dirty": null,
+    "claude_code_version": "2.1.280",
+    "os": "darwin 27.0.0",
+    "node": "v22.14.0",
+    "profile_isolation": "isolated in-memory profile, channel chrome, headed (.playwright/cli.config.json in the run dir)",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/bench-playwright-cli-20260923-1036-ArkLkN/mcp.json --permission-mode dontAsk --allowedTools Bash(playwright-cli:*) Write --tools Bash,Write --settings {\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"\\\"/Users/silbercue/.nvm/versions/node/v22.14.0/bin/node\\\" \\\"/Users/silbercue/Documents/Cursor/Skills/SilbercueChrome/test-hardest/cli-guard.mjs\\\" playwright-cli\"}]}]}} --append-system-prompt-file /tmp/bench-playwright-cli-20260923-1036-ArkLkN/skill.md --max-turns 600",
+    "allowed_tools_form": "plain",
+    "chrome_version_source": "applications-binary",
+    "wall_clock_s": 451,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 109,
+    "run_dir": "/tmp/bench-playwright-cli-20260923-1036-ArkLkN",
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    },
+    "session_jsonl_sha256": "0327f45d98c739674676d5ae03e4dfec53704cbdbdb6bbdb85b7b6eef3d549ed",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "cli__playwright-cli__open",
+        "chars": 376,
+        "ms": 2276
+      },
+      {
+        "i": 2,
+        "tool": "cli__playwright-cli__snapshot",
+        "chars": 5826,
+        "ms": 290
+      },
+      {
+        "i": 3,
+        "tool": "cli__playwright-cli__click",
+        "chars": 63,
+        "ms": 844
+      },
+      {
+        "i": 4,
+        "tool": "cli__playwright-cli__snapshot",
+        "chars": 532,
+        "ms": 278
+      },
+      {
+        "i": 5,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 104,
+        "ms": 279
+      },
+      {
+        "i": 6,
+        "tool": "cli__playwright-cli__snapshot",
+        "chars": 104,
+        "ms": 248
+      },
+      {
+        "i": 7,
+        "tool": "cli__playwright-cli__snapshot",
+        "chars": 5819,
+        "ms": 352
+      },
+      {
+        "i": 8,
+        "tool": "cli__playwright-cli__fill",
+        "chars": 31,
+        "ms": 257
+      },
+      {
+        "i": 9,
+        "tool": "cli__playwright-cli__click",
+        "chars": 63,
+        "ms": 789
+      },
+      {
+        "i": 10,
+        "tool": "cli__playwright-cli__find",
+        "chars": 937,
+        "ms": 271
+      },
+      {
+        "i": 11,
+        "tool": "cli__playwright-cli__snapshot",
+        "chars": 746,
+        "ms": 275
+      },
+      {
+        "i": 12,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 104,
+        "ms": 275
+      },
+      {
+        "i": 13,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1,
+        "ms": 801
+      },
+      {
+        "i": 14,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1690,
+        "ms": 759
+      },
+      {
+        "i": 15,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 936,
+        "ms": 786
+      },
+      {
+        "i": 16,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 63,
+        "ms": 1338
+      },
+      {
+        "i": 17,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 105,
+        "ms": 1483
+      },
+      {
+        "i": 18,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1259,
+        "ms": 766
+      },
+      {
+        "i": 19,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 858,
+        "ms": 763
+      },
+      {
+        "i": 20,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 413,
+        "ms": 763
+      },
+      {
+        "i": 21,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 943,
+        "ms": 758
+      },
+      {
+        "i": 22,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 362,
+        "ms": 5273
+      },
+      {
+        "i": 23,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 788,
+        "ms": 784
+      },
+      {
+        "i": 24,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 292,
+        "ms": 3707
+      },
+      {
+        "i": 25,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 108,
+        "ms": 778
+      },
+      {
+        "i": 26,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 89,
+        "ms": 1827
+      },
+      {
+        "i": 27,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 865,
+        "ms": 2315
+      },
+      {
+        "i": 28,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 92,
+        "ms": 4017
+      },
+      {
+        "i": 29,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 92,
+        "ms": 1738
+      },
+      {
+        "i": 30,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1253,
+        "ms": 807
+      },
+      {
+        "i": 31,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 266,
+        "ms": 800
+      },
+      {
+        "i": 32,
+        "tool": "cli__playwright-cli__run-code",
+        "chars": 2,
+        "ms": 1602
+      },
+      {
+        "i": 33,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 87,
+        "ms": 1503
+      },
+      {
+        "i": 34,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 2272,
+        "ms": 770
+      },
+      {
+        "i": 35,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 193,
+        "ms": 2695
+      },
+      {
+        "i": 36,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 46,
+        "ms": 769
+      },
+      {
+        "i": 37,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 94,
+        "ms": 1492
+      },
+      {
+        "i": 38,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1041,
+        "ms": 772
+      },
+      {
+        "i": 39,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 149,
+        "ms": 1725
+      },
+      {
+        "i": 40,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 88,
+        "ms": 1533
+      },
+      {
+        "i": 41,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1077,
+        "ms": 769
+      },
+      {
+        "i": 42,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 238,
+        "ms": 1067
+      },
+      {
+        "i": 43,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 352,
+        "ms": 1014
+      },
+      {
+        "i": 44,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 282,
+        "ms": 2159
+      },
+      {
+        "i": 45,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1624,
+        "ms": 792
+      },
+      {
+        "i": 46,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 84,
+        "ms": 1527
+      },
+      {
+        "i": 47,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 85,
+        "ms": 1510
+      },
+      {
+        "i": 48,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 111,
+        "ms": 1718
+      },
+      {
+        "i": 49,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1109,
+        "ms": 1606
+      },
+      {
+        "i": 50,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 344,
+        "ms": 757
+      },
+      {
+        "i": 51,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 162,
+        "ms": 2446
+      },
+      {
+        "i": 52,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1996,
+        "ms": 770
+      },
+      {
+        "i": 53,
+        "tool": "cli__playwright-cli__run-code",
+        "chars": 14,
+        "ms": 800
+      },
+      {
+        "i": 54,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 93,
+        "ms": 1745
+      },
+      {
+        "i": 55,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1383,
+        "ms": 791
+      },
+      {
+        "i": 56,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 3060,
+        "ms": 795
+      },
+      {
+        "i": 57,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 75,
+        "ms": 1534
+      },
+      {
+        "i": 58,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 75,
+        "ms": 1547
+      },
+      {
+        "i": 59,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 75,
+        "ms": 1581
+      },
+      {
+        "i": 60,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 96,
+        "ms": 1530
+      },
+      {
+        "i": 61,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 2080,
+        "ms": 784
+      },
+      {
+        "i": 62,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 182,
+        "ms": 784
+      },
+      {
+        "i": 63,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 29,
+        "ms": 1367
+      },
+      {
+        "i": 64,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 911,
+        "ms": 795
+      },
+      {
+        "i": 65,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 971,
+        "ms": 773
+      },
+      {
+        "i": 66,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 114,
+        "ms": 1918
+      },
+      {
+        "i": 67,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1243,
+        "ms": 805
+      },
+      {
+        "i": 68,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 85,
+        "ms": 2101
+      },
+      {
+        "i": 69,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 95,
+        "ms": 2110
+      },
+      {
+        "i": 70,
+        "tool": "cli__playwright-cli__run-code",
+        "chars": 6,
+        "ms": 819
+      },
+      {
+        "i": 71,
+        "tool": "cli__playwright-cli__run-code",
+        "chars": 13,
+        "ms": 1514
+      },
+      {
+        "i": 72,
+        "tool": "cli__playwright-cli__run-code",
+        "chars": 20,
+        "ms": 782
+      },
+      {
+        "i": 73,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 103,
+        "ms": 1533
+      },
+      {
+        "i": 74,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1640,
+        "ms": 2322
+      },
+      {
+        "i": 75,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 87,
+        "ms": 5873
+      },
+      {
+        "i": 76,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1311,
+        "ms": 773
+      },
+      {
+        "i": 77,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 434,
+        "ms": 767
+      },
+      {
+        "i": 78,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 95,
+        "ms": 2808
+      },
+      {
+        "i": 79,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1191,
+        "ms": 784
+      },
+      {
+        "i": 80,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 81,
+        "ms": 1784
+      },
+      {
+        "i": 81,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 86,
+        "ms": 1895
+      },
+      {
+        "i": 82,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 3072,
+        "ms": 778
+      },
+      {
+        "i": 83,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 154,
+        "ms": 3001
+      },
+      {
+        "i": 84,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 94,
+        "ms": 1858
+      },
+      {
+        "i": 85,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1595,
+        "ms": 787
+      },
+      {
+        "i": 86,
+        "tool": "cli__playwright-cli__run-code",
+        "chars": 25,
+        "ms": 3816
+      },
+      {
+        "i": 87,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 96,
+        "ms": 1914
+      },
+      {
+        "i": 88,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 918,
+        "ms": 779
+      },
+      {
+        "i": 89,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1041,
+        "ms": 775
+      },
+      {
+        "i": 90,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1264,
+        "ms": 1693
+      },
+      {
+        "i": 91,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 165,
+        "ms": 2455
+      },
+      {
+        "i": 92,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 587,
+        "ms": 1240
+      },
+      {
+        "i": 93,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 109,
+        "ms": 1673
+      },
+      {
+        "i": 94,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 2020,
+        "ms": 2407
+      },
+      {
+        "i": 95,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 111,
+        "ms": 1579
+      },
+      {
+        "i": 96,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 1704,
+        "ms": 751
+      },
+      {
+        "i": 97,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 146,
+        "ms": 1569
+      },
+      {
+        "i": 98,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 4918,
+        "ms": 790
+      },
+      {
+        "i": 99,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 847,
+        "ms": 1156
+      },
+      {
+        "i": 100,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 842,
+        "ms": 1145
+      },
+      {
+        "i": 101,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 1066,
+        "ms": 1147
+      },
+      {
+        "i": 102,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 764,
+        "ms": 1146
+      },
+      {
+        "i": 103,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 332,
+        "ms": 781
+      },
+      {
+        "i": 104,
+        "tool": "cli__playwright-cli__batch",
+        "chars": 588,
+        "ms": 1939
+      },
+      {
+        "i": 105,
+        "tool": "cli__playwright-cli__click",
+        "chars": 63,
+        "ms": 941
+      },
+      {
+        "i": 106,
+        "tool": "cli__playwright-cli__eval",
+        "chars": 4612,
+        "ms": 773
+      },
+      {
+        "i": 107,
+        "tool": "cli__playwright-cli__close",
+        "chars": 58,
+        "ms": 338
+      }
+    ]
+  },
+  "summary": {
+    "total": 35,
+    "counted": 30,
+    "passed": 30,
+    "failed": 0,
+    "not_run": 0,
+    "skipped": 5,
+    "pass_rate": 100,
+    "duration_s": 416
+  },
+  "tokens": {
+    "start": 0,
+    "end": 5971328,
+    "delta": 5971328
+  },
+  "cost_usd_list": 3.520353000000002,
+  "mqs": {
+    "score": 72.5,
+    "token_score": 100,
+    "reliability_score": 53.5,
+    "call_score": 56.5,
+    "speed_score": 67.7,
+    "baseline": "playwright-mcp-run2-2026-04-09"
+  },
+  "cortex": null,
+  "tool_efficiency": {
+    "calls_total": 107,
+    "response_chars_total": 79455,
+    "avg_response_chars": 742,
+    "p50_response_chars": 238,
+    "p95_response_chars": 3060,
+    "p50_ms": 1067,
+    "p95_ms": 3001,
+    "avg_response_tokens_est": 185,
+    "total_tokens_est": 39067,
+    "avg_tokens_est": 365,
+    "avg_ms": 1367,
+    "total_ms": 146338,
+    "total_output_tokens": 19242,
+    "avg_output_tokens": 179,
+    "cache_read_tokens_total": 4442321,
+    "cache_creation_tokens_total": 73048,
+    "fresh_input_tokens_total": 216,
+    "cache_hit_rate": 98.37,
+    "by_tool": [
+      {
+        "name": "cli__playwright-cli__batch",
+        "count": 52,
+        "total_chars": 16780,
+        "avg_chars": 322,
+        "p95_chars": 1109,
+        "max_chars": 2020,
+        "avg_ms": 1952,
+        "p50_ms": 1693,
+        "p95_ms": 3707,
+        "max_ms": 5873,
+        "total_ms": 101542,
+        "avg_output_tokens": 194,
+        "total_output_tokens": 10104,
+        "avg_total_tokens_est": 274,
+        "total_total_tokens_est": 14280
+      },
+      {
+        "name": "cli__playwright-cli__eval",
+        "count": 37,
+        "total_chars": 47977,
+        "avg_chars": 1296,
+        "p95_chars": 3072,
+        "max_chars": 4918,
+        "avg_ms": 764,
+        "p50_ms": 778,
+        "p95_ms": 801,
+        "max_ms": 807,
+        "total_ms": 28304,
+        "avg_output_tokens": 167,
+        "total_output_tokens": 6182,
+        "avg_total_tokens_est": 490,
+        "total_total_tokens_est": 18164
+      },
+      {
+        "name": "cli__playwright-cli__run-code",
+        "count": 6,
+        "total_chars": 80,
+        "avg_chars": 13,
+        "p95_chars": 20,
+        "max_chars": 25,
+        "avg_ms": 1555,
+        "p50_ms": 819,
+        "p95_ms": 1602,
+        "max_ms": 3816,
+        "total_ms": 9333,
+        "avg_output_tokens": 278,
+        "total_output_tokens": 1671,
+        "avg_total_tokens_est": 281,
+        "total_total_tokens_est": 1689
+      },
+      {
+        "name": "cli__playwright-cli__snapshot",
+        "count": 5,
+        "total_chars": 13027,
+        "avg_chars": 2605,
+        "p95_chars": 5819,
+        "max_chars": 5826,
+        "avg_ms": 288,
+        "p50_ms": 278,
+        "p95_ms": 290,
+        "max_ms": 352,
+        "total_ms": 1443,
+        "avg_output_tokens": 120,
+        "total_output_tokens": 600,
+        "avg_total_tokens_est": 771,
+        "total_total_tokens_est": 3855
+      },
+      {
+        "name": "cli__playwright-cli__click",
+        "count": 3,
+        "total_chars": 189,
+        "avg_chars": 63,
+        "p95_chars": 63,
+        "max_chars": 63,
+        "avg_ms": 858,
+        "p50_ms": 844,
+        "p95_ms": 844,
+        "max_ms": 941,
+        "total_ms": 2574,
+        "avg_output_tokens": 90,
+        "total_output_tokens": 272,
+        "avg_total_tokens_est": 105,
+        "total_total_tokens_est": 317
+      },
+      {
+        "name": "cli__playwright-cli__open",
+        "count": 1,
+        "total_chars": 376,
+        "avg_chars": 376,
+        "p95_chars": 376,
+        "max_chars": 376,
+        "avg_ms": 2276,
+        "p50_ms": 2276,
+        "p95_ms": 2276,
+        "max_ms": 2276,
+        "total_ms": 2276,
+        "avg_output_tokens": 107,
+        "total_output_tokens": 107,
+        "avg_total_tokens_est": 201,
+        "total_total_tokens_est": 201
+      },
+      {
+        "name": "cli__playwright-cli__fill",
+        "count": 1,
+        "total_chars": 31,
+        "avg_chars": 31,
+        "p95_chars": 31,
+        "max_chars": 31,
+        "avg_ms": 257,
+        "p50_ms": 257,
+        "p95_ms": 257,
+        "max_ms": 257,
+        "total_ms": 257,
+        "avg_output_tokens": 142,
+        "total_output_tokens": 142,
+        "avg_total_tokens_est": 149,
+        "total_total_tokens_est": 149
+      },
+      {
+        "name": "cli__playwright-cli__find",
+        "count": 1,
+        "total_chars": 937,
+        "avg_chars": 937,
+        "p95_chars": 937,
+        "max_chars": 937,
+        "avg_ms": 271,
+        "p50_ms": 271,
+        "p95_ms": 271,
+        "max_ms": 271,
+        "total_ms": 271,
+        "avg_output_tokens": 87,
+        "total_output_tokens": 87,
+        "avg_total_tokens_est": 321,
+        "total_total_tokens_est": 321
+      },
+      {
+        "name": "cli__playwright-cli__close",
+        "count": 1,
+        "total_chars": 58,
+        "avg_chars": 58,
+        "p95_chars": 58,
+        "max_chars": 58,
+        "avg_ms": 338,
+        "p50_ms": 338,
+        "p95_ms": 338,
+        "max_ms": 338,
+        "total_ms": 338,
+        "avg_output_tokens": 77,
+        "total_output_tokens": 77,
+        "avg_total_tokens_est": 91,
+        "total_total_tokens_est": 91
+      }
+    ],
+    "per_test": null,
+    "segment": "full",
+    "non_mcp_calls": [
+      {
+        "name": "Write",
+        "count": 1
+      }
+    ]
+  },
+  "tests": {
+    "T1.1": {
+      "status": "pass",
+      "duration_ms": 0,
+      "details": "Button clicked successfully"
+    },
+    "T1.2": {
+      "status": "pass",
+      "duration_ms": 15560,
+      "details": "Correct: YBNR-3HHO"
+    },
+    "T1.3": {
+      "status": "pass",
+      "duration_ms": 26201,
+      "details": "Form submitted successfully"
+    },
+    "T1.4": {
+      "status": "pass",
+      "duration_ms": 22133,
+      "details": "All 5 selectors found and clicked"
+    },
+    "T1.5": {
+      "status": "pass",
+      "duration_ms": 9629,
+      "details": "Navigation sequence correct"
+    },
+    "T1.6": {
+      "status": "pass",
+      "duration_ms": 7938,
+      "details": "Correct sum: 316"
+    },
+    "T2.1": {
+      "status": "pass",
+      "duration_ms": 15295,
+      "details": "Async value correct"
+    },
+    "T2.2": {
+      "status": "pass",
+      "duration_ms": 14279,
+      "details": "Item 30 loaded"
+    },
+    "T2.3": {
+      "status": "pass",
+      "duration_ms": 14988,
+      "details": "Wizard completed: pro"
+    },
+    "T2.4": {
+      "status": "pass",
+      "duration_ms": 10258,
+      "details": "Scala selected!"
+    },
+    "T2.5": {
+      "status": "pass",
+      "duration_ms": 13446,
+      "details": "Tab value correct!"
+    },
+    "T2.6": {
+      "status": "pass",
+      "duration_ms": 15079,
+      "details": "Correct! Device Max is most expensive."
+    },
+    "T3.1": {
+      "status": "pass",
+      "duration_ms": 13029,
+      "details": "Shadow DOM value correct"
+    },
+    "T3.2": {
+      "status": "pass",
+      "duration_ms": 11084,
+      "details": "iFrame value correct"
+    },
+    "T3.3": {
+      "status": "pass",
+      "duration_ms": 26934,
+      "details": "Items in correct order!"
+    },
+    "T3.4": {
+      "status": "pass",
+      "duration_ms": 16448,
+      "details": "Hit! Distance: 1.7px"
+    },
+    "T3.5": {
+      "status": "pass",
+      "duration_ms": 10066,
+      "details": "All keyboard shortcuts executed correctly"
+    },
+    "T3.6": {
+      "status": "pass",
+      "duration_ms": 35548,
+      "details": "Hello World with bold detected"
+    },
+    "T4.1": {
+      "status": "pass",
+      "duration_ms": 14728,
+      "details": "Target caught!"
+    },
+    "T4.2": {
+      "status": "pass",
+      "duration_ms": 14824,
+      "details": "Captured at exactly 4!"
+    },
+    "T4.3": {
+      "status": "pass",
+      "duration_ms": 10663,
+      "details": "Needle found!"
+    },
+    "T4.4": {
+      "status": "pass",
+      "duration_ms": 13822,
+      "details": "State chain complete!"
+    },
+    "T4.5": {
+      "status": "pass",
+      "duration_ms": 15246,
+      "details": "All mutations captured!"
+    },
+    "T4.6": {
+      "status": "pass",
+      "duration_ms": 22684,
+      "details": "Token verified! Final boss defeated!"
+    },
+    "T5.1": {
+      "status": "pass",
+      "duration_ms": 9571,
+      "details": "Cookie + localStorage set and verified"
+    },
+    "T5.2": {
+      "status": "pass",
+      "duration_ms": 6971,
+      "details": "navigator.webdriver: clean, chrome.cdc_*: clean, DOM cdc_* element: clean"
+    },
+    "T5.7": {
+      "status": "pass",
+      "duration_ms": 8468,
+      "details": "Success toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Erfolgreich gespeichert\""
+    },
+    "T5.8": {
+      "status": "pass",
+      "duration_ms": 3924,
+      "details": "Error toast shown (role=\"alert\", 5s TTL). MCP should detect: [alert] \"Fehler beim Laden\""
+    },
+    "T5.9": {
+      "status": "pass",
+      "duration_ms": 3183,
+      "details": "Warning banner shown (role=\"alert\" + aria-live=\"assertive\", persistent). MCP should detect: [alert] \"Achtung: Sitzung laeuft ab\""
+    },
+    "T5.10": {
+      "status": "pass",
+      "duration_ms": 3492,
+      "details": "Quick toast shown (role=\"status\", aria-live=\"polite\", 2s TTL). MCP must read page within 2s to detect it."
+    }
+  },
+  "export_summary": {
+    "total": 30,
+    "passed": 30,
+    "failed": 0
+  },
+  "notes": "",
+  "run_file": "playwright-cli-run2.json"
+}
