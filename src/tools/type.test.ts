@@ -40,6 +40,8 @@ interface MockCdpOptions {
    * (no form ancestor → no streak hint).
    */
   formId?: string | null;
+  /** S7: answer of the contenteditable probe ("no" | "caret" | "place"). Default "no". */
+  editable?: "no" | "caret" | "place";
 }
 
 function createMockCdp(
@@ -54,6 +56,10 @@ function createMockCdp(
       // FR-023 form probe — detected by the dataset marker name in the body
       if (fnDecl.includes("__silbercueFormId")) {
         return { result: { value: opts.formId ?? null } };
+      }
+      // S7 contenteditable probe
+      if (fnDecl.includes("el.isContentEditable !== true")) {
+        return { result: { value: opts.editable ?? "no" } };
       }
       // Other Runtime.callFunctionOn calls (clear, JS focus fallback, etc.)
       return { result: { value: undefined } };
@@ -680,6 +686,135 @@ describe("typeHandler", () => {
       const insertCalls = sendFn.mock.calls.filter((c) => c[0] === "Input.insertText");
       expect(insertCalls.length).toBe(1);
       expect(insertCalls[0][1]).toEqual({ text: "hello" });
+    });
+  });
+
+  // --- S7: contenteditable editors ---
+
+  describe("S7: contenteditable targets", () => {
+    function mockEditor(overrides: Partial<{ role: string; resolvedVia: "ref" | "css" }> = {}) {
+      return {
+        backendNodeId: 77,
+        objectId: "obj-77",
+        role: overrides.role ?? "generic",
+        name: "",
+        resolvedVia: overrides.resolvedVia ?? ("ref" as const),
+        resolvedSessionId: "s1",
+      };
+    }
+    const placeCaretCalls = (sendFn: ReturnType<typeof vi.fn>) =>
+      sendFn.mock.calls.filter(
+        (c: unknown[]) =>
+          c[0] === "Runtime.callFunctionOn" &&
+          String((c[1] as { functionDeclaration?: string }).functionDeclaration).includes("selectNodeContents"),
+      );
+
+    it("accepts a ref with role generic when the element is contenteditable and appends at the end", async () => {
+      mockResolveElement.mockResolvedValue(mockEditor());
+      const { cdpClient, sendFn } = createMockCdp({}, { editable: "place" });
+
+      const result = await typeHandler({ ref: "e445", text: "Hello World", clear: false }, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(sendFn).toHaveBeenCalledWith("Input.insertText", { text: "Hello World" }, "s1");
+      const place = placeCaretCalls(sendFn);
+      expect(place).toHaveLength(1);
+      expect((place[0][1] as { arguments: Array<{ value: boolean }> }).arguments).toEqual([{ value: false }]);
+      // caret placement happens before the text goes in
+      const methods = sendFn.mock.calls.map((c: unknown[]) => c[0]);
+      expect(sendFn.mock.calls.indexOf(place[0])).toBeLessThan(methods.indexOf("Input.insertText"));
+    });
+
+    it("still rejects a generic ref that is not editable", async () => {
+      mockResolveElement.mockResolvedValue(mockEditor());
+      const { cdpClient, sendFn } = createMockCdp({}, { editable: "no" });
+
+      const result = await typeHandler({ ref: "e9", text: "x", clear: false }, cdpClient, "s1");
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]).toEqual(
+        expect.objectContaining({ text: expect.stringContaining("is not a text input (role: generic)") }),
+      );
+      expect(sendFn.mock.calls.filter((c: unknown[]) => c[0] === "Input.insertText")).toHaveLength(0);
+    });
+
+    it("accepts a StaticText ref inside an editor (the probe asks the parent element)", async () => {
+      mockResolveElement.mockResolvedValue(mockEditor({ role: "StaticText" }));
+      const { cdpClient, sendFn } = createMockCdp({}, { editable: "place" });
+
+      const result = await typeHandler({ ref: "e6", text: "!", clear: false }, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      const probe = sendFn.mock.calls.find(
+        (c: unknown[]) =>
+          c[0] === "Runtime.callFunctionOn" &&
+          String((c[1] as { functionDeclaration?: string }).functionDeclaration).includes("el.isContentEditable !== true"),
+      )!;
+      expect(String((probe[1] as { functionDeclaration: string }).functionDeclaration)).toContain("this.nodeType === 3");
+      expect(sendFn).toHaveBeenCalledWith("Input.insertText", { text: "!" }, "s1");
+    });
+
+    it("clear on a contenteditable selects the whole editor, deletes it with Backspace, then inserts", async () => {
+      mockResolveElement.mockResolvedValue(mockEditor());
+      const { cdpClient, sendFn } = createMockCdp({}, { editable: "place" });
+
+      const result = await typeHandler({ ref: "e445", text: "Fresh", clear: true }, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      const place = placeCaretCalls(sendFn);
+      expect((place[0][1] as { arguments: Array<{ value: boolean }> }).arguments).toEqual([{ value: true }]);
+      const keyEvents = sendFn.mock.calls.filter((c: unknown[]) => c[0] === "Input.dispatchKeyEvent");
+      expect(keyEvents.map((c: unknown[]) => (c[1] as { type: string; key: string }).type)).toEqual(["rawKeyDown", "keyUp"]);
+      expect((keyEvents[0][1] as { key: string }).key).toBe("Backspace");
+      const methods = sendFn.mock.calls.map((c: unknown[]) => c[0]);
+      expect(methods.lastIndexOf("Input.dispatchKeyEvent")).toBeLessThan(methods.indexOf("Input.insertText"));
+      // the input-field clear (this.value = '') is not used for editors
+      const valueClears = sendFn.mock.calls.filter(
+        (c: unknown[]) =>
+          c[0] === "Runtime.callFunctionOn" &&
+          String((c[1] as { functionDeclaration?: string }).functionDeclaration).includes("this.value = ''"),
+      );
+      expect(valueClears).toHaveLength(0);
+    });
+
+    it("clear with empty text on a contenteditable deletes and inserts nothing", async () => {
+      mockResolveElement.mockResolvedValue(mockEditor());
+      const { cdpClient, sendFn } = createMockCdp({}, { editable: "place" });
+
+      const result = await typeHandler({ ref: "e445", text: "", clear: true }, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(sendFn.mock.calls.filter((c: unknown[]) => c[0] === "Input.dispatchKeyEvent")).toHaveLength(2);
+      expect(sendFn.mock.calls.filter((c: unknown[]) => c[0] === "Input.insertText")).toHaveLength(0);
+    });
+
+    it("a contenteditable reached by selector also gets the caret at the end (append, not prepend)", async () => {
+      mockResolveElement.mockResolvedValue(mockEditor({ role: "", resolvedVia: "css" }));
+      const { cdpClient, sendFn } = createMockCdp({}, { editable: "place" });
+
+      await typeHandler({ selector: "#t3-6-editor", text: " World", clear: false }, cdpClient, "s1");
+
+      expect(placeCaretCalls(sendFn)).toHaveLength(1);
+    });
+
+    it("keeps the caret when it already sits in the editor (typing style after Meta+B survives)", async () => {
+      mockResolveElement.mockResolvedValue(mockEditor());
+      const { cdpClient, sendFn } = createMockCdp({}, { editable: "caret" });
+
+      const result = await typeHandler({ ref: "e445", text: "World", clear: false }, cdpClient, "s1");
+
+      expect(result.isError).toBeUndefined();
+      expect(placeCaretCalls(sendFn)).toHaveLength(0);
+      expect(sendFn).toHaveBeenCalledWith("Input.insertText", { text: "World" }, "s1");
+    });
+
+    it("a normal textbox gets no caret placement", async () => {
+      mockResolveElement.mockResolvedValue(mockTextbox());
+      const { cdpClient, sendFn } = createMockCdp();
+
+      await typeHandler({ ref: "e12", text: "abc", clear: false }, cdpClient, "s1");
+
+      expect(placeCaretCalls(sendFn)).toHaveLength(0);
     });
   });
 

@@ -117,6 +117,67 @@ async function probeFormScope(
   }
 }
 
+/**
+ * S7: Bearbeitbare Elemente (contenteditable — view_page zeigt sie als
+ * `generic (editable)`) sind gueltige Ziele, auch wenn ihre Rolle nicht in
+ * INPUT_ROLES steht. Text-Knoten (StaticText-Refs im Editor) fragen ihr
+ * Elternelement. Ergebnis: "no" (nicht bearbeitbar), "caret" (die Auswahl
+ * liegt schon im Ziel und der Editor hat den Fokus — z. B. nach Meta+B oder
+ * Pfeiltasten, dann bleibt sie unangetastet) oder "place" (Cursor setzen).
+ * Fehler beim Pruefen zaehlen als "no".
+ */
+type EditableState = "no" | "caret" | "place";
+
+async function probeContentEditable(
+  cdpClient: CdpClient,
+  objectId: string,
+  targetSession: string,
+): Promise<EditableState> {
+  try {
+    const res = (await cdpClient.send(
+      "Runtime.callFunctionOn",
+      {
+        functionDeclaration: `function() {
+          var el = this.nodeType === 3 ? this.parentElement : this;
+          if (!el || el.isContentEditable !== true) return "no";
+          var host = el;
+          while (host.parentElement && host.parentElement.isContentEditable) host = host.parentElement;
+          var sel = window.getSelection();
+          var inside = !!sel && sel.rangeCount > 0 && el.contains(sel.anchorNode) && host.contains(document.activeElement);
+          return inside ? "caret" : "place";
+        }`,
+        objectId,
+        returnByValue: true,
+        silent: true,
+      },
+      targetSession,
+    )) as { result?: { value?: string } };
+    const value = res?.result?.value;
+    return value === "caret" || value === "place" ? value : "no";
+  } catch {
+    return "no";
+  }
+}
+
+/**
+ * S7: Nach DOM.focus steht der Cursor in einem contenteditable am Anfang —
+ * Input.insertText schrieb darum VOR den vorhandenen Text. Die Funktion
+ * fokussiert den Editing-Host und setzt den Cursor ans Ende des Ziels bzw.
+ * markiert fuer `clear` den ganzen Host.
+ */
+const PLACE_CARET_FN = `function(clear) {
+  var el = this.nodeType === 3 ? this.parentElement : this;
+  var host = el;
+  while (host.parentElement && host.parentElement.isContentEditable) host = host.parentElement;
+  host.focus();
+  var range = document.createRange();
+  range.selectNodeContents(clear ? host : this);
+  if (!clear) range.collapse(false);
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}`;
+
 function recordTypeCallAndMaybeHint(
   sessionId: string | undefined,
   formId: string | null,
@@ -215,9 +276,12 @@ export async function typeHandler(
     const formScopeId = sessionId
       ? await probeFormScope(cdpClient, element.objectId, targetSession)
       : null;
+    const editableState = await probeContentEditable(cdpClient, element.objectId, targetSession);
+    const editable = editableState !== "no";
 
-    // Step 2: Role check — only for ref-resolved elements (CSS path skips check)
-    if (element.resolvedVia === "ref" && element.role && !INPUT_ROLES.has(element.role)) {
+    // Step 2: Role check — only for ref-resolved elements (CSS path skips check).
+    // S7: contenteditable elements pass regardless of their role.
+    if (element.resolvedVia === "ref" && element.role && !INPUT_ROLES.has(element.role) && !editable) {
       const elapsedMs = Math.round(performance.now() - start);
       return {
         content: [
@@ -266,8 +330,37 @@ export async function typeHandler(
       }
     }
 
-    // Step 4: Clear field if requested (use resolved session for OOPIF)
-    if (params.clear) {
+    // Step 4 (S7): contenteditable — caret to the end (append) unless the
+    // caret already sits in the target (keeps Meta+B typing style, arrow-key
+    // positioning); with `clear` select the whole editor and delete it with a
+    // real Backspace so editors see beforeinput/input (deleteContentBackward).
+    if (editable) {
+      if (params.clear || editableState === "place") {
+        await cdpClient.send(
+          "Runtime.callFunctionOn",
+          {
+            objectId: element.objectId,
+            functionDeclaration: PLACE_CARET_FN,
+            arguments: [{ value: params.clear === true }],
+            silent: true,
+          },
+          targetSession,
+        );
+      }
+      if (params.clear) {
+        await cdpClient.send(
+          "Input.dispatchKeyEvent",
+          { type: "rawKeyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 },
+          targetSession,
+        );
+        await cdpClient.send(
+          "Input.dispatchKeyEvent",
+          { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 },
+          targetSession,
+        );
+      }
+    } else if (params.clear) {
+      // Step 4: Clear field if requested (use resolved session for OOPIF)
       await cdpClient.send(
         "Runtime.callFunctionOn",
         {
