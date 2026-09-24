@@ -1,0 +1,188 @@
+{
+  "stage": 1,
+  "head": "c86f5ad",
+  "stage1_head": null,
+  "checked_at": "2026-09-24T09:25:31.645Z",
+  "verdict": "PASS",
+  "exit_code": 0,
+  "accepted": true,
+  "results": [
+    {
+      "id": "benchmark",
+      "label": "Benchmark 30/30 in 5 von 5 Laeufen",
+      "pass": true,
+      "detail": "5 Laeufe, 5 ok, alle 30/30"
+    },
+    {
+      "id": "rounds",
+      "label": "Runden (Median) ≤ Baseline PB 2.10.6",
+      "pass": true,
+      "detail": "82 gegen 85 (78, 81, 94, 82, 84)"
+    },
+    {
+      "id": "tokens_median",
+      "label": "Token (Median) ≤ Median agent-browser",
+      "pass": true,
+      "detail": "3.81M gegen 4.53M (3.62M, 3.81M, 4.14M, 3.71M, 3.90M)"
+    },
+    {
+      "id": "tokens_max",
+      "label": "Einzellauf ≤ 4.90M",
+      "pass": true,
+      "detail": "max 4.14M (public-browser-run12.json)"
+    },
+    {
+      "id": "probe",
+      "label": "Realseiten-Probe P1–P3 je 2 von 2 Laeufen bestanden, Summe der Runden-Mediane ≤ Baseline + 20 %",
+      "pass": true,
+      "detail": "P1 2/2 bestanden · P2 2/2 bestanden · P3 2/2 bestanden · Summe der Runden-Mediane 81 (P1 44.5 + P2 22 + P3 14.5), Grenze 97.2 = Baseline 81 × 1,2"
+    },
+    {
+      "id": "code",
+      "label": "npm test, Lint, npm run build, Python-Tests gruen",
+      "pass": true,
+      "detail": "npm test ok, lint ok, build ok, pytest ok"
+    }
+  ],
+  "warnings": [],
+  "exclusions": {},
+  "version_filter": {
+    "chrome": null,
+    "claude_code": null
+  },
+  "version_drift": [],
+  "versions": {
+    "chrome": [
+      "153.0.8010.53"
+    ],
+    "claude_code": [
+      "2.1.281"
+    ]
+  },
+  "baseline_versions": {
+    "chrome": [
+      "153.0.8010.53"
+    ],
+    "claude_code": [
+      "2.1.281"
+    ]
+  },
+  "benchmark": {
+    "n": 5,
+    "n_ok": 5,
+    "runs": [
+      "public-browser-run10.json",
+      "public-browser-run11.json",
+      "public-browser-run12.json",
+      "public-browser-run8.json",
+      "public-browser-run9.json"
+    ],
+    "failures": [],
+    "tokens": {
+      "median": 3814006,
+      "max": 4136848,
+      "max_run": "public-browser-run12.json",
+      "values": [
+        3620641,
+        3814006,
+        4136848,
+        3709772,
+        3899714
+      ]
+    },
+    "rounds": {
+      "median": 82,
+      "values": [
+        78,
+        81,
+        94,
+        82,
+        84
+      ]
+    },
+    "calls": {
+      "median": 80,
+      "values": [
+        76,
+        79,
+        92,
+        80,
+        82
+      ]
+    }
+  },
+  "probe": {
+    "P1": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run1.json",
+        "real-sites-public-browser-run2.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 44.5,
+        "values": [
+          46,
+          43
+        ]
+      },
+      "tokens": {
+        "median": 1144426.5,
+        "values": [
+          1208864,
+          1079989
+        ]
+      }
+    },
+    "P2": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run3.json",
+        "real-sites-public-browser-run4.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 22,
+        "values": [
+          22,
+          22
+        ]
+      },
+      "tokens": {
+        "median": 353271.5,
+        "values": [
+          352839,
+          353704
+        ]
+      }
+    },
+    "P3": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run5.json",
+        "real-sites-public-browser-run6.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 14.5,
+        "values": [
+          19,
+          10
+        ]
+      },
+      "tokens": {
+        "median": 298646.5,
+        "values": [
+          419040,
+          178253
+        ]
+      }
+    }
+  }
+}
