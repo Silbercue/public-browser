@@ -757,6 +757,102 @@ describe("clickHandler", () => {
     expect(text).toContain("switch_tab");
   });
 
+  // --- S4: the new tab's ID and title ---
+
+  const linkElement = {
+    backendNodeId: 42,
+    objectId: "obj-42",
+    role: "link",
+    name: "Open Target Tab",
+    resolvedVia: "ref" as const,
+    resolvedSessionId: "s1",
+  };
+
+  /** Target.getTargets: only t1 before the click, t1 plus `opened` after it. */
+  function targetsAround(opened: { targetId: string; url: string; title: string }) {
+    let calls = 0;
+    return () => {
+      calls++;
+      const main = { targetId: "t1", type: "page", url: "https://example.com", title: "Main" };
+      return { targetInfos: calls === 1 ? [main] : [main, { type: "page", ...opened }] };
+    };
+  }
+
+  it("S4: names the new tab's ID and title", async () => {
+    mockResolveElement.mockResolvedValue(linkElement);
+    const { cdpClient } = createMockCdp({
+      "Target.getTargets": targetsAround({
+        targetId: "B8DE0E312FA4FACC1A775866BDA9E3E6",
+        url: "https://example.com/tab-target.html",
+        title: "Tab Target",
+      }),
+    });
+
+    const result = await clickHandler({ ref: "e5" }, cdpClient, "s1");
+
+    expect((result.content[0] as { text: string }).text).toContain(
+      '\n⮕ New tab opened: B8DE0E312FA4FACC1A775866BDA9E3E6 "Tab Target" (https://example.com/tab-target.html) — switch_tab with this ID to use it',
+    );
+  });
+
+  it("S4: a real title that is part of the URL is still a title", async () => {
+    mockResolveElement.mockResolvedValue(linkElement);
+    const { cdpClient, sendFn } = createMockCdp({
+      "Target.getTargets": targetsAround({ targetId: "t2", url: "https://example.com/docs", title: "docs" }),
+    });
+
+    const result = await clickHandler({ ref: "e5" }, cdpClient, "s1");
+
+    expect((result.content[0] as { text: string }).text).toContain('New tab opened: t2 "docs" (https://example.com/docs)');
+    expect(sendFn.mock.calls.map((c: unknown[]) => c[0])).not.toContain("Target.getTargetInfo");
+  });
+
+  it("S4: waits briefly for a title the new tab has not loaded yet", async () => {
+    vi.useFakeTimers();
+    try {
+      mockResolveElement.mockResolvedValue(linkElement);
+      let infoCalls = 0;
+      const { cdpClient } = createMockCdp({
+        // Before its <title> is parsed Chrome reports the URL as title.
+        "Target.getTargets": targetsAround({ targetId: "t2", url: "https://example.com/slow", title: "example.com/slow" }),
+        "Target.getTargetInfo": () => {
+          infoCalls++;
+          const title = infoCalls < 2 ? "example.com/slow" : "Slow Page";
+          return { targetInfo: { targetId: "t2", type: "page", url: "https://example.com/slow", title } };
+        },
+      });
+
+      const pending = clickHandler({ ref: "e5" }, cdpClient, "s1");
+      await vi.advanceTimersByTimeAsync(300);
+      const result = await pending;
+
+      expect((result.content[0] as { text: string }).text).toContain('New tab opened: t2 "Slow Page" (https://example.com/slow)');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("S4: reports the ID without a title when the tab has none after the wait", async () => {
+    vi.useFakeTimers();
+    try {
+      mockResolveElement.mockResolvedValue(linkElement);
+      const untitled = { targetId: "t2", type: "page", url: "https://example.com/untitled", title: "https://example.com/untitled" };
+      const { cdpClient } = createMockCdp({
+        "Target.getTargets": targetsAround(untitled),
+        "Target.getTargetInfo": () => ({ targetInfo: untitled }),
+      });
+
+      const pending = clickHandler({ ref: "e5" }, cdpClient, "s1");
+      await vi.advanceTimersByTimeAsync(1_500);
+      const result = await pending;
+
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain("New tab opened: t2 (https://example.com/untitled) — switch_tab with this ID to use it");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("should not report new tab when click stays on same page (FR-E)", async () => {
     mockResolveElement.mockResolvedValue({
       backendNodeId: 42,

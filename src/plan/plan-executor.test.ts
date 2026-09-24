@@ -2066,3 +2066,40 @@ describe("executePlan — Step-Response-Aggregation (Story 18.2)", () => {
     expect(textBlocks[1].text).toContain("type failed");
   });
 });
+
+// --- S4: the new-tab line of a click survives the step aggregation ---
+
+describe("executePlan — new tab opened by a click step (S4)", () => {
+  it("S4: keeps the new-tab line so the tab ID reaches the model", async () => {
+    const responses = new Map<string, ToolResponse>();
+    responses.set(
+      "click",
+      okResponse(
+        "click",
+        'Clicked [e5] link "Open" (ref)\n⮕ New tab opened: T9 "Target" (https://x.test/t) — switch_tab with this ID to use it',
+      ),
+    );
+
+    const result = (await executePlan([{ tool: "click", params: { ref: "e5" } }], createMockRegistry(responses))) as ToolResponse;
+
+    const text = result.content.map((c) => (c as { text: string }).text).join("\n");
+    expect(text).toContain(
+      '[1/1] OK click (5ms): ref=e5\n⮕ New tab opened: T9 "Target" (https://x.test/t) — switch_tab with this ID to use it',
+    );
+  });
+
+  it("S4: keeps the new-tab line when the step line falls back to the short text", async () => {
+    const responses = new Map<string, ToolResponse>();
+    responses.set(
+      "click",
+      okResponse("click", "Clicked at (10, 20)\n⮕ New tab opened: T9 (https://x.test/t) — switch_tab with this ID to use it"),
+    );
+
+    const result = (await executePlan([{ tool: "click", params: { x: 10, y: 20 } }], createMockRegistry(responses))) as ToolResponse;
+
+    const text = result.content.map((c) => (c as { text: string }).text).join("\n");
+    expect(text).toContain(
+      "[1/1] OK click (5ms): Clicked at (10, 20)\n⮕ New tab opened: T9 (https://x.test/t) — switch_tab with this ID to use it",
+    );
+  });
+});

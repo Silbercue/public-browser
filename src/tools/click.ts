@@ -573,6 +573,17 @@ export async function clickHandler(
 
 // --- FR-E: New tab detection ---
 
+/** S4: how long a click waits for a freshly opened tab to report its title. */
+const NEW_TAB_TITLE_WAIT_MS = 1_000;
+const NEW_TAB_TITLE_POLL_MS = 100;
+
+/** S4: until the page sets a <title>, Chrome reports its URL (with or without scheme) as title. */
+function hasPageTitle(tab: TargetInfo): boolean {
+  const bare = (text: string): string => text.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/$/, "");
+  const title = (tab.title ?? "").trim();
+  return title !== "" && title !== "about:blank" && bare(title) !== bare(tab.url ?? "");
+}
+
 async function detectNewTab(
   cdpClient: CdpClient,
   beforeTabIds?: Set<string>,
@@ -582,8 +593,24 @@ async function detectNewTab(
     const { targetInfos } = await cdpClient.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
     const newTabs = targetInfos.filter(t => t.type === "page" && !beforeTabIds.has(t.targetId));
     if (newTabs.length > 0) {
-      const tab = newTabs[0];
-      return `\n⮕ New tab opened: ${tab.url || "about:blank"} — use switch_tab to access it`;
+      // S4: the ID is what switch_tab needs; the title is for orientation, so
+      // it gets a short wait (the new page is usually still loading).
+      let tab = newTabs[0];
+      const deadline = Date.now() + NEW_TAB_TITLE_WAIT_MS;
+      while (!hasPageTitle(tab) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, NEW_TAB_TITLE_POLL_MS));
+        try {
+          const { targetInfo } = await cdpClient.send<{ targetInfo: TargetInfo }>(
+            "Target.getTargetInfo",
+            { targetId: tab.targetId },
+          );
+          tab = targetInfo;
+        } catch {
+          break; // tab closed again or not inspectable — report what we have
+        }
+      }
+      const title = hasPageTitle(tab) ? ` "${tab.title.trim()}"` : "";
+      return `\n⮕ New tab opened: ${tab.targetId}${title} (${tab.url || "about:blank"}) — switch_tab with this ID to use it`;
     }
   } catch { /* non-critical */ }
   return "";

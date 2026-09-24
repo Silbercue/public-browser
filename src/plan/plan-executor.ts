@@ -595,10 +595,15 @@ function formatStepLine(stepResult: StepResult, stepsTotal: number): string {
     return `${prefix} <no-output>`;
   }
 
+  // S4: a click that opened a tab reports the tab ID on its own line — the
+  // model needs it for switch_tab, so it survives the one-line aggregation.
+  const newTabLines = allText.split("\n").filter((line) => line.startsWith("⮕ New tab opened"));
+  const newTabTail = newTabLines.length > 0 ? `\n${newTabLines.join("\n")}` : "";
+
   const expectedRef = extractExpectedRefFromParams(stepResult.params);
   const ref = extractFirstRef(allText, expectedRef);
   if (ref) {
-    return `${prefix} ref=${ref}`;
+    return `${prefix} ref=${ref}${newTabTail}`;
   }
 
   // Kurztext-Fallback: erste Zeile, max STEP_LINE_COMPACT_MAX_CHARS Zeichen
@@ -607,7 +612,7 @@ function formatStepLine(stepResult: StepResult, stepsTotal: number): string {
     firstLine.length > STEP_LINE_COMPACT_MAX_CHARS
       ? firstLine.slice(0, STEP_LINE_COMPACT_MAX_CHARS - 3) + "..."
       : firstLine;
-  return `${prefix} ${compact}`;
+  return `${prefix} ${compact}${newTabTail}`;
 }
 
 /**
