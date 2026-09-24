@@ -165,21 +165,6 @@ export function detectEvaluateAntiPattern(expression: string): string | null {
     );
   }
 
-  // Pattern 6: CSS inspection via getComputedStyle / getBoundingClientRect without
-  // style mutation. inspect_element (Pro) returns computed styles, matched CSS rules
-  // with source:line, cascade, inherited styles, AND a visual clip screenshot — all
-  // in one call, no JS needed.
-  if (/getComputedStyle|getBoundingClientRect|\.offsetWidth|\.offsetHeight|\.clientWidth|\.clientHeight/.test(expression)) {
-    // Only hint when the expression is reading CSS, not mutating it.
-    // Style mutations (element.style.X = ...) are a valid evaluate use case.
-    const isStyleMutation = /\.style\s*[.=]|\.cssText\s*=|classList\s*\.\s*(add|remove|toggle|replace)\s*\(|\.setProperty\s*\(|setAttribute\s*\(\s*['"]style['"]/.test(expression);
-    if (!isStyleMutation) {
-      hints.push(
-        "Reading CSS/layout via JS? inspect_element(selector) returns computed styles, matched CSS rules with source:line, cascade, inherited styles, and a visual clip screenshot — all in one call. Try inspect_element(selector: '.my-class', styles: ['width', 'height', 'padding']).",
-      );
-    }
-  }
-
   // Pattern 7: Dialog/alert handling via JS override.
   // handle_dialog uses CDP Page.javascriptDialogOpening and works even when the
   // dialog blocks JS execution. evaluate-based overrides only prevent future

@@ -749,27 +749,28 @@ describe("detectEvaluateAntiPattern", () => {
     expect(detectEvaluateAntiPattern('"textContent is a property"')).toBeNull();
   });
 
-  it("hints on getComputedStyle CSS inspection (read-only)", () => {
-    const hint = detectEvaluateAntiPattern(
+  // S9: inspect_element exists only as a Pro hook — never recommend it.
+  it("gives no tip for read-only CSS/layout inspection", () => {
+    expect(detectEvaluateAntiPattern("const s = getComputedStyle(el); s.width")).toBeNull();
+    expect(detectEvaluateAntiPattern("el.getBoundingClientRect().width")).toBeNull();
+  });
+
+  it("never points to the unregistered inspect_element tool", () => {
+    for (const expression of [
       "const s = getComputedStyle(el); s.width",
-    );
-    expect(hint).not.toBeNull();
-    expect(hint).toMatch(/inspect_element/);
-  });
-
-  it("hints on getBoundingClientRect layout inspection", () => {
-    const hint = detectEvaluateAntiPattern(
       "el.getBoundingClientRect().width",
-    );
-    expect(hint).not.toBeNull();
-    expect(hint).toMatch(/inspect_element/);
+      "document.body.offsetWidth",
+      "el.clientHeight",
+      "const w = getComputedStyle(el).width; el.style.width = parseInt(w) * 2 + 'px'",
+    ]) {
+      expect(detectEvaluateAntiPattern(expression) ?? "", expression).not.toMatch(/inspect_element/);
+    }
   });
 
-  it("does NOT hint on getComputedStyle when combined with style mutation", () => {
-    const hint = detectEvaluateAntiPattern(
-      "const w = getComputedStyle(el).width; el.style.width = parseInt(w) * 2 + 'px'",
-    );
-    expect(hint ?? "").not.toMatch(/inspect_element/);
+  // Positive counterpart: layout reading does not mute the other patterns.
+  it("still hints on a click pattern next to layout reading", () => {
+    const hint = detectEvaluateAntiPattern("el.getBoundingClientRect().width; el.click()");
+    expect(hint).toMatch(/click tool/);
   });
 
   // --- Story 23.1: Pattern 7 — Dialog/alert handling ---
