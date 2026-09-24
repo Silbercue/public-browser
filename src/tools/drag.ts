@@ -4,6 +4,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { resolveElement, RefNotFoundError } from "./element-utils.js";
 import { wrapCdpError } from "./error-utils.js";
+import { FRAME_PAUSE_EXPRESSION } from "./frame-pause.js";
 
 /**
  * Story 18.6 (FR-028) + Aufschliessen S6 — Drag&Drop ueber CDP.
@@ -58,8 +59,6 @@ const INTERCEPT_GRACE_MS = 500;
 const PROBE_KEY = "__pbDragProbe";
 /** Name of the isolated world the probe runs in. */
 const PROBE_WORLD = "__pb_drag_probe__";
-/** Upper bound of the frame pause before the probe is read (hidden tabs throttle requestAnimationFrame). */
-const FRAME_PAUSE_MAX_MS = 100;
 /** Without a reaction after the frame pause the probe is read again for this long (~300 ms wait in total). */
 const REACTION_GRACE_MS = 200;
 const REACTION_POLL_MS = 50;
@@ -299,12 +298,6 @@ function probeInstallExpression(from: DragPoint, to: DragPoint): string {
 const PROBE_PEEK_EXPRESSION = `(() => { var p = window.${PROBE_KEY}; return !!(p && p.state.dragstart && !p.state.dragstartPrevented); })()`;
 const PROBE_READ_EXPRESSION = `(() => { var p = window.${PROBE_KEY}; return p ? p.read() : null; })()`;
 const PROBE_TEARDOWN_EXPRESSION = `(() => { var p = window.${PROBE_KEY}; if (p) p.stop(); return true; })()`;
-const FRAME_PAUSE_EXPRESSION = `new Promise(function (resolve) {
-  var done = false;
-  var finish = function () { if (!done) { done = true; resolve(true); } };
-  setTimeout(finish, ${FRAME_PAUSE_MAX_MS});
-  requestAnimationFrame(function () { requestAnimationFrame(finish); });
-})`;
 
 /**
  * Creates the isolated world, installs the probe and returns the viewport size
