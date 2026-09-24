@@ -1,7 +1,7 @@
 {
   "name": "public-browser",
   "version": "3.0.0",
-  "description": "Lets Claude Code and Cursor drive Chrome. Blind benchmark vs agent-browser: -33% tokens, -33% cost, -24% tool calls, -32% time, 30/30.",
+  "description": "Lets Claude Code and Cursor drive Chrome. Blind benchmark vs agent-browser: -33% tokens, -33% cost, -24% tool calls, +48% speed, 30/30.",
   "keywords": [
     "mcp",
     "mcp-server",
