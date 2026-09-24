@@ -4950,6 +4950,27 @@ describe("ToolRegistry — Script-API tab keeps its own refs (P5)", () => {
     }
   });
 
+  it("P5: a Script-API call does not run the ambient-context hook (click diff of the MCP tab)", async () => {
+    const hookFn = vi.fn(async (_name: string, result: import("./types.js").ToolResponse) => result);
+    registerProHooks({ onToolResult: hookFn as never });
+    try {
+      bindScriptTab("session-B", "TAB-B");
+      const registry = new ToolRegistry({ tool: vi.fn() } as never, navCdp as never, "session-A", {} as never);
+      registry.registerAll();
+
+      const scriptResult = await registry.executeTool("evaluate", { expression: "1" }, "session-B");
+      expect(scriptResult.isError).toBeFalsy();
+      expect(hookFn).not.toHaveBeenCalled(); // so no click diff of tab B lands in the global deferred slot
+
+      // Control: the MCP tab's call still runs the hook.
+      await registry.executeTool("evaluate", { expression: "1" });
+      expect(hookFn).toHaveBeenCalledTimes(1);
+    } finally {
+      registerProHooks({});
+      forgetScriptTab("TAB-B");
+    }
+  });
+
   it("P5: view_page through a Script-API session builds its refs in that tab's table", async () => {
     try {
       await a11yTree.getTree(treeCdp as never, "session-A");

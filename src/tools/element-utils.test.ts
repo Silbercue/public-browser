@@ -227,6 +227,55 @@ describe("resolveElement", () => {
     await expect(resolveElement(docCdp("doc-1"), "s1", { ref: "e2" })).resolves.toMatchObject({ backendNodeId: 101 });
   });
 
+  it("P21: after the return to a tab its refs still check the document they were assigned in", async () => {
+    // Every session reports the given loaderId for its main frame.
+    const docCdp = (loaderId: string): CdpClient => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: "https://a.test/" } };
+        if (method === "Accessibility.getFullAXTree") return { nodes: buttonTree };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId } } };
+        if (method === "DOM.resolveNode") return { object: { objectId: "obj-some-node" } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    }) as unknown as CdpClient;
+    await a11yTree.getTree(docCdp("doc-A"), "session-A1");
+    await a11yTree.switchTab(docCdp("doc-A"), { targetId: "TAB-A", sessionId: "session-A1" }, { targetId: "TAB-B", sessionId: "session-B" });
+    expect(
+      await a11yTree.switchTab(docCdp("doc-A"), { targetId: "TAB-B", sessionId: "session-B" }, { targetId: "TAB-A", sessionId: "session-A2" }),
+    ).toBe(true);
+
+    // A link click in tab A loaded a new document; no navigate call, no view_page.
+    const err = await resolveElement(docCdp("doc-A-next"), "session-A2", { ref: "e2" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RefNotFoundError);
+    expect((err as Error).message).toContain("Element e2 is a stale ref");
+  });
+
+  it("P21: after the return to an unchanged tab its refs resolve", async () => {
+    const docCdp = (loaderId: string): CdpClient => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: "https://a.test/" } };
+        if (method === "Accessibility.getFullAXTree") return { nodes: buttonTree };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId } } };
+        if (method === "DOM.resolveNode") return { object: { objectId: "obj-some-node" } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    }) as unknown as CdpClient;
+    await a11yTree.getTree(docCdp("doc-A"), "session-A1");
+    await a11yTree.switchTab(docCdp("doc-A"), { targetId: "TAB-A", sessionId: "session-A1" }, { targetId: "TAB-B", sessionId: "session-B" });
+    await a11yTree.switchTab(docCdp("doc-A"), { targetId: "TAB-B", sessionId: "session-B" }, { targetId: "TAB-A", sessionId: "session-A2" });
+
+    await expect(resolveElement(docCdp("doc-A"), "session-A2", { ref: "e2" })).resolves.toMatchObject({
+      backendNodeId: 101,
+      resolvedSessionId: "session-A2",
+    });
+  });
+
   it("throws RefNotFoundError for stale DOM node", async () => {
     const nodes: AXNode[] = [
       makeNode({
