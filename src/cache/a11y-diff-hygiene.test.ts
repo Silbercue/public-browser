@@ -254,6 +254,35 @@ describe("H1 Diff-Hygiene — Vergleichsbasis (run3 #31 → #85)", () => {
   });
 });
 
+describe("H1 Diff-Hygiene — refresh without a tree (Final review M1)", () => {
+  it("a click whose refresh comes back without a tree reports no REMOVED for what view_page showed", async () => {
+    const proc = new A11yTreeProcessor();
+    const { cdp, setState } = scriptedCdp(LEVEL2);
+    // An earlier click refresh read Level 2 …
+    await proc.refreshPrecomputed(cdp, "s1");
+    // … view_page then showed Level 5 — the new baseline.
+    setState(level5(false));
+    await proc.getTree(cdp, "s1", { filter: "all", fresh: true });
+
+    // The next click's refresh gets no nodes (page mid-reload) and returns early.
+    const diff = await clickDiff(proc, cdp, () => setState([]));
+
+    expect(changeLines(diff).filter((l) => l.startsWith(" REMOVED"))).toEqual([]);
+  });
+
+  it("counter-check: a node that really vanished still shows up as REMOVED", async () => {
+    const proc = new A11yTreeProcessor();
+    const { cdp, setState } = scriptedCdp(LEVEL2);
+    await proc.refreshPrecomputed(cdp, "s1");
+    setState(level5(false));
+    await proc.getTree(cdp, "s1", { filter: "all", fresh: true });
+
+    const diff = await clickDiff(proc, cdp, () => setState(level5(true)));
+
+    expect(changeLines(diff)).toContain(' REMOVED StaticText "PENDING"');
+  });
+});
+
 describe("H1 Diff-Hygiene — Format", () => {
   const added = (i: number, role: string, name: string) => ({ type: "added" as const, ref: `e${i}`, role, after: name });
 

@@ -108,24 +108,12 @@ export async function computeDiff(
     );
     if (signal?.aborted) return [];
     const after = context.a11yTree.getSnapshotMap();
-    const changes = context.a11yTree.diffSnapshots(before, after);
-
-    // Removed-Detection
-    const activeRefs = context.a11yTree.getActiveRefs();
-    if (activeRefs.size > 0) {
-      const reportedRefs = new Set(changes.map((c) => c.ref));
-      for (const [refNum, encoded] of before) {
-        const refTag = `e${refNum}`;
-        if (reportedRefs.has(refTag)) continue;
-        if (activeRefs.has(refNum)) continue;
-        // Stufe 2 H1: entries may carry a third field ("live") — split, don't slice.
-        const [role, name = "", flag] = encoded.split("\0");
-        if (!name) continue;
-        changes.push({ type: "removed", ref: refTag, role, before: name, after: "", ...(flag === "live" ? { live: true as const } : {}) });
-      }
-    }
-
-    return changes;
+    // Stufe 2 H1: `before` and `after` share one baseline (what was last
+    // observed), so diffSnapshots already reports every REMOVED. No extra
+    // pass against getActiveRefs(): after a refresh that came back without a
+    // tree it held an older state and turned the whole page into REMOVED
+    // lines (final review M1).
+    return context.a11yTree.diffSnapshots(before, after);
   };
 
   let changes = await computeChanges(initialWaitMs);

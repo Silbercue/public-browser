@@ -13,7 +13,7 @@
  *  (a) Scope: only `click` + `clickable`/`widget-state` triggers the hook
  *  (b) Happy path (sync): refresh + diff + format -> diff text appended
  *  (c) Settle-Loop (sync): empty first refresh -> retry once with extra wait
- *  (d) Removed-Detection (sync): refs missing from getActiveRefs() get REMOVED
+ *  (d) REMOVED comes from diffSnapshots only, nothing synthesized from getActiveRefs()
  *  (e) Errors inside the hook never destroy the original tool response
  *  (f) `formatDomDiff` returning null leaves the response untouched
  *  (g) Deferred path: click without syncDiff schedules background job
@@ -296,31 +296,25 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
   });
 
   // =========================================================================
-  // (d) Removed-Detection (syncDiff=true)
+  // (d) REMOVED comes from diffSnapshots only (final review M1)
   // =========================================================================
 
-  it("synthesizes REMOVED entries for refs missing from getActiveRefs() (syncDiff=true)", async () => {
+  it("adds no REMOVED of its own for refs getActiveRefs() does not know (syncDiff=true)", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
     const hook = createDefaultOnToolResult();
     const formatDomDiffSpy = vi.fn(
       (changes: DOMChange[]) => `--- ${changes.length} changes ---`,
     );
+    // A refresh that came back without a tree: `after` is still the baseline
+    // view_page left, getActiveRefs() an older state without ref 5.
+    const baseline = new Map([
+      [1, "button\0Save"],
+      [5, "dialog\0Confirm dialog"],
+    ]);
     const { context, a11yTree } = makeContext({
-      snapshots: [
-        new Map([
-          [1, "button\0Save"],
-          [5, "dialog\0Confirm dialog"],
-        ]),
-        new Map([
-          [1, "button\0Save"],
-          [5, "dialog\0Confirm dialog"],
-          [9, "row\0New row"],
-        ]),
-      ],
-      diffResults: [
-        [{ type: "added", ref: "e9", role: "row", after: "New row" }],
-      ],
+      snapshots: [baseline, baseline],
+      diffResults: [[{ type: "added", ref: "e9", role: "row", after: "New row" }]],
       formatResults: ["mock"],
       activeRefs: new Set([1, 9]),
     });
@@ -330,70 +324,10 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     await hook("click", result, context);
 
     expect(formatDomDiffSpy).toHaveBeenCalledTimes(1);
-    const passedChanges = formatDomDiffSpy.mock.calls[0][0] as DOMChange[];
-    expect(passedChanges).toHaveLength(2);
-    expect(passedChanges).toContainEqual(
-      expect.objectContaining({ type: "added", ref: "e9" }),
-    );
-    expect(passedChanges).toContainEqual(
-      expect.objectContaining({
-        type: "removed",
-        ref: "e5",
-        role: "dialog",
-        before: "Confirm dialog",
-      }),
-    );
-  });
-
-  it("does not double-report REMOVED for refs already in diffSnapshots output (syncDiff=true)", async () => {
-    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
-    process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
-    const hook = createDefaultOnToolResult();
-    const formatDomDiffSpy = vi.fn(() => "mock");
-    const { context, a11yTree } = makeContext({
-      snapshots: [
-        new Map([[5, "dialog\0X"]]),
-        new Map([[5, "dialog\0X"]]),
-      ],
-      diffResults: [
-        [{ type: "removed", ref: "e5", role: "dialog", before: "X", after: "" }],
-      ],
-      formatResults: ["mock"],
-      activeRefs: new Set(),
-    });
-    a11yTree.formatDomDiff = formatDomDiffSpy as unknown as typeof a11yTree.formatDomDiff;
-    const result = makeClickResult("clickable", true);
-
-    await hook("click", result, context);
-
-    const passedChanges = formatDomDiffSpy.mock.calls[0][0] as DOMChange[];
-    const removed = passedChanges.filter((c) => c.type === "removed");
-    expect(removed).toHaveLength(1);
-  });
-
-  it("skips REMOVED synthesis when getActiveRefs() returns empty (syncDiff=true)", async () => {
-    process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "0";
-    process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";
-    const hook = createDefaultOnToolResult();
-    const formatDomDiffSpy = vi.fn(() => "mock");
-    const { context, a11yTree } = makeContext({
-      snapshots: [
-        new Map([[5, "dialog\0X"]]),
-        new Map([[5, "dialog\0X"]]),
-      ],
-      diffResults: [[]],
-      formatResults: [null],
-      activeRefs: new Set(),
-    });
-    a11yTree.formatDomDiff = formatDomDiffSpy as unknown as typeof a11yTree.formatDomDiff;
-    const result = makeClickResult("clickable", true);
-
-    await hook("click", result, context);
-
-    if (formatDomDiffSpy.mock.calls.length > 0) {
-      const passedChanges = formatDomDiffSpy.mock.calls[0][0] as DOMChange[];
-      expect(passedChanges).toHaveLength(0);
-    }
+    // Exactly what diffSnapshots reported (positive: the added row), no REMOVED e5.
+    expect(formatDomDiffSpy.mock.calls[0][0]).toEqual([
+      { type: "added", ref: "e9", role: "row", after: "New row" },
+    ]);
   });
 
   // =========================================================================
