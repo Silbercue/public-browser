@@ -383,3 +383,34 @@ class TestParseEvaluateResponseHints:
         """Plancheck P35: all own blocks count, joined by a newline — as in extractResultValue."""
         response = _evaluate_response('"first"', '"second"' + _TIP)
         assert _parse_evaluate_response(response) == '"first"\n"second"'
+
+
+# ---------------------------------------------------------------------------
+# Stufe 2 H5: the Script API keeps JSON for evaluate strings
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluateStringsStayJsonForScriptApi:
+    """Plancheck P35: fixed responses as executeTool delivers them after Task 28.
+
+    Only the MCP tool returns plain text raw; the Script API keeps the JSON
+    form, so the parser keeps the type of every string.
+    """
+
+    def test_text_string_loses_only_its_quotes(self) -> None:
+        """A plain string arrives JSON-encoded and comes back as str."""
+        response = _evaluate_response('"Device Max | $419.99"')
+        assert _parse_evaluate_response(response) == "Device Max | $419.99"
+
+    def test_number_string_stays_a_string(self) -> None:
+        """A number string from the page is a str, not an int."""
+        assert _parse_evaluate_response(_evaluate_response('"42"')) == "42"
+
+    def test_json_text_built_by_the_page_stays_a_string(self) -> None:
+        """JSON text the page built itself stays one str, not a dict."""
+        response = _evaluate_response('"{\\"a\\": 1}"')
+        assert _parse_evaluate_response(response) == '{"a": 1}'
+
+    def test_raw_text_would_change_the_type(self) -> None:
+        """Why the Script API keeps JSON: raw 42 would come back as an int."""
+        assert _parse_evaluate_response(_evaluate_response("42")) == 42

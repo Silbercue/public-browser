@@ -251,10 +251,44 @@ interface RuntimeEvaluateResult {
   };
 }
 
+/**
+ * Stufe 2 H5 / Plancheck P16: a string the model could take for another type,
+ * or could not see at all, keeps its JSON form even in the MCP tool — empty
+ * or whitespace only, "undefined"/"NaN" (evaluate's own rendering of those
+ * values), number strings ("42", "1e3", "0x1F", "Infinity") and anything that
+ * parses as JSON ("true", "false", "null", objects, arrays, string literals).
+ */
+function isAmbiguousRawString(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === "") return true;
+  if (trimmed === "undefined" || trimmed === "NaN") return true;
+  if (!Number.isNaN(Number(trimmed))) return true;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Stufe 2 H5: options of the MCP-facing evaluate call. */
+export interface EvaluateOptions {
+  /**
+   * Return an unambiguous string result as-is instead of JSON-encoding it (no
+   * quotes, no \n escapes). Only the MCP tool sets this — the model just reads
+   * the text. run_plan steps, the Script API (Python `page.evaluate`) and the
+   * Node library keep the JSON form: they parse it, and a raw "42" or
+   * '{"a":1}' would change type there. Ambiguous strings stay JSON even here
+   * (isAmbiguousRawString, Plancheck P16).
+   */
+  rawStrings?: boolean;
+}
+
 export async function evaluateHandler(
   params: EvaluateParams,
   cdpClient: CdpClient,
   sessionId?: string,
+  options: EvaluateOptions = {},
 ): Promise<ToolResponse> {
   const start = performance.now();
 
@@ -299,6 +333,14 @@ export async function evaluateHandler(
         isError: true,
         _meta: { elapsedMs, method: "evaluate" },
       };
+    } else if (
+      options.rawStrings &&
+      typeof resultValue.value === "string" &&
+      !isAmbiguousRawString(resultValue.value)
+    ) {
+      // Stufe 2 H5: raw text for the model. Plancheck P16: strings that could
+      // pass for another type or would be invisible keep their JSON quotes.
+      text = resultValue.value;
     } else {
       text = JSON.stringify(resultValue.value);
     }

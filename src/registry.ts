@@ -1853,7 +1853,10 @@ export class ToolRegistry implements ToolRegistryPublic {
         await_promise: evaluateSchema.shape.await_promise,
       },
       wrap(async (params) => {
-        return evaluateHandler(params as unknown as EvaluateParams, this.cdpClient, this.sessionId);
+        // Stufe 2 H5: the model reads unambiguous string results raw; executeTool
+        // (run_plan, Script API, Node library) keeps the JSON form via the
+        // _handlers entry below.
+        return evaluateHandler(params as unknown as EvaluateParams, this.cdpClient, this.sessionId, { rawStrings: true });
       }, "evaluate"),
     );
 
