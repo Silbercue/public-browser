@@ -13,6 +13,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { dragHandler, dragSchema } from "./drag.js";
+import { executePlan } from "../plan/plan-executor.js";
+import type { ToolRegistry } from "../registry.js";
+import type { ToolResponse } from "../types.js";
 import type { DragProbeResult } from "./drag.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { a11yTree } from "../cache/a11y-tree.js";
@@ -464,7 +467,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
     const result = await dragHandler({ from_x: 100, from_y: 100, to_x: 600, to_y: 500 }, cdp, "sess-1");
 
     expect(result.isError).toBeFalsy();
-    expect(text(result)).toContain("HTML5 drag started, but no drop event was detected");
+    expect(text(result)).toMatch(/^Drag not confirmed: HTML5 drag started, no drop event detected/);
     expect(text(result)).toContain("verify with view_page");
     expect(text(result)).not.toMatch(/^Dragged/);
     expect(text(result)).not.toContain("did not accept");
@@ -563,8 +566,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
     const result = await dragHandler({ from_x: 600, from_y: 700, to_x: 650, to_y: 720 }, cdp, "sess-1");
 
     expect(result.isError).toBeFalsy();
-    expect(text(result)).toMatch(/^Drag performed from \(600,700\) to \(650,720\)/);
-    expect(text(result)).toContain("no page reaction was detected");
+    expect(text(result)).toMatch(/^Drag not confirmed: no page reaction detected \(from \(600,700\) to \(650,720\)/);
     expect(text(result)).toContain("iframes, shadow DOM and later updates are not seen");
     expect(text(result)).not.toMatch(/^Dragged/);
   });
@@ -574,7 +576,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
 
     const result = await dragHandler({ from_x: 600, from_y: 700, to_x: 650, to_y: 720 }, cdp, "sess-1");
 
-    expect(text(result)).toContain("no page reaction was detected");
+    expect(text(result)).toContain("no page reaction detected");
     expect(text(result)).toContain("3 DOM changes elsewhere on the page did not count");
     expect(text(result)).not.toContain("Dragged");
     // The probe scopes DOM changes to the common ancestor of the elements at start and end point.
@@ -589,7 +591,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
 
     const result = await dragHandler({ from_x: 100, from_y: 300, to_x: 400, to_y: 300 }, cdp, "sess-1");
 
-    expect(text(result)).toContain("no page reaction was detected");
+    expect(text(result)).toContain("no page reaction detected");
     expect(text(result)).toContain("only selected 12 characters of text");
     expect(text(result)).not.toContain("Dragged");
   });
@@ -599,7 +601,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
 
     const result = await dragHandler({ from_x: 100, from_y: 100, to_x: 200, to_y: 100 }, cdp, "sess-1");
 
-    expect(text(result)).toContain("no page reaction was detected");
+    expect(text(result)).toContain("no page reaction detected");
     const install = installExpression(sendMock);
     expect(install).not.toMatch(/scroll\s*:/);
     expect(install).not.toContain('"scroll"');
@@ -658,7 +660,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
     const result = await dragHandler({ from_x: 10, from_y: 10, to_x: 50, to_y: 50 }, cdp, "sess-1");
 
     expect(result.isError).toBeFalsy();
-    expect(text(result)).toContain("could not be checked");
+    expect(text(result)).toMatch(/^Drag not confirmed: its effect could not be checked/);
     expect(text(result)).not.toContain("navigated");
     expect(calls(sendMock, "Runtime.evaluate")).toHaveLength(0);
   });
@@ -711,7 +713,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
     const result = await dragHandler({ from_x: 50, from_y: 50, to_x: 350, to_y: 70 }, cdp, "sess-1");
 
     expect(result.isError).toBeFalsy();
-    expect(text(result)).toContain("no page reaction was detected");
+    expect(text(result)).toContain("no page reaction detected");
     expect(text(result)).toContain("the drag point lies over an iframe");
     expect(text(result)).not.toMatch(/^Dragged/);
   });
@@ -732,7 +734,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
     const result = await dragHandler({ from_x: 50, from_y: 50, to_x: 280, to_y: 50 }, cdp, "sess-1");
 
     expect(result.isError).toBeFalsy();
-    expect(text(result)).toContain("no page reaction was detected");
+    expect(text(result)).toContain("no page reaction detected");
     expect(text(result)).toContain("the drag point lies over a shadow DOM host");
     expect(text(result)).not.toMatch(/^Dragged/);
   });
@@ -802,7 +804,7 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
     const result = await dragHandler({ from_x: 10, from_y: 10, to_x: 50, to_y: 50 }, cdp, "sess-1");
     const elapsed = performance.now() - t0;
 
-    expect(text(result)).toContain("no page reaction was detected");
+    expect(text(result)).toContain("no page reaction detected");
     expect(expressions(sendMock).filter((e) => e.includes("p.read()")).length).toBeGreaterThan(1);
     expect(elapsed).toBeGreaterThanOrEqual(150);
     expect(elapsed).toBeLessThan(600);
@@ -855,5 +857,48 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
     expect(result.isError).toBe(true);
     expect(text(result)).toContain("drag failed: Selector '.card' matches 3 elements");
     expect(calls(sendMock, "Input.dispatchMouseEvent").length).toBe(0);
+  });
+
+  // --- Final review M2: the finding survives the 80-character step line of run_plan ---
+
+  it("M2: the not-confirmed text says what the probe watches — the source's document, about 250 ms after release", async () => {
+    const { cdp } = mockCdpForDrag({ probe: { mutationsInside: 0 } });
+
+    const result = await dragHandler({ from_x: 600, from_y: 700, to_x: 650, to_y: 720 }, cdp, "sess-1");
+
+    expect(text(result)).toContain("Only the source's document is observed, for about 250 ms after release;");
+  });
+
+  describe("M2: a run_plan step line keeps 'not confirmed'", () => {
+    const stepLine = async (dragResult: ToolResponse): Promise<string> => {
+      const registry = {
+        executeTool: async () => dragResult,
+        runAggregationHook: async () => {},
+      } as unknown as ToolRegistry;
+      const plan = (await executePlan([{ tool: "drag", params: { from_x: 1, from_y: 1, to_x: 2, to_y: 2 } }], registry)) as ToolResponse;
+      return (plan.content[0] as { text: string }).text;
+    };
+
+    it.each([
+      ["mouse drag, no page reaction", { probe: { mutationsInside: 0 } }],
+      ["HTML5 drag, no drop", { interceptAtMove: 1, probe: { dragstart: true, drop: false, dragend: "none", mutationsInside: 2 } }],
+      ["no page probe", { noIsolatedWorld: true }],
+    ] as const)("%s", async (_name, opts) => {
+      const { cdp } = mockCdpForDrag(opts as Parameters<typeof mockCdpForDrag>[0]);
+      const result = await dragHandler({ from_x: 600, from_y: 700, to_x: 650, to_y: 720 }, cdp, "sess-1");
+
+      const line = await stepLine(result);
+      expect(line).toMatch(/^\[1\/1\] OK drag/);
+      expect(line).toContain("not confirmed");
+    });
+
+    it("counter-check: a confirmed drag stays 'Dragged' in the step line", async () => {
+      const { cdp } = mockCdpForDrag({ probe: { mutationsInside: 2 } });
+      const result = await dragHandler({ from_x: 600, from_y: 700, to_x: 650, to_y: 720 }, cdp, "sess-1");
+
+      const line = await stepLine(result);
+      expect(line).toContain("Dragged");
+      expect(line).not.toContain("not confirmed");
+    });
   });
 });

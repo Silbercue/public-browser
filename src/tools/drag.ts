@@ -34,8 +34,9 @@ import { FRAME_PAUSE_EXPRESSION } from "./frame-pause.js";
  * Drags DOM-Aenderungen im gemeinsamen Vorfahren von Quelle und Ziel,
  * input/change-Events, Textauswahl und die HTML5-Events dragstart/drop/dragend.
  * Scrollen und eine blosse Textauswahl zaehlen nicht als Wirkung. Sieht die
- * Sonde keine Reaktion, meldet das Tool das statt "Dragged …" — aber ohne
- * isError: Sie beobachtet nur das Hauptdokument fuer ~300 ms und ist blind fuer
+ * Sonde keine Reaktion, meldet das Tool "Drag not confirmed: …" statt
+ * "Dragged …" — aber ohne isError: Sie beobachtet nur das Dokument der Quelle,
+ * etwa 250 ms nach dem Loslassen, und ist blind fuer
  * iFrames, Shadow DOM und spaetere Updates. Ein falscher Fehler fuehrte zum
  * Wiederholen, also zu einem doppelten Drag (Fix-Runde 1, Ruling zu Spec S6).
  * Canvas: Pixel-Aenderungen sieht die Sonde nicht, die Antwort verweist auf
@@ -523,7 +524,7 @@ function describeDrag(
     return `${head} — the page navigated or reloaded during the drag, call view_page`;
   }
   if (probe === undefined) {
-    return `Drag from ${source} to ${target} sent over ${steps} steps, but its effect could not be checked (page probe unavailable) — verify with view_page`;
+    return `Drag not confirmed: its effect could not be checked, page probe unavailable (from ${source} to ${target}, ${steps} steps) — verify with view_page`;
   }
   const effects = listEffects(probe);
   const reacted = effects.length > 0 ? `page reacted: ${effects.join(", ")}` : "";
@@ -533,17 +534,19 @@ function describeDrag(
   if (!html5 && canvas) {
     return `${head} (mouse events on a canvas — canvas changes are not visible in the DOM; check with capture_image)`;
   }
-  // Ruling Fix-Runde 1 (Spec S6): the probe sees only the main document for
-  // ~300 ms. Nothing seen is no proof of failure — say so, without isError,
-  // so the agent verifies instead of dragging a second time.
+  // Ruling Fix-Runde 1 (Spec S6): the probe sees only the source's document,
+  // for about 250 ms after release. Nothing seen is no proof of failure — say
+  // so, without isError, so the agent verifies instead of dragging a second
+  // time. Final review M2: the finding opens the sentence, so it survives the
+  // 80-character step line of run_plan.
   const seen = html5
-    ? `HTML5 drag started, but no drop event was detected${reacted ? ` (${reacted})` : ""}`
-    : "but no page reaction was detected";
+    ? `HTML5 drag started, no drop event detected${reacted ? ` (${reacted})` : ""}`
+    : "no page reaction detected";
   const where = blind ? ` — the drag point lies over ${blind === "iframe" ? "an iframe" : "a shadow DOM host"}` : "";
   const notes: string[] = [];
   if (probe.selected > 0) notes.push(`The drag only selected ${plural(probe.selected, "character")} of text, which does not count as an effect.`);
   if (probe.mutationsOutside > 0) notes.push(`${plural(probe.mutationsOutside, "DOM change")} elsewhere on the page did not count.`);
-  return `Drag performed from ${source} to ${target} at ${fmt(to)} over ${steps} steps, ${seen}${where}.${notes.length ? ` ${notes.join(" ")}` : ""} Only the main document is observed for ~300 ms; iframes, shadow DOM and later updates are not seen — verify with view_page before repeating the drag.`;
+  return `Drag not confirmed: ${seen} (from ${source} to ${target} at ${fmt(to)}, ${steps} steps)${where}.${notes.length ? ` ${notes.join(" ")}` : ""} Only the source's document is observed, for about 250 ms after release; iframes, shadow DOM and later updates are not seen — verify with view_page before repeating the drag.`;
 }
 
 function errorResponse(text: string, start: number): ToolResponse {
