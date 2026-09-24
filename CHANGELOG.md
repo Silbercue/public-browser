@@ -29,7 +29,7 @@
 
 ### Changed
 - The diff shows only what changed since the last observation (no stale `REMOVED` lines, no iframe noise), at most 15 lines with live regions first; deferred click diffs appear only on page actions (H1).
-- Compact `view_page`: a StaticText that repeats its parent's name is dropped, StaticText and LabelText carry no refs, multi-line container names show their first line with `filter: "all"`, and the TRUNCATED line is shorter (H2).
+- Compact `view_page`: a StaticText that repeats its parent's name is dropped, StaticText and LabelText carry no refs, multi-line container names show their first line with `filter: "all"` when the container holds no `aria-hidden` or `inert` text, and the TRUNCATED line is shorter: it counts only text that appears nowhere in the output and names no call (H2).
 - Each tip appears once per session; state notes (counts, truncation) stay in every response (H3).
 - No `[~N tokens | N refs]` footer and no `Server:` line in `virtual_desk`, the Cortex line appears only at confidence ≥ 0.9, and unambiguous `evaluate` strings come back raw in the MCP tool (H5).
 
