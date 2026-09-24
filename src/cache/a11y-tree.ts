@@ -6,6 +6,7 @@ import { CLICKABLE_TAGS, CLICKABLE_ROLES, COMPUTED_STYLES } from "../tools/visua
 import { effectiveWidth, effectiveHeight } from "../cdp/emulation.js";
 import { debug } from "../cdp/debug.js";
 import { prefetchSlot } from "./prefetch-slot.js";
+import { ownTextChildren, textsFormName } from "./text-echo.js";
 
 // Story 12a.2: Lazy-loaded page classifier to avoid circular dependency
 // (page-classifier.ts imports AXNode from this module). The function is
@@ -223,9 +224,29 @@ export interface DOMChange {
   role: string;       // a11y role
   before?: string;    // old text (for "changed")
   after: string;      // new text (for "added" / "changed")
+  /** Stufe 2 H1: node sits in a live region (alert/status/log or aria-live polite|assertive). */
+  live?: true;
 }
 
-export type SnapshotMap = Map<number, string>;  // refNum → "role\0name"
+/**
+ * refNum → "role\0name", optionally followed by "\0live" when the node sits in
+ * a live region (Stufe 2 H1). Readers that split on "\0" and take the first
+ * two fields keep working unchanged.
+ */
+export type SnapshotMap = Map<number, string>;
+
+/** Stufe 2 H1: roles that are live regions on their own (implicit aria-live). */
+const LIVE_REGION_ROLES = new Set(["alert", "status", "log"]);
+
+/** Stufe 2 H1: true for a live-region root — role alert/status/log or aria-live polite|assertive. */
+function isLiveRegionRoot(node: AXNode): boolean {
+  const role = (node.role?.value as string | undefined) ?? "";
+  if (LIVE_REGION_ROLES.has(role)) return true;
+  for (const prop of node.properties ?? []) {
+    if (prop.name === "live" && (prop.value.value === "polite" || prop.value.value === "assertive")) return true;
+  }
+  return false;
+}
 
 // --- Element Classification for Downsampling (D2Snap) ---
 
@@ -310,6 +331,12 @@ interface NodeInfo {
   linkTarget?: string;  // FR-002: target attribute for links (e.g. "_blank")
   isScrollable?: boolean; // FR-001: Container has overflow-y auto/scroll and scrollHeight > clientHeight
   nameFullLength?: number; // FR-021: Full innerText length when name was truncated by FR-H5 enrichment (80-char cap)
+  inLiveRegion?: boolean; // Stufe 2 H1: node or an ancestor is a live-region root
+  // Stufe 2 H1: set on each own text child of a non-ignored parent with a ref
+  // (text-echo.ts). getSnapshotMap() leaves the child out while `texts` form
+  // the name the parent's diff line prints — `parent.name` as it stands then,
+  // after FR-H5 enrichment and its 80-character cut.
+  echoOf?: { parent: NodeInfo; texts: string[] };
 }
 
 /** B1: Ref table of an inactive tab, kept by switchTab() until the tab comes back or closes. */
@@ -321,6 +348,8 @@ interface SavedRefTable {
   lastUrl: string;
   /** Main-frame CDP session the table's keys were built with. */
   sessionId: string;
+  /** Stufe 2 H1: the tab's diff baseline when it was left (see _observedRefs). */
+  observedRefs: Set<number>;
   /** P21: main frame's loaderId when the refs were assigned (getTree/refreshPrecomputed); undefined = unknown, never restored. */
   docId?: string;
 }
@@ -420,6 +449,15 @@ export class A11yTreeProcessor {
   // unknown (not read yet, or CDP could not tell) — then nothing compares.
   private _docId: string | undefined = undefined;
 
+  // Stufe 2 H1: refs of the main frame as seen in the most recent observation
+  // (refreshPrecomputed or getTree). This is the diff baseline: getSnapshotMap()
+  // only reports these refs, so a node that vanished earlier is not reported as
+  // REMOVED again on every later click, and iframe nodes (which
+  // refreshPrecomputed never reads) are not reported at all. Unlike
+  // _activeRefsAfterRefresh it survives invalidatePrecomputed(): it describes
+  // what was last seen, not whether the cache is still fresh.
+  private _observedRefs: Set<number> = new Set();
+
   /** Story 13.1: Current cache version — increments on every state change */
   get cacheVersion(): number {
     return this._cacheVersion;
@@ -465,6 +503,7 @@ export class A11yTreeProcessor {
     this.nodeInfoMap.clear();
     this.sessionNodeMap.clear();
     this._activeRefsAfterRefresh = new Set();
+    this._observedRefs = new Set(); // Stufe 2 H1
     this._docId = undefined; // P21: the next tree records its document
     // B5: nextRef keeps counting — a ref number is never handed out twice.
     this.lastUrl = "";
@@ -486,6 +525,67 @@ export class A11yTreeProcessor {
    */
   getActiveRefs(): Set<number> {
     return new Set(this._activeRefsAfterRefresh);
+  }
+
+  /**
+   * Stufe 2 H1: record one main-frame observation. `refs` becomes the new diff
+   * baseline (see `_observedRefs`), and every observed node gets the two facts
+   * the diff needs: whether it sits in a live region, and — for StaticText —
+   * which parent's name it may only repeat (rule and parent definition:
+   * text-echo.ts, shared with view_page).
+   * Pure bookkeeping on data that was just fetched: zero CDP calls.
+   */
+  private recordObservation(nodes: AXNode[], sessionId: string, refs: Set<number>): void {
+    this._observedRefs = new Set(refs);
+    const byId = new Map<string, AXNode>();
+    for (const n of nodes) byId.set(n.nodeId, n);
+    const parentOf = (n: AXNode): AXNode | undefined =>
+      n.parentId !== undefined ? byId.get(n.parentId) : undefined;
+
+    // Memoised walk up the parent chain: a node is live when it or an ancestor is a live-region root.
+    const liveMemo = new Map<string, boolean>();
+    const inLiveRegion = (start: AXNode): boolean => {
+      const path: AXNode[] = [];
+      let cur: AXNode | undefined = start;
+      let live = false;
+      while (cur) {
+        const known = liveMemo.get(cur.nodeId);
+        if (known !== undefined) { live = known; break; }
+        path.push(cur);
+        if (isLiveRegionRoot(cur)) { live = true; break; }
+        cur = parentOf(cur);
+      }
+      for (const n of path) liveMemo.set(n.nodeId, live);
+      return live;
+    };
+
+    for (const node of nodes) {
+      if (node.ignored || node.backendDOMNodeId === undefined) continue;
+      const info = this.nodeInfoLookup(node.backendDOMNodeId, sessionId);
+      if (!info) continue;
+      info.inLiveRegion = inLiveRegion(node);
+    }
+
+    // Task 23 rule: a parent's own text children drop out only when together
+    // they form the name its diff line prints. Only non-ignored parents with a
+    // ref qualify (ownTextChildren does not check the parent itself) — their
+    // own diff line carries the name, so a change in a dropped child still
+    // shows up there as CHANGED. Whether the texts form the name is decided in
+    // getSnapshotMap(), against the name as printed then (FR-H5 enrichment
+    // runs after this).
+    for (const node of nodes) {
+      if (node.ignored || node.backendDOMNodeId === undefined) continue;
+      const parent = this.nodeInfoLookup(node.backendDOMNodeId, sessionId);
+      if (!parent) continue;
+      const children = ownTextChildren(node, byId);
+      if (children.length === 0) continue;
+      const echo = { parent, texts: children.map((c) => (typeof c.name?.value === "string" ? c.name.value : "")) };
+      for (const child of children) {
+        if (child.backendDOMNodeId === undefined) continue;
+        const info = this.nodeInfoLookup(child.backendDOMNodeId, sessionId);
+        if (info) info.echoOf = echo;
+      }
+    }
   }
 
   /**
@@ -709,6 +809,8 @@ export class A11yTreeProcessor {
       sessionManager?.registerNode(node.backendDOMNodeId, sessionId);
     }
     this._activeRefsAfterRefresh = observedRefs;
+    // Stufe 2 H1: this refresh is the new diff baseline.
+    this.recordObservation(result.nodes, sessionId, observedRefs);
 
     // Story 18.5: Abort-Check unmittelbar vor dem Cache-Write. Wenn der
     // Slot zwischen getFullAXTree und hier abgebrochen wurde (z.B. durch
@@ -896,6 +998,7 @@ export class A11yTreeProcessor {
           docId: this._docId, // P21: recorded with the refs, not read now
           lastUrl: this.lastUrl,
           sessionId: from.sessionId,
+          observedRefs: this._observedRefs, // Stufe 2 H1
         }
       : null;
     this._clearActiveTable();
@@ -961,6 +1064,7 @@ export class A11yTreeProcessor {
     this.lastUrl = "";
     this._docId = undefined; // P21
     this._renderSessionId = "";
+    this._observedRefs = new Set(); // Stufe 2 H1: no baseline until the new tab is observed
     this.invalidatePrecomputed(); // also empties _activeRefsAfterRefresh
   }
 
@@ -977,6 +1081,8 @@ export class A11yTreeProcessor {
     const nodes = saved.sessionNodeMap.get(saved.sessionId);
     if (nodes) this.sessionNodeMap.set(sessionId, new Set(nodes));
     this.lastUrl = saved.lastUrl;
+    // Stufe 2 H1: the tab's baseline comes back with its refs.
+    this._observedRefs = new Set([...saved.observedRefs].filter((refNum) => this.reverseMap.has(refNum)));
     this._docId = saved.docId; // P21: switchTab() just checked it is still the tab's document
   }
 
@@ -1626,6 +1732,7 @@ export class A11yTreeProcessor {
       this.nodeInfoMap.clear();
       this.sessionNodeMap.clear();
       this._renderSessionId = "";
+      this._observedRefs = new Set(); // Stufe 2 H1
       // B5: nextRef keeps counting — a ref number is never handed out twice.
       this.invalidatePrecomputed();
     }
@@ -1691,14 +1798,17 @@ export class A11yTreeProcessor {
 
     // Assign refs to all non-ignored nodes with backendDOMNodeId (main frame)
     // BUG-016: composite-key so OOPIF backendNodeIds can't collide with main.
+    const observedRefs = new Set<number>(); // Stufe 2 H1: main-frame refs of this observation
     for (const node of nodes) {
       if (node.ignored || node.backendDOMNodeId === undefined) continue;
       const key = this.refKey(node.backendDOMNodeId, sessionId);
-      if (!this.refMap.has(key)) {
-        const refNum = this.nextRef++;
+      let refNum = this.refMap.get(key);
+      if (refNum === undefined) {
+        refNum = this.nextRef++;
         this.refMap.set(key, refNum);
         this.reverseMap.set(refNum, { backendNodeId: node.backendDOMNodeId, sessionId });
       }
+      observedRefs.add(refNum);
       // Always update nodeInfoMap with latest role/name — composite-keyed
       // so cross-session collisions don't clobber metadata.
       this.nodeInfoSet(node.backendDOMNodeId, sessionId, extractNodeInfo(node));
@@ -1710,6 +1820,9 @@ export class A11yTreeProcessor {
       // Register node with SessionManager for main frame
       sessionManager?.registerNode(node.backendDOMNodeId, sessionId);
     }
+    // Stufe 2 H1: what view_page shows is the new diff baseline (main frame only —
+    // the refresh after a click never reads iframes, so iframe refs stay out).
+    this.recordObservation(nodes, sessionId, observedRefs);
 
     // Fetch OOPIF A11y trees if SessionManager is available
     const oopifSections: Array<{ url: string; nodes: AXNode[]; sessionId: string }> = [];
@@ -3645,15 +3758,26 @@ export class A11yTreeProcessor {
    * FR-002: Lightweight snapshot map for DOM-Diff.
    * Returns Map<refNum, "role\0name"> for all nodes with a name.
    * ZERO CDP calls — purely in-memory.
+   *
+   * Stufe 2 H1: only the refs of the most recent main-frame observation (the
+   * diff baseline) are included. `reverseMap` keeps refs of vanished nodes on
+   * purpose (stale-ref errors), and iterating it made every vanished node a
+   * REMOVED line on every later click. StaticText that only repeats the name
+   * its parent's line prints is left out; live-region nodes carry a trailing
+   * "\0live".
    */
   getSnapshotMap(): SnapshotMap {
     const map: SnapshotMap = new Map();
-    // BUG-016 follow-up: route through nodeInfoLookup so metadata is
-    // session-scoped.
-    for (const [refNum, owner] of this.reverseMap) {
+    for (const refNum of this._observedRefs) {
+      const owner = this.reverseMap.get(refNum);
+      if (!owner) continue;
+      // BUG-016 follow-up: route through nodeInfoLookup so metadata is
+      // session-scoped.
       const info = this.nodeInfoLookup(owner.backendNodeId, owner.sessionId);
       if (!info || (!info.name && !CONTEXT_ROLES.has(info.role) && !INTERACTIVE_ROLES.has(info.role) && !info.isClickable)) continue;
-      map.set(refNum, `${info.role}\0${info.name ?? ""}`);
+      if (info.echoOf && textsFormName(info.echoOf.texts, info.echoOf.parent.name)) continue;
+      const entry = `${info.role}\0${info.name ?? ""}`;
+      map.set(refNum, info.inLiveRegion ? `${entry}\0live` : entry);
     }
     return map;
   }
@@ -3664,6 +3788,9 @@ export class A11yTreeProcessor {
    */
   static diffSnapshots(before: SnapshotMap, after: SnapshotMap): DOMChange[] {
     const changes: DOMChange[] = [];
+    // Stufe 2 H1: third field "live" marks live-region nodes.
+    const liveOf = (encoded: string): { live?: true } =>
+      encoded.split("\0")[2] === "live" ? { live: true } : {};
 
     // Changed or removed
     for (const [refNum, beforeVal] of before) {
@@ -3672,7 +3799,7 @@ export class A11yTreeProcessor {
         // Node removed
         const [role, name] = beforeVal.split("\0");
         if (name) {  // Only report if it had visible content
-          changes.push({ type: "removed", ref: `e${refNum}`, role, after: "", before: name });
+          changes.push({ type: "removed", ref: `e${refNum}`, role, after: "", before: name, ...liveOf(beforeVal) });
         }
       } else if (afterVal !== beforeVal) {
         // Node changed
@@ -3686,6 +3813,7 @@ export class A11yTreeProcessor {
             role: roleAfter || roleBefore,
             before: nameBefore,
             after: nameAfter,
+            ...liveOf(afterVal),
           });
         }
       }
@@ -3696,7 +3824,7 @@ export class A11yTreeProcessor {
       if (!before.has(refNum)) {
         const [role, name] = afterVal.split("\0");
         if (name) {  // Only report if it has visible content
-          changes.push({ type: "added", ref: `e${refNum}`, role, after: name });
+          changes.push({ type: "added", ref: `e${refNum}`, role, after: name, ...liveOf(afterVal) });
         }
       }
     }
@@ -3704,34 +3832,38 @@ export class A11yTreeProcessor {
     return changes;
   }
 
+  /** Stufe 2 H1: at most this many change lines per diff; the rest is counted in "+N more changes". */
+  static readonly MAX_DIFF_LINES = 15;
+
   /**
    * FR-002: Format DOM changes as compact context string for LLM.
-   * Prioritizes alerts/status, then shows changes near the action, caps at ~30 lines.
+   * Stufe 2 H1: order = live regions (alert/status/aria-live) first, then
+   * controls with a ref, then the rest; inside each group NEW before CHANGED
+   * before REMOVED. At most MAX_DIFF_LINES change lines, then "+N more changes".
+   * Sorts a copy — the caller's array keeps its order.
    */
   static formatDomDiff(changes: DOMChange[], url?: string): string | null {
     if (changes.length === 0) return null;
 
-    // Sort: alerts/status first, then added, then changed, then removed
-    const priority = (c: DOMChange) => {
-      if (c.role === "alert" || c.role === "status") return 0;
-      if (c.type === "added") return 1;
-      if (c.type === "changed") return 2;
-      return 3;
+    const group = (c: DOMChange): number => {
+      if (c.live || c.role === "alert" || c.role === "status") return 0;
+      if (INTERACTIVE_ROLES.has(c.role)) return 1;
+      return 2;
     };
-    changes.sort((a, b) => priority(a) - priority(b));
+    const typeOrder = (c: DOMChange): number => (c.type === "added" ? 0 : c.type === "changed" ? 1 : 2);
+    const ordered = [...changes].sort((a, b) => group(a) - group(b) || typeOrder(a) - typeOrder(b));
 
     const lines: string[] = [];
     const urlSuffix = url ? ` — ${shortenUrl(url)}` : "";
     lines.push(`--- Action Result (${changes.length} changes)${urlSuffix} ---`);
 
-    const maxLines = 30;
-    for (const c of changes.slice(0, maxLines)) {
+    const maxLines = A11yTreeProcessor.MAX_DIFF_LINES;
+    for (const c of ordered.slice(0, maxLines)) {
       const refTag = INTERACTIVE_ROLES.has(c.role) || CONTEXT_ROLES.has(c.role)
         ? `[${c.ref}] ` : "";
 
       if (c.type === "added") {
-        const roleLabel = c.role === "alert" || c.role === "status" ? c.role : c.role;
-        lines.push(` NEW    ${refTag}${roleLabel} "${c.after}"`);
+        lines.push(` NEW    ${refTag}${c.role} "${c.after}"`);
       } else if (c.type === "changed") {
         lines.push(` CHANGED ${refTag}${c.role} "${c.before}" → "${c.after}"`);
       } else {
@@ -3739,8 +3871,8 @@ export class A11yTreeProcessor {
       }
     }
 
-    if (changes.length > maxLines) {
-      lines.push(`... (${changes.length - maxLines} more changes)`);
+    if (ordered.length > maxLines) {
+      lines.push(`+${ordered.length - maxLines} more changes`);
     }
 
     return lines.join("\n");

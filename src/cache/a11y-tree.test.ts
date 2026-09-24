@@ -4323,12 +4323,12 @@ describe("A11yTreeProcessor", () => {
       expect(result.text).not.toContain('button "Submit" (selected)');
     });
 
-    it("truncates at 30 lines", () => {
+    it("truncates at 15 lines (Stufe 2 H1)", () => {
       const changes = Array.from({ length: 35 }, (_, i) => ({
         type: "added" as const, ref: `e${i}`, role: "button", after: `Button ${i}`,
       }));
       const text = A11yTreeProcessor.formatDomDiff(changes)!;
-      expect(text).toContain("5 more changes");
+      expect(text).toContain("+20 more changes");
     });
   });
 

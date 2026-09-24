@@ -506,6 +506,22 @@ describe("createDefaultOnToolResult (P3 — default Free-tier hook)", () => {
     expect(drainPendingDiff()).toBeNull();
   });
 
+  it("Stufe 2 H1: drainPendingDiff(tool) hands a ready diff only to tools that concern the page", async () => {
+    for (const tool of ["click", "type", "fill_form", "press_key", "scroll", "drag", "view_page", "wait_for", "run_plan"]) {
+      await deferredDiffSlot.schedule(async () => "--- Action Result (3 changes) ---");
+      expect(drainPendingDiff(tool)).toBe("--- Action Result (3 changes) ---");
+    }
+    for (const tool of ["evaluate", "batch_evaluate", "virtual_desk", "tab_status", "switch_tab", "navigate", "capture_image"]) {
+      await deferredDiffSlot.schedule(async () => "--- Action Result (208 changes) ---");
+      expect(drainPendingDiff(tool)).toBeNull();
+      // Consumed all the same — it cannot land on the tool after this one either.
+      expect(deferredDiffSlot.pendingDiffText).toBeNull();
+    }
+    // Without a tool name (hook consumers, older callers) nothing changes.
+    await deferredDiffSlot.schedule(async () => "--- Action Result (1 changes) ---");
+    expect(drainPendingDiff()).toBe("--- Action Result (1 changes) ---");
+  });
+
   it("deferred path: drainPendingDiff returns null when diff build is still in flight", async () => {
     process.env.SILBERCUE_CHROME_DIFF_SETTLE_MS = "5000";
     process.env.SILBERCUE_CHROME_DIFF_RETRY_MS = "0";

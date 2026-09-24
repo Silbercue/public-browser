@@ -118,11 +118,10 @@ export async function computeDiff(
         const refTag = `e${refNum}`;
         if (reportedRefs.has(refTag)) continue;
         if (activeRefs.has(refNum)) continue;
-        const sep = encoded.indexOf("\0");
-        const role = sep >= 0 ? encoded.slice(0, sep) : encoded;
-        const name = sep >= 0 ? encoded.slice(sep + 1) : "";
+        // Stufe 2 H1: entries may carry a third field ("live") — split, don't slice.
+        const [role, name = "", flag] = encoded.split("\0");
         if (!name) continue;
-        changes.push({ type: "removed", ref: refTag, role, before: name, after: "" });
+        changes.push({ type: "removed", ref: refTag, role, before: name, after: "", ...(flag === "live" ? { live: true as const } : {}) });
       }
     }
 
@@ -311,14 +310,41 @@ export function createDefaultOnToolResult(): OnToolResult {
 }
 
 /**
+ * Stufe 2 H1: tools whose answer concerns the page's state. A deferred click
+ * diff that is ready when one of them runs goes in front of its response.
+ * Every other tool — evaluate, batch_evaluate, virtual_desk, tab_status,
+ * switch_tab and the rest — drains it without attaching it: in run3, 208
+ * changes landed in front of a virtual_desk tab list and 10,388 in front of
+ * an evaluate result, and the model used none of them. Because switch_tab is
+ * not on the list, a tab switch discards the old tab's pending diff.
+ */
+export const DIFF_PAGE_TOOLS: ReadonlySet<string> = new Set([
+  "click",
+  "type",
+  "fill_form",
+  "press_key",
+  "scroll",
+  "drag",
+  "view_page",
+  "wait_for",
+  "run_plan",
+]);
+
+/**
  * Story 20.1: Drain the pending deferred diff.
  *
  * Non-blocking: returns the diff text if a background job has completed,
  * or null if no diff is ready (build still in flight or no diff produced).
  * The diff is consumed (set to null) after draining.
  *
+ * Stufe 2 H1: with a `toolName` outside DIFF_PAGE_TOOLS the diff is still
+ * consumed (so it cannot land on a later tool either) but not returned.
+ * Without `toolName` (hook consumers, older callers) it is returned as before.
+ *
  * Called from `registry.ts executeTool()` before the tool handler runs.
  */
-export function drainPendingDiff(): string | null {
-  return deferredDiffSlot.drain();
+export function drainPendingDiff(toolName?: string): string | null {
+  const text = deferredDiffSlot.drain();
+  if (toolName !== undefined && !DIFF_PAGE_TOOLS.has(toolName)) return null;
+  return text;
 }

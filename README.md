@@ -583,7 +583,7 @@ immediately and never waits, for either a start or a completion.
 | `virtual_desk` | Lists all tabs with stable IDs. Call first in every session. |
 | `dom_snapshot` | Bounding boxes, computed styles, paint order. For spatial questions `view_page` cannot answer. |
 | **Interaction** | |
-| `click` | Real CDP mouse events by ref, selector, text, or coordinates. The answer names the element it hit (`Clicked [e12] button "Save"`). The DOM diff (NEW/REMOVED/CHANGED) arrives with the next response, or in this one with `wait_for_diff: true`. |
+| `click` | Real CDP mouse events by ref, selector, text, or coordinates. The answer names the element it hit (`Clicked [e12] button "Save"`). The DOM diff (NEW/REMOVED/CHANGED) arrives with the next page action, or in this one with `wait_for_diff: true`. |
 | `type` | Type into an input by ref/selector |
 | `fill_form` | Fill a complete form in one call — text, `<select>`, checkbox, radio. Per-field status. |
 | `press_key` | Real CDP keyboard events — Enter, Escape, Tab, arrows, shortcuts (Ctrl+K, etc.) |

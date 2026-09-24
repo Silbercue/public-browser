@@ -138,7 +138,7 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "click",
-      expect.stringMatching(/^Click an element by ref.*DOM diff \(NEW\/REMOVED\/CHANGED\)/s),
+      expect.stringMatching(/^Click an element by ref.*DOM diff \(NEW\/REMOVED\/CHANGED\) arrives with the next page action/s),
       expect.objectContaining({
         ref: expect.anything(),
         selector: expect.anything(),
@@ -4928,10 +4928,9 @@ describe("ToolRegistry — Piggyback-Drain (Story 20.1 M1)", () => {
     registry.registerAll();
 
     // executeTool calls drainPendingDiff() before the handler.
-    // We call "evaluate" because it's simple and returns quickly.
-    const result = await registry.executeTool("evaluate", {
-      expression: "'hello'",
-    });
+    // Stufe 2 H1: evaluate is a "foreign" tool now (see the next test), so the
+    // positive case uses view_page, which reads the page the click changed.
+    const result = await registry.executeTool("view_page", {});
 
     // The diff should be prepended as the first content block
     expect(result.content.length).toBeGreaterThanOrEqual(2);
@@ -4942,6 +4941,119 @@ describe("ToolRegistry — Piggyback-Drain (Story 20.1 M1)", () => {
 
     // The slot should be empty after drain
     expect(deferredDiffSlot.pendingDiffText).toBeNull();
+  });
+
+  it.each([
+    ["evaluate", { expression: "'hello'" }],
+    ["batch_evaluate", { urls: [], evaluate_per_page: "1" }],
+    ["virtual_desk", {}],
+    ["tab_status", {}],
+    ["switch_tab", { tab: "T2", action: "switch" }],
+  ] as const)("Stufe 2 H1: executeTool(%s) drains a ready click diff without attaching it", async (tool, params) => {
+    await deferredDiffSlot.schedule(async () => "--- DOM diff: +1 row added ---");
+    expect(deferredDiffSlot.pendingDiffText).toBe("--- DOM diff: +1 row added ---");
+
+    const cdpClient = {
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { type: "string", value: "hello" } };
+        if (method === "Target.getTargets") return { targetInfos: [] };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as import("./cdp/cdp-client.js").CdpClient;
+    const registry = new ToolRegistry({ tool: vi.fn() } as never, cdpClient as never, "session-1", {} as never);
+    registry.registerAll();
+
+    const result = await registry.executeTool(tool, { ...params });
+
+    const texts = result.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text);
+    expect(texts.some((t) => t.includes("DOM diff"))).toBe(false);
+    // Drained all the same — the diff cannot land on the tool after this one either.
+    expect(deferredDiffSlot.pendingDiffText).toBeNull();
+  });
+
+  it("Stufe 2 H1: a diff of the old tab still being built at switch_tab never shows up afterwards", async () => {
+    let finish: (text: string) => void = () => {};
+    const build = deferredDiffSlot.schedule(() => new Promise<string>((resolve) => { finish = resolve; }));
+    await new Promise<void>((resolve) => setImmediate(resolve)); // the build has started
+
+    const cdpClient = {
+      send: vi.fn(async (method: string) => (method === "Target.getTargets" ? { targetInfos: [] } : {})),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as import("./cdp/cdp-client.js").CdpClient;
+    const registry = new ToolRegistry({ tool: vi.fn() } as never, cdpClient as never, "session-1", {} as never);
+    registry.registerAll();
+    await registry.executeTool("switch_tab", { tab: "T2", action: "switch" });
+
+    finish("--- Action Result (old tab) ---");
+    await build;
+    expect(deferredDiffSlot.pendingDiffText).toBeNull();
+  });
+
+  it("Stufe 2 H1: the direct MCP path (server.tool callback) also hands a ready diff only to page tools", async () => {
+    const toolFn = vi.fn();
+    const cdpClient = {
+      send: vi.fn(async (method: string) => {
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", url: "about:blank" } } };
+        if (method === "Runtime.evaluate") return { result: { type: "string", value: "hello" } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as import("./cdp/cdp-client.js").CdpClient;
+    const registry = new ToolRegistry({ tool: toolFn } as never, cdpClient as never, "session-1", {} as never);
+    registry.registerAll();
+    type Callback = (params: Record<string, unknown>) => Promise<{ content: Array<{ type: string; text?: string }> }>;
+    const callbackOf = (tool: string): Callback => {
+      const call = toolFn.mock.calls.find((c: unknown[]) => c[0] === tool)!;
+      return call[call.length - 1] as Callback;
+    };
+
+    await deferredDiffSlot.schedule(async () => "--- DOM diff: +1 row added ---");
+    const evaluated = await callbackOf("evaluate")({ expression: "'hello'" });
+    expect(evaluated.content.some((b) => b.text?.includes("DOM diff"))).toBe(false);
+    expect(deferredDiffSlot.pendingDiffText).toBeNull();
+
+    // Positive counterpart: view_page, a page tool, gets the next ready diff in front.
+    await deferredDiffSlot.schedule(async () => "--- DOM diff: +2 rows added ---");
+    const viewed = await callbackOf("view_page")({});
+    expect(viewed.content[0]).toMatchObject({ type: "text", text: "--- DOM diff: +2 rows added ---" });
+  });
+
+  // Stufe-1-Messung (Task 22, run11): after switch_tab the next answer showed the old tab's click diff.
+  it("Stufe 2 H1: click in tab A, switch_tab to B, click in B — no answer carries tab A's diff", async () => {
+    const cdpClient = {
+      send: vi.fn(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [] };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", url: "about:blank" } } };
+        if (method === "Runtime.evaluate") return { result: { value: "42" } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as import("./cdp/cdp-client.js").CdpClient;
+    const registry = new ToolRegistry({ tool: vi.fn() } as never, cdpClient as never, "session-1", {} as never);
+    registry.registerAll();
+    const texts = (r: { content: Array<{ type: string }> }): string[] =>
+      r.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text);
+
+    // The click in tab A has finished its deferred diff.
+    await deferredDiffSlot.schedule(async () => "--- Action Result (2 changes) — tab A ---");
+    const switched = await registry.executeTool("switch_tab", { tab: "T2", action: "switch" });
+    // The click in tab B schedules its own diff; the next page action in B picks it up.
+    await deferredDiffSlot.schedule(async () => "--- Action Result (1 changes) — tab B ---");
+    const inB = await registry.executeTool("view_page", {});
+
+    expect(texts(switched).some((t) => t.includes("tab A"))).toBe(false);
+    expect(texts(inB).some((t) => t.includes("tab A"))).toBe(false);
+    // Positive counterpart: tab B's own diff does arrive.
+    expect(texts(inB)[0]).toBe("--- Action Result (1 changes) — tab B ---");
   });
 });
 

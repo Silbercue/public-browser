@@ -84,6 +84,12 @@ describe("buildInstructions (Story 12.4)", () => {
     expect(result).toContain("carry a DOM diff (NEW/REMOVED/CHANGED lines)");
   });
 
+  it("Stufe 2 H1: click's diff arrives with the next page action, as in the click description (Plancheck P36)", () => {
+    const result = buildInstructions(0);
+    expect(result).toContain("click's diff arrives with the next page action unless wait_for_diff: true");
+    expect(result).not.toContain("arrives with the next response");
+  });
+
   it("bleibt kompakt: unter 2500 Zeichen ohne Cortex-Zeile", () => {
     expect(buildInstructions(0).length).toBeLessThan(2500);
   });

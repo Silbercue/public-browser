@@ -644,7 +644,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // P5 (Plancheck): A Script-API session drives a tab of its own. Its call
     // must not take (and so steal) the MCP tab's deferred click diff.
     const scriptTab = scriptTabOf(sessionIdOverride) !== undefined;
-    const piggybackDiff = scriptTab ? null : drainPendingDiff();
+    const piggybackDiff = scriptTab ? null : drainPendingDiff(name);
 
     // S5: run_plan and the Script API pass raw params — no zod defaults and
     // no required-field check. A handler whose `switch` then matches no case
@@ -1257,7 +1257,7 @@ export class ToolRegistry implements ToolRegistryPublic {
           // handler runs — mirrors the same logic in executeTool().
           // Without this, the direct MCP path (server.tool) would never
           // pick up deferred diffs from a previous click.
-          const piggybackDiff = drainPendingDiff();
+          const piggybackDiff = drainPendingDiff(name);
 
           const result = await dialogWrapped(resolvedParams);
           // Story 15.3: Ambient Page Context — delegated via onToolResult hook
@@ -1395,7 +1395,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // --- 3. Interaction (click/type/fill_form/press_key/scroll) ---
     maybeRegisterFreeMCPTool(
       "click",
-      "Click an element by ref, CSS selector, visible text, or viewport x/y (canvas, pixel-precise targets). Dispatches real CDP mouse events. A click that opens a new tab is reported in the response. The DOM diff (NEW/REMOVED/CHANGED) arrives with the next response, or in this one with wait_for_diff: true.",
+      "Click an element by ref, CSS selector, visible text, or viewport x/y (canvas, pixel-precise targets). Dispatches real CDP mouse events. A click that opens a new tab is reported in the response. The DOM diff (NEW/REMOVED/CHANGED) arrives with the next page action, or here with wait_for_diff: true.",
       {
         ref: clickSchema.shape.ref,
         selector: clickSchema.shape.selector,
