@@ -1485,7 +1485,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // @see docs/friction-fixes.md#FR-028
     maybeRegisterFreeMCPTool(
       "drag",
-      "Drag a source onto a target: HTML5 drag-and-drop (draggable lists, SortableJS, React DnD) and mouse drags (sliders, canvas, resize handles). Scrolls the source into view; errors when the page did not react. Source: from_ref/from_selector or from_x+from_y; target: to_ref/to_selector or to_x+to_y.",
+      "Drag a source onto a target: HTML5 drag-and-drop (draggable lists, SortableJS, React DnD) and mouse drags (sliders, canvas, resize handles). Scrolls the source into view; says when no page reaction was detected. Source: from_ref/from_selector or from_x+from_y; target: to_ref/to_selector or to_x+to_y.",
       {
         from_ref: dragSchema.shape.from_ref,
         from_selector: dragSchema.shape.from_selector,

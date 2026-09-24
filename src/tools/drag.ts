@@ -32,10 +32,13 @@ import { wrapCdpError } from "./error-utils.js";
  * die Seite unsichtbar, teilt aber deren DOM und Events) zaehlt waehrend des
  * Drags DOM-Aenderungen im gemeinsamen Vorfahren von Quelle und Ziel,
  * input/change-Events, Textauswahl und die HTML5-Events dragstart/drop/dragend.
- * Scrollen und eine blosse Textauswahl zaehlen nicht als Wirkung. Hat die Seite
- * nachweislich nicht reagiert, antwortet das Tool mit einem Fehler statt mit
- * "Dragged …". Ausnahme Canvas: Pixel-Aenderungen sieht die Sonde nicht, die
- * Antwort verweist dann auf capture_image.
+ * Scrollen und eine blosse Textauswahl zaehlen nicht als Wirkung. Sieht die
+ * Sonde keine Reaktion, meldet das Tool das statt "Dragged …" — aber ohne
+ * isError: Sie beobachtet nur das Hauptdokument fuer ~300 ms und ist blind fuer
+ * iFrames, Shadow DOM und spaetere Updates. Ein falscher Fehler fuehrte zum
+ * Wiederholen, also zu einem doppelten Drag (Fix-Runde 1, Ruling zu Spec S6).
+ * Canvas: Pixel-Aenderungen sieht die Sonde nicht, die Antwort verweist auf
+ * capture_image.
  *
  * Nicht im Default-Tool-Set (Story 18.3), erreichbar ueber
  * `SILBERCUE_CHROME_FULL_TOOLS=true` oder `run_plan`.
@@ -57,6 +60,11 @@ const PROBE_KEY = "__pbDragProbe";
 const PROBE_WORLD = "__pb_drag_probe__";
 /** Upper bound of the frame pause before the probe is read (hidden tabs throttle requestAnimationFrame). */
 const FRAME_PAUSE_MAX_MS = 100;
+/** Without a reaction after the frame pause the probe is read again for this long (~300 ms wait in total). */
+const REACTION_GRACE_MS = 200;
+const REACTION_POLL_MS = 50;
+/** PB's own session overlay — its mutations are no reaction of the page. */
+const OVERLAY_ID = "__sc_session_overlay__";
 
 export const dragSchema = z.object({
   from_ref: z.string().optional().describe("Source element ref"),
@@ -116,6 +124,8 @@ interface ProbeView {
   w: number;
   h: number;
   canvas: boolean;
+  /** What lies under a drag point that the probe cannot look into: "iframe", "shadow DOM" or "". */
+  blind?: string;
 }
 
 /** The probe's isolated world and the document it was installed in. */
@@ -234,7 +244,15 @@ function probeInstallExpression(from: DragPoint, to: DragPoint): string {
   var scope = a;
   while (scope && b && !scope.contains(b)) scope = scope.parentElement;
   if (!scope || !b) scope = document.documentElement;
-  var isOverlay = function (n) { return !!n && n.nodeType === 1 && (n.getAttribute("aria-hidden") === "true" || n.id === "__sc_session_overlay__"); };
+  var isOverlay = function (n) {
+    var el = n && (n.nodeType === 1 ? n : n.parentElement);
+    return !!(el && el.closest && el.closest(${JSON.stringify("#" + OVERLAY_ID)}));
+  };
+  var blindOf = function (e) {
+    if (!e) return "";
+    if (e.tagName === "IFRAME" || e.tagName === "FRAME") return "iframe";
+    return e.shadowRoot ? "shadow DOM" : "";
+  };
   var count = function (recs) {
     for (var i = 0; i < recs.length; i++) {
       var r = recs[i];
@@ -271,11 +289,10 @@ function probeInstallExpression(from: DragPoint, to: DragPoint): string {
     read: function () {
       count(mo.takeRecords());
       var selAfter = String(window.getSelection ? window.getSelection() : "");
-      stop();
       return { mutationsInside: s.inside, mutationsOutside: s.outside, inputs: s.inputs, selected: selAfter !== selBefore ? selAfter.length : 0, dragstart: s.dragstart, dragstartPrevented: s.dragstartPrevented, drop: s.drop, dragend: s.dragend };
     }
   };
-  return { w: window.innerWidth, h: window.innerHeight, canvas: !!(a && a.tagName === "CANVAS") };
+  return { w: window.innerWidth, h: window.innerHeight, canvas: !!(a && a.tagName === "CANVAS"), blind: blindOf(a) || blindOf(b) };
 })()`;
 }
 
@@ -346,7 +363,7 @@ async function pauseForFrames(cdpClient: CdpClient, sessionId: string, probe: Pr
 }
 
 /**
- * Reads the probe and takes it down. `null`: the frame has a new document
+ * Reads the probe (it keeps observing; teardownProbe takes it down). `null`: the frame has a new document
  * (navigation/reload) or is gone. `undefined`: reading failed while the
  * document is unchanged — unchecked, never reported as a navigation.
  */
@@ -491,51 +508,49 @@ function listEffects(probe: DragProbeResult): string[] {
   return effects;
 }
 
-/** Baut Text und Fehler-Flag aus Modus und Sonden-Befund. */
+/** Whether the probe saw what this drag mode needs: a drop for HTML5, a DOM change or input event for a mouse drag. */
+function confirmed(mode: "html5" | "mouse", probe: DragProbeResult): boolean {
+  const html5 = mode === "html5" || (probe.dragstart && !probe.dragstartPrevented);
+  return html5 ? probe.drop : listEffects(probe).length > 0;
+}
+
+/** Baut den Antworttext aus Modus und Sonden-Befund (nie ein Fehler: die Sonde sieht nicht alles). */
 function describeDrag(
   mode: "html5" | "mouse",
   probe: DragProbeResult | null | undefined,
   canvas: boolean,
+  blind: string,
   source: string,
   target: string,
   to: DragPoint,
   steps: number,
-): { text: string; isError: boolean } {
+): string {
   const head = `Dragged ${source} to ${target} at ${fmt(to)} over ${steps} steps`;
   if (probe === null) {
-    return { text: `${head} — the page navigated or reloaded during the drag, call view_page`, isError: false };
+    return `${head} — the page navigated or reloaded during the drag, call view_page`;
   }
   if (probe === undefined) {
-    return {
-      text: `Drag from ${source} to ${target} sent over ${steps} steps, but its effect could not be checked (page probe unavailable) — verify with view_page`,
-      isError: false,
-    };
+    return `Drag from ${source} to ${target} sent over ${steps} steps, but its effect could not be checked (page probe unavailable) — verify with view_page`;
   }
   const effects = listEffects(probe);
   const reacted = effects.length > 0 ? `page reacted: ${effects.join(", ")}` : "";
   const html5 = mode === "html5" || (probe.dragstart && !probe.dragstartPrevented);
-  if (html5) {
-    if (probe.drop) return { text: `${head} (HTML5 drag-and-drop)`, isError: false };
-    return {
-      text: `drag failed: HTML5 drag started on ${source}, but ${target} did not accept the drop (no drop event fired${reacted ? `; ${reacted}` : ""}). The drop zone may be another element — call view_page and retry with the element that accepts drops.`,
-      isError: true,
-    };
+  if (html5 && probe.drop) return `${head} (HTML5 drag-and-drop)`;
+  if (!html5 && reacted) return `${head} (mouse events; ${reacted})`;
+  if (!html5 && canvas) {
+    return `${head} (mouse events on a canvas — canvas changes are not visible in the DOM; check with capture_image)`;
   }
-  if (reacted) return { text: `${head} (mouse events; ${reacted})`, isError: false };
-  if (canvas) {
-    return {
-      text: `${head} (mouse events on a canvas — canvas changes are not visible in the DOM; check with capture_image)`,
-      isError: false,
-    };
-  }
-  // Scrolling and a mere text selection are no effect; changes elsewhere are only mentioned.
+  // Ruling Fix-Runde 1 (Spec S6): the probe sees only the main document for
+  // ~300 ms. Nothing seen is no proof of failure — say so, without isError,
+  // so the agent verifies instead of dragging a second time.
+  const seen = html5
+    ? `HTML5 drag started, but no drop event was detected${reacted ? ` (${reacted})` : ""}`
+    : "but no page reaction was detected";
+  const where = blind ? ` — the drag point lies over ${blind === "iframe" ? "an iframe" : "a shadow DOM host"}` : "";
   const notes: string[] = [];
   if (probe.selected > 0) notes.push(`The drag only selected ${plural(probe.selected, "character")} of text, which does not count as an effect.`);
   if (probe.mutationsOutside > 0) notes.push(`${plural(probe.mutationsOutside, "DOM change")} elsewhere on the page did not count.`);
-  return {
-    text: `drag failed: no detectable effect — no HTML5 drag started, no DOM change around ${source} and ${target}, no input event.${notes.length ? ` ${notes.join(" ")}` : ""} Check the refs with view_page; the element may need a click or keyboard keys instead.`,
-    isError: true,
-  };
+  return `Drag performed from ${source} to ${target} at ${fmt(to)} over ${steps} steps, ${seen}${where}.${notes.length ? ` ${notes.join(" ")}` : ""} Only the main document is observed for ~300 ms; iframes, shadow DOM and later updates are not seen — verify with view_page before repeating the drag.`;
 }
 
 function errorResponse(text: string, start: number): ToolResponse {
@@ -604,6 +619,8 @@ export async function dragHandler(
   const targetLabel = params.to_ref ?? params.to_selector ?? `(${params.to_x},${params.to_y})`;
   let probe: ProbeHandle | null = null;
   let probeSessionId = mainSessionId;
+  // Names the endpoint in CDP errors (no layout, detached): the source, and the target from its resolution on.
+  let failingHint = params.from_ref ?? params.from_selector ?? "drag source";
 
   try {
     // --- Resolve source (scrolled into view) and target --------------------
@@ -622,6 +639,7 @@ export async function dragHandler(
 
     // Mixed form: the coordinate target moves with the source (Plancheck P22).
     const shift = source.shift && (source.shift.x !== 0 || source.shift.y !== 0) ? source.shift : null;
+    if (!hasToCoord) failingHint = targetLabel;
     const target: DragEndpoint = hasToCoord
       ? { point: { x: params.to_x! + (shift?.x ?? 0), y: params.to_y! + (shift?.y ?? 0) }, sessionId: source.sessionId }
       : await resolveEndpoint(cdpClient, mainSessionId, params.to_ref, params.to_selector, sessionManager, false, false);
@@ -662,16 +680,22 @@ export async function dragHandler(
     if (probe) {
       await pauseForFrames(cdpClient, dragSessionId, probe);
       observed = await readProbe(cdpClient, dragSessionId, probe);
+      // Late reactions (debounce, animation end): read again for a short while,
+      // only when nothing was seen yet — a confirmed drag costs no extra time.
+      const deadline = Date.now() + REACTION_GRACE_MS;
+      while (observed && !confirmed(mode, observed) && !(view?.canvas ?? false) && Date.now() < deadline) {
+        await delay(REACTION_POLL_MS);
+        observed = await readProbe(cdpClient, dragSessionId, probe);
+      }
     }
-    const { text, isError } = describeDrag(mode, observed, view?.canvas ?? false, sourceLabel, targetLabel, to, steps);
-    const shiftNote = shift && !isError
+    const text = describeDrag(mode, observed, view?.canvas ?? false, view?.blind ?? "", sourceLabel, targetLabel, to, steps);
+    const shiftNote = shift
       ? ` — target point shifted by (${shift.x}, ${shift.y}) because the source was scrolled into view`
       : "";
 
     const elapsedMs = Math.round(performance.now() - start);
     return {
       content: [{ type: "text", text: `${text}${shiftNote}` }],
-      ...(isError ? { isError: true } : {}),
       _meta: {
         elapsedMs,
         method: "drag",
@@ -694,9 +718,8 @@ export async function dragHandler(
       };
     }
     const elapsedMs = Math.round(performance.now() - start);
-    const hint = params.from_ref ?? params.from_selector ?? "drag source";
     return {
-      content: [{ type: "text", text: wrapCdpError(err, "drag", hint) }],
+      content: [{ type: "text", text: wrapCdpError(err, "drag", failingHint) }],
       isError: true,
       _meta: { elapsedMs, method: "drag" },
     };
