@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="548" viewBox="0 0 880 548" role="img" aria-label="Public Browser 3.0 against agent-browser 0.38.1, blind benchmark, 30 scored tests, median of 5 runs each, driver model claude-opus-5. Each bar is the Public Browser median as a share of the agent-browser median on the same metric; the vertical line is agent-browser at 100 percent and shorter is better. Session tokens: 3.02M against 4.53M, 33 percent fewer. Cost per run: $2.40 against $3.56, 33 percent less. Tool calls: 79 against 104, 24 percent fewer. Time to finish: 261 s against 386 s, 32 percent less. Total response volume: 78.9k against 84.4k, 7 percent less. Avg response size: 1,040 against 754, 38 percent larger — Public Browser loses this one. Passed 30/30 in all 5 runs against 29/30 in all 5 runs (agent-browser misses T5.2, a navigator.webdriver check).">
+<rect width="880" height="548" fill="#fcfcfb"/>
+<g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+<text x="24" y="34" font-size="18" font-weight="600" fill="#0b0b0b">Public Browser 3.0 vs agent-browser 0.38.1</text>
+<text x="24" y="57" font-size="12.5" fill="#55544c">Blind benchmark, 30 scored tests, median of 5 runs each. Each bar is the Public Browser median as a share of agent-browser&#8217;s.</text>
+<text x="24" y="75" font-size="12.5" fill="#55544c">The line is agent-browser; shorter is better. Where a bar breaks into segments, Public Browser is the more expensive one.</text>
+<text x="24" y="96" font-size="11" fill="#7a7972">Runs are not paired: 5 runs per side, one bar per metric, median against median.</text>
+<rect x="455.5" y="120" width="1" height="303" fill="#7a7972"/>
+<text x="456.0" y="114" font-size="10.5" text-anchor="middle" fill="#7a7972">agent-browser 0.38.1</text>
+<text x="24" y="143" font-size="14" font-weight="600" fill="#0b0b0b">Session tokens</text>
+<text x="24" y="161" font-size="11.5" fill="#7a7972">3.02M vs 4.53M (whole session)</text>
+<rect x="258" y="132" width="131.9" height="15" rx="4.0" fill="#2a78d6"/>
+<text x="856" y="144.0" font-size="13" font-weight="700" text-anchor="end" fill="#0b0b0b">33% fewer</text>
+<text x="24" y="197" font-size="14" font-weight="600" fill="#0b0b0b">Cost per run</text>
+<text x="24" y="215" font-size="11.5" fill="#7a7972">$2.40 vs $3.56 (list price)</text>
+<rect x="258" y="186" width="133.4" height="15" rx="4.0" fill="#2a78d6"/>
+<text x="856" y="198.0" font-size="13" font-weight="700" text-anchor="end" fill="#0b0b0b">33% less</text>
+<text x="24" y="251" font-size="14" font-weight="600" fill="#0b0b0b">Tool calls</text>
+<text x="24" y="269" font-size="11.5" fill="#7a7972">79 vs 104</text>
+<rect x="258" y="240" width="150.4" height="15" rx="4.0" fill="#2a78d6"/>
+<text x="856" y="252.0" font-size="13" font-weight="700" text-anchor="end" fill="#0b0b0b">24% fewer</text>
+<text x="24" y="305" font-size="14" font-weight="600" fill="#0b0b0b">Time to finish</text>
+<text x="24" y="323" font-size="11.5" fill="#7a7972">261 s vs 386 s (wall clock)</text>
+<rect x="258" y="294" width="133.9" height="15" rx="4.0" fill="#2a78d6"/>
+<text x="856" y="306.0" font-size="13" font-weight="700" text-anchor="end" fill="#0b0b0b">32% less</text>
+<text x="24" y="359" font-size="14" font-weight="600" fill="#0b0b0b">Total response volume</text>
+<text x="24" y="377" font-size="11.5" fill="#7a7972">78.9k vs 84.4k chars</text>
+<rect x="258" y="348" width="185.0" height="15" rx="4.0" fill="#2a78d6"/>
+<text x="856" y="360.0" font-size="13" font-weight="700" text-anchor="end" fill="#0b0b0b">7% less</text>
+<text x="24" y="413" font-size="14" font-weight="600" fill="#0b0b0b">Avg response size</text>
+<text x="24" y="431" font-size="11.5" fill="#7a7972">1,040 vs 754 chars</text>
+<path d="M262.0 402 H456.0 V417 H262.0 A4.0 4.0 0 0 1 258 413.0 V406.0 A4.0 4.0 0 0 1 262.0 402 Z" fill="#2a78d6"/>
+<rect x="460.0" y="402" width="9.0" height="15" fill="#2a78d6"/>
+<rect x="473.0" y="402" width="9.0" height="15" fill="#2a78d6"/>
+<rect x="486.0" y="402" width="9.0" height="15" fill="#2a78d6"/>
+<rect x="499.0" y="402" width="9.0" height="15" fill="#2a78d6"/>
+<rect x="512.0" y="402" width="9.0" height="15" fill="#2a78d6"/>
+<rect x="525.0" y="402" width="6.1" height="15" fill="#2a78d6"/>
+<text x="856" y="414.0" font-size="13" font-weight="700" text-anchor="end" fill="#0b0b0b">38% larger</text>
+<text x="24" y="466" font-size="13" font-weight="600" fill="#0b0b0b">Passed: 30/30 in all 5 runs vs 29/30 in all 5 runs (agent-browser misses T5.2, a navigator.webdriver check)</text>
+<text x="24" y="492" font-size="11" fill="#7a7972">Session tokens are the Claude Code transcript total, mostly cached re-reads of the growing conversation. Cost is the Opus 5 list price.</text>
+<text x="24" y="509" font-size="11" fill="#7a7972">2026-09-23/24 · Claude Code 2.1.281 · driver claude-opus-5 · Chrome 153 · agent-browser driven through its CLI · shorter is better</text>
+<text x="24" y="526" font-size="11" fill="#7a7972">Raw run JSON: test-hardest/results-local/ (Public Browser) and test-hardest/results/ (agent-browser)</text>
+</g>
+</svg>
