@@ -10,7 +10,11 @@
  *  - Edge Cases und Error Handling
  *  - JSON-Groesse < 50KB (AC #3)
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LocalStore } from "./local-store.js";
 import { MarkovTable } from "./markov-table.js";
 import type { CortexPattern, MarkovTransition, MarkovTableJSON } from "./cortex-types.js";
 import {
@@ -649,5 +653,64 @@ describe("Markov types in cortex-types.ts", () => {
       },
     };
     expect(json.login.navigate.view_page).toBe(0.85);
+  });
+});
+
+// ─── S9: Starttabelle ueberlebt refreshFromStore ────────────────────
+
+describe("MarkovTable — Starttabelle (S9)", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "pb-markov-starter-"));
+    // LocalStore (inside refreshFromStore) reads this at construction time.
+    vi.stubEnv("PUBLIC_BROWSER_CORTEX_DIR", dir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("behaelt die Starttabelle, wenn das erste eigene Muster eintrifft", async () => {
+    const table = new MarkovTable();
+    table.setStarter(MarkovTable.fromJSON({ login: { navigate: { fill_form: 0.8, click: 0.2 } } }));
+    expect(table.size).toBe(2);
+
+    await new LocalStore({ dataDir: dir }).append(makePattern("search_results", ["navigate", "view_page"]));
+    await table.refreshFromStore();
+
+    expect(table.predict("login", "navigate").map((t) => t.tool)).toEqual(["fill_form", "click"]);
+    expect(table.predict("search_results", "navigate").map((t) => t.tool)).toEqual(["view_page"]);
+    expect(table.size).toBe(3);
+  });
+
+  it("zaehlt nach einem Refresh ohne eigene Daten so viele Uebergaenge wie angekuendigt", async () => {
+    const table = new MarkovTable();
+    table.setStarter(
+      MarkovTable.fromJSON({
+        login: { navigate: { view_page: 0.95, wait_for: 0.05 } },
+        data_table: { view_page: { click: 1 } },
+      }),
+    );
+    const announced = table.size;
+
+    await table.refreshFromStore();
+
+    expect(announced).toBe(3);
+    expect(table.size).toBe(announced);
+  });
+
+  it("laesst lokale Daten vorgehen, ohne die Starter-Gewichte durch Verfall zu verfaelschen", async () => {
+    const table = new MarkovTable();
+    table.setStarter(MarkovTable.fromJSON({ login: { navigate: { view_page: 0.4, fill_form: 0.6 } } }));
+    await new LocalStore({ dataDir: dir }).append(makePattern("login", ["navigate", "view_page"]));
+
+    await table.refreshFromStore();
+
+    // local count 1 → weight ≈ 1 (> 0.4): local wins; fill_form keeps its starter weight 0.6
+    const byTool = Object.fromEntries(table.predict("login", "navigate").map((t) => [t.tool, t.weight]));
+    expect(byTool.view_page).toBeCloseTo(1, 5);
+    expect(byTool.fill_form).toBeCloseTo(0.6, 5);
   });
 });

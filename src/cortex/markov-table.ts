@@ -42,6 +42,13 @@ export class MarkovTable {
   /** Whether refreshFromStore has been called at least once. */
   private _initialised = false;
 
+  /**
+   * S9: the shipped starter table (community-markov.json). Kept apart from
+   * local data so refreshFromStore() can re-apply it — otherwise the first
+   * locally recorded pattern wipes the table the server instructions announced.
+   */
+  private _starter: MarkovTable | null = null;
+
   // ═══════════════════════════════════════════════════════════════════
   // Public API
   // ═══════════════════════════════════════════════════════════════════
@@ -334,6 +341,24 @@ export class MarkovTable {
   }
 
   /**
+   * Install the starter table: merged now and again after every
+   * refreshFromStore(). Local data keeps precedence through merge()
+   * (max weight, summed counts).
+   */
+  setStarter(starter: MarkovTable): void {
+    try {
+      if (!starter || !(starter instanceof MarkovTable)) return;
+      this._starter = starter;
+      this.merge(starter);
+    } catch (err) {
+      debug(
+        "[markov-table] setStarter() threw: %s",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  /**
    * Refresh from PatternRecorder + LocalStore.
    *
    * Loads all patterns from both sources, rebuilds the table via ingest(),
@@ -354,6 +379,8 @@ export class MarkovTable {
       this._transitions.clear();
       this.ingest([...persisted, ...inMemory]);
       this.applyDecay();
+      // S9: the starter table is not local data — no decay, and a refresh must not drop it.
+      if (this._starter) this.merge(this._starter);
       this._initialised = true;
 
       debug("[markov-table] refreshFromStore: %d transitions", this.size);

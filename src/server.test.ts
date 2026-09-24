@@ -11,6 +11,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { buildInstructions } from "./server.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("buildInstructions (Story 12.4)", () => {
   // =========================================================================
@@ -194,6 +197,64 @@ describe("startServer integration (Story 12.4 — C1)", () => {
     expect(captured.instructions).toBeDefined();
     expect(captured.instructions).not.toContain("Cortex:");
     expect(captured.instructions).not.toContain("patterns loaded");
+  });
+
+  it("S9: die Starttabelle ueberlebt den Refresh nach dem ersten eigenen Muster", async () => {
+    const cortexDir = mkdtempSync(join(tmpdir(), "pb-server-cortex-"));
+    vi.stubEnv("PUBLIC_BROWSER_CORTEX_DIR", cortexDir);
+    try {
+      mockServerDeps(0);
+      const { startServer } = await import("./server.js");
+      await startServer();
+
+      const { markovTable } = await import("./cortex/markov-table.js");
+      const { loadCommunityMarkov } = await import("./cortex/community-loader.js");
+      const starterSize = loadCommunityMarkov()!.size;
+      expect(markovTable.size).toBe(starterSize);
+
+      // Genau diesen Refresh loest das erste eigene Muster aus (pattern-recorder.ts).
+      await markovTable.refreshFromStore();
+
+      expect(markovTable.size).toBe(starterSize);
+      expect(markovTable.predict("login", "navigate")[0]?.tool).toBe("view_page");
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(cortexDir, { recursive: true, force: true });
+    }
+  });
+
+  it("S9: nach dem ersten eigenen Muster stehen Starttabelle und eigenes Muster nebeneinander", async () => {
+    const cortexDir = mkdtempSync(join(tmpdir(), "pb-server-cortex-"));
+    vi.stubEnv("PUBLIC_BROWSER_CORTEX_DIR", cortexDir);
+    try {
+      mockServerDeps(0);
+      const { startServer } = await import("./server.js");
+      await startServer();
+
+      const { markovTable } = await import("./cortex/markov-table.js");
+      const { loadCommunityMarkov } = await import("./cortex/community-loader.js");
+      const { LocalStore } = await import("./cortex/local-store.js");
+      const starterSize = loadCommunityMarkov()!.size;
+
+      // Plancheck P35: ein echtes eigenes Muster, auf einem Seitentyp, den die
+      // Starttabelle nicht kennt (checkout) — genau das, was pattern-recorder.ts
+      // speichert, bevor es den Refresh ausloest.
+      await new LocalStore({ dataDir: cortexDir }).append({
+        pageType: "checkout",
+        toolSequence: ["navigate", "capture_image"],
+        outcome: "success",
+        contentHash: "0123456789abcdef",
+        timestamp: Date.now(),
+      });
+      await markovTable.refreshFromStore();
+
+      expect(markovTable.predict("checkout", "navigate").map((t) => t.tool)).toEqual(["capture_image"]);
+      expect(markovTable.predict("login", "navigate")[0]?.tool).toBe("view_page");
+      expect(markovTable.size).toBe(starterSize + 1);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(cortexDir, { recursive: true, force: true });
+    }
   });
 
   // --- S1: Schluessel der Skript-Schnittstelle ---

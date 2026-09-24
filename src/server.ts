@@ -281,13 +281,14 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
     new Promise((r) => setTimeout(r, 2000)),
   ]);
 
-  // 3a. Story 12a.6: Merge the hand-written starter Markov table
-  //     (community-markov.json) after local data is loaded. Local data has
-  //     higher weights from usage and takes precedence via merge semantics
-  //     (max-weight). The starter table fills gaps.
+  // 3a. Story 12a.6 / S9: Install the hand-written starter Markov table
+  //     (community-markov.json) as the table's starter: merged now and again
+  //     after every refresh, so the first locally recorded pattern no longer
+  //     deletes it and "Cortex: N patterns loaded." stays true. Local data has
+  //     higher weights from usage and takes precedence (max-weight).
   const communityTable = loadCommunityMarkov();
   if (communityTable) {
-    markovTable.merge(communityTable);
+    markovTable.setStarter(communityTable);
   }
 
   // 3b. Create the MCP server with dynamic instructions.
