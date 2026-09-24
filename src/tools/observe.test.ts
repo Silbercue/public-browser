@@ -16,6 +16,7 @@ vi.mock("../cache/a11y-tree.js", () => ({
     findClosestRef: vi.fn(),
     isCurrentDocument: vi.fn(async () => true),
     findRefOwnerTab: vi.fn(() => undefined),
+    isRetiredRef: vi.fn(() => false),
     getRefForBackendNodeId: vi.fn(() => undefined),
   },
   A11yTreeProcessor: { diffSnapshots: vi.fn(() => []), formatDomDiff: vi.fn() },

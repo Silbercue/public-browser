@@ -154,7 +154,11 @@ export async function resolveElement(
     if (!full) {
       // B1: a ref of another tab is not unknown, it is foreign — say whose it is.
       const owner = a11yTree.findRefOwnerTab(target.ref);
-      throw new RefNotFoundError(owner ? foreignTabRefMessage(target.ref, owner) : `Element ${target.ref} not found.`);
+      if (owner) throw new RefNotFoundError(foreignTabRefMessage(target.ref, owner));
+      // B5: numbers are never reused, so an issued ref no table holds belongs to a left document.
+      throw new RefNotFoundError(
+        a11yTree.isRetiredRef(target.ref) ? staleRefMessage(target.ref) : `Element ${target.ref} not found.`,
+      );
     }
     const { backendNodeId, sessionId: targetSessionId } = full;
 
@@ -289,7 +293,8 @@ export function buildRefNotFoundError(
   const owner = a11yTree.findRefOwnerTab(ref);
   if (owner) return foreignTabRefMessage(ref, owner);
   // B1: this tab knows the ref, so resolving it failed on its node — stale, not a typo.
-  if (a11yTree.resolveRefFull(ref)) return staleRefMessage(ref);
+  // B5: a number handed out earlier that no table holds any more is stale, too.
+  if (a11yTree.resolveRefFull(ref) || a11yTree.isRetiredRef(ref)) return staleRefMessage(ref);
 
   const suggestion = a11yTree.findClosestRef(ref, roleFilter);
 

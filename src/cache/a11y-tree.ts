@@ -405,8 +405,8 @@ export class A11yTreeProcessor {
   private _activeRefsAfterRefresh: Set<number> = new Set();
 
   // B1: Ref tables of inactive tabs, keyed by targetId. The active tab's
-  // table lives in the fields above. `nextRef` stays global, so no ref
-  // number is ever held by two tables at once (see _firstFreeRef).
+  // table lives in the fields above. `nextRef` is global and only counts up
+  // (B5), so no ref number is ever held by two tables or reused.
   private _savedTables = new Map<string, SavedRefTable>();
   // B1: Bumped by switchTab(). A refreshPrecomputed() that started before
   // the switch must not write into the next tab's table.
@@ -437,13 +437,14 @@ export class A11yTreeProcessor {
   }
 
   /**
-   * B1: Full reset — also drops the tables of all inactive tabs (tests, a
-   * freshly launched Chrome). `reset()` alone keeps them, because a
-   * navigation in one tab does not change the others.
+   * B1/B5: Full reset for tests — also drops the tables of all inactive tabs
+   * and restarts the ref counter at e1. Production code never calls it:
+   * `reset()` (navigation) keeps other tabs' tables and the counter.
    */
   resetAll(): void {
     this._savedTables.clear();
     this.reset();
+    this.nextRef = 1;
   }
 
   /**
@@ -460,7 +461,7 @@ export class A11yTreeProcessor {
     this.sessionNodeMap.clear();
     this._activeRefsAfterRefresh = new Set();
     this._docId = undefined; // P21: the next tree records its document
-    this.nextRef = this._firstFreeRef(); // B1: 1 unless another tab still holds refs
+    // B5: nextRef keeps counting — a ref number is never handed out twice.
     this.lastUrl = "";
     this._renderSessionId = "";
     this._lastVisualCache = null; // Story 18.4 M3
@@ -928,15 +929,20 @@ export class A11yTreeProcessor {
     return undefined;
   }
 
-  /** B1: First ref number no inactive tab holds — 1 while only one tab has refs. */
-  private _firstFreeRef(): number {
-    let max = 0;
-    for (const table of this._savedTables.values()) {
-      for (const refNum of table.reverseMap.keys()) {
-        if (refNum > max) max = refNum;
-      }
-    }
-    return max + 1;
+  /**
+   * B5: A ref number this process handed out earlier that no table holds any
+   * more — its document was left (navigation, closed tab, dropped iframe).
+   * Numbers are never reused, so such a ref is stale, never a typo for a
+   * live one.
+   */
+  isRetiredRef(ref: string): boolean {
+    const match = ref.match(/^e(\d+)$/);
+    if (!match) return false;
+    const refNum = parseInt(match[1], 10);
+    return refNum >= 1
+      && refNum < this.nextRef
+      && !this.reverseMap.has(refNum)
+      && this.findRefOwnerTab(ref) === undefined;
   }
 
   /** B1: Empty active table; nextRef and the inactive tabs stay untouched. */
@@ -1613,7 +1619,7 @@ export class A11yTreeProcessor {
       this.nodeInfoMap.clear();
       this.sessionNodeMap.clear();
       this._renderSessionId = "";
-      this.nextRef = this._firstFreeRef(); // B1: 1 unless another tab still holds refs
+      // B5: nextRef keeps counting — a ref number is never handed out twice.
       this.invalidatePrecomputed();
     }
     this.lastUrl = currentUrl;

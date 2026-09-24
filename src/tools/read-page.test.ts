@@ -130,7 +130,7 @@ const sampleNodes: AXNode[] = [
 
 describe("readPageSchema", () => {
   beforeEach(() => {
-    a11yTree.reset();
+    a11yTree.resetAll();
   });
 
   // Test 1: defaults
@@ -192,7 +192,7 @@ describe("readPageSchema", () => {
 
 describe("readPageHandler", () => {
   beforeEach(() => {
-    a11yTree.reset();
+    a11yTree.resetAll();
   });
 
   // Test 5: Default handler response
@@ -1137,6 +1137,21 @@ describe("readPageHandler — ref of another tab (B1)", () => {
 
   afterEach(() => {
     a11yTree.resetAll();
+  });
+
+  it("B5: view_page with a ref of the page before a navigation says stale", async () => {
+    await readPageHandler({ depth: 3, filter: "interactive" }, mockCdpClient(sampleNodes, "https://example.com/a"), "s1");
+    a11yTree.reset(); // navigate
+
+    const result = await readPageHandler(
+      { depth: 3, filter: "all", ref: "e2" },
+      mockCdpClient(sampleNodes, "https://example.com/b"),
+      "s1",
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Element e2 is a stale ref");
+    expect(result.content[0].text).not.toContain("Did you mean");
   });
 
   it("B1: view_page with a ref of another tab names that tab", async () => {

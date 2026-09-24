@@ -184,7 +184,7 @@ describe("domSnapshotSchema", () => {
 
 describe("domSnapshotHandler", () => {
   beforeEach(() => {
-    a11yTree.reset();
+    a11yTree.resetAll();
   });
 
   it("should return empty array for empty page", async () => {
@@ -535,7 +535,7 @@ describe("domSnapshotHandler", () => {
 
 describe("A11yTreeProcessor.getRefForBackendNodeId", () => {
   beforeEach(() => {
-    a11yTree.reset();
+    a11yTree.resetAll();
   });
 
   it("should return ref string for known backendNodeId", async () => {

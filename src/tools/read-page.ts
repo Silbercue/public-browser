@@ -4,7 +4,7 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { a11yTree, RefNotFoundError } from "../cache/a11y-tree.js";
 import { wrapCdpError } from "./error-utils.js";
-import { foreignTabRefMessage } from "./element-utils.js";
+import { foreignTabRefMessage, staleRefMessage } from "./element-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
 import { hintMatcher } from "../cortex/hint-matcher.js";
 import { debug } from "../cdp/debug.js";
@@ -140,9 +140,13 @@ export async function readPageHandler(
 
     if (err instanceof RefNotFoundError) {
       // B1: a ref of another tab — name that tab instead of "did you mean" in this one.
+      // B5: a ref of a page left earlier is stale — no neighbour guess either.
       const owner = params.ref ? a11yTree.findRefOwnerTab(params.ref) : undefined;
+      const text = owner && params.ref
+        ? foreignTabRefMessage(params.ref, owner)
+        : params.ref && a11yTree.isRetiredRef(params.ref) ? staleRefMessage(params.ref) : err.message;
       return {
-        content: [{ type: "text", text: owner && params.ref ? foreignTabRefMessage(params.ref, owner) : err.message }],
+        content: [{ type: "text", text }],
         isError: true,
         _meta: { elapsedMs, method },
       };

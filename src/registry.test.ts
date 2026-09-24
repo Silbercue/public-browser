@@ -3360,6 +3360,8 @@ describe("ToolRegistry", () => {
         );
         registry.registerAll();
 
+        // B5: ref numbers are global and never reused — start this test at e1.
+        a11yTree.resetAll();
         // Prime the cache so classifyRef("e1") finds the button
         await registry.executeTool("view_page", {});
         // Now click the same button — the default hook should detect that
@@ -4433,7 +4435,7 @@ describe("ToolRegistry — Speculative Prefetch (Story 18.5)", () => {
   it("Story 20.1: prefetch does NOT trigger after click (deferred diff handles cache)", async () => {
     const mock = makeMockCdp();
     const { capturedPromises, restore } = spySchedule();
-    a11yTree.reset();
+    a11yTree.resetAll(); // B5: the click below expects e2 — numbering must start at e1
 
     const registry = new ToolRegistry(
       { tool: vi.fn() } as never,

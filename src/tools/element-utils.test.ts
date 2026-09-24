@@ -276,6 +276,45 @@ describe("resolveElement", () => {
     });
   });
 
+  it("B5: a ref from the page before a navigation is reported as stale, not as unknown", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree, "https://example.com/a"), "s1"); // e1, e2
+    a11yTree.reset(); // navigate
+    await a11yTree.getTree(mockCdpForTree(buttonTree, "https://example.com/b"), "s1"); // e3, e4
+
+    const err = await resolveElement(mockCdpClient(), "s1", { ref: "e2" }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RefNotFoundError);
+    expect((err as Error).message).toContain("Element e2 is a stale ref");
+  });
+
+  // Preflight ruling (review Task 8): tab A navigated while the agent was in tab B.
+  it("B5: after returning to a tab that navigated while away, its old ref fails loudly as stale", async () => {
+    const pageCdp = (url: string, loaderId: string): CdpClient => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: url } };
+        if (method === "Accessibility.getFullAXTree") return { nodes: buttonTree };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId } } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    }) as unknown as CdpClient;
+    const nowA2 = pageCdp("https://a.test/next", "doc-A2"); // A's main frame after its navigation
+
+    await a11yTree.getTree(pageCdp("https://a.test/", "doc-A1"), "sA1"); // e1, e2 = "OK" (101)
+    await a11yTree.switchTab(nowA2, { targetId: "TAB-A", sessionId: "sA1" }, { targetId: "TAB-B", sessionId: "sB1" });
+    await a11yTree.switchTab(nowA2, { targetId: "TAB-B", sessionId: "sB1" }, { targetId: "TAB-A", sessionId: "sA2" });
+    await a11yTree.getTree(nowA2, "sA2"); // view_page — the new page has a node 101, too
+
+    const err = await resolveElement(mockCdpClient(), "sA2", { ref: "e2" }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RefNotFoundError);
+    expect((err as Error).message).toContain("Element e2 is a stale ref");
+    // Positive check: the new page's button has a new number and resolves.
+    expect((await resolveElement(mockCdpClient(), "sA2", { ref: "e4" })).backendNodeId).toBe(101);
+  });
+
   it("throws RefNotFoundError for stale DOM node", async () => {
     const nodes: AXNode[] = [
       makeNode({
@@ -582,6 +621,17 @@ describe("buildRefNotFoundError", () => {
     expect(error).not.toContain("Did you mean");
   });
 
+  it("B5: a ref from the page before a navigation is stale — no neighbour guess", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree, "https://example.com/a"), "s1");
+    a11yTree.reset(); // navigate
+    await a11yTree.getTree(mockCdpForTree(buttonTree, "https://example.com/b"), "s1");
+
+    expect(buildRefNotFoundError("e2")).toContain("Element e2 is a stale ref");
+    expect(buildRefNotFoundError("e2")).not.toContain("Did you mean");
+    // A number that was never handed out is still treated as a typo.
+    expect(buildRefNotFoundError("e99")).toContain("e99 not found");
+  });
+
   it("B1: a ref this tab knows but that failed to resolve is reported as stale", async () => {
     // resolveElement throws RefNotFoundError for a known ref only when
     // DOM.resolveNode failed — the node is gone. No neighbour guess.
@@ -665,7 +715,7 @@ describe("buildRefNotFoundError", () => {
 
 describe("Selector Cache Integration", () => {
   beforeEach(() => {
-    a11yTree.reset();
+    a11yTree.resetAll();
     selectorCache.invalidate();
   });
 

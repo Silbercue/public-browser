@@ -282,8 +282,9 @@ describe("A11yTreeProcessor", () => {
     const cdp2 = mockCdpClient(nodesB, "https://example.com/b");
     const result = await processor.getTree(cdp2, "s1");
 
-    // Refs reset — e1 = WebArea root, e2 = link
-    expect(result.text).toContain("[e2]");
+    // Refs reset; B5: numbering continues — e3 = WebArea root, e4 = link
+    expect(result.text).toContain('[e4] link "Back"');
+    expect(processor.resolveRef("e2")).toBeUndefined();
   });
 
   // Test 8b: Hash-only URL change preserves refs (anchor navigation)
@@ -356,8 +357,9 @@ describe("A11yTreeProcessor", () => {
     const cdp2 = mockCdpClient(nodesB, "https://example.com/page-b#top");
     await processor.getTree(cdp2, "s1");
 
-    // Refs reset — new refs assigned
-    expect(processor.resolveRef("e2")).toBe(201);
+    // Refs reset; B5: new numbers, the old ones stay gone
+    expect(processor.resolveRef("e4")).toBe(201);
+    expect(processor.resolveRef("e2")).toBeUndefined();
   });
 
   // Test 9: New nodes get next ref number
@@ -3512,9 +3514,10 @@ describe("A11yTreeProcessor", () => {
       const cdp2 = mockCdpClient(nodes2, "https://example.com/page-b");
       await processor.refreshPrecomputed(cdp2, "s1");
 
-      // Old refs should be gone (reset cleared them), new refs start from e1
-      expect(processor.resolveRef("e1")).toBe(200);
-      expect(processor.resolveRef("e2")).toBe(201);
+      // Old refs are gone (reset cleared them); B5: numbering continues at e3
+      expect(processor.resolveRef("e1")).toBeUndefined();
+      expect(processor.resolveRef("e3")).toBe(200);
+      expect(processor.resolveRef("e4")).toBe(201);
     });
 
     it("hasPrecomputed() gibt true bei gueltigem Cache", async () => {
@@ -5122,7 +5125,7 @@ describe("A11yTreeProcessor", () => {
       expect(processor.resolveRef("e2")).toBeUndefined();
       expect(processor.resolveRefFull("e2")).toBeUndefined();
 
-      // A new getTree under a different session must start ref numbering fresh.
+      // A new getTree under a different session gets new numbers (B5: never e1/e2 again).
       const tab2Nodes: AXNode[] = [
         makeNode({
           nodeId: "1",
@@ -5140,7 +5143,8 @@ describe("A11yTreeProcessor", () => {
       ];
       await processor.getTree(mockCdpClient(tab2Nodes), "tab2-session");
 
-      const full = processor.resolveRefFull("e2");
+      expect(processor.resolveRefFull("e2")).toBeUndefined();
+      const full = processor.resolveRefFull("e4");
       expect(full).toBeDefined();
       expect(full!.backendNodeId).toBe(201);
       expect(full!.sessionId).toBe("tab2-session");
@@ -5441,7 +5445,7 @@ describe("A11yTreeProcessor", () => {
       // cancelled) — verified by the fresh precomputed cache with the new
       // refs.
       expect(processor.hasPrecomputed("s1")).toBe(true);
-      expect(processor.resolveRef("e1")).toBe(200);
+      expect(processor.resolveRef("e2")).toBe(200); // B5: e1 (page A) is not reused
 
       cancelSpy.mockRestore();
     });
@@ -5800,7 +5804,9 @@ describe("A11yTreeProcessor — refs per tab (B1)", () => {
     processor.reset(); // navigate in B
     await processor.getTree(mockCdpClient(pageB, "https://b.test/next"), "sB1");
 
-    expect(processor.resolveRefFull("e3")).toEqual({ backendNodeId: 100, sessionId: "sB1" });
+    // B5: B's new page continues at e5; neither A's e1/e2 nor B's old e3/e4 come back.
+    expect(processor.resolveRefFull("e5")).toEqual({ backendNodeId: 100, sessionId: "sB1" });
+    expect(processor.resolveRefFull("e3")).toBeUndefined();
     expect(processor.resolveRefFull("e1")).toBeUndefined();
     expect(processor.findRefOwnerTab("e1")).toEqual({ targetId: "A", url: "https://a.test/" });
   });
@@ -5943,5 +5949,102 @@ describe("a11yTree — Script-API tabs keep their own ref table (P5)", () => {
       forgetScriptTab("TAB-B");
       a11yTree.resetAll();
     }
+  });
+});
+
+// --- B5 (S3): ref numbers are never reused ---
+
+describe("A11yTreeProcessor — ref numbers are never reused (B5)", () => {
+  let processor: A11yTreeProcessor;
+
+  beforeEach(() => {
+    processor = new A11yTreeProcessor();
+  });
+
+  // WebArea (backendNodeId `bid`) with one button (`bid + 1`).
+  const buttonPage = (bid: number, name: string): AXNode[] => [
+    makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: bid, childIds: ["2"] }),
+    makeNode({
+      nodeId: "2",
+      parentId: "1",
+      role: { type: "role", value: "button" },
+      name: { type: "computedString", value: name },
+      backendDOMNodeId: bid + 1,
+    }),
+  ];
+
+  it("B5: a navigation keeps counting — the old page's refs are retired, never handed out again", async () => {
+    await processor.getTree(mockCdpClient(buttonPage(100, "Old"), "https://example.com/a"), "s1"); // e1, e2
+    processor.reset(); // navigate
+    // Same backendNodeIds on the new page (possible after a process swap): e2 must not point at them.
+    await processor.getTree(mockCdpClient(buttonPage(100, "New"), "https://example.com/b"), "s1"); // e3, e4
+
+    expect(processor.resolveRefFull("e2")).toBeUndefined();
+    expect(processor.resolveRefFull("e4")).toEqual({ backendNodeId: 101, sessionId: "s1" });
+    expect(processor.isRetiredRef("e2")).toBe(true);
+    expect(processor.isRetiredRef("e4")).toBe(false); // live
+    expect(processor.isRetiredRef("e99")).toBe(false); // never handed out
+    expect(processor.isRetiredRef("e0")).toBe(false);
+  });
+
+  it("B5: a ref another tab still holds is foreign, not retired — until that tab is gone", async () => {
+    await processor.getTree(mockCdpClient(buttonPage(100, "A"), "https://a.test/"), "sA1");
+    await processor.switchTab(mockCdpClient([]), { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+
+    expect(processor.isRetiredRef("e2")).toBe(false);
+    processor.forgetTab("A");
+    expect(processor.isRetiredRef("e2")).toBe(true);
+  });
+
+  it("B5: only resetAll() — the reset for tests — starts again at e1", async () => {
+    await processor.getTree(mockCdpClient(buttonPage(100, "A"), "https://example.com/a"), "s1");
+    processor.resetAll();
+    await processor.getTree(mockCdpClient(buttonPage(300, "B"), "https://example.com/b"), "s1");
+
+    expect(processor.resolveRefFull("e2")).toEqual({ backendNodeId: 301, sessionId: "s1" });
+    expect(processor.isRetiredRef("e2")).toBe(false);
+  });
+
+  // Preflight ruling (review Task 8): leave tab A, A navigates while away, come back,
+  // view_page — the old e2 must not silently name a node of A's new page.
+  it("B5: a tab that navigated while away gets new numbers — its old ref is retired, not the new button", async () => {
+    // Page.getFrameTree answers with the main-frame loaderId of each CDP session;
+    // Runtime.evaluate / getFullAXTree serve the page the tree is read from.
+    const pageCdp = (nodes: AXNode[], url: string, loaderId: string): CdpClient => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: url } };
+        if (method === "Accessibility.getFullAXTree") return { nodes };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId } } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    }) as unknown as CdpClient;
+    const switchCdp = (loaderBySession: Record<string, string>): CdpClient => ({
+      send: vi.fn(async (method: string, _params?: unknown, sessionId?: string) => {
+        if (method === "Page.getFrameTree") {
+          return { frameTree: { frame: { id: "main", loaderId: loaderBySession[sessionId ?? ""] } } };
+        }
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    }) as unknown as CdpClient;
+
+    await processor.getTree(pageCdp(buttonPage(100, "Old"), "https://a.test/", "doc-A1"), "sA1"); // e1, e2
+    const cdp = switchCdp({ sA2: "doc-A2" }); // A's main frame now holds another document
+    await processor.switchTab(cdp, { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+    // Back to A: its document changed while away, so its table is dropped.
+    expect(await processor.switchTab(cdp, { targetId: "B", sessionId: "sB1" }, { targetId: "A", sessionId: "sA2" })).toBe(false);
+
+    // view_page in A — same backendNodeIds on the new page.
+    const tree = await processor.getTree(pageCdp(buttonPage(100, "New"), "https://a.test/next", "doc-A2"), "sA2");
+
+    expect(tree.text).toContain('[e4] button "New"');
+    expect(processor.resolveRefFull("e4")).toEqual({ backendNodeId: 101, sessionId: "sA2" });
+    expect(processor.resolveRefFull("e2")).toBeUndefined();
+    expect(processor.isRetiredRef("e2")).toBe(true);
   });
 });

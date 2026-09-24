@@ -533,7 +533,7 @@ describe("switchTabHandler — action: switch", () => {
       off: vi.fn(),
     } as unknown as CdpClient;
 
-    a11yTree.reset();
+    a11yTree.resetAll(); // B5: resolveRef("e2") below needs numbering from e1
     await a11yTree.getTree(seedCdp, "session-old");
     expect(a11yTree.hasRefs()).toBe(true);
     expect(a11yTree.resolveRef("e2")).toBe(42);
