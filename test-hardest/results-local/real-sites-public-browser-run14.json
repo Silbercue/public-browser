@@ -1,0 +1,198 @@
+{
+  "name": "Public Browser",
+  "slug": "public-browser",
+  "type": "real-sites-probe",
+  "task": "P1",
+  "task_title": "Login und Kaufabschluss (saucedemo.com)",
+  "mcp_package": "public-browser",
+  "mcp_version": "2.10.6",
+  "mcp_server_info": {
+    "name": "public-browser",
+    "version": "2.10.6",
+    "instructions": "Public Browser controls a real Chrome browser via CDP.\n\nWorkflow: virtual_desk → navigate (to open a page) → view_page (read) → click/type/fill_form (act) → view_page (verify the result).\n\nCRITICAL — view_page vs capture_image:\n- To see what is on the page: ALWAYS call view_page. It returns text + element refs for click/type.\n- capture_image is ONLY for CSS layout checks, canvas content, or when the user explicitly asks for a screenshot.\n- Do NOT call capture_image to read text, find buttons, check errors, or see page state — that is view_page.\n- capture_image cannot return element refs, so you cannot click anything you see in it.\n\nOther rules:\n- After every interaction, use view_page again to verify the result before proceeding.\n- Element targets: prefer the ref from the last view_page (e.g. 'e5'); a CSS selector is the fallback. Refs go stale after navigate, reload or switch_tab — call view_page again before acting on the new page.\n- fill_form beats multiple type calls for any form with 2+ fields.\n- For multi-step workflows, use run_plan to execute N steps in one call. Whenever the next 2+ actions are known (click → click, click → type → view_page), send them as ONE run_plan, not separate calls.\n- evaluate is for JS computation and style mutations (.style.X = ...) — not for CSS reading, element discovery, scrolling, dialogs or network capture: dom_snapshot, view_page, scroll, handle_dialog and network_monitor cover those.\n- Avoid evaluate as default recovery after click/type errors — call view_page for fresh refs and retry with the dedicated tool. Patching via evaluate (querySelector().click(), element.value = ...) bypasses the CDP pointer chain and framework listeners (React, Vue) and hides real bugs; the only exception is a test that deliberately targets synthetic JS events.\n- Responses of type and fill_form carry a DOM diff (NEW/REMOVED/CHANGED lines); click's diff arrives with the next page action unless wait_for_diff: true. Read it as the success signal instead of re-checking state with evaluate.\n\nScript API: `pip install publicbrowser` gives you a Python library for deterministic browser automation without an LLM. Scripts route through the same tool handlers as MCP (Shared Core). Usage: `from publicbrowser import Chrome; chrome = Chrome.connect(); page = chrome.new_page()` — then `page.navigate()`, `page.click()`, `page.fill()`, `page.evaluate()` etc. Auto-starts the server. Add `--script` to the MCP args for parallel MCP + Script access.\nCortex: 93 patterns loaded."
+  },
+  "model": "claude-opus-5",
+  "chrome_version": "153.0.8010.53",
+  "session_id": "453f044d-6cdb-4184-baa3-1d6875e6a4f3",
+  "timestamp": "2026-09-24T15:18:53.554Z",
+  "harness": {
+    "mode": "real-sites-probe",
+    "status": "ok",
+    "local_build": true,
+    "git_head": "366c194",
+    "git_dirty": false,
+    "claude_code_version": "2.1.281",
+    "os": "darwin 27.0.0",
+    "node": "v22.14.0",
+    "profile_isolation": "auto-launched Chrome, fresh temp user-data-dir, CDP port 9333; local build 366c194",
+    "model_requested": "claude-opus-5",
+    "flags": "--model claude-opus-5 --output-format json --session-id <session_id> --setting-sources project --strict-mcp-config --mcp-config /tmp/probe-public-browser-P1-20260924-1518-MoVNiH/mcp.json --permission-mode dontAsk --allowedTools Write mcp__public-browser --tools Write --max-turns 150",
+    "browser_binaries": [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    ],
+    "browser_non_chrome": [],
+    "wall_clock_s": 22,
+    "exit_code": 0,
+    "timed_out": false,
+    "num_turns": 10,
+    "run_dir": "/tmp/probe-public-browser-P1-20260924-1518-MoVNiH",
+    "tool_lock": {
+      "bash_attempted": 0,
+      "bash_denied": false,
+      "non_mcp_executed": []
+    },
+    "session_jsonl_sha256": "fd9a671887a7bb5c9383a2163bb4aa2cd41dc95be9c34fbc25b66b715cd7a45f",
+    "calls_ledger": [
+      {
+        "i": 1,
+        "tool": "mcp__public-browser__virtual_desk",
+        "chars": 147,
+        "ms": 642
+      },
+      {
+        "i": 2,
+        "tool": "mcp__public-browser__navigate",
+        "chars": 253,
+        "ms": 1501
+      },
+      {
+        "i": 3,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 488,
+        "ms": 38
+      },
+      {
+        "i": 4,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 2286,
+        "ms": 88
+      },
+      {
+        "i": 5,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 2862,
+        "ms": 64
+      },
+      {
+        "i": 6,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1322,
+        "ms": 37
+      },
+      {
+        "i": 7,
+        "tool": "mcp__public-browser__view_page",
+        "chars": 1009,
+        "ms": 30
+      },
+      {
+        "i": 8,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 3152,
+        "ms": 56
+      },
+      {
+        "i": 9,
+        "tool": "mcp__public-browser__run_plan",
+        "chars": 1667,
+        "ms": 42
+      }
+    ]
+  },
+  "probe": {
+    "pass": true,
+    "answers": {
+      "P1-CART": "Sauce Labs Backpack | Sauce Labs Bike Light",
+      "P1-TOTAL": "$43.18",
+      "P1-CONFIRMATION": "Thank you for your order!"
+    },
+    "problems": [],
+    "reference": null,
+    "final_text": "P1-CART: Sauce Labs Backpack | Sauce Labs Bike Light\nP1-TOTAL: $43.18\nP1-CONFIRMATION: Thank you for your order!"
+  },
+  "tokens": {
+    "start": 0,
+    "end": 160492,
+    "delta": 160492,
+    "rounds": 10,
+    "dedup": "message.id",
+    "result_usage_total": 160492
+  },
+  "cost_usd_list": 0.2138685,
+  "tool_efficiency": {
+    "calls_total": 9,
+    "response_chars_total": 13186,
+    "by_tool": [
+      {
+        "name": "mcp__public-browser__run_plan",
+        "count": 5,
+        "total_chars": 11289,
+        "avg_chars": 2257,
+        "p95_chars": 2862,
+        "max_chars": 3152,
+        "avg_ms": 57,
+        "p50_ms": 56,
+        "p95_ms": 64,
+        "max_ms": 88,
+        "total_ms": 287,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 564,
+        "total_total_tokens_est": 2820
+      },
+      {
+        "name": "mcp__public-browser__view_page",
+        "count": 2,
+        "total_chars": 1497,
+        "avg_chars": 748,
+        "p95_chars": 488,
+        "max_chars": 1009,
+        "avg_ms": 34,
+        "p50_ms": 30,
+        "p95_ms": 30,
+        "max_ms": 38,
+        "total_ms": 68,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 187,
+        "total_total_tokens_est": 374
+      },
+      {
+        "name": "mcp__public-browser__virtual_desk",
+        "count": 1,
+        "total_chars": 147,
+        "avg_chars": 147,
+        "p95_chars": 147,
+        "max_chars": 147,
+        "avg_ms": 642,
+        "p50_ms": 642,
+        "p95_ms": 642,
+        "max_ms": 642,
+        "total_ms": 642,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 36,
+        "total_total_tokens_est": 36
+      },
+      {
+        "name": "mcp__public-browser__navigate",
+        "count": 1,
+        "total_chars": 253,
+        "avg_chars": 253,
+        "p95_chars": 253,
+        "max_chars": 253,
+        "avg_ms": 1501,
+        "p50_ms": 1501,
+        "p95_ms": 1501,
+        "max_ms": 1501,
+        "total_ms": 1501,
+        "avg_output_tokens": 0,
+        "total_output_tokens": 0,
+        "avg_total_tokens_est": 63,
+        "total_total_tokens_est": 63
+      }
+    ]
+  },
+  "notes": "",
+  "run_file": "real-sites-public-browser-run14.json"
+}

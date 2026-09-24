@@ -1,0 +1,194 @@
+{
+  "stage": 2,
+  "head": "366c194",
+  "stage1_head": "c86f5ad",
+  "checked_at": "2026-09-24T15:23:59.243Z",
+  "verdict": "PASS",
+  "exit_code": 0,
+  "accepted": true,
+  "results": [
+    {
+      "id": "benchmark",
+      "label": "Benchmark 30/30 in 5 von 5 Laeufen",
+      "pass": true,
+      "detail": "5 Laeufe, 5 ok, alle 30/30"
+    },
+    {
+      "id": "rounds",
+      "label": "Runden (Median) ≤ Ergebnis Stufe 1",
+      "pass": true,
+      "detail": "81 gegen 82 (68, 83, 83, 81, 76)"
+    },
+    {
+      "id": "tokens_median",
+      "label": "Token (Median) ≤ 3.40M",
+      "pass": true,
+      "detail": "3.02M gegen 3.40M (2.47M, 3.15M, 3.03M, 2.99M, 3.02M)"
+    },
+    {
+      "id": "tokens_max",
+      "label": "Einzellauf ≤ 4.20M",
+      "pass": true,
+      "detail": "max 3.15M (public-browser-run19.json)"
+    },
+    {
+      "id": "tokens_vs_stage1",
+      "label": "Token nicht schlechter als Stufe 1 (Median und groesster Einzellauf)",
+      "pass": true,
+      "detail": "Median 3.02M gegen 3.81M, Einzellauf max 3.15M gegen 4.14M"
+    },
+    {
+      "id": "probe",
+      "label": "Realseiten-Probe P1–P3 je 2 von 2 Laeufen bestanden, Summe der Runden-Mediane ≤ Stufe 1 + 20 %",
+      "pass": true,
+      "detail": "P1 2/2 bestanden · P2 2/2 bestanden · P3 2/2 bestanden · Summe der Runden-Mediane 62.5 (P1 28 + P2 22 + P3 12.5), Grenze 97.2 = Stufe 1 81 × 1,2"
+    },
+    {
+      "id": "code",
+      "label": "npm test, Lint, npm run build, Python-Tests gruen",
+      "pass": true,
+      "detail": "npm test ok, lint ok, build ok, pytest ok"
+    }
+  ],
+  "warnings": [],
+  "exclusions": {},
+  "version_filter": {
+    "chrome": null,
+    "claude_code": null
+  },
+  "version_drift": [],
+  "versions": {
+    "chrome": [
+      "153.0.8010.53"
+    ],
+    "claude_code": [
+      "2.1.281"
+    ]
+  },
+  "baseline_versions": {
+    "chrome": [
+      "153.0.8010.53"
+    ],
+    "claude_code": [
+      "2.1.281"
+    ]
+  },
+  "benchmark": {
+    "n": 5,
+    "n_ok": 5,
+    "runs": [
+      "public-browser-run18.json",
+      "public-browser-run19.json",
+      "public-browser-run20.json",
+      "public-browser-run21.json",
+      "public-browser-run22.json"
+    ],
+    "failures": [],
+    "tokens": {
+      "median": 3015133,
+      "max": 3147446,
+      "max_run": "public-browser-run19.json",
+      "values": [
+        2465179,
+        3147446,
+        3028893,
+        2990988,
+        3015133
+      ]
+    },
+    "rounds": {
+      "median": 81,
+      "values": [
+        68,
+        83,
+        83,
+        81,
+        76
+      ]
+    },
+    "calls": {
+      "median": 79,
+      "values": [
+        66,
+        81,
+        81,
+        79,
+        74
+      ]
+    }
+  },
+  "probe": {
+    "P1": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run13.json",
+        "real-sites-public-browser-run14.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 28,
+        "values": [
+          46,
+          10
+        ]
+      },
+      "tokens": {
+        "median": 635154,
+        "values": [
+          1109816,
+          160492
+        ]
+      }
+    },
+    "P2": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run15.json",
+        "real-sites-public-browser-run16.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 22,
+        "values": [
+          22,
+          22
+        ]
+      },
+      "tokens": {
+        "median": 346192.5,
+        "values": [
+          345873,
+          346512
+        ]
+      }
+    },
+    "P3": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run17.json",
+        "real-sites-public-browser-run18.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 12.5,
+        "values": [
+          14,
+          11
+        ]
+      },
+      "tokens": {
+        "median": 244521,
+        "values": [
+          281387,
+          207655
+        ]
+      }
+    }
+  }
+}
