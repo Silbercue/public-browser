@@ -156,8 +156,42 @@ class TestPageClick:
         assert headers["X-Session"] == "SESSION_TEST"
         assert json.loads(body) == {"selector": "#submit"}
 
-    def test_click_accepts_text_selector(self, page_with_server: Page) -> None:
-        """click() passes text selectors through to the server."""
+    def test_click_by_text(self, page_with_server: Page) -> None:
+        """S10: text=... clicks by visible text (click tool parameter 'text')."""
+        _FakeHandler.responses = [
+            (200, {"content": [{"type": "text", "text": "Clicked"}], "isError": False}),
+        ]
+
+        page_with_server.click("text=Sign in")
+
+        _, _, body = _FakeHandler.received_requests[0]
+        assert json.loads(body) == {"text": "Sign in"}
+
+    def test_click_by_ref_prefix(self, page_with_server: Page) -> None:
+        """S10: ref:42 becomes the ref e42."""
+        _FakeHandler.responses = [
+            (200, {"content": [{"type": "text", "text": "Clicked"}], "isError": False}),
+        ]
+
+        page_with_server.click("ref:42")
+
+        _, _, body = _FakeHandler.received_requests[0]
+        assert json.loads(body) == {"ref": "e42"}
+
+    def test_click_by_bare_ref(self, page_with_server: Page) -> None:
+        """S10: e7 (as shown by view_page) is a ref."""
+        _FakeHandler.responses = [
+            (200, {"content": [{"type": "text", "text": "Clicked"}], "isError": False}),
+        ]
+
+        page_with_server.click("e7")
+        page_with_server.click("ref:e8")
+
+        bodies = [json.loads(b) for _, _, b in _FakeHandler.received_requests]
+        assert bodies == [{"ref": "e7"}, {"ref": "e8"}]
+
+    def test_click_plain_string_stays_css(self, page_with_server: Page) -> None:
+        """Without a prefix the string is a CSS selector, as before."""
         _FakeHandler.responses = [
             (200, {"content": [{"type": "text", "text": "Clicked"}], "isError": False}),
         ]
@@ -167,16 +201,11 @@ class TestPageClick:
         _, _, body = _FakeHandler.received_requests[0]
         assert json.loads(body) == {"selector": "Login"}
 
-    def test_click_accepts_ref_selector(self, page_with_server: Page) -> None:
-        """click() passes ref selectors through to the server."""
-        _FakeHandler.responses = [
-            (200, {"content": [{"type": "text", "text": "Clicked"}], "isError": False}),
-        ]
-
-        page_with_server.click("ref:42")
-
-        _, _, body = _FakeHandler.received_requests[0]
-        assert json.loads(body) == {"selector": "ref:42"}
+    def test_click_rejects_malformed_ref(self, page_with_server: Page) -> None:
+        """A broken ref is a clear error, not a CSS lookup for 'ref:abc'."""
+        with pytest.raises(ValueError, match="Invalid ref 'ref:abc'"):
+            page_with_server.click("ref:abc")
+        assert _FakeHandler.received_requests == []
 
     def test_click_raises_on_error(self, page_with_server: Page) -> None:
         """click() raises RuntimeError when element not found."""
@@ -291,8 +320,8 @@ class TestPageWaitFor:
         assert path == "/tool/wait_for"
         assert json.loads(body) == {"condition": "js", "expression": "document.querySelector('#done')", "timeout": 120000}
 
-    def test_wait_for_passes_text_shorthand(self, page_with_server: Page) -> None:
-        """wait_for('text=Dashboard') passes through to server (server handles shorthand)."""
+    def test_wait_for_text(self, page_with_server: Page) -> None:
+        """S10: text=... waits for page text (wait_for condition 'text')."""
         _FakeHandler.responses = [
             (200, {"content": [{"type": "text", "text": "Condition met"}], "isError": False}),
         ]
@@ -300,7 +329,34 @@ class TestPageWaitFor:
         page_with_server.wait_for("text=Dashboard")
 
         _, _, body = _FakeHandler.received_requests[0]
-        assert json.loads(body) == {"condition": "element", "selector": "text/Dashboard", "timeout": 120000}
+        assert json.loads(body) == {"condition": "text", "text": "Dashboard", "timeout": 120000}
+
+    def test_wait_for_ref(self, page_with_server: Page) -> None:
+        """S10: a ref waits for that element, in the form the server knows (e5)."""
+        _FakeHandler.responses = [
+            (200, {"content": [{"type": "text", "text": "Condition met"}], "isError": False}),
+            (200, {"content": [{"type": "text", "text": "Condition met"}], "isError": False}),
+        ]
+
+        page_with_server.wait_for("ref:5")
+        page_with_server.wait_for("e6")
+
+        bodies = [json.loads(b) for _, _, b in _FakeHandler.received_requests]
+        assert bodies == [
+            {"condition": "element", "selector": "e5", "timeout": 120000},
+            {"condition": "element", "selector": "e6", "timeout": 120000},
+        ]
+
+    def test_wait_for_css_selector(self, page_with_server: Page) -> None:
+        """#, . and [ stay CSS selectors."""
+        _FakeHandler.responses = [
+            (200, {"content": [{"type": "text", "text": "Condition met"}], "isError": False}),
+        ]
+
+        page_with_server.wait_for("#done")
+
+        _, _, body = _FakeHandler.received_requests[0]
+        assert json.loads(body) == {"condition": "element", "selector": "#done", "timeout": 120000}
 
     def test_wait_for_timeout_raises(self, page_with_server: Page) -> None:
         """wait_for() raises TimeoutError on server-side timeout."""
@@ -483,7 +539,7 @@ class TestPageDownload:
         assert json.loads(body) == {}
 
     def test_download_returns_path(self, page_with_server: Page) -> None:
-        """download() returns the download directory path."""
+        """download() returns the text the download tool reports."""
         _FakeHandler.responses = [
             (200, {
                 "content": [{"type": "text", "text": "/tmp/silbercuechrome-downloads"}],
@@ -493,6 +549,53 @@ class TestPageDownload:
 
         result = page_with_server.download()
         assert result == "/tmp/silbercuechrome-downloads"
+
+    def test_download_returns_only_the_tool_report(self, page_with_server: Page) -> None:
+        """Blocks the server adds (download and dialog notices) are not part of the value."""
+        report = {
+            "downloads": [{"filename": "report.csv", "path": "/tmp/dl/report.csv", "size": 812}],
+            "pending": 0,
+        }
+        _FakeHandler.responses = [
+            (200, {
+                "content": [
+                    {"type": "text", "text": json.dumps(report)},
+                    {
+                        "type": "text",
+                        "text": "--- Download completed ---\nFile: report.csv\nPath: /tmp/dl/report.csv\nSize: 1 KB",
+                    },
+                    {"type": "text", "text": '[dialog] alert: "Saved"'},
+                ],
+                "isError": False,
+            }),
+        ]
+
+        result = page_with_server.download()
+
+        assert result == json.dumps(report)
+        assert json.loads(result) == report
+
+    def test_download_skips_relaunch_and_pipe_warning_blocks(self, page_with_server: Page) -> None:
+        """Preflight V5: the relaunch notice and the pipe-fallback warning are not part of the value."""
+        _FakeHandler.responses = [
+            (200, {
+                "content": [
+                    {"type": "text", "text": "No downloads in progress or completed."},
+                    {
+                        "type": "text",
+                        "text": "Note: Chrome was not reachable — Public Browser silently launched a fresh browser.",
+                    },
+                    {
+                        "type": "text",
+                        "text": 'Public Browser: Chrome refused --remote-debugging-pipe for profile "Default" '
+                        "and was restarted with a random debugging port.",
+                    },
+                ],
+                "isError": False,
+            }),
+        ]
+
+        assert page_with_server.download() == "No downloads in progress or completed."
 
     def test_download_raises_on_error(self, page_with_server: Page) -> None:
         """download() raises RuntimeError on error."""

@@ -41,14 +41,24 @@ class TestExtractText:
         assert _extract_text({"content": [{"type": "text"}]}) == ""
 
     def test_handles_multiple_content_items(self) -> None:
-        """Returns text from the first content item."""
+        """Plancheck P35: all text items count, joined by a newline — not only content[0]."""
         response = {
             "content": [
                 {"type": "text", "text": "first"},
                 {"type": "text", "text": "second"},
             ],
         }
-        assert _extract_text(response) == "first"
+        assert _extract_text(response) == "first\nsecond"
+
+    def test_skips_non_text_items(self) -> None:
+        """Plancheck P35: an image item (capture_image) in front does not hide the text."""
+        response = {
+            "content": [
+                {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
+                {"type": "text", "text": "Screenshot saved"},
+            ],
+        }
+        assert _extract_text(response) == "Screenshot saved"
 
     def test_handles_non_list_content(self) -> None:
         """Returns empty string for non-list content."""

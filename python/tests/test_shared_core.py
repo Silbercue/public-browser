@@ -805,11 +805,11 @@ class TestSharedCoreIntegration:
                 )
                 page.fill({"#f1": "a", "#f2": "b"})
 
-                # wait_for
-                page.wait_for("document.querySelector('#f1')")
+                # wait_for: a JS condition must evaluate to true — an element
+                # alone is truthy but not true and would wait until the timeout.
+                page.wait_for("document.querySelector('#f1') !== null")
 
-                # download
-                dl_path = page.download()
-                assert isinstance(dl_path, str)
+                # download: the tool's report, without added notice blocks
+                assert page.download() == "No downloads in progress or completed."
         finally:
             chrome.close()

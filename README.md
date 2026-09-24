@@ -266,12 +266,12 @@ chrome.close()
 | `Chrome.connect()` | Connect to or auto-start the Public Browser server |
 | `chrome.new_page()` | Context manager — opens a new tab, auto-closes on exit |
 | `page.navigate(url)` | Navigate and wait for load |
-| `page.click(selector)` | Click element by CSS selector (must match exactly one element), text, or ref |
+| `page.click(selector)` | Click by CSS selector (must match exactly one element), visible text (`"text=Sign in"`) or ref (`"e12"`) |
 | `page.type(selector, text)` | Type text into an input |
 | `page.fill({"sel": "val"})` | Fill multiple form fields at once |
-| `page.wait_for(condition)` | Wait for JS condition or `"text=..."` shorthand |
+| `page.wait_for(condition)` | Wait for page text (`"text=..."`), a ref, a CSS selector (`#`, `.`, `[`), `"network_idle"` or a JS condition |
 | `page.evaluate(expression)` | Run JavaScript, return result |
-| `page.download()` | Enable downloads, return download dir |
+| `page.download()` | Wait for pending downloads, return the download report (JSON or a notice) |
 | `page.close()` | Close the tab (auto-called by context manager) |
 | `page.cdp.send(method, params)` | Escape Hatch — direct CDP access via WebSocket (see below) |
 

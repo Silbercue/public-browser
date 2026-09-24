@@ -120,12 +120,12 @@ chrome.close()
 | Method | Description |
 |---|---|
 | `page.navigate(url)` | Navigate to URL and wait for load |
-| `page.click(selector)` | Click element by CSS selector, text, or ref |
+| `page.click(selector)` | Click by CSS selector (must match exactly one element), visible text (`"text=Sign in"`) or ref (`"e12"`) |
 | `page.type(selector, text)` | Type text into input element |
 | `page.fill({"sel": "val", ...})` | Fill multiple form fields at once |
-| `page.wait_for(condition)` | Wait for JS condition or `"text=..."` shorthand |
+| `page.wait_for(condition)` | Wait for page text (`"text=..."`), a ref, a CSS selector (`#`, `.`, `[`), `"network_idle"` or a JS condition |
 | `page.evaluate(expression)` | Run JavaScript, return result |
-| `page.download()` | Enable downloads, return download dir |
+| `page.download()` | Wait for pending downloads, return the download report (JSON or a notice) |
 | `page.close()` | Close the tab (auto-called by context manager) |
 | `page.cdp` | Escape Hatch — returns a `CdpEscapeHatch` for direct CDP access (see below) |
 

@@ -90,8 +90,10 @@ class Page:
         if self._escape_hatch is None:
             if not self._cdp_ws_url:
                 raise RuntimeError(
-                    "CDP Escape Hatch not available — no cdp_ws_url. "
-                    "Ensure the server supports Story 9.9."
+                    "CDP Escape Hatch not available: the server returned no "
+                    "cdp_ws_url because Chrome runs over --remote-debugging-pipe "
+                    "(a real profile via --profile, or transport \"pipe\") and "
+                    "opens no debugging port. All page methods work as usual."
                 )
             self._escape_hatch = CdpEscapeHatch(
                 self._cdp_ws_url, self._cdp_session_id
@@ -118,24 +120,28 @@ class Page:
     def click(self, selector: str, *, timeout: float = DEFAULT_TIMEOUT) -> None:
         """Click an element.
 
-        The server handles selector resolution (CSS, visible text, ref),
-        scroll-into-view, Shadow DOM traversal, and paint-order filtering.
+        The server handles scroll-into-view, Shadow DOM traversal, and
+        paint-order filtering.
 
         Args:
-            selector: CSS selector, visible text, or ref (e.g. "ref:42").
+            selector: A CSS selector (``"#login"``), visible text with the
+                ``text=`` prefix (``"text=Sign in"``), or a ref as shown by
+                ``view_page`` (``"e12"``, also ``"ref:12"``). Without a prefix
+                the string is a CSS selector.
             timeout: Timeout for the operation.
 
         Raises:
+            ValueError: If a ``ref:`` selector is malformed.
             RuntimeError: If the element is not found or click fails.
         """
-        response = self._call_tool("click", {"selector": selector}, timeout=timeout)
+        response = self._call_tool("click", _click_target(selector), timeout=timeout)
         _check_error(response)
 
     def type(self, selector: str, text: str, *, timeout: float = DEFAULT_TIMEOUT) -> None:
         """Type text into an element.
 
         Args:
-            selector: CSS selector, visible text, or ref for the input element.
+            selector: CSS selector of the input element.
             text: The text to type.
             timeout: Timeout for the operation.
 
@@ -165,34 +171,41 @@ class Page:
         _check_error(response)
 
     def wait_for(self, condition: str, *, timeout: float = LONG_TIMEOUT) -> None:
-        """Wait for a condition to become truthy.
-
-        The server handles all polling. Supports the same condition syntax
-        as the MCP wait_for tool (JavaScript expressions, ``text=...`` shorthand).
+        """Wait until a condition holds. The server handles all polling.
 
         Args:
-            condition: A JavaScript expression or ``text=<string>`` shorthand.
+            condition: One of
+
+                - ``"text=Dashboard"`` — the page text contains ``Dashboard``
+                - a ref as shown by ``view_page`` (``"e12"``, also ``"ref:12"``)
+                  — the element is visible
+                - a CSS selector starting with ``#``, ``.`` or ``[`` — the element
+                  is visible
+                - ``"network_idle"`` — no network activity
+                - anything else — a JavaScript expression that evaluates to
+                  ``true`` (strictly: an element or a non-empty string is
+                  not enough, write ``document.querySelector('#x') !== null``)
             timeout: Maximum wait time (seconds).
 
         Raises:
-            TimeoutError: If the condition does not become truthy in time.
+            ValueError: If a ``ref:`` condition is malformed.
+            TimeoutError: If the condition does not become true in time.
             RuntimeError: If the wait fails for other reasons.
         """
-        # Map user-friendly condition string to server tool params.
-        # Server expects: condition="element"|"network_idle"|"js"
-        # plus selector= or expression= fields.
         # The HTTP gateway doesn't apply Zod schema defaults, so we must
-        # always include timeout_ms explicitly (server expects milliseconds).
+        # always include timeout explicitly (server expects milliseconds).
         timeout_ms = int(timeout * 1000)
         if condition == "network_idle":
             params: dict[str, Any] = {"condition": "network_idle", "timeout": timeout_ms}
-        elif condition.startswith("text="):
+        elif condition.startswith(_TEXT_PREFIX):
             params = {
-                "condition": "element",
-                "selector": f"text/{condition[5:]}",
+                "condition": "text",
+                "text": condition[len(_TEXT_PREFIX):],
                 "timeout": timeout_ms,
             }
-        elif condition.startswith(("#", ".", "[")) or condition.startswith("ref:"):
+        elif (ref := _as_ref(condition)) is not None:
+            params = {"condition": "element", "selector": ref, "timeout": timeout_ms}
+        elif condition.startswith(("#", ".", "[")):
             params = {"condition": "element", "selector": condition, "timeout": timeout_ms}
         else:
             params = {"condition": "js", "expression": condition, "timeout": timeout_ms}
@@ -234,17 +247,24 @@ class Page:
         return _parse_evaluate_response(response)
 
     def download(self, *, timeout: float = DEFAULT_TIMEOUT) -> str:
-        """Enable downloads and return the download directory.
+        """Wait for pending downloads and return the download tool's report.
+
+        Calls the ``download`` tool with its default action ``status``: it
+        waits for downloads still in progress and reports the finished ones.
 
         Returns:
-            The absolute path of the download directory.
+            The report text: JSON (``{"downloads": [...], "pending": n}``,
+            each download with filename, path, size and url) or a plain
+            notice such as ``"No downloads in progress or completed."``.
+            Blocks the server adds around it (download, dialog and relaunch
+            notices) are not part of it.
 
         Raises:
             RuntimeError: If the operation fails.
         """
         response = self._call_tool("download", {}, timeout=timeout)
         _check_error(response)
-        return _extract_text(response)
+        return _value_text(response)
 
     def close(self) -> None:
         """Close the Escape Hatch WebSocket connection if open.
@@ -259,6 +279,41 @@ class Page:
 
 
 # ------------------------------------------------------------------
+# Selector helpers (S10)
+# ------------------------------------------------------------------
+
+_TEXT_PREFIX = "text="
+_REF_PREFIX = "ref:"
+_BARE_REF = re.compile(r"e\d+")
+_REF_BODY = re.compile(r"e?(\d+)")
+
+
+def _as_ref(selector: str) -> str | None:
+    """``ref:42``, ``ref:e42`` or ``e42`` → ``"e42"``; anything else → None."""
+    if selector.startswith(_REF_PREFIX):
+        match = _REF_BODY.fullmatch(selector[len(_REF_PREFIX):])
+        if match is None:
+            raise ValueError(
+                f"Invalid ref {selector!r}: expected ref:<number> or e<number> "
+                f"(as shown by view_page)"
+            )
+        return f"e{match.group(1)}"
+    if _BARE_REF.fullmatch(selector):
+        return selector
+    return None
+
+
+def _click_target(selector: str) -> dict[str, str]:
+    """Map the Python selector syntax onto the click tool's target parameter."""
+    if selector.startswith(_TEXT_PREFIX):
+        return {"text": selector[len(_TEXT_PREFIX):]}
+    ref = _as_ref(selector)
+    if ref is not None:
+        return {"ref": ref}
+    return {"selector": selector}
+
+
+# ------------------------------------------------------------------
 # Response parsing helpers
 # ------------------------------------------------------------------
 
@@ -270,12 +325,17 @@ def _extract_text(response: dict[str, Any]) -> str:
     ``{"content": [{"type": "text", "text": "..."}], "isError": false}``
 
     Returns:
-        The text from the first content item, or empty string.
+        The text of all text items, joined by a newline — not only the
+        first one — or an empty string. Non-text items (images) are skipped.
     """
     content = response.get("content", [])
-    if content and isinstance(content, list) and len(content) > 0:
-        return content[0].get("text", "")
-    return ""
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(
+        item.get("text", "")
+        for item in content
+        if isinstance(item, dict) and item.get("type") == "text"
+    )
 
 
 def _check_error(response: dict[str, Any]) -> None:

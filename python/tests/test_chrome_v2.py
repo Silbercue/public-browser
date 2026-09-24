@@ -211,6 +211,33 @@ class TestNewPage:
 
         chrome.close()
 
+    def test_page_cdp_raises_clearly_without_debugging_port(self, fake_api: tuple) -> None:
+        """Befund (c): a pipe-only server (cdp_ws_url null) gives a RuntimeError that says why."""
+        port, server = fake_api
+        _FakeHandler.responses = [
+            (200, {
+                "session_token": "SESSION_PIPE",
+                "target_id": "TARGET_PIPE",
+                "cdp_ws_url": None,
+                "cdp_session_id": "cdp-pipe",
+                "cdp_ws_note": "No CDP WebSocket: Chrome runs over --remote-debugging-pipe.",
+            }),
+            (200, {"ok": True}),
+        ]
+
+        chrome = Chrome.connect(host="127.0.0.1", port=port, auto_start=False)
+        try:
+            with chrome.new_page() as page:
+                assert page.target_id == "TARGET_PIPE"
+                with pytest.raises(RuntimeError) as excinfo:
+                    _ = page.cdp
+        finally:
+            chrome.close()
+
+        message = str(excinfo.value)
+        assert "--remote-debugging-pipe" in message
+        assert "Story 9.9" not in message
+
     def test_new_page_closes_session_on_exception(self, fake_api: tuple) -> None:
         """new_page() closes the session even if an exception occurs."""
         port, server = fake_api
