@@ -5861,6 +5861,58 @@ describe("A11yTreeProcessor — refs per tab (B1)", () => {
     expect(processor.refCount).toBe(0);
     expect(processor.hasPrecomputed("sA1")).toBe(false);
   });
+
+  // Nachtrag-Review 3: after a reconnect or for a Script-API session there are
+  // new sessions without a left tab. They must not count as foreign, or diff
+  // and prefetch would die silently.
+  it("B7: a session that never belonged to a left tab (reconnect, Script API) still refreshes", async () => {
+    await processor.getTree(mockCdpClient(pageA, "https://a.test/"), "sA1");
+    await processor.switchTab(frameTreeCdp({ sA1: "doc-A" }), { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+
+    await processor.refreshPrecomputed(mockCdpClient(pageB, "https://b.test/"), "sB-reconnected");
+
+    expect(processor.hasPrecomputed("sB-reconnected")).toBe(true);
+  });
+
+  it("B7: a refresh started after the switch with the left tab's session writes nothing", async () => {
+    await processor.getTree(mockCdpClient(pageA, "https://a.test/"), "sA1");
+    await processor.switchTab(frameTreeCdp({ sA1: "doc-A" }), { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+
+    // e.g. the late retry of a deferred click diff that ran in tab A
+    await processor.refreshPrecomputed(mockCdpClient(pageA, "https://a.test/"), "sA1");
+
+    expect(processor.refCount).toBe(0);
+    expect(processor.hasPrecomputed("sA1")).toBe(false);
+    expect(processor.findRefOwnerTab("e2")?.targetId).toBe("A"); // A's stored table untouched
+
+    // The active tab's own session still refreshes normally.
+    await processor.refreshPrecomputed(mockCdpClient(pageB, "https://b.test/"), "sB1");
+    expect(processor.hasPrecomputed("sB1")).toBe(true);
+    expect(processor.refCount).toBe(2);
+  });
+
+  it("B7: after returning to a tab, a refresh with its old session is still dropped", async () => {
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A"), "sA1"); // P21: the table knows its document
+    const cdp = frameTreeCdp({ sA1: "doc-A", sB1: "doc-B", sA2: "doc-A" });
+    await processor.switchTab(cdp, { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+    await processor.switchTab(cdp, null, { targetId: "A", sessionId: "sA2" });
+
+    await processor.refreshPrecomputed(mockCdpClient(pageA, "https://a.test/"), "sA1");
+
+    expect(processor.hasPrecomputed("sA1")).toBe(false);
+    expect(processor.refCount).toBe(2);
+    expect(processor.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "sA2" });
+  });
+
+  it("B7: resetAll() forgets the sessions of left tabs", async () => {
+    await processor.getTree(mockCdpClient(pageA, "https://a.test/"), "sA1");
+    await processor.switchTab(frameTreeCdp({ sA1: "doc-A" }), { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+    processor.resetAll();
+
+    await processor.refreshPrecomputed(mockCdpClient(pageA, "https://a.test/"), "sA1");
+
+    expect(processor.hasPrecomputed("sA1")).toBe(true);
+  });
 });
 
 // --- P5 (Plancheck): a Script-API tab keeps its own ref table ---

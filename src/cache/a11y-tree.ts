@@ -411,6 +411,10 @@ export class A11yTreeProcessor {
   // B1: Bumped by switchTab(). A refreshPrecomputed() that started before
   // the switch must not write into the next tab's table.
   private _tableEpoch = 0;
+  // B7: Main-frame sessions of tabs left via switchTab(). A refresh started
+  // with one of them — e.g. the late retry of a click diff from the previous
+  // tab — belongs to another tab and must not write into the active table.
+  private _foreignSessions = new Set<string>();
   // P21: Main-frame loaderId of the document the active table's refs were
   // assigned in, recorded by getTree()/refreshPrecomputed(). undefined =
   // unknown (not read yet, or CDP could not tell) — then nothing compares.
@@ -443,6 +447,7 @@ export class A11yTreeProcessor {
    */
   resetAll(): void {
     this._savedTables.clear();
+    this._foreignSessions.clear();
     this.reset();
     this.nextRef = 1;
   }
@@ -609,7 +614,8 @@ export class A11yTreeProcessor {
     // B1: A tab switch during this build makes its result belong to a tab
     // that is no longer active — treat it like an abort.
     const epoch = this._tableEpoch;
-    const superseded = (): boolean => signal?.aborted === true || epoch !== this._tableEpoch;
+    const superseded = (): boolean =>
+      signal?.aborted === true || epoch !== this._tableEpoch || this._foreignSessions.has(sessionId); // B7
 
     // Story 18.5: Frueher Abort-Check — wenn der Slot bereits abgebrochen
     // wurde, bevor wir ueberhaupt anfangen, sofort exit.
@@ -880,6 +886,7 @@ export class A11yTreeProcessor {
   ): Promise<boolean> {
     prefetchSlot.cancel();
     this._tableEpoch++;
+    if (from) this._foreignSessions.add(from.sessionId); // B7
     const leaving: SavedRefTable | null = from && this.reverseMap.size > 0
       ? {
           refMap: this.refMap,
