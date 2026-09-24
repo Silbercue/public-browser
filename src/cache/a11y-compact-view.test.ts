@@ -292,6 +292,67 @@ describe("H2 — andere Filter und Teilbäume", () => {
     expect(result.text).not.toContain('StaticText "Click the Button"');
   });
 
+  // Fix I1 (Review Task 25): an inner editor drops only when the field line shows its text.
+  // AX shapes as Chrome delivers them (probe on a private Chrome, port 9340).
+  describe("inner editor of a text field", () => {
+    const editable = (n: AXNode, kind: "richtext" | "plaintext", value?: string): AXNode => ({
+      ...n,
+      properties: [{ name: "editable", value: { type: "token", value: kind } }],
+      ...(value !== undefined ? { value: { type: "string", value } } : {}),
+    });
+
+    it("keeps the text of a contenteditable (richtext) inside a combobox without value", async () => {
+      const proc = new A11yTreeProcessor();
+      const cdp = single([
+        node(1, "RootWebArea", "Combo", [2]),
+        node(2, "combobox", undefined, [3], 1),
+        editable(node(3, "generic", undefined, [4], 2), "richtext", "hallo welt"),
+        node(4, "StaticText", "hallo welt", [], 3),
+      ]);
+      const result = await proc.getTree(cdp, "s1", { filter: "all" });
+      expect(result.text).toContain('StaticText "hallo welt"');
+    });
+
+    it("keeps the text of a contenteditable=plaintext-only (editable: plaintext) inside a combobox without value", async () => {
+      const proc = new A11yTreeProcessor();
+      const cdp = single([
+        node(1, "RootWebArea", "Combo", [2]),
+        node(2, "combobox", undefined, [3], 1),
+        editable(node(3, "generic", undefined, [4], 2), "plaintext", "hallo"),
+        node(4, "StaticText", "hallo", [], 3),
+      ]);
+      const result = await proc.getTree(cdp, "s1", { filter: "all" });
+      expect(result.text).toContain('StaticText "hallo"');
+    });
+
+    it("still drops the native inner editor whose text the field line shows as value", async () => {
+      const proc = new A11yTreeProcessor();
+      const cdp = single([
+        node(1, "RootWebArea", "Native", [2]),
+        editable({ ...node(2, "textbox", undefined, [3], 1), value: { type: "string", value: "native wert" } }, "plaintext"),
+        editable(node(3, "generic", undefined, [4], 2), "plaintext"),
+        editable(node(4, "StaticText", "native wert", [], 3), "plaintext"),
+      ]);
+      const result = await proc.getTree(cdp, "s1", { filter: "all" });
+      expect(result.text).toMatch(/^ {2}\[e\d+\] textbox value="native wert"$/m);
+      // The editor drops with its children, so its text line goes too.
+      expect(result.text).not.toContain("generic");
+    });
+
+    it("keeps an inner editor that holds more than text, even when its texts form the value", async () => {
+      const proc = new A11yTreeProcessor();
+      const cdp = single([
+        node(1, "RootWebArea", "Rich", [2]),
+        editable({ ...node(2, "textbox", undefined, [3], 1), value: { type: "string", value: "docs" } }, "richtext"),
+        editable(node(3, "generic", undefined, [4], 2), "richtext"),
+        node(4, "link", "docs", [5], 3),
+        node(5, "StaticText", "docs", [], 4),
+      ]);
+      const result = await proc.getTree(cdp, "s1", { filter: "all" });
+      expect(result.text).toMatch(/^ {6}\[e\d+\] link "docs"$/m);
+    });
+  });
+
   // Pflichtpunkt (Reviews Task 23/24): compared with the name as printed, not the raw name.
   it("keeps the texts that form a multi-line container name cut to its first line, drops those that form a printed one-line name", async () => {
     const proc = new A11yTreeProcessor();

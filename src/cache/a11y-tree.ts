@@ -3,7 +3,7 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager, SessionInfo } from "../cdp/session-manager.js";
 import { wrapCdpError } from "../tools/error-utils.js";
 // Stufe 2 H2: own import (not shared with H1's) so H1 and H2 can be reverted one by one.
-import { echoTextChildren as parentLineEchoes } from "./text-echo.js";
+import { echoTextChildren as parentLineEchoes, textsFormName as textsFormFieldValue } from "./text-echo.js";
 import { CLICKABLE_TAGS, CLICKABLE_ROLES, COMPUTED_STYLES } from "../tools/visual-constants.js";
 import { effectiveWidth, effectiveHeight } from "../cdp/emulation.js";
 import { debug } from "../cdp/debug.js";
@@ -275,14 +275,18 @@ const TEXT_LEAF_ROLES = new Set(["StaticText", "LabelText"]);
 const TEXT_FIELD_ROLES = new Set(["textbox", "searchbox", "spinbutton", "combobox"]);
 
 /**
- * Stufe 2 H2: what a printed line hands down to the nodes below it — its role
- * (inner-editor rule) and the nodeIds of its own text children that only
- * repeat the name it printed (rule and parent definition: text-echo.ts).
+ * Stufe 2 H2: what a printed line hands down to the nodes below it — the
+ * nodeIds of its own text children that only repeat the name it printed
+ * (rule and parent definition: text-echo.ts), and for a text field the inner
+ * editors whose text the line already shows as value="…".
  */
 interface RenderedParent {
-  role: string;
   echoIds: ReadonlySet<string>;
+  editorIds: ReadonlySet<string>;
 }
+
+/** Stufe 2 H2: roles an inner editor may hold besides its text — nothing else is readable in them. */
+const EDITOR_TEXT_ROLES = new Set(["StaticText", "InlineTextBox", "LineBreak"]);
 
 /** Stufe 2 H2: first non-empty line of a multi-line name, trimmed. */
 function firstLine(text: string): string {
@@ -3322,28 +3326,69 @@ export class A11yTreeProcessor {
 
   /**
    * Stufe 2 H2: what the line `node` prints hands down to its children — its
-   * role and its own text children that together form `name`, the name as
-   * printed on that line (Task 23 rule, the same one the DOM diff uses).
+   * own text children that together form `name`, the name as printed on that
+   * line (Task 23 rule, the same one the DOM diff uses), and, for a text
+   * field, its inner editors whose text that line shows as value="…".
    */
   private renderedParent(node: AXNode, role: string, name: string, nodeMap: Map<string, AXNode>): RenderedParent {
-    return { role, echoIds: new Set(parentLineEchoes(node, name, nodeMap).map((child) => child.nodeId)) };
+    return {
+      echoIds: new Set(parentLineEchoes(node, name, nodeMap).map((child) => child.nodeId)),
+      editorIds: TEXT_FIELD_ROLES.has(role) ? this.innerEditorsShownOnLine(node, nodeMap) : new Set(),
+    };
+  }
+
+  /**
+   * Stufe 2 H2: the direct children of a text field that are its inner editor
+   * (generic, editable) and whose whole text stands on the field's line: its
+   * texts together (in order, without whitespace) form the printed value, or
+   * it holds no text at all. A contenteditable inside an ARIA combobox has no
+   * field value (Chrome puts it on the editor, richtext or plaintext-only
+   * alike), so it stays — no text is lost (Spec H2, Review Focus 3).
+   */
+  private innerEditorsShownOnLine(field: AXNode, nodeMap: Map<string, AXNode>): Set<string> {
+    const raw = field.value?.value;
+    // Same condition as formatLine: value="…" is printed only when non-empty.
+    const shown = raw !== undefined && raw !== "" ? String(raw) : "";
+    const out = new Set<string>();
+    for (const childId of field.childIds ?? []) {
+      const editor = nodeMap.get(childId);
+      if (!editor || editor.ignored || this.getRole(editor) !== "generic") continue;
+      const isEditable = (editor.properties ?? []).some(
+        (p) => p.name === "editable" && !!p.value.value && p.value.value !== "inherit",
+      );
+      if (!isEditable) continue;
+      const texts: string[] = [];
+      let onlyText = true;
+      const visit = (n: AXNode): void => {
+        for (const id of n.childIds ?? []) {
+          const c = nodeMap.get(id);
+          if (!c) continue;
+          if (!c.ignored) {
+            const r = this.getRole(c);
+            if (!EDITOR_TEXT_ROLES.has(r)) { onlyText = false; return; }
+            if (r === "StaticText") texts.push(typeof c.name?.value === "string" ? c.name.value : "");
+          }
+          visit(c);
+        }
+      };
+      visit(editor);
+      if (!onlyText) continue;
+      if (texts.every((t) => t.trim() === "") || textsFormFieldValue(texts, shown)) out.add(editor.nodeId);
+    }
+    return out;
   }
 
   /**
    * Stufe 2 H2: nodes that print nothing (and no children) because the line
    * above already says it — a StaticText among the own text children that
    * together form the parent line's printed name, and the inner editor
-   * (generic, editable) of a text field, whose text the field line shows as
+   * (generic, editable) of a text field whose text the field line shows as
    * value="…". Without a printed parent (subtree root) nothing is redundant.
    */
   private isRedundantForRender(node: AXNode, role: string, parent: RenderedParent | undefined): boolean {
     if (!parent) return false;
     if (role === "StaticText") return parent.echoIds.has(node.nodeId);
-    if (role === "generic" && TEXT_FIELD_ROLES.has(parent.role)) {
-      return (node.properties ?? []).some(
-        (p) => p.name === "editable" && !!p.value.value && p.value.value !== "inherit",
-      );
-    }
+    if (role === "generic") return parent.editorIds.has(node.nodeId);
     return false;
   }
 
