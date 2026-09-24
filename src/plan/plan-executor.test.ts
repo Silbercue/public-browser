@@ -2135,3 +2135,43 @@ describe("executePlan — click step keeps its target label (S3)", () => {
     expect((result.content[0] as { text: string }).text).toBe("[1/1] OK observe (5ms): ref=e7");
   });
 });
+
+// Stufe 1 (E5): der Plan aus run5 #60, woertlich bis zum Verify-Klick. Getippt
+// wurde damals `"NEEDLE-841JYJEE"` samt Tip, weil saveAs den ganzen Text nahm.
+describe("executePlan — saveAs stores only the raw value (Stufe 1, E5)", () => {
+  it("types exactly the needle, not the Tip appended to the evaluate result (run5 #60)", async () => {
+    const callLog: Array<{ name: string; params: Record<string, unknown> }> = [];
+    const responses = new Map<string, ToolResponse>();
+    responses.set("click", okResponse("click", "Clicked e506 (ref)"));
+    responses.set("wait_for", okResponse("wait_for", "Condition 'js' met after 38ms"));
+    responses.set(
+      "evaluate",
+      okResponse(
+        "evaluate",
+        "\"NEEDLE-841JYJEE\"\n\nTip: Reading .innerText/.textContent? The a11y tree already contains visible text. Try view_page(ref: 'eN', filter: 'all') — table cells, static codes, paragraphs all show up with stable refs.",
+      ),
+    );
+    responses.set("type", okResponse("type", "Typed \"NEEDLE-841JYJEE\" into textbox 'Needle text...'"));
+    const registry = createCallLogRegistry(responses, callLog);
+
+    const steps: PlanStep[] = [
+      { tool: "click", params: { ref: "e506" } },
+      {
+        tool: "wait_for",
+        params: { condition: "js", expression: "!!document.querySelector('#t4-3-container [data-needle=\"true\"]')", timeout: 20000 },
+      },
+      {
+        tool: "evaluate",
+        params: { expression: "document.querySelector('#t4-3-container [data-needle=\"true\"]').textContent.trim()" },
+        saveAs: "needle",
+      },
+      { tool: "type", params: { ref: "e508", text: "$needle", clear: true } },
+      { tool: "click", params: { ref: "e509" } },
+    ];
+
+    await executePlan(steps, registry);
+
+    const typeCall = callLog.find((c) => c.name === "type");
+    expect(typeCall?.params).toEqual({ ref: "e508", text: "NEEDLE-841JYJEE", clear: true });
+  });
+});

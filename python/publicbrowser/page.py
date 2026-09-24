@@ -15,6 +15,7 @@ All public methods are synchronous.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from publicbrowser.client import DEFAULT_TIMEOUT, LONG_TIMEOUT, ScriptApiClient
@@ -291,26 +292,56 @@ def _check_error(response: dict[str, Any]) -> None:
         raise RuntimeError(text or "Unknown server error")
 
 
+# Stufe 1 (E5): hint paragraphs the server appends after a result.
+_HINT_PARAGRAPH = re.compile(r"\n\n(?:Tip|Note|Warning|Notice): ")
+# Stufe 1 (E5): blocks the server adds next to the tool's own output — the DOM
+# diff of an earlier click, dialog and download notices, whole-block hints and
+# the pipe-fallback warning of a real profile ("Public Browser: Chrome refused …").
+_ADDED_BLOCK = re.compile(
+    r"(?:--- Action Result \(|\[dialog\] |--- Download completed ---|Public Browser: "
+    r"|(?:Tip|Note|Warning|Notice): )"
+)
+
+
+def _value_text(response: dict[str, Any]) -> str:
+    """Return the text the tool itself produced, without appended hints.
+
+    Skips blocks the server adds around the result (a DOM diff from an
+    earlier click, dialog and download notices, the pipe-fallback warning)
+    and cuts every remaining block from its first hint paragraph
+    ("\\n\\nTip: ", "\\n\\nNote: ", "\\n\\nWarning: ", "\\n\\nNotice: ") on.
+    The remaining blocks are joined by a newline — the same rule as
+    extractResultValue() in src/plan/plan-variables.ts.
+    """
+    content = response.get("content", [])
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if not isinstance(item, dict) or item.get("type") != "text":
+            continue
+        text = item.get("text", "")
+        if _ADDED_BLOCK.match(text):
+            continue
+        match = _HINT_PARAGRAPH.search(text)
+        parts.append(text[: match.start()] if match else text)
+    return "\n".join(parts)
+
+
 def _parse_evaluate_response(response: dict[str, Any]) -> Any:
     """Parse the evaluate tool response into a Python value.
 
     The server returns the JS value as serialized text. We try to parse
     it as JSON first (handles numbers, booleans, objects, arrays, null).
-    If that fails, return the raw string.
+    If that fails, return the raw string. Hints the server appends and
+    blocks it adds around the result are never part of the value.
 
     Returns:
         The parsed Python value (str, int, float, dict, list, None, bool).
     """
-    text = _extract_text(response)
+    text = _value_text(response)
     if not text:
         return None
-
-    # The server may append steering tips after the value, separated by
-    # a blank line (e.g. "42\n\nTip: ..."). Strip those before parsing.
-    if "\n\nTip:" in text:
-        text = text[: text.index("\n\nTip:")]
-    elif "\n\nNote:" in text:
-        text = text[: text.index("\n\nNote:")]
 
     # Try JSON parse for structured values
     try:

@@ -284,3 +284,92 @@ class TestRealServerResponses:
         _check_error(response)
         text = _extract_text(response)
         assert "Filled" in text
+
+
+# ---------------------------------------------------------------------------
+# Stufe 1 (E5): appended hints and added blocks are never part of the value
+# ---------------------------------------------------------------------------
+
+_TIP = (
+    "\n\nTip: Reading .innerText/.textContent? The a11y tree already contains visible text."
+    " Try view_page(ref: 'eN', filter: 'all') — table cells, static codes, paragraphs all"
+    " show up with stable refs."
+)
+_WARNING = (
+    "\n\nWarning: 3 consecutive querySelector-based evaluate calls detected. This usually"
+    " means a ref went stale or a tool failed silently and you fell back to evaluate."
+)
+_NOTICE = (
+    "\n\nNotice: 5 consecutive evaluate calls. Consider: navigate(url) for cross-page moves,"
+    ' view_page(filter:"all") for exhaustive refs.'
+)
+_NOTE = "\n\nNote: 82 interactive elements are hidden (display: none)."
+
+
+def _evaluate_response(*texts: str) -> dict:
+    return {"content": [{"type": "text", "text": t} for t in texts], "isError": False}
+
+
+class TestParseEvaluateResponseHints:
+    """Stufe 1 (E5): only the raw value — no Tip/Note/Warning/Notice, no diff."""
+
+    def test_strips_tip(self) -> None:
+        """run3 #88: the export length came back with a Tip attached."""
+        assert _parse_evaluate_response(_evaluate_response("4024" + _TIP)) == 4024
+
+    def test_strips_warning(self) -> None:
+        """Evaluate streak, tier 1."""
+        assert _parse_evaluate_response(_evaluate_response('"PASS"' + _WARNING)) == "PASS"
+
+    def test_strips_notice(self) -> None:
+        """Evaluate streak, tier 2."""
+        result = _parse_evaluate_response(_evaluate_response('{"a": 1}' + _NOTICE))
+        assert result == {"a": 1}
+
+    def test_strips_note(self) -> None:
+        """A Note paragraph is cut like the other hints."""
+        assert _parse_evaluate_response(_evaluate_response("true" + _NOTE)) is True
+
+    def test_strips_several_hints_in_a_row(self) -> None:
+        """run5 #60: tips and a warning after the needle."""
+        text = '"NEEDLE-841JYJEE"' + _TIP + _TIP + _WARNING
+        assert _parse_evaluate_response(_evaluate_response(text)) == "NEEDLE-841JYJEE"
+
+    def test_skips_a_dom_diff_block_before_the_value(self) -> None:
+        """A deferred click diff arrives as the first block of the next call."""
+        diff = '--- Action Result (3 changes) — /page ---\n NEW    StaticText "PASS"'
+        assert _parse_evaluate_response(_evaluate_response(diff, '"PASS"')) == "PASS"
+
+    def test_skips_notices_after_the_value(self) -> None:
+        """Dialog and relaunch notices are separate blocks after the value."""
+        response = _evaluate_response(
+            '"ok"',
+            '[dialog] alert: "Saved"',
+            "Note: Chrome was not reachable — Public Browser silently launched a fresh browser.",
+        )
+        assert _parse_evaluate_response(response) == "ok"
+
+    def test_skips_a_download_notice_after_the_value(self) -> None:
+        """A completed download is announced as a separate block after the value."""
+        download = "--- Download completed ---\nFile: report.csv\nPath: /tmp/report.csv\nSize: 1 KB"
+        assert _parse_evaluate_response(_evaluate_response('"ok"', download)) == "ok"
+
+    def test_skips_the_pipe_fallback_warning(self) -> None:
+        """Preflight V5: the pipe-fallback warning (Task 6) is its own block after the value."""
+        warning = (
+            'Public Browser: Chrome refused --remote-debugging-pipe for profile "Default" '
+            "and was restarted with a random debugging port. While this Chrome runs, any local"
+            " program can control the logged-in profile via 127.0.0.1:53211."
+        )
+        assert _parse_evaluate_response(_evaluate_response('"ok"', warning)) == "ok"
+
+    def test_keeps_hint_words_inside_the_value(self) -> None:
+        """Hint words inside a JSON value are part of the value."""
+        assert _parse_evaluate_response(_evaluate_response('"Tip: none"')) == "Tip: none"
+        result = _parse_evaluate_response(_evaluate_response('{"note": "Note: 5 left"}'))
+        assert result == {"note": "Note: 5 left"}
+
+    def test_joins_all_own_blocks_like_the_ts_parser(self) -> None:
+        """Plancheck P35: all own blocks count, joined by a newline — as in extractResultValue."""
+        response = _evaluate_response('"first"', '"second"' + _TIP)
+        assert _parse_evaluate_response(response) == '"first"\n"second"'

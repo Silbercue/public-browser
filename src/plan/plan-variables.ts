@@ -68,15 +68,46 @@ function substituteObject(
 }
 
 /**
+ * Stufe 1 (E5): hint paragraphs that tools append after their result —
+ * "\n\nTip: …" (evaluate, type), "\n\nWarning: …" and "\n\nNotice: …"
+ * (evaluate streak), "\n\nNote: …" (view_page). Never part of a saved value.
+ */
+const HINT_PARAGRAPH = /\n\n(?:Tip|Note|Warning|Notice): /;
+
+/**
+ * Stufe 1 (E5): blocks the registry adds next to a tool's own output — the DOM
+ * diff of an earlier click, dialog and download notices, notices that are a
+ * hint as a whole (the relaunch notice starts with "Note:") and the
+ * pipe-fallback warning of a real profile ("Public Browser: Chrome refused …").
+ */
+const ADDED_BLOCK =
+  /^(?:--- Action Result \(|\[dialog\] |--- Download completed ---|Public Browser: |(?:Tip|Note|Warning|Notice): )/;
+
+/**
+ * Stufe 1 (E5): a tool's own text without the hint paragraphs appended to it.
+ * Hints only ever follow the result, so everything from the first one on goes.
+ * JSON results (evaluate inside run_plan) contain no raw line breaks, so their
+ * value can never be cut by mistake.
+ */
+function stripHintParagraphs(text: string): string {
+  const match = HINT_PARAGRAPH.exec(text);
+  return match ? text.slice(0, match.index) : text;
+}
+
+/**
  * Extract the text content from a ToolResponse for saveAs.
- * Concatenates all text content blocks into a single string.
+ * Concatenates the tool's own text blocks into a single string — Stufe 1
+ * (E5): without blocks the registry added (DOM diff, notices) and without
+ * appended hint paragraphs, so a saved variable holds only the raw value.
  * If the text is valid JSON, parse it and return the parsed value.
  * Otherwise return the raw text string.
  */
 export function extractResultValue(result: ToolResponse): unknown {
   const textParts = result.content
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
-    .map((c) => c.text);
+    .map((c) => c.text)
+    .filter((text) => !ADDED_BLOCK.test(text))
+    .map(stripHintParagraphs);
 
   if (textParts.length === 0) {
     return "";
