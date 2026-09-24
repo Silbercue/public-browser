@@ -7,6 +7,7 @@
 - A click on a node the page re-rendered away now reports `Element eN was replaced by a page re-render (node detached from document). Call view_page for fresh refs and retry.` instead of the raw CDP error, and can no longer fall through to a mouse click at (0,0) (FR-051).
 - After a click with no visible change the hint no longer suggests `wait_for(condition: "network_idle")` — Chrome reports network idle once per page load, so that wait always timed out on a loaded page; the hint now names `text`/`element`, and the `network_idle` timeout explains this (FR-052).
 - A click inside a cross-origin iframe that sits in another cross-origin iframe now reaches its target: nested frames are auto-attached through their parent frame, and `view_page` no longer lists iframes of other tabs, whose refs sent clicks into those tabs while reporting success (S8).
+- `drag` scrolls the source into view before it reads coordinates — elements below the fold were dragged at off-screen coordinates and nothing happened (benchmark T3.3). HTML5 drag-and-drop (draggable lists, SortableJS, React DnD) runs through `Input.setInterceptDrags` and `Input.dispatchDragEvent`. When the page shows no reaction — no drop accepted, no DOM change around source and target, no input event — `drag` reports an error instead of `Dragged …`; scrolling, a mere text selection and changes elsewhere on the page do not count. A drag on a canvas says its result can only be checked with `capture_image` (S6).
 
 ## [2.10.5] - 2026-09-04
 

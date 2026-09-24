@@ -1485,7 +1485,7 @@ export class ToolRegistry implements ToolRegistryPublic {
     // @see docs/friction-fixes.md#FR-028
     maybeRegisterFreeMCPTool(
       "drag",
-      "Drag via native CDP mouse events. Works for CSS-driven drag: slider thumbs, resize handles, text selection, mouse-based reorder lists (SortableJS in mouse mode). NOT for the HTML5 Drag&Drop API (draggable=true with dragstart/drop listeners, React DnD HTML5Backend, Vuedraggable, ng2-dnd) — that needs Input.dispatchDragEvent. Source: from_ref/from_selector or from_x+from_y; target: to_ref/to_selector or to_x+to_y.",
+      "Drag a source onto a target: HTML5 drag-and-drop (draggable lists, SortableJS, React DnD) and mouse drags (sliders, canvas, resize handles). Scrolls the source into view; errors when the page did not react. Source: from_ref/from_selector or from_x+from_y; target: to_ref/to_selector or to_x+to_y.",
       {
         from_ref: dragSchema.shape.from_ref,
         from_selector: dragSchema.shape.from_selector,
