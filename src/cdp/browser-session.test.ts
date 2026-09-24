@@ -705,7 +705,7 @@ describe("BrowserSession — deferred profile (BUG-019)", () => {
 // Session, statt fest auf den Port umzuschalten.
 describe("BrowserSession — Profil ueber configure_session (S2)", () => {
   it("baut den Profil-Launcher mit dem Transport der Session", () => {
-    // Ein absoluter Pfad gilt als echtes Profil ("Default" darin) — ohne Julians Chrome-Ordner.
+    // Ein absoluter Pfad gilt als echtes Profil ("Default" darin) — ohne die echten Chrome-Ordner des Nutzers.
     const dir = mkdtempSync(join(tmpdir(), "pb-bs-profile-"));
     try {
       const session = new BrowserSession({ transport: "pipe" });

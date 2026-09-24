@@ -169,7 +169,7 @@ class ScriptApiClient:
         it will be restarted with the new profile.
 
         Args:
-            profile: Chrome profile name (e.g. "Julian", "Business").
+            profile: Chrome profile name (e.g. "Work", "Personal").
 
         Returns:
             Server response dict.
@@ -193,7 +193,7 @@ class ScriptApiClient:
 
         Tries in order:
         1. Explicit ``server_path`` if provided
-        2. ``public-browser`` in PATH (Homebrew binary)
+        2. ``public-browser`` in PATH (e.g. ``npm install -g public-browser``)
         3. ``npx -y public-browser@latest -- --script`` as fallback
 
         Args:
@@ -224,7 +224,6 @@ class ScriptApiClient:
         if cmd is None:
             raise FileNotFoundError(
                 "Cannot find Public Browser server. Install via "
-                "'brew install silbercue/tap/public-browser' or "
                 "'npm install -g public-browser', or pass server_path= explicitly."
             )
 

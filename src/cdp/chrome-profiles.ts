@@ -4,7 +4,7 @@ import { join, resolve, isAbsolute } from "node:path";
 import { homedir, platform } from "node:os";
 
 export interface ChromeProfile {
-  /** Display name shown in Chrome's profile switcher (e.g. "Julian") */
+  /** Display name shown in Chrome's profile switcher (e.g. "Work") */
   name: string;
   /** Directory name within the Chrome user-data-dir (e.g. "Profile 1") */
   directory: string;

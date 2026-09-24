@@ -31,8 +31,8 @@ if [ -z "$NPX_CACHE_DIR" ] && [ ! -L "$NPX_BUILD" ]; then
 fi
 
 if [ -z "$NPX_BUILD" ]; then
-  echo "FATAL: npx-Cache fuer public-browser nicht gefunden."
-  echo "  Fuehre erst 'npx public-browser@latest --help' aus um den Cache anzulegen."
+  echo "FATAL: npx cache for public-browser not found."
+  echo "  Run 'npx public-browser@latest --help' first to create the cache."
   exit 1
 fi
 
@@ -46,7 +46,7 @@ case "$ACTION" in
     # Original-Build sichern (nur wenn noch nicht gesichert und kein Symlink)
     if [ ! -L "$NPX_BUILD" ] && [ -d "$NPX_BUILD" ] && [ ! -d "$NPX_BACKUP" ]; then
       echo ""
-      echo "=== Sichere npx-Cache Build ==="
+      echo "=== Backing up npx cache build ==="
       mv "$NPX_BUILD" "$NPX_BACKUP"
       echo "  $NPX_BUILD → $NPX_BACKUP"
     fi
@@ -63,18 +63,18 @@ case "$ACTION" in
     echo "DEV-MODE ON"
     echo "  $NPX_BUILD → $LOCAL_BUILD"
     echo ""
-    echo "→ MCP reconnect startet jetzt den lokalen Build"
+    echo "→ MCP reconnect now starts the local build"
     ;;
 
   off)
     if [ ! -d "$NPX_BACKUP" ]; then
       if [ -L "$NPX_BUILD" ]; then
-        echo "Backup fehlt — entferne Symlink und loesche npx-Cache (wird beim naechsten Start neu geladen)"
+        echo "Backup missing — removing symlink and deleting npx cache (reloaded on next start)"
         rm "$NPX_BUILD"
         rm -rf "$NPX_PKG_DIR"
-        echo "RELEASE-MODE ON (npx-Cache wird beim naechsten Start neu geladen)"
+        echo "RELEASE-MODE ON (npx cache is reloaded on next start)"
       else
-        echo "Kein Backup gefunden — bereits im Release-Mode"
+        echo "No backup found — already in release mode"
       fi
       exit 0
     fi
@@ -84,22 +84,22 @@ case "$ACTION" in
     mv "$NPX_BACKUP" "$NPX_BUILD"
 
     echo "RELEASE-MODE ON"
-    echo "  $NPX_BUILD wiederhergestellt (npm-published Build)"
+    echo "  $NPX_BUILD restored (npm-published build)"
     echo ""
-    echo "→ MCP reconnect startet jetzt den npm-published Build"
+    echo "→ MCP reconnect now starts the npm-published build"
     ;;
 
   status)
     if [ -L "$NPX_BUILD" ]; then
       TARGET=$(readlink "$NPX_BUILD")
-      echo "DEV-MODE aktiv"
-      echo "  npx-Cache symlinkt auf: $TARGET"
+      echo "DEV-MODE active"
+      echo "  npx cache symlinks to: $TARGET"
     elif [ -d "$NPX_BACKUP" ]; then
-      echo "DEV-MODE aktiv (Backup vorhanden, aber Symlink fehlt — 'npm run dev' ausfuehren)"
+      echo "DEV-MODE active (backup present but symlink missing — run 'npm run dev')"
     else
-      echo "RELEASE-MODE aktiv"
+      echo "RELEASE-MODE active"
       VERSION=$(python3 -c "import json; print(json.load(open('$NPX_PKG_DIR/package.json'))['version'])" 2>/dev/null || echo "?")
-      echo "  npx-Cache Version: $VERSION"
+      echo "  npx cache version: $VERSION"
     fi
     ;;
 

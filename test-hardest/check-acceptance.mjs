@@ -106,12 +106,12 @@ export function versionDrift(current, refs = []) {
   const drift = [];
   for (const [key, name] of Object.entries(VERSION_NAMES)) {
     const cur = current?.[key] ?? [];
-    if (cur.length > 1) drift.push(`${name} gemischt in dieser Stufe: ${cur.join(', ')}`);
+    if (cur.length > 1) drift.push(`${name} mixed in this stage: ${cur.join(', ')}`);
     for (const ref of refs) {
       const want = ref.versions?.[key] ?? [];
-      if (want.length > 1) drift.push(`${name} gemischt in ${ref.label}: ${want.join(', ')}`);
+      if (want.length > 1) drift.push(`${name} mixed in ${ref.label}: ${want.join(', ')}`);
       const off = cur.filter((v) => !want.includes(v));
-      if (off.length) drift.push(`${name} ${off.join(', ')} statt ${want.join(', ') || '—'} (${ref.label})`);
+      if (off.length) drift.push(`${name} ${off.join(', ')} instead of ${want.join(', ') || '—'} (${ref.label})`);
     }
   }
   return drift;
@@ -141,10 +141,10 @@ export function selectStageRuns(runs, head, exclusions = {}, filter = {}) {
   }
   const chosen = versionFilter(filter);
   const skipped = atHead.filter((r) => !chosen(r)).length;
-  if (skipped) warnings.push(`${skipped} Laeufe mit anderer Version nicht gewertet (Filter ${filterText(filter)})`);
+  if (skipped) warnings.push(`${skipped} runs with another version not counted (filter ${filterText(filter)})`);
   for (const r of atHead.filter(chosen)) {
-    if (r.harness.git_dirty !== false) { warnings.push(`${r.run_file}: git_dirty=${r.harness.git_dirty}, nicht gewertet`); continue; }
-    if (exclusions[r.run_file] !== undefined) { warnings.push(`${r.run_file}: ausgeschlossen — ${exclusions[r.run_file]}`); continue; }
+    if (r.harness.git_dirty !== false) { warnings.push(`${r.run_file}: git_dirty=${r.harness.git_dirty}, not counted`); continue; }
+    if (exclusions[r.run_file] !== undefined) { warnings.push(`${r.run_file}: excluded — ${exclusions[r.run_file]}`); continue; }
     picked.push(r);
   }
   return {
@@ -185,8 +185,8 @@ export function buildBaseline(runs, now = new Date(), filter = {}) {
   }
   const mixed = Object.keys(VERSION_NAMES).filter((k) => versions[k].length > 1);
   if (mixed.length) {
-    problems.push(`gemischte Versionen: ${mixed.map((k) => `${VERSION_NAMES[k]} ${versions[k].join(', ')}`).join('; ')}`
-      + ' — mit --chrome-version/--claude-code-version waehlen');
+    problems.push(`mixed versions: ${mixed.map((k) => `${VERSION_NAMES[k]} ${versions[k].join(', ')}`).join('; ')}`
+      + ' — pick one with --chrome-version/--claude-code-version');
   }
   if (baseline.public_browser.failures.length) {
     warnings.push(`public-browser: ${baseline.public_browser.failures.map((f) => `${f.run} ${f.reason}`).join('; ')}`);
@@ -214,47 +214,47 @@ export function evaluateStage({ stage, current, baseline = null, stage1 = null, 
   const out = [];
   const add = (id, label, pass, detail) => out.push({ id, label, pass, detail });
 
-  add('benchmark', `Benchmark 30/30 in ${MIN_BENCH_RUNS} von ${MIN_BENCH_RUNS} Laeufen`,
+  add('benchmark', `Benchmark 30/30 in ${MIN_BENCH_RUNS} of ${MIN_BENCH_RUNS} runs`,
     b.n_ok >= MIN_BENCH_RUNS && b.failures.length === 0,
-    `${b.n} Laeufe, ${b.n_ok} ok${b.failures.length ? ` — ${b.failures.map((f) => `${f.run}: ${f.reason}`).join('; ')}` : ', alle 30/30'}`);
+    `${b.n} runs, ${b.n_ok} ok${b.failures.length ? ` — ${b.failures.map((f) => `${f.run}: ${f.reason}`).join('; ')}` : ', all 30/30'}`);
 
   const refRounds = stage === 1 ? baseline.public_browser.rounds.median : stage1.benchmark.rounds.median;
-  add('rounds', stage === 1 ? 'Runden (Median) ≤ Baseline PB 2.10.6' : 'Runden (Median) ≤ Ergebnis Stufe 1',
-    le(b.rounds.median, refRounds), `${b.rounds.median ?? '—'} gegen ${refRounds ?? '—'} (${b.rounds.values.join(', ')})`);
+  add('rounds', stage === 1 ? 'Rounds (median) ≤ baseline PB 2.10.6' : 'Rounds (median) ≤ stage 1 result',
+    le(b.rounds.median, refRounds), `${b.rounds.median ?? '—'} vs ${refRounds ?? '—'} (${b.rounds.values.join(', ')})`);
 
   const tokenLimit = stage === 1 ? baseline.agent_browser.tokens.median : lim.tokensMedian;
-  add('tokens_median', stage === 1 ? 'Token (Median) ≤ Median agent-browser' : `Token (Median) ≤ ${M(lim.tokensMedian)}`,
-    le(b.tokens.median, tokenLimit), `${M(b.tokens.median)} gegen ${M(tokenLimit)} (${b.tokens.values.map(M).join(', ')})`);
+  add('tokens_median', stage === 1 ? 'Tokens (median) ≤ agent-browser median' : `Tokens (median) ≤ ${M(lim.tokensMedian)}`,
+    le(b.tokens.median, tokenLimit), `${M(b.tokens.median)} vs ${M(tokenLimit)} (${b.tokens.values.map(M).join(', ')})`);
 
-  add('tokens_max', `Einzellauf ≤ ${M(lim.tokensMax)}`, le(b.tokens.max, lim.tokensMax), `max ${M(b.tokens.max)} (${b.tokens.max_run ?? '—'})`);
+  add('tokens_max', `Single run ≤ ${M(lim.tokensMax)}`, le(b.tokens.max, lim.tokensMax), `max ${M(b.tokens.max)} (${b.tokens.max_run ?? '—'})`);
 
   if (stage === 2) {
     // Verschlechterung gegen Stufe 1 ist ein Funktionskriterium (Ruecknahme-Regel), kein blosses Token-Ziel.
     const s1 = stage1.benchmark.tokens;
-    add('tokens_vs_stage1', 'Token nicht schlechter als Stufe 1 (Median und groesster Einzellauf)',
+    add('tokens_vs_stage1', 'Tokens no worse than stage 1 (median and largest single run)',
       le(b.tokens.median, s1.median) && le(b.tokens.max, s1.max),
-      `Median ${M(b.tokens.median)} gegen ${M(s1.median)}, Einzellauf max ${M(b.tokens.max)} gegen ${M(s1.max)}`);
+      `median ${M(b.tokens.median)} vs ${M(s1.median)}, single run max ${M(b.tokens.max)} vs ${M(s1.max)}`);
   }
 
   // Probe: bestanden je Aufgabe (mind. 2 Laeufe, alle bestanden); Runden als Summe der Mediane je Aufgabe.
   const refProbe = stage === 1 ? baseline.probe : stage1.probe;
-  const refLabel = stage === 1 ? 'Baseline' : 'Stufe 1';
+  const refLabel = stage === 1 ? 'Baseline' : 'stage 1';
   const perTask = PROBE_TASKS.map((t) => {
     const c = current.probe[t];
     const fails = c.failures.length ? ` (${c.failures.map((f) => `${f.run}: ${f.reason}`).join('; ')})` : '';
-    return { pass: c.n >= MIN_PROBE_RUNS && c.failures.length === 0, text: `${t} ${c.passed}/${c.n} bestanden${fails}` };
+    return { pass: c.n >= MIN_PROBE_RUNS && c.failures.length === 0, text: `${t} ${c.passed}/${c.n} passed${fails}` };
   });
   const sum = probeRoundSum(current.probe);
   const refSum = probeRoundSum(refProbe);
   const limit = refSum === null ? null : Math.round(refSum * lim.probeRoundsFactor * 1000) / 1000;
   const medians = PROBE_TASKS.map((t) => `${t} ${current.probe[t].rounds.median ?? '—'}`).join(' + ');
-  add('probe', `Realseiten-Probe P1–P3 je ${MIN_PROBE_RUNS} von ${MIN_PROBE_RUNS} Laeufen bestanden, Summe der Runden-Mediane ≤ ${refLabel} + 20 %`,
+  add('probe', `Real-site probe P1–P3 passed in ${MIN_PROBE_RUNS} of ${MIN_PROBE_RUNS} runs each, sum of round medians ≤ ${refLabel} + 20 %`,
     perTask.every((p) => p.pass) && le(sum, limit),
-    `${perTask.map((p) => p.text).join(' · ')} · Summe der Runden-Mediane ${sum === null ? '—' : r1(sum)} (${medians}), `
-    + `Grenze ${limit === null ? '—' : r1(limit)} = ${refLabel} ${refSum ?? '—'} × 1,2`);
+    `${perTask.map((p) => p.text).join(' · ')} · sum of round medians ${sum === null ? '—' : r1(sum)} (${medians}), `
+    + `limit ${limit === null ? '—' : r1(limit)} = ${refLabel} ${refSum ?? '—'} × 1.2`);
 
-  add('code', 'npm test, Lint, npm run build, Python-Tests gruen', code === null ? null : code.length > 0 && code.every((c) => c.ok),
-    code === null ? 'nicht geprueft (--skip-code)' : code.map((c) => `${c.name} ${c.ok ? 'ok' : `ROT (${c.detail})`}`).join(', '));
+  add('code', 'npm test, lint, npm run build, Python tests green', code === null ? null : code.length > 0 && code.every((c) => c.ok),
+    code === null ? 'not checked (--skip-code)' : code.map((c) => `${c.name} ${c.ok ? 'ok' : `RED (${c.detail})`}`).join(', '));
   return out;
 }
 
@@ -269,14 +269,14 @@ export function verdict(results, drift = []) {
 }
 
 export function formatReport({ stage, head, results, warnings = [], drift = [] }) {
-  const tag = (p) => (p === true ? 'PASS' : p === false ? 'FAIL' : 'OFFEN');
-  const lines = [`Abnahme Stufe ${stage} — Head ${head}`];
+  const tag = (p) => (p === true ? 'PASS' : p === false ? 'FAIL' : 'OPEN');
+  const lines = [`Acceptance stage ${stage} — head ${head}`];
   for (const r of results) lines.push(`[${tag(r.pass)}] ${r.label} — ${r.detail}`);
-  for (const w of warnings) lines.push(`Hinweis: ${w}`);
-  for (const d of drift) lines.push(`Versionsdrift: ${d}`);
+  for (const w of warnings) lines.push(`Note: ${w}`);
+  for (const d of drift) lines.push(`Version drift: ${d}`);
   const v = verdict(results, drift);
   const open = results.filter((r) => r.pass !== true).map((r) => r.id);
-  lines.push(v === 'PASS' || v.startsWith('INCONCLUSIVE') ? `Urteil: ${v}` : `Urteil: ${v} — nicht erfuellt: ${open.join(', ')}`);
+  lines.push(v === 'PASS' || v.startsWith('INCONCLUSIVE') ? `Verdict: ${v}` : `Verdict: ${v} — not met: ${open.join(', ')}`);
   return lines.join('\n');
 }
 
@@ -292,8 +292,8 @@ export function runCodeChecks(repoRoot, head, run = spawnSync, python = defaultP
   const git = (args) => String(run('git', args, { cwd: repoRoot, encoding: 'utf8' }).stdout ?? '').trim();
   const actual = git(['rev-parse', '--short', 'HEAD']);
   const dirty = git(['status', '--porcelain', ...RESULT_PATHSPEC]);
-  if (actual !== head) return [{ name: 'Arbeitskopie', ok: false, detail: `HEAD ist ${actual}, gemessen wurde ${head}` }];
-  if (dirty) return [{ name: 'Arbeitskopie', ok: false, detail: 'ungesicherte Aenderungen' }];
+  if (actual !== head) return [{ name: 'working copy', ok: false, detail: `HEAD is ${actual}, but ${head} was measured` }];
+  if (dirty) return [{ name: 'working copy', ok: false, detail: 'uncommitted changes' }];
   const steps = [
     ['npm test', 'npm', ['test'], repoRoot],
     ['lint', 'npm', ['run', 'lint'], repoRoot],
@@ -302,13 +302,13 @@ export function runCodeChecks(repoRoot, head, run = spawnSync, python = defaultP
   ];
   return steps.map(([name, cmd, args, cwd]) => {
     if (!cmd) {
-      return { name, ok: false, detail: `kein Python: PYTHON nicht gesetzt und ${VENV_PYTHON} fehlt (Plan Task 5, Step 0)` };
+      return { name, ok: false, detail: `no Python: PYTHON not set and ${VENV_PYTHON} missing (Plan Task 5, Step 0)` };
     }
     const r = run(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
     const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-2).join(' / ');
     if (r.status !== 0) return { name, ok: false, detail: String(r.error?.message ?? tail).slice(0, 200) };
     if (name === 'pytest' && /\b\d+ skipped\b/.test(`${r.stdout ?? ''}`)) {
-      return { name, ok: false, detail: `uebersprungene Tests, pytest-asyncio fehlt? (${tail.slice(0, 160)})` };
+      return { name, ok: false, detail: `skipped tests, pytest-asyncio missing? (${tail.slice(0, 160)})` };
     }
     return { name, ok: true, detail: '' };
   });
@@ -322,7 +322,7 @@ function readRuns(dir) {
 
 const USAGE = 'usage: node check-acceptance.mjs baseline [--results <dir>] [--chrome-version <v>] [--claude-code-version <v>]\n'
   + '       node check-acceptance.mjs check --stage 1|2 --head <sha> [--stage1-head <sha>] [--skip-code] '
-  + '[--exclude <run_file>=<grund>]... [--chrome-version <v>] [--claude-code-version <v>] [--results <dir>] [--local-results <dir>]';
+  + '[--exclude <run_file>=<reason>]... [--chrome-version <v>] [--claude-code-version <v>] [--results <dir>] [--local-results <dir>]';
 
 export function parseCheckArgs(rest) {
   const opt = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
@@ -336,7 +336,7 @@ export function parseCheckArgs(rest) {
   rest.forEach((a, i) => {
     if (a !== '--exclude') return;
     const m = String(rest[i + 1] ?? '').match(/^([^=]+\.json)=(.+)$/);
-    if (!m) throw new Error('--exclude needs <run_file>=<grund>');
+    if (!m) throw new Error('--exclude needs <run_file>=<reason>');
     exclusions[m[1]] = m[2];
   });
   return { stage, head, stage1Head, exclusions, skipCode: rest.includes('--skip-code') };
@@ -350,18 +350,18 @@ function main(argv) {
   const filter = { chrome: opt('--chrome-version'), claudeCode: opt('--claude-code-version') };
   if (cmd === 'baseline') {
     const { baseline, problems, warnings } = buildBaseline(readRuns(resultsDir), new Date(), filter);
-    for (const w of warnings) console.log(`Hinweis: ${w}`);
-    if (problems.length) { console.error(`Baseline unvollstaendig:\n- ${problems.join('\n- ')}`); process.exit(1); }
+    for (const w of warnings) console.log(`Note: ${w}`);
+    if (problems.length) { console.error(`Baseline incomplete:\n- ${problems.join('\n- ')}`); process.exit(1); }
     const out = join(resultsDir, BASELINE_FILE);
     writeFileSync(out, `${JSON.stringify(baseline, null, 2)}\n`, { flag: 'wx' });
     const pb = baseline.public_browser;
     const ab = baseline.agent_browser;
     console.log([
-      `Baseline geschrieben: ${out}`,
-      `Versionen: Chrome ${baseline.versions.chrome.join(', ')}, Claude Code ${baseline.versions.claude_code.join(', ')}`,
-      `Public Browser ${BASELINE_PINS['public-browser']}: n=${pb.n_ok}, Token-Median ${M(pb.tokens.median)} (max ${M(pb.tokens.max)}), Runden-Median ${pb.rounds.median}, Calls-Median ${pb.calls.median}`,
-      `agent-browser ${BASELINE_PINS['agent-browser']}: n=${ab.n_ok}, Token-Median ${M(ab.tokens.median)} (max ${M(ab.tokens.max)}), Runden-Median ${ab.rounds.median}, Calls-Median ${ab.calls.median}`,
-      ...PROBE_TASKS.map((t) => `Probe ${t}: ${baseline.probe[t].passed}/${baseline.probe[t].n} bestanden, Runden-Median ${baseline.probe[t].rounds.median}, Token-Median ${M(baseline.probe[t].tokens.median)}`),
+      `Baseline written: ${out}`,
+      `Versions: Chrome ${baseline.versions.chrome.join(', ')}, Claude Code ${baseline.versions.claude_code.join(', ')}`,
+      `Public Browser ${BASELINE_PINS['public-browser']}: n=${pb.n_ok}, token median ${M(pb.tokens.median)} (max ${M(pb.tokens.max)}), rounds median ${pb.rounds.median}, calls median ${pb.calls.median}`,
+      `agent-browser ${BASELINE_PINS['agent-browser']}: n=${ab.n_ok}, token median ${M(ab.tokens.median)} (max ${M(ab.tokens.max)}), rounds median ${ab.rounds.median}, calls median ${ab.calls.median}`,
+      ...PROBE_TASKS.map((t) => `Probe ${t}: ${baseline.probe[t].passed}/${baseline.probe[t].n} passed, rounds median ${baseline.probe[t].rounds.median}, token median ${M(baseline.probe[t].tokens.median)}`),
     ].join('\n'));
     return;
   }
@@ -383,9 +383,9 @@ function main(argv) {
   const code = a.skipCode ? null : runCodeChecks(join(HERE, '..'), a.head);
   const results = evaluateStage({ stage: a.stage, current, baseline, stage1, code });
   const drift = versionDrift(current.versions,
-    [{ label: 'Baseline', versions: baseline.versions }, ...(stage1 ? [{ label: 'Stufe 1', versions: stage1.versions }] : [])]);
+    [{ label: 'Baseline', versions: baseline.versions }, ...(stage1 ? [{ label: 'stage 1', versions: stage1.versions }] : [])]);
   const v = verdict(results, drift);
-  const warnings = [...current.warnings, ...(stage1?.warnings ?? []).map((w) => `Stufe 1: ${w}`)];
+  const warnings = [...current.warnings, ...(stage1?.warnings ?? []).map((w) => `stage 1: ${w}`)];
   console.log(formatReport({ stage: a.stage, head: a.head, results, warnings, drift }));
   const report = join(localDir, `acceptance-stage${a.stage}-${a.head}.json`);
   writeFileSync(report, `${JSON.stringify({
@@ -395,7 +395,7 @@ function main(argv) {
     version_drift: drift, versions: current.versions, baseline_versions: baseline.versions ?? null,
     benchmark: current.benchmark, probe: current.probe,
   }, null, 2)}\n`);
-  console.log(`Bericht: ${report}`);
+  console.log(`Report: ${report}`);
   process.exit(EXIT_CODES[v]);
 }
 

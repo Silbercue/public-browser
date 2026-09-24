@@ -221,10 +221,12 @@ describe("FrictionRecorder (Friction-Session-Tracking, opt-in dev-only)", () => 
       const first = await recorder.buildHintBlock();
       expect(first).not.toBeNull();
       expect(first).toContain("── friction-tracking");
-      expect(first).toMatch(/10 Sessions seit dem letzten frictioneer-Lauf \(\d{2}\.\d{2}\.\), davon/);
-      expect(first).toContain("10 mit Tool-Fehlern (10 gesamt)");
+      expect(first).toMatch(/10 sessions since the last friction review \(\d{4}-\d{2}-\d{2}\), of which/);
+      expect(first).toContain("10 with tool errors (10 total), 0 fallback spirals detected.");
       expect(first).toContain("Queue: ");
-      expect(first).toContain("→ Hinweis an den User");
+      expect(first).toContain("→ Note for the user: enough material for an improvement run.");
+      expect(first).not.toMatch(/bmad-|SilbercueChrome/);
+      expect(first).toContain("session IDs");
 
       const second = await recorder.buildHintBlock();
       expect(second).toBeNull();

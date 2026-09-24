@@ -92,7 +92,7 @@ export interface StartServerOptions {
    * ignored by MCP tools (switch_tab, virtual_desk, navigate).
    */
   script?: boolean;
-  /** Chrome profile name (e.g. "Julian") or raw path. Resolved at startup. */
+  /** Chrome profile name (e.g. "Work") or raw path. Resolved at startup. */
   profile?: string;
   /**
    * Raw Chrome `--user-data-dir` (`--user-data-dir <path>`). Created if

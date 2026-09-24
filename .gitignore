@@ -26,6 +26,14 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+.env*
+!.env.example
+.npmrc
+.pypirc
+*.pem
+*.key
+*.token
+*recovery-codes*
 
 # Test / tooling caches
 coverage/
@@ -62,6 +70,8 @@ test-hardest/results-local/*
 !test-hardest/blind-run.mjs
 !test-hardest/blind-run.test.mjs
 !test-hardest/blind-prompt.md
+!test-hardest/blind-prompt-cli.md
+!test-hardest/cli-guard.mjs
 !test-hardest/recompute-tokens.mjs
 !test-hardest/recompute-tokens.test.mjs
 !test-hardest/real-sites-probe.mjs
@@ -90,6 +100,7 @@ scripts/*
 !scripts/token-count.mjs
 !scripts/build-mcpb.mjs
 !scripts/make-benchmark-chart-2026-09.py
+!scripts/make-benchmark-chart-2026-09-24.py
 
 # Registry-Publish-Tokens (lokal, niemals committen)
 .mcpregistry_*_token

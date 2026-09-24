@@ -62,7 +62,7 @@ class Chrome:
                 the server is found via PATH or npx fallback.
             auto_start: Whether to auto-start the server if not running
                 (default: True).
-            profile: Chrome profile name (e.g. "Julian", "Business").
+            profile: Chrome profile name (e.g. "Work", "Personal").
                 When auto-starting, passes --profile to the server.
                 When connecting to a running server, calls /config/profile.
             token: Script API key. Default: ``PUBLIC_BROWSER_SCRIPT_TOKEN``,

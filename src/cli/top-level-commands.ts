@@ -178,7 +178,7 @@ function printHelp(): void {
   console.log("");
   console.log("Usage:");
   console.log("  public-browser [command]");
-  console.log("  public-browser --profile \"Julian\"   Start with a Chrome profile");
+  console.log("  public-browser --profile \"Work\"     Start with a Chrome profile");
   console.log("  public-browser --attach             Start in attach-only mode");
   console.log("  public-browser --port 9333          Drive a second Chrome on its own port");
   console.log("  public-browser --no-stealth         Stay identifiable (navigator.webdriver = true)");
@@ -193,7 +193,7 @@ function printHelp(): void {
   console.log("  --user-data-dir <path> Raw Chrome user-data-dir for this instance. Created if");
   console.log("                         missing. Use it for throwaway per-agent Chromes;");
   console.log("                         --profile wins if both are given.");
-  console.log("  --profile <name>       Launch Chrome with a named profile (e.g. \"Julian\").");
+  console.log("  --profile <name>       Launch Chrome with a named profile (e.g. \"Work\").");
   console.log("                         Preserves cookies, logins, extensions, and history.");
   console.log("                         If Chrome is already running with the profile,");
   console.log("                         attaches via CDP instead of launching a new instance.");
@@ -260,7 +260,7 @@ function printHelp(): void {
   console.log("Script API (Python):");
   console.log("  pip install publicbrowser");
   console.log("  Scripts use the same tool implementations as MCP (Shared Core).");
-  console.log("  See: https://github.com/Silbercue/public-browser#script-api-python");
+  console.log("  See: https://github.com/Silbercue/public-browser#script-api-python--perfect-for-jev-loops");
 }
 
 /** Internal helper for tests — exposes the known subcommand list. */

@@ -349,6 +349,50 @@ describe("phase1_checkRepoStatus", () => {
     expect(result.context!.version).toBe("0.1.0");
   });
 
+  /** Clean repo on the right branch; `lsFiles` answers the tracked-and-ignored check. */
+  function setupIgnoredCheck(lsFiles: () => string): void {
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      const full = [cmd, ...args].join(" ");
+      if (full === "git ls-files -c -i --exclude-standard") return lsFiles();
+      if (full.startsWith("git ls-files")) {
+        throw new Error("-i must be used with either -o or -c");
+      }
+      if (full.includes("rev-parse --abbrev-ref")) return BRANCH;
+      if (full.includes("remote get-url")) return "git@github.com:foo/bar.git";
+      if (full.includes("status --porcelain")) return "";
+      return "ok";
+    });
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ version: "0.1.0" }));
+  }
+
+  it("fails when a tracked file is gitignored (git ls-files -c -i)", () => {
+    setupIgnoredCheck(() => "secret.env\nnotes.md");
+
+    const result = phase1_checkRepoStatus(FREE_REPO);
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("2 gitignored file(s) are still tracked");
+    expect(result.message).toContain("secret.env");
+  });
+
+  it("passes the ignored check when no tracked file is gitignored", () => {
+    setupIgnoredCheck(() => "");
+
+    const result = phase1_checkRepoStatus(FREE_REPO);
+    expect(result.success).toBe(true);
+  });
+
+  it("aborts when the ignored check itself fails instead of passing silently", () => {
+    setupIgnoredCheck(() => {
+      throw new Error("fatal: not a git repository");
+    });
+
+    const result = phase1_checkRepoStatus(FREE_REPO);
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Could not check for tracked gitignored files");
+    expect(result.message).toContain("not a git repository");
+  });
+
   it("fails when repo has no configured remote", () => {
     setupMockWithErrors([
       { match: ["git", "--version"], result: "git version 2.40" },

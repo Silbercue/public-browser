@@ -61,7 +61,7 @@ export const PARTICIPANTS = {
   'browser-use': {
     name: 'browser-use', display: 'browser-use', package: 'browser-use', version: '0.13.10',
     // Eigene venv je gepinnter Version: ~/.browser-use-env (0.12.5, Lauf 2026-09-03) bleibt unangetastet.
-    command: process.env.BLIND_RUN_BROWSER_USE_BIN || '/Users/silbercue/.browser-use-0.13.10-env/bin/browser-use',
+    command: process.env.BLIND_RUN_BROWSER_USE_BIN || 'browser-use',
     args: ['--mcp'],
     // Seit 0.13 meldet der MCP-Server im Handshake die pip-Paketversion (0.12.5 meldete fest 0.1.0),
     // damit prueft der Handshake-Check jetzt die echte Paketversion — kein serverVersion-Alias mehr noetig.

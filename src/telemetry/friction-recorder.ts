@@ -194,12 +194,11 @@ export class FrictionRecorder {
 
     return [
       "── friction-tracking ──────────────────────────────────────────",
-      `${sessions.length} Sessions seit dem letzten frictioneer-Lauf (${lastRunLabel}), davon`,
-      `${sessionsWithErrors} mit Tool-Fehlern (${toolErrorsSum} gesamt), ${spiralsSum} Fallback-Spiralen erkannt.`,
+      `${sessions.length} sessions since the last friction review (${lastRunLabel}), of which`,
+      `${sessionsWithErrors} with tool errors (${toolErrorsSum} total), ${spiralsSum} fallback spirals detected.`,
       `Queue: ${queuePath}`,
-      "→ Hinweis an den User: genug Material fuer einen Verbesserungs-",
-      "  lauf. Vorschlag: /bmad-frictioneer im SilbercueChrome-Repo",
-      "  starten; die Queue-Datei liefert Session-IDs, Zeitfenster + cwd.",
+      "→ Note for the user: enough material for an improvement run.",
+      "  The queue file lists session IDs, time windows and cwd.",
       "───────────────────────────────────────────────────────────────",
     ].join("\n");
   }
@@ -221,10 +220,10 @@ export class FrictionRecorder {
 
   private _formatDateLabel(iso: string): string {
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "nie";
+    if (Number.isNaN(d.getTime())) return "never";
     const day = String(d.getDate()).padStart(2, "0");
     const month = String(d.getMonth() + 1).padStart(2, "0");
-    return `${day}.${month}.`;
+    return `${d.getFullYear()}-${month}-${day}`;
   }
 
   /** Doppelter Boden: Hinweis nur, wenn Datei ODER Verzeichnis existiert (robust gegen Umzuege). */

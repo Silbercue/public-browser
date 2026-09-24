@@ -190,7 +190,7 @@ def real_server(
     removed every profile, host and port variable and chose two free ports
     from 9340 on; the server starts its own headless Chrome with a temp
     profile on the CDP port and the Script API on the script port. This
-    fixture only re-checks that nothing can reach Julian's Chromes
+    fixture only re-checks that nothing can reach the user's real Chromes
     (9222/9223/9225/9226), the benchmark port 9333 or a real profile.
     """
     cdp_port = isolated_chrome_env["cdp_port"]

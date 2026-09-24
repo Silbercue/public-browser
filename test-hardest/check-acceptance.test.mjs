@@ -116,7 +116,7 @@ test('Stufe 1: alles im Rahmen -> jedes Kriterium PASS', () => {
     [['benchmark', true], ['rounds', true], ['tokens_median', true], ['tokens_max', true], ['probe', true], ['code', true]]);
   assert.equal(accepted(results), true);
   assert.equal(verdict(results), 'PASS');
-  assert.match(formatReport({ stage: 1, head: 'aaa1111', results }), /Urteil: PASS$/);
+  assert.match(formatReport({ stage: 1, head: 'aaa1111', results }), /Verdict: PASS$/);
 });
 
 test('Stufe 1: jedes Kriterium faellt einzeln', () => {
@@ -151,8 +151,8 @@ test('Stufe 1: jedes Kriterium faellt einzeln', () => {
   const skipped = evaluateStage({ stage: 1, current: ok, baseline, code: null });
   assert.equal(skipped.find((r) => r.id === 'code').pass, null);
   assert.equal(accepted(skipped), false);
-  assert.match(formatReport({ stage: 1, head: 'bbb2222', results: skipped }), /\[OFFEN\] npm test.*nicht geprueft/);
-  assert.match(formatReport({ stage: 1, head: 'bbb2222', results: skipped }), /Urteil: FAIL — nicht erfuellt: code$/);
+  assert.match(formatReport({ stage: 1, head: 'bbb2222', results: skipped }), /\[OPEN\] npm test.*not checked/);
+  assert.match(formatReport({ stage: 1, head: 'bbb2222', results: skipped }), /Verdict: FAIL — not met: code$/);
 });
 
 test('Stufe 2: feste Grenzen 3,4 M / 4,2 M, Runden und Probe gegen Stufe 1', () => {
@@ -183,14 +183,14 @@ test('selectStageRuns: nur lokaler Build am Head; git_dirty und Ausschluesse als
   assert.equal(s.benchmark.n, 1);
   assert.equal(s.warnings.length, 2);
   assert.match(s.warnings.join(), /git_dirty=true/);
-  assert.match(s.warnings.join(), /ausgeschlossen — Seite 5 min offline/);
+  assert.match(s.warnings.join(), /excluded — Seite 5 min offline/);
   const okRun = bench(3.5, 85, h);
   assert.throws(() => selectStageRuns([okRun], 'ddd4444', { [okRun.run_file]: 'passt mir nicht' }), /only aborted runs/);
   assert.throws(() => selectStageRuns([okRun], 'ddd4444', { 'x-run9.json': 'gibt es nicht' }), /no run at head/);
   // git_dirty unbekannt (kein git) wird ebenfalls nicht gewertet, git_dirty false schon
   const unknown = selectStageRuns([bench(3, 80, { ...h, dirty: null }), bench(3.5, 85, h)], 'ddd4444');
   assert.equal(unknown.benchmark.n, 1);
-  assert.match(unknown.warnings.join(), /git_dirty=null, nicht gewertet/);
+  assert.match(unknown.warnings.join(), /git_dirty=null, not counted/);
 });
 
 test('runCodeChecks: prueft nur den gemessenen Head und meldet rote Schritte mit Grund', () => {
@@ -204,8 +204,8 @@ test('runCodeChecks: prueft nur den gemessenen Head und meldet rote Schritte mit
   assert.deepEqual(runCodeChecks('/r', 'fff6666', fake(), PY).map((c) => [c.name, c.ok]),
     [['npm test', true], ['lint', true], ['build', true], ['pytest', true]]);
   assert.deepEqual(runCodeChecks('/r', 'fff6666', fake({ head: 'abc0000' }), PY),
-    [{ name: 'Arbeitskopie', ok: false, detail: 'HEAD ist abc0000, gemessen wurde fff6666' }]);
-  assert.equal(runCodeChecks('/r', 'fff6666', fake({ dirty: ' M src/registry.ts' }), PY)[0].detail, 'ungesicherte Aenderungen');
+    [{ name: 'working copy', ok: false, detail: 'HEAD is abc0000, but fff6666 was measured' }]);
+  assert.equal(runCodeChecks('/r', 'fff6666', fake({ dirty: ' M src/registry.ts' }), PY)[0].detail, 'uncommitted changes');
   const red = runCodeChecks('/r', 'fff6666', fake({ fail: 'npm run lint' }), PY);
   assert.deepEqual(red.find((c) => c.name === 'lint'), { name: 'lint', ok: false, detail: 'x / Tests: 1 failed' });
 });
@@ -225,7 +225,7 @@ test('runCodeChecks: pytest nur mit PYTHON oder dem venv, nie mit python3; ueber
   const skipped = runCodeChecks('/r', 'fff6666', fake('213 passed, 24 skipped, 12 deselected in 3.10s'), '/venv/bin/python')
     .find((c) => c.name === 'pytest');
   assert.equal(skipped.ok, false);
-  assert.match(skipped.detail, /uebersprungene Tests, pytest-asyncio fehlt\?/);
+  assert.match(skipped.detail, /skipped tests, pytest-asyncio missing\?/);
   const green = runCodeChecks('/r', 'fff6666', fake('237 passed, 12 deselected in 3.10s'), '/venv/bin/python')
     .find((c) => c.name === 'pytest');
   assert.deepEqual(green, { name: 'pytest', ok: true, detail: '' });
@@ -249,14 +249,14 @@ test('Probe-Runden: Summe der Mediane je Aufgabe gegen Referenz x 1,2, bestanden
   // knapp ueber: P2-Laeufe 27 und 28 -> Median 27,5, Summe 48,5 > 48
   const over = probeOf([probe('P1', 12, h), probe('P1', 12, h), probe('P2', 27, h), probe('P2', 28, h), probe('P3', 9, h), probe('P3', 9, h)]);
   assert.equal(over.pass, false);
-  assert.match(over.detail, /Summe der Runden-Mediane 48\.5 \(P1 12 \+ P2 27\.5 \+ P3 9\), Grenze 48 = Baseline 40 × 1,2/);
+  assert.match(over.detail, /sum of round medians 48\.5 \(P1 12 \+ P2 27\.5 \+ P3 9\), limit 48 = Baseline 40 × 1\.2/);
   // eine Aufgabe mit vielen Runden bei Summe im Rahmen: P2 30 > 20 x 1,2, aber 10 + 30 + 7 = 47 ≤ 48 -> kein FAIL
   assert.equal(probeOf(probeSet(10, 30, 7, h)).pass, true);
   // bestanden bleibt je Aufgabe: ein nicht bestandener P3-Lauf ist FAIL, auch mit wenigen Runden
   const p3fail = [...probeSet(10, 20, 7, h).filter((r) => r.task !== 'P3'), probe('P3', 7, h), probe('P3', 7, { ...h, pass: false })];
   const f = probeOf(p3fail);
   assert.equal(f.pass, false);
-  assert.match(f.detail, /P3 1\/2 bestanden \(.*P2-DRAG/);
+  assert.match(f.detail, /P3 1\/2 passed \(.*P2-DRAG/);
 });
 
 test('verdict: PASS, FAIL, TOKENS-ONLY, INCONCLUSIVE und die Exit-Codes (Plancheck P11/P12)', () => {
@@ -267,7 +267,7 @@ test('verdict: PASS, FAIL, TOKENS-ONLY, INCONCLUSIVE und die Exit-Codes (Planche
   assert.equal(verdict(r({ tokens_median: false, rounds: false })), 'FAIL');
   assert.equal(verdict(r({ tokens_median: false, code: null })), 'FAIL');       // --skip-code: OFFEN ist kein Token-Kriterium
   assert.equal(verdict([...r({ tokens_median: false }), { id: 'tokens_vs_stage1', pass: false }]), 'FAIL');
-  assert.equal(verdict(r({ rounds: false }), ['Chrome 154.0.7000.1 statt 153.0.8010.53 (Baseline)']), 'INCONCLUSIVE (version drift)');
+  assert.equal(verdict(r({ rounds: false }), ['Chrome 154.0.7000.1 instead of 153.0.8010.53 (Baseline)']), 'INCONCLUSIVE (version drift)');
   assert.deepEqual(EXIT_CODES, { PASS: 0, FAIL: 1, 'TOKENS-ONLY': 3, 'INCONCLUSIVE (version drift)': 4 });
   // Stufe 1 real: nur der Token-Median verfehlt (4,23 M > 4,22 M), alles andere gruen
   const { baseline } = baselineFixture();
@@ -275,7 +275,7 @@ test('verdict: PASS, FAIL, TOKENS-ONLY, INCONCLUSIVE und die Exit-Codes (Planche
   const results = evaluateStage({ stage: 1, baseline, code: CODE_OK,
     current: selectStageRuns([...[4.23, 4.23, 4.23, 4.0, 4.0].map((t) => bench(t, 90, h)), ...probeSet(12, 22, 9, h)], 'iii9999') });
   assert.equal(verdict(results), 'TOKENS-ONLY');
-  assert.match(formatReport({ stage: 1, head: 'iii9999', results }), /Urteil: TOKENS-ONLY — nicht erfuellt: tokens_median$/);
+  assert.match(formatReport({ stage: 1, head: 'iii9999', results }), /Verdict: TOKENS-ONLY — not met: tokens_median$/);
 });
 
 test('Stufe 2: Token schlechter als Stufe 1 ist FAIL (tokens_vs_stage1), nur verfehltes Ziel ist TOKENS-ONLY', () => {
@@ -289,7 +289,7 @@ test('Stufe 2: Token schlechter als Stufe 1 ist FAIL (tokens_vs_stage1), nur ver
   const worseMedian = ev([3.95, 3.95, 3.95, 3.1, 3.0]);         // Median 3,95 M > Stufe 1 3,90 M
   const t = worseMedian.find((r) => r.id === 'tokens_vs_stage1');
   assert.equal(t.pass, false);
-  assert.equal(t.detail, 'Median 3.95M gegen 3.90M, Einzellauf max 3.95M gegen 4.10M');
+  assert.equal(t.detail, 'median 3.95M vs 3.90M, single run max 3.95M vs 4.10M');
   assert.equal(verdict(worseMedian), 'FAIL');
   const worseMax = ev([3.2, 3.3, 3.3, 3.1, 4.15]);              // Median besser, ein Lauf 4,15 M > 4,10 M (unter 4,2 M)
   assert.equal(worseMax.find((r) => r.id === 'tokens_max').pass, true);
@@ -303,12 +303,12 @@ test('Versionen: Drift gegen Baseline und Stufe 1, Mischung in einer Stufe (Plan
     { chrome: [CHROME, 'unknown'], claude_code: [CC] });
   assert.deepEqual(versionDrift(same, [{ label: 'Baseline', versions: same }]), []);
   assert.deepEqual(versionDrift({ chrome: ['154.0.7000.1'], claude_code: [CC] }, [{ label: 'Baseline', versions: same }]),
-    ['Chrome 154.0.7000.1 statt 153.0.8010.53 (Baseline)']);
+    ['Chrome 154.0.7000.1 instead of 153.0.8010.53 (Baseline)']);
   assert.deepEqual(versionDrift({ chrome: [CHROME], claude_code: ['2.1.281'] },
-    [{ label: 'Baseline', versions: same }, { label: 'Stufe 1', versions: same }]),
-  ['Claude Code 2.1.281 statt 2.1.280 (Baseline)', 'Claude Code 2.1.281 statt 2.1.280 (Stufe 1)']);
+    [{ label: 'Baseline', versions: same }, { label: 'stage 1', versions: same }]),
+  ['Claude Code 2.1.281 instead of 2.1.280 (Baseline)', 'Claude Code 2.1.281 instead of 2.1.280 (stage 1)']);
   assert.deepEqual(versionDrift({ chrome: [CHROME, '154.0.7000.1'], claude_code: [CC] }, [{ label: 'Baseline', versions: { chrome: ['154.0.7000.1'], claude_code: [CC] } }]),
-    ['Chrome gemischt in dieser Stufe: 153.0.8010.53, 154.0.7000.1', 'Chrome 153.0.8010.53 statt 154.0.7000.1 (Baseline)']);
+    ['Chrome mixed in this stage: 153.0.8010.53, 154.0.7000.1', 'Chrome 153.0.8010.53 instead of 154.0.7000.1 (Baseline)']);
   // selectStageRuns sammelt die Versionen der gewerteten Laeufe
   const h = { head: 'jjj1010' };
   const s = selectStageRuns([bench(3.5, 85, h), bench(3.5, 85, { ...h, cc: '2.1.281' }), probe('P1', 12, h)], 'jjj1010');
@@ -316,10 +316,10 @@ test('Versionen: Drift gegen Baseline und Stufe 1, Mischung in einer Stufe (Plan
   // formatReport nennt die Abweichung und urteilt INCONCLUSIVE
   const { baseline } = baselineFixture();
   const results = evaluateStage({ stage: 1, current: stage1Current(), baseline, code: CODE_OK });
-  const drift = ['Chrome 154.0.7000.1 statt 153.0.8010.53 (Baseline)'];
+  const drift = ['Chrome 154.0.7000.1 instead of 153.0.8010.53 (Baseline)'];
   const report = formatReport({ stage: 1, head: 'aaa1111', results, drift });
-  assert.match(report, /^Versionsdrift: Chrome 154\.0\.7000\.1 statt 153\.0\.8010\.53 \(Baseline\)$/m);
-  assert.match(report, /Urteil: INCONCLUSIVE \(version drift\)$/);
+  assert.match(report, /^Version drift: Chrome 154\.0\.7000\.1 instead of 153\.0\.8010\.53 \(Baseline\)$/m);
+  assert.match(report, /Verdict: INCONCLUSIVE \(version drift\)$/);
 });
 
 test('buildBaseline: gemischte Versionen sind ein Problem, --chrome-version/--claude-code-version waehlen aus', () => {
@@ -331,7 +331,7 @@ test('buildBaseline: gemischte Versionen sind ein Problem, --chrome-version/--cl
   ];
   const runs = [...set(CHROME, CC), ...set(NEW, '2.1.290')];
   const mixed = buildBaseline(runs);
-  assert.match(mixed.problems.join(), /gemischte Versionen: Chrome 153\.0\.8010\.53, 154\.0\.7000\.1; Claude Code 2\.1\.280, 2\.1\.290 — mit --chrome-version\/--claude-code-version waehlen/);
+  assert.match(mixed.problems.join(), /mixed versions: Chrome 153\.0\.8010\.53, 154\.0\.7000\.1; Claude Code 2\.1\.280, 2\.1\.290 — pick one with --chrome-version\/--claude-code-version/);
   const chromeOnly = buildBaseline(runs, new Date(), { chrome: NEW });
   assert.deepEqual(chromeOnly.problems, []);
   assert.deepEqual(chromeOnly.baseline.versions, { chrome: [NEW], claude_code: ['2.1.290'] });
@@ -351,7 +351,7 @@ test('parseCheckArgs: Stufe, Head, Stufe-1-Head und Ausschluesse', () => {
   assert.throws(() => parseCheckArgs(['--stage', '3', '--head', 'x']), /--stage must be 1 or 2/);
   assert.throws(() => parseCheckArgs(['--stage', '1']), /--head/);
   assert.throws(() => parseCheckArgs(['--stage', '2', '--head', 'b']), /--stage1-head/);
-  assert.throws(() => parseCheckArgs(['--stage', '1', '--head', 'b', '--exclude', 'ohne-grund.json']), /<run_file>=<grund>/);
+  assert.throws(() => parseCheckArgs(['--stage', '1', '--head', 'b', '--exclude', 'ohne-grund.json']), /<run_file>=<reason>/);
 });
 
 test('CLI: baseline schreibt die Datei genau einmal, check --stage 1 gibt PASS/FAIL je Kriterium und Exit-Code', () => {
@@ -369,15 +369,15 @@ test('CLI: baseline schreibt die Datei genau einmal, check --stage 1 gibt PASS/F
   const cli = (...args) => spawnSync(process.execPath, [SCRIPT, ...args, '--results', results, '--local-results', local], { encoding: 'utf8' });
   const b = cli('baseline');
   assert.equal(b.status, 0, b.stderr);
-  assert.match(b.stdout, /agent-browser 0\.38\.1: n=5, Token-Median 4\.22M/);
+  assert.match(b.stdout, /agent-browser 0\.38\.1: n=5, token median 4\.22M/);
   assert.equal(JSON.parse(readFileSync(join(results, BASELINE_FILE), 'utf8')).public_browser.rounds.median, 95);
   assert.equal(cli('baseline').status, 2, 'zweites Schreiben wird verweigert');
   put(local, [...[3.7, 3.9, 4.05, 3.6, 4.1].map((t) => bench(t, 88, { head: 'aaa1111' })), ...probeSet(12, 22, 9, { head: 'aaa1111' })]);
   const pass = cli('check', '--stage', '1', '--head', 'aaa1111', '--skip-code');
   assert.equal(pass.status, 1, 'ohne Code-Pruefung kein Gesamt-PASS');
-  assert.match(pass.stdout, /\[PASS\] Token \(Median\) ≤ Median agent-browser — 3\.90M gegen 4\.22M/);
-  assert.match(pass.stdout, /\[OFFEN\] npm test/);
-  assert.match(pass.stdout, /^Urteil: FAIL — nicht erfuellt: code$/m);
+  assert.match(pass.stdout, /\[PASS\] Tokens \(median\) ≤ agent-browser median — 3\.90M vs 4\.22M/);
+  assert.match(pass.stdout, /\[OPEN\] npm test/);
+  assert.match(pass.stdout, /^Verdict: FAIL — not met: code$/m);
   const report = JSON.parse(readFileSync(join(local, 'acceptance-stage1-aaa1111.json'), 'utf8'));
   assert.equal(report.accepted, false);
   assert.equal(report.verdict, 'FAIL');
@@ -385,14 +385,14 @@ test('CLI: baseline schreibt die Datei genau einmal, check --stage 1 gibt PASS/F
   assert.deepEqual(report.version_drift, []);
   const none = cli('check', '--stage', '1', '--head', 'zzz9999', '--skip-code');
   assert.equal(none.status, 1);
-  assert.match(none.stdout, /\[FAIL\] Benchmark 30\/30 in 5 von 5 Laeufen — 0 Laeufe, 0 ok/);
+  assert.match(none.stdout, /\[FAIL\] Benchmark 30\/30 in 5 of 5 runs — 0 runs, 0 ok/);
   // Chrome hat sich seit der Baseline aktualisiert: kein PASS/FAIL, sondern Exit 4
   put(local, [...[3.7, 3.9, 4.05, 3.6, 4.1].map((t) => bench(t, 88, { head: 'hhh8888', chrome: '154.0.7000.1' })),
     ...probeSet(12, 22, 9, { head: 'hhh8888', chrome: '154.0.7000.1' })]);
   const drift = cli('check', '--stage', '1', '--head', 'hhh8888', '--skip-code');
   assert.equal(drift.status, 4, drift.stderr);
-  assert.match(drift.stdout, /^Versionsdrift: Chrome 154\.0\.7000\.1 statt 153\.0\.8010\.53 \(Baseline\)$/m);
-  assert.match(drift.stdout, /^Urteil: INCONCLUSIVE \(version drift\)$/m);
+  assert.match(drift.stdout, /^Version drift: Chrome 154\.0\.7000\.1 instead of 153\.0\.8010\.53 \(Baseline\)$/m);
+  assert.match(drift.stdout, /^Verdict: INCONCLUSIVE \(version drift\)$/m);
   assert.equal(JSON.parse(readFileSync(join(local, 'acceptance-stage1-hhh8888.json'), 'utf8')).verdict, 'INCONCLUSIVE (version drift)');
 });
 
@@ -410,10 +410,10 @@ test('CLI: baseline mit gemischten Versionen endet mit Exit 1, --chrome-version 
   const cli = (...args) => spawnSync(process.execPath, [SCRIPT, 'baseline', '--results', results, ...args], { encoding: 'utf8' });
   const mixed = cli();
   assert.equal(mixed.status, 1);
-  assert.match(mixed.stderr, /gemischte Versionen: Chrome 153\.0\.8010\.53, 154\.0\.7000\.1 — mit --chrome-version\/--claude-code-version waehlen/);
+  assert.match(mixed.stderr, /mixed versions: Chrome 153\.0\.8010\.53, 154\.0\.7000\.1 — pick one with --chrome-version\/--claude-code-version/);
   const picked = cli('--chrome-version', NEW);
   assert.equal(picked.status, 0, picked.stderr);
-  assert.match(picked.stdout, /^Versionen: Chrome 154\.0\.7000\.1, Claude Code 2\.1\.280$/m);
+  assert.match(picked.stdout, /^Versions: Chrome 154\.0\.7000\.1, Claude Code 2\.1\.280$/m);
   assert.deepEqual(JSON.parse(readFileSync(join(results, BASELINE_FILE), 'utf8')).versions, { chrome: [NEW], claude_code: [CC] });
 });
 
@@ -446,10 +446,10 @@ test('selectStageRuns: Versionsfilter wertet nur passende Laeufe, ohne Filter un
   assert.equal(picked.probe.P1.n, 1);
   assert.equal(picked.probe.P1.rounds.median, 13);
   assert.deepEqual(picked.versions, { chrome: [NEW], claude_code: [CC] });
-  assert.match(picked.warnings.join(), /2 Laeufe mit anderer Version nicht gewertet \(Filter Chrome 154\.0\.7000\.1\)/);
+  assert.match(picked.warnings.join(), /2 runs with another version not counted \(filter Chrome 154\.0\.7000\.1\)/);
   const byCc = selectStageRuns([bench(3.5, 85, h), bench(3.6, 86, { ...h, cc: '2.1.290' })], 'kkk1212', {}, { claudeCode: '2.1.290' });
   assert.deepEqual(byCc.versions, { chrome: [CHROME], claude_code: ['2.1.290'] });
-  assert.match(byCc.warnings.join(), /1 Laeufe mit anderer Version nicht gewertet \(Filter Claude Code 2\.1\.290\)/);
+  assert.match(byCc.warnings.join(), /1 runs with another version not counted \(filter Claude Code 2\.1\.290\)/);
 });
 
 test('CLI: check --chrome-version wertet nur die neuen Laeufe am selben Head, auch in Stufe 1 fuer Stufe 2 (V4)', () => {
@@ -473,13 +473,13 @@ test('CLI: check --chrome-version wertet nur die neuen Laeufe am selben Head, au
   put(local, [...s1(CHROME, [2.0, 2.0, 2.0, 2.0, 2.0]), ...s1(NEW, [3.7, 3.9, 4.05, 3.6, 4.1])]);
   const mixed = cli('check', '--stage', '1', '--head', 'aaa1111', '--skip-code');
   assert.equal(mixed.status, 4, mixed.stderr);
-  assert.match(mixed.stdout, /^Versionsdrift: Chrome gemischt in dieser Stufe: 153\.0\.8010\.53, 154\.0\.7000\.1$/m);
+  assert.match(mixed.stdout, /^Version drift: Chrome mixed in this stage: 153\.0\.8010\.53, 154\.0\.7000\.1$/m);
   assert.deepEqual(JSON.parse(readFileSync(join(local, 'acceptance-stage1-aaa1111.json'), 'utf8')).version_filter, { chrome: null, claude_code: null });
   const one = cli('check', '--stage', '1', '--head', 'aaa1111', '--skip-code', '--chrome-version', NEW);
   assert.equal(one.status, 1, one.stderr);                       // --skip-code: FAIL nur wegen code
   assert.doesNotMatch(one.stdout, /Versionsdrift/);
-  assert.match(one.stdout, /^Urteil: FAIL — nicht erfuellt: code$/m);
-  assert.match(one.stdout, /\[PASS\] Token \(Median\) ≤ Median agent-browser — 3\.90M gegen 4\.22M/);
+  assert.match(one.stdout, /^Verdict: FAIL — not met: code$/m);
+  assert.match(one.stdout, /\[PASS\] Tokens \(median\) ≤ agent-browser median — 3\.90M vs 4\.22M/);
   const rep1 = JSON.parse(readFileSync(join(local, 'acceptance-stage1-aaa1111.json'), 'utf8'));
   assert.deepEqual(rep1.version_filter, { chrome: NEW, claude_code: null });
   assert.equal(rep1.benchmark.n, 5);
@@ -488,11 +488,11 @@ test('CLI: check --chrome-version wertet nur die neuen Laeufe am selben Head, au
   const s2 = cli('check', '--stage', '2', '--head', 'bbb2222', '--stage1-head', 'aaa1111', '--skip-code', '--chrome-version', NEW);
   assert.equal(s2.status, 1, s2.stderr);
   assert.doesNotMatch(s2.stdout, /Versionsdrift/);
-  assert.match(s2.stdout, /\[PASS\] Token nicht schlechter als Stufe 1 \(Median und groesster Einzellauf\) — Median 3\.20M gegen 3\.90M, Einzellauf max 3\.40M gegen 4\.10M/);
-  assert.match(s2.stdout, /^Urteil: FAIL — nicht erfuellt: code$/m);
+  assert.match(s2.stdout, /\[PASS\] Tokens no worse than stage 1 \(median and largest single run\) — median 3\.20M vs 3\.90M, single run max 3\.40M vs 4\.10M/);
+  assert.match(s2.stdout, /^Verdict: FAIL — not met: code$/m);
   const s2raw = cli('check', '--stage', '2', '--head', 'bbb2222', '--stage1-head', 'aaa1111', '--skip-code');
   assert.equal(s2raw.status, 4, s2raw.stderr);
-  assert.match(s2raw.stdout, /^Versionsdrift: Chrome gemischt in Stufe 1: 153\.0\.8010\.53, 154\.0\.7000\.1$/m);
+  assert.match(s2raw.stdout, /^Version drift: Chrome mixed in stage 1: 153\.0\.8010\.53, 154\.0\.7000\.1$/m);
 });
 
 test('CLI: Stufe 2 ohne gewertete Stufe-1-Laeufe ist ein Fehler (Exit 2), keine Versionsdrift (I1)', () => {
@@ -524,7 +524,7 @@ test('CLI: Stufe 2 ohne gewertete Stufe-1-Laeufe ist ein Fehler (Exit 2), keine 
   // alle Stufe-1-Laeufe dirty: der Hinweis steht in der Meldung
   const dirty = check2('ddd4444');
   assert.equal(dirty.status, 2, dirty.stdout);
-  assert.match(dirty.stderr, /no counted stage-1 runs at head ddd4444 .*git_dirty=true, nicht gewertet/);
+  assert.match(dirty.stderr, /no counted stage-1 runs at head ddd4444 .*git_dirty=true, not counted/);
   // Filter trifft keinen Stufe-1-Lauf
   const filtered = check2('aaa1111', '--chrome-version', '154.0.7000.1');
   assert.equal(filtered.status, 2, filtered.stdout);
@@ -533,5 +533,5 @@ test('CLI: Stufe 2 ohne gewertete Stufe-1-Laeufe ist ein Fehler (Exit 2), keine 
   const ok = check2('aaa1111');
   assert.equal(ok.status, 1, ok.stderr);
   assert.doesNotMatch(ok.stdout, /Versionsdrift/);
-  assert.match(ok.stdout, /^Urteil: FAIL — nicht erfuellt: code$/m);
+  assert.match(ok.stdout, /^Verdict: FAIL — not met: code$/m);
 });

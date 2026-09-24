@@ -194,12 +194,22 @@ export function phase1_checkRepoStatus(
   }
 
   // 5b. Check no gitignored files are tracked (prevents accidental leaks to public repo)
-  const ignoredTracked = runOrNull(
-    "git",
-    ["ls-files", "--ignored", "--exclude-standard"],
-    freeRepo,
-  );
-  if (ignoredTracked && ignoredTracked.trim() !== "") {
+  // -c is required: `git ls-files -i` alone aborts, and a swallowed error would let
+  // this check pass every time.
+  let ignoredTracked: string;
+  try {
+    ignoredTracked = run(
+      "git",
+      ["ls-files", "-c", "-i", "--exclude-standard"],
+      freeRepo,
+    );
+  } catch (err) {
+    return {
+      success: false,
+      message: `Could not check for tracked gitignored files (git ls-files -c -i --exclude-standard): ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (ignoredTracked.trim() !== "") {
     const files = ignoredTracked.trim().split("\n");
     return {
       success: false,

@@ -141,13 +141,17 @@ test('PARTICIPANTS: browser-use command is overridable via env', async () => {
   // Ohne gesetzte Variable greift der Default; mit gesetzter Variable (der dokumentierte Reproduktionsweg) deren Wert.
   assert.equal(
     PARTICIPANTS['browser-use'].command,
-    process.env.BLIND_RUN_BROWSER_USE_BIN || '/Users/silbercue/.browser-use-0.13.10-env/bin/browser-use',
+    process.env.BLIND_RUN_BROWSER_USE_BIN || 'browser-use',
   );
   const before = process.env.BLIND_RUN_BROWSER_USE_BIN;
   process.env.BLIND_RUN_BROWSER_USE_BIN = '/x/fake-bu';
   try {
     const fresh = await import('./blind-run.mjs?override=1');
     assert.equal(fresh.PARTICIPANTS['browser-use'].command, '/x/fake-bu');
+    // Default without the variable: plain `browser-use` from the PATH, no machine-specific path.
+    delete process.env.BLIND_RUN_BROWSER_USE_BIN;
+    const plain = await import('./blind-run.mjs?default=1');
+    assert.equal(plain.PARTICIPANTS['browser-use'].command, 'browser-use');
   } finally {
     if (before === undefined) delete process.env.BLIND_RUN_BROWSER_USE_BIN;
     else process.env.BLIND_RUN_BROWSER_USE_BIN = before;
