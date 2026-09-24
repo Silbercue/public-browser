@@ -42,6 +42,10 @@ LONG_TIMEOUT = 120.0
 SERVER_START_TIMEOUT = 10.0
 POLL_INTERVAL = 0.2
 
+# The HTTP timeout sits this far above a tool's own ``timeout`` parameter
+# (milliseconds), so the server's finding arrives before the socket gives up.
+TOOL_TIMEOUT_MARGIN = 10.0
+
 # Tools that need longer timeouts
 _LONG_TIMEOUT_TOOLS = frozenset({"navigate", "wait_for"})
 
@@ -352,7 +356,9 @@ class ScriptApiClient:
             params: Tool parameters as a dict.
             session_token: Session token for tab routing.
             timeout: Request timeout in seconds. Defaults to LONG_TIMEOUT
-                for navigate/wait_for, DEFAULT_TIMEOUT for others.
+                for navigate/wait_for, DEFAULT_TIMEOUT for others. If
+                ``params`` carries a tool ``timeout`` (milliseconds), the
+                request waits at least that long plus TOOL_TIMEOUT_MARGIN.
 
         Returns:
             The raw server response dict (MCP ToolResponse format).
@@ -363,6 +369,9 @@ class ScriptApiClient:
         """
         if timeout is None:
             timeout = LONG_TIMEOUT if name in _LONG_TIMEOUT_TOOLS else DEFAULT_TIMEOUT
+        tool_timeout_ms = params.get("timeout")
+        if isinstance(tool_timeout_ms, (int, float)):
+            timeout = max(timeout, tool_timeout_ms / 1000 + TOOL_TIMEOUT_MARGIN)
 
         return self._post(
             f"/tool/{name}",

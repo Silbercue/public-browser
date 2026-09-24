@@ -207,6 +207,65 @@ class TestScriptApiClientCallTool:
         assert "click" not in _LONG_TIMEOUT_TOOLS
 
 
+def _record_http_timeouts(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record the timeout of every urlopen call while still sending it."""
+    import publicbrowser.client as client_mod
+
+    real_urlopen = client_mod.urllib.request.urlopen
+    seen: list[float] = []
+
+    def spy(req: Any, *args: Any, timeout: float, **kwargs: Any) -> Any:
+        seen.append(timeout)
+        return real_urlopen(req, *args, timeout=timeout, **kwargs)
+
+    monkeypatch.setattr(client_mod.urllib.request, "urlopen", spy)
+    return seen
+
+
+class TestHttpTimeoutMargin:
+    """Task 21a: the HTTP timeout sits a fixed margin above the tool timeout,
+    so the server's own finding arrives before the socket gives up."""
+
+    def test_call_tool_adds_margin_to_tool_timeout(
+        self, fake_server: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, _server, _port = fake_server
+        _FakeScriptApiHandler.responses = [(200, {"content": [], "isError": False})]
+        seen = _record_http_timeouts(monkeypatch)
+
+        client.call_tool("wait_for", {"condition": "js", "expression": "x", "timeout": 5000}, "TOK", timeout=5.0)
+
+        assert seen == [15.0]
+
+    def test_page_wait_for_http_timeout_has_margin(
+        self, fake_server: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from publicbrowser.page import Page
+
+        client, _server, _port = fake_server
+        _FakeScriptApiHandler.responses = [(200, {"content": [{"type": "text", "text": "ok"}], "isError": False})]
+        seen = _record_http_timeouts(monkeypatch)
+
+        Page(client=client, session_token="TOK", target_id="T").wait_for("x === 1", timeout=5)
+
+        assert seen == [15.0]
+
+    def test_without_tool_timeout_the_defaults_stay(
+        self, fake_server: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, _server, _port = fake_server
+        _FakeScriptApiHandler.responses = [
+            (200, {"content": [], "isError": False}),
+            (200, {"content": [], "isError": False}),
+        ]
+        seen = _record_http_timeouts(monkeypatch)
+
+        client.call_tool("click", {"selector": "#x"}, "TOK")
+        client.call_tool("navigate", {"url": "about:blank"}, "TOK")
+
+        assert seen == [30.0, 120.0]
+
+
 # ---------------------------------------------------------------------------
 # Session Management Tests
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import shutil
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from unittest.mock import ANY, MagicMock, patch
@@ -774,6 +775,39 @@ class TestSharedCoreIntegration:
         assert errors[1] is None, f"Thread 1 error: {errors[1]}"
         assert results[0] == 100
         assert results[1] == 101
+
+    def test_navigate_settles_quickly(self, local_script_server: dict[str, Any]) -> None:
+        """Task 21a S-b: the script tab gets page events, so settle() after a
+        navigate ends on networkIdle instead of its 15 s timeout."""
+        chrome = Chrome.connect(**local_script_server)
+        timings: list[float] = []
+        try:
+            with chrome.new_page() as page:
+                for url in ("about:blank", "data:text/html,<h1>ok</h1>", "about:blank"):
+                    start = time.monotonic()
+                    page.navigate(url)
+                    timings.append(time.monotonic() - start)
+        finally:
+            chrome.close()
+        print(f"navigate timings: {[round(t, 2) for t in timings]}")
+        assert len(timings) == 3
+        assert max(timings) < 5.0, timings
+
+    def test_long_wait_for_keeps_its_tab(self, local_script_server: dict[str, Any]) -> None:
+        """Task 21a S-a: a wait_for longer than the 30 s idle limit ends in
+        TimeoutError from the server, and the tab is still usable afterwards."""
+        chrome = Chrome.connect(**local_script_server)
+        try:
+            with chrome.new_page() as page:
+                page.navigate("about:blank")
+                start = time.monotonic()
+                # The server's own finding, not the socket's "timed out".
+                with pytest.raises(TimeoutError, match="Timeout after 45000ms"):
+                    page.wait_for("false", timeout=45)
+                print(f"wait_for(timeout=45) ended after {time.monotonic() - start:.2f} s")
+                assert page.evaluate("1 + 1") == 2
+        finally:
+            chrome.close()
 
     def test_all_seven_tools_roundtrip(self, local_script_server: dict[str, Any]) -> None:
         """All 7 tool methods work end-to-end against real server."""
