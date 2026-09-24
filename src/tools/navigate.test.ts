@@ -4,6 +4,7 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { markovTable } from "../cortex/markov-table.js";
 import type { CortexPattern } from "../cortex/cortex-types.js";
+import { hintLedger } from "../telemetry/hint-ledger.js";
 
 type EventCallback = (params: unknown, sessionId?: string) => void;
 
@@ -140,6 +141,36 @@ describe("navigateHandler", () => {
     expect(result._meta?.elapsedMs).toBeGreaterThanOrEqual(0);
     expect(result._meta?.settled).toBe(true);
     expect(result._meta?.settleSignal).toBe("networkIdle");
+  });
+
+  // Stufe 2 H3 (Plancheck P14): "Next: call view_page …" is advice — once per MCP session.
+  it("Stufe 2 H3: shows the Next tip on the first navigate of a session only", async () => {
+    hintLedger.reset();
+    const texts: string[] = [];
+    for (const url of ["https://example.com/a", "https://example.com/b"]) {
+      const { cdpClient, emitLifecycle } = createMockCdp({});
+      let evalCount = 0;
+      (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "Page.navigate") return { frameId: "f1", loaderId: "l1" };
+        if (method === "Runtime.evaluate") {
+          if (params?.awaitPromise === false) return {};
+          evalCount++;
+          if (evalCount === 1) return { result: { value: url } };
+          return { result: { value: "Page" } };
+        }
+        return {};
+      });
+
+      const promise = navigateHandler({ url, action: "goto" }, cdpClient, "s1");
+      await vi.advanceTimersByTimeAsync(10);
+      emitLifecycle({ frameId: "f1", loaderId: "l1", name: "networkIdle", timestamp: 1 });
+      await vi.advanceTimersByTimeAsync(500);
+      texts.push((await promise).content[0].text as string);
+    }
+
+    expect(texts[0]).toContain("Next: call view_page");
+    expect(texts[1]).toContain("Navigated to https://example.com/b");
+    expect(texts[1]).not.toContain("Next:");
   });
 
   it("should return isError when Page.navigate returns errorText", async () => {

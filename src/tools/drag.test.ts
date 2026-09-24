@@ -633,6 +633,16 @@ describe("drag tool (Story 18.6 FR-028, S6)", () => {
     expect(all[pause]?.[1]).toMatchObject({ awaitPromise: true, contextId: PROBE_CONTEXT_ID });
   });
 
+  // Stufe 2 H3 (Plancheck P14): the canvas note states what this drag did —
+  // it is no advice kind and comes every time.
+  it("Stufe 2 H3: the canvas note comes with every canvas drag, not once per session", async () => {
+    for (let i = 0; i < 2; i++) {
+      const { cdp } = mockCdpForDrag({ view: { w: 1200, h: 800, canvas: true }, probe: { mutationsInside: 0 } });
+      const result = await dragHandler({ from_x: 80, from_y: 150, to_x: 300, to_y: 200 }, cdp, "sess-1");
+      expect(text(result)).toContain("check with capture_image");
+    }
+  });
+
   it("S6: page gone after the drop (navigation) is reported, not claimed as plain success", async () => {
     const { cdp } = mockCdpForDrag({ navigates: true });
 

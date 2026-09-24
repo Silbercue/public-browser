@@ -132,15 +132,18 @@ describe("startServer integration (Story 12.4 — C1)", () => {
   function mockServerDeps(
     patternCount: number,
     scriptApi: () => unknown = () => ({ ScriptApiServer: vi.fn() }),
-  ): { instructions?: string } {
-    const captured: { instructions?: string } = {};
+  ): { instructions?: string; inner?: { oninitialized?: () => void } } {
+    const captured: { instructions?: string; inner?: { oninitialized?: () => void } } = {};
 
     vi.doMock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
       McpServer: vi.fn(function McpServerMock(_info: unknown, opts: { instructions?: string }) {
         captured.instructions = opts?.instructions;
+        // Stufe 2 H3: the inner low-level Server, where startServer hooks oninitialized.
+        captured.inner = {};
         return {
           connect: vi.fn().mockResolvedValue(undefined),
           close: vi.fn().mockResolvedValue(undefined),
+          server: captured.inner,
         };
       }),
     }));
@@ -192,6 +195,19 @@ describe("startServer integration (Story 12.4 — C1)", () => {
 
     expect(captured.instructions).toBeDefined();
     expect(captured.instructions).toContain("Cortex: 7 patterns loaded.");
+  });
+
+  it("Stufe 2 H3: a client initialize re-arms every tip and warning", async () => {
+    const captured = mockServerDeps(0);
+
+    const { startServer } = await import("./server.js");
+    await startServer();
+    const { hintLedger } = await import("./telemetry/hint-ledger.js");
+    hintLedger.claim("evaluate:dom-query");
+
+    expect(typeof captured.inner?.oninitialized).toBe("function");
+    captured.inner!.oninitialized!();
+    expect(hintLedger.claim("evaluate:dom-query")).toBe(true);
   });
 
   it("instructions omit cortex line when no patterns exist", async () => {

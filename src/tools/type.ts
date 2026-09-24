@@ -6,6 +6,7 @@ import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./eleme
 import { wrapCdpError } from "./error-utils.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
+import { HINT_KIND, hintLedger } from "../telemetry/hint-ledger.js";
 
 // --- Schema (Task 2) ---
 
@@ -201,6 +202,8 @@ function recordTypeCallAndMaybeHint(
     existing.lastAt = now;
     if (existing.count >= FILL_FORM_HINT_THRESHOLD && !existing.hintShown) {
       existing.hintShown = true;
+      // Stufe 2 H3: once per session, not once per streak.
+      if (!hintLedger.claim(HINT_KIND.fillForm)) return null;
       return `\n\nTip: ${existing.count} consecutive type calls into the same form in ${Math.round(FILL_FORM_HINT_WINDOW_MS / 1000)}s — next time try fill_form({ fields: [...] }) for one-round-trip form fills. It handles text inputs, <select>, checkbox, and radio natively, so you don't need evaluate or separate click calls.`;
     }
     return null;

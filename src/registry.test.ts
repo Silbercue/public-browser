@@ -10,6 +10,7 @@ import { a11yTree, A11yTreeProcessor, bindScriptTab, forgetScriptTab } from "./c
 import { prefetchSlot } from "./cache/prefetch-slot.js";
 import { deferredDiffSlot } from "./cache/deferred-diff-slot.js";
 import { toolSequence } from "./telemetry/tool-sequence.js";
+import { hintLedger, HINT_KIND } from "./telemetry/hint-ledger.js";
 import { frictionRecorder } from "./telemetry/friction-recorder.js";
 
 describe("ToolRegistry", () => {
@@ -33,6 +34,7 @@ describe("ToolRegistry", () => {
   beforeEach(() => {
     registerProHooks({});
     toolSequence.reset();
+    hintLedger.reset(); // Stufe 2 H3: every test starts a fresh MCP session
     process.env.SILBERCUE_CHROME_FULL_TOOLS = "true";
   });
   afterEach(() => {
@@ -3086,7 +3088,7 @@ describe("ToolRegistry", () => {
           ).toBe(false);
         });
 
-        it("streak-detector reset via navigate re-arms the hint", async () => {
+        it("Stufe 2 H3: navigate no longer re-arms the hint — it is advice, once per MCP session", async () => {
           const hook = vi.fn<NonNullable<ProHooks["onToolResult"]>>(
             async (_name, r, _ctx) => r,
           );
@@ -3103,7 +3105,7 @@ describe("ToolRegistry", () => {
               .some((c) => c.text.includes("No visible changes yet")),
           ).toBe(true);
 
-          // Navigate — resettet den Streak.
+          // Navigate — seit Stufe 2 H3 kein Reset mehr.
           const navResult: import("./types.js").ToolResponse = {
             content: [{ type: "text", text: "Navigated" }],
             _meta: { elapsedMs: 5, method: "navigate" },
@@ -3112,7 +3114,7 @@ describe("ToolRegistry", () => {
             _runOnToolResultHook: (r: unknown, name: string) => Promise<void>;
           })._runOnToolResultHook(navResult, "navigate");
 
-          // Zweiter Click nach navigate — Hint kommt zurueck.
+          // Zweiter Click nach navigate — kein Hint mehr.
           const second = makeClickResult("clickable");
           await (registry as unknown as {
             _runOnToolResultHook: (r: unknown, name: string) => Promise<void>;
@@ -3121,7 +3123,7 @@ describe("ToolRegistry", () => {
             second.content
               .filter((c): c is { type: "text"; text: string } => c.type === "text")
               .some((c) => c.text.includes("No visible changes yet")),
-          ).toBe(true);
+          ).toBe(false);
         });
 
         // Story 18.6 review-fix H2: Free-Tier path must also fire the
@@ -3161,11 +3163,9 @@ describe("ToolRegistry", () => {
           expect(texts.some((t) => t.includes("No visible changes yet"))).toBe(true);
         });
 
-        // Story 18.6 review-fix H1: run_plan with configure_session as an
-        // intermediate step must reset the streak. The previous code only
-        // reset in the wrap() closure (direct-MCP path) — run_plan goes
-        // through `executeTool()` which bypasses wrap().
-        it("H1 fix — executeTool(configure_session) resets the streak (run_plan path)", async () => {
+        // Stufe 2 H3 (replaces review-fix H1): configure_session is no new
+        // MCP session — the hint stays used up, on the run_plan path, too.
+        it("Stufe 2 H3: executeTool(configure_session) no longer re-arms the hint (run_plan path)", async () => {
           registerProHooks({});
           const mockServer = { tool: vi.fn() } as never;
           const mockCdpClient = { send: vi.fn() } as never;
@@ -3199,12 +3199,10 @@ describe("ToolRegistry", () => {
               .some((c) => c.text.includes("No visible changes yet")),
           ).toBe(false);
 
-          // Invoke executeTool(configure_session) — this is the run_plan
-          // entry point, NOT wrap(). Without the H1 fix this call would
-          // NOT reset the streak (streak lived only in wrap()).
+          // executeTool(configure_session) — the run_plan entry point.
           await registry.executeTool("configure_session", {});
 
-          // Third click — streak was reset, hint fires again.
+          // Third click — still no hint.
           const third = makeClickResult("clickable");
           await (registry as unknown as {
             _runOnToolResultHook: (r: unknown, name: string) => Promise<void>;
@@ -3213,13 +3211,12 @@ describe("ToolRegistry", () => {
             third.content
               .filter((c): c is { type: "text"; text: string } => c.type === "text")
               .some((c) => c.text.includes("No visible changes yet")),
-          ).toBe(true);
+          ).toBe(false);
         });
 
-        // Story 18.6 review-fix M3: switch_tab via executeTool also
-        // resets the FR-029 streak to prevent per-session flag leaks
-        // across long-running tab jumps.
-        it("M3 fix — executeTool(switch_tab) resets the streak", async () => {
+        // Stufe 2 H3 (replaces review-fix M3): a tab switch is no new MCP
+        // session either.
+        it("Stufe 2 H3: executeTool(switch_tab) no longer re-arms the hint", async () => {
           registerProHooks({});
           const mockServer = { tool: vi.fn() } as never;
           const mockCdpClient = { send: vi.fn() } as never;
@@ -3242,11 +3239,11 @@ describe("ToolRegistry", () => {
               .some((c) => c.text.includes("No visible changes yet")),
           ).toBe(true);
 
-          // switch_tab over executeTool: will fail due to missing CDP mock,
-          // but the streak reset runs BEFORE the handler call.
+          // switch_tab over executeTool: fails on the missing CDP mock —
+          // either way it no longer re-arms the hint.
           await registry.executeTool("switch_tab", { action: "open", url: "about:blank" });
 
-          // Next click sees the hint again.
+          // Next click: still no hint.
           const second = makeClickResult("clickable");
           await (registry as unknown as {
             _runOnToolResultHook: (r: unknown, name: string) => Promise<void>;
@@ -3255,7 +3252,7 @@ describe("ToolRegistry", () => {
             second.content
               .filter((c): c is { type: "text"; text: string } => c.type === "text")
               .some((c) => c.text.includes("No visible changes yet")),
-          ).toBe(true);
+          ).toBe(false);
         });
 
         // Story 18.6 review-fix M2: click-by-selector must NOT trigger
@@ -3287,35 +3284,26 @@ describe("ToolRegistry", () => {
           expect(texts.some((t) => t.includes("No visible changes yet"))).toBe(false);
         });
 
-        // Story 18.6 review-fix M3 (map growth): repeated switch_tab calls
-        // must keep `_fr029HintShown` bounded. The reset on every
-        // switch_tab is the mechanism — the map size never grows with
-        // call count.
-        it("M3 fix — repeated switch_tab calls keep the hint-map bounded", async () => {
-          registerProHooks({});
-          const mockServer = { tool: vi.fn() } as never;
-          const mockCdpClient = { send: vi.fn() } as never;
-          const registry = new ToolRegistry(
-            mockServer,
-            mockCdpClient,
-            "sess-m3-bounds",
-            {} as never,
+        // Stufe 2 H3 (replaces review-fix M3, map growth): the per-tab flag
+        // map is gone — the hint uses the session-wide ledger, kind
+        // click:no-visible-change.
+        it("Stufe 2 H3: the hint is the ledger kind click:no-visible-change", async () => {
+          const hook = vi.fn<NonNullable<ProHooks["onToolResult"]>>(
+            async (_name, r, _ctx) => r,
           );
-          registry.registerAll();
+          const registry = buildRegistryWithHook(hook);
+          expect(hintLedger.claim(HINT_KIND.clickNoVisibleChange)).toBe(true);
 
-          for (let i = 0; i < 100; i++) {
-            await registry.executeTool("switch_tab", {
-              action: "open",
-              url: "about:blank",
-            });
-          }
+          const result = makeClickResult("clickable");
+          await (registry as unknown as {
+            _runOnToolResultHook: (r: unknown, name: string) => Promise<void>;
+          })._runOnToolResultHook(result, "click");
 
-          // After 100 switch_tab calls the streak map is EMPTY (reset
-          // clears everything on every call).
-          const internal = registry as unknown as {
-            _fr029HintShown: Map<string, boolean>;
-          };
-          expect(internal._fr029HintShown.size).toBe(0);
+          expect(
+            result.content
+              .filter((c): c is { type: "text"; text: string } => c.type === "text")
+              .some((c) => c.text.includes("No visible changes yet")),
+          ).toBe(false);
         });
       });
 

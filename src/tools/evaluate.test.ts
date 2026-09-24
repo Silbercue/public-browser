@@ -3,6 +3,7 @@ import { evaluateHandler, evaluateSchema, wrapInIIFE, detectEvaluateAntiPattern 
 import type { CdpClient } from "../cdp/cdp-client.js";
 import { registerProHooks } from "../hooks/pro-hooks.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
+import { hintLedger } from "../telemetry/hint-ledger.js";
 import type { ToolResponse } from "../types.js";
 
 function mockCdpClient(
@@ -35,6 +36,7 @@ describe("evaluateHandler", () => {
   beforeEach(() => {
     registerProHooks({});
     toolSequence.reset();
+    hintLedger.reset();
   });
 
   it("should return string result from document.title", async () => {
@@ -258,6 +260,7 @@ describe("evaluateHandler visual feedback (Pro-Hook)", () => {
   beforeEach(() => {
     registerProHooks({});
     toolSequence.reset();
+    hintLedger.reset();
   });
 
   it("without enhanceEvaluateResult hook returns plain text result for style-change expression", async () => {
@@ -685,16 +688,12 @@ describe("detectEvaluateAntiPattern", () => {
     expect(hint).toMatch(/view_page|click|fill_form/);
   });
 
-  it("hints on .innerText read without DOM query", () => {
-    const hint = detectEvaluateAntiPattern("someVar.innerText");
-    expect(hint).not.toBeNull();
-    expect(hint).toMatch(/filter:\s*'all'/);
+  it("Stufe 2 H3: no longer hints on .innerText reads (evaluate is the cheaper read path)", () => {
+    expect(detectEvaluateAntiPattern("someVar.innerText")).toBeNull();
   });
 
-  it("hints on .textContent read", () => {
-    const hint = detectEvaluateAntiPattern("el.textContent");
-    expect(hint).not.toBeNull();
-    expect(hint).toMatch(/view_page/);
+  it("Stufe 2 H3: no longer hints on .textContent reads", () => {
+    expect(detectEvaluateAntiPattern("el.textContent")).toBeNull();
   });
 
   it("hints on Tests.foo.toString() introspection", () => {
@@ -883,6 +882,7 @@ describe("evaluateHandler anti-pattern hint integration", () => {
   beforeEach(() => {
     registerProHooks({});
     toolSequence.reset();
+    hintLedger.reset();
   });
 
   it("appends anti-pattern hint to result when DOM-querying interactive elements", async () => {
@@ -928,6 +928,7 @@ describe("evaluateHandler FR-045 streak escalation", () => {
   beforeEach(() => {
     registerProHooks({});
     toolSequence.reset();
+    hintLedger.reset();
   });
 
   /** Helper: drive N successful querySelector evaluates through the handler. */
@@ -954,6 +955,8 @@ describe("evaluateHandler FR-045 streak escalation", () => {
       result: { type: "number", value: 7 },
     }));
     toolSequence.reset();
+    // Stufe 2 H3: the warning above was the one allowed per session — re-arm it.
+    hintLedger.reset();
     // Now prime 2 evaluates so the next one lands at streak 3.
     await evaluateHandler(
       { expression: "document.querySelector('.a').textContent", await_promise: true },
@@ -1132,5 +1135,68 @@ describe("evaluateHandler FR-045 streak escalation", () => {
       );
     }
     expect(passthrough).toHaveBeenCalledTimes(3);
+  });
+});
+
+// Stufe 2 H3: Jede Tipp- und Warnungsart höchstens einmal pro MCP-Session.
+// run3 zeigte denselben Tipp 17× bzw. 15× — das Modell nutzte evaluate
+// nach dem ersten Tipp noch 18× auf dieselbe Art.
+describe("evaluateHandler — tips and warnings once per session (Stufe 2 H3)", () => {
+  beforeEach(() => {
+    registerProHooks({});
+    toolSequence.reset();
+    hintLedger.reset();
+  });
+
+  it("shows a tip kind on its first occurrence only", async () => {
+    const cdp = mockCdpClient(async () => ({ result: { type: "number", value: 2 } }));
+    const expr = "document.querySelectorAll('button').length";
+
+    const first = await evaluateHandler({ expression: expr, await_promise: true }, cdp, "s-h3");
+    toolSequence.reset(); // keep the streak out of this test
+    const second = await evaluateHandler({ expression: expr, await_promise: true }, cdp, "s-h3");
+
+    expect(first.content[0].text).toMatch(/^2\n\nTip: Interactive elements/);
+    expect(second.content[0].text).toBe("2");
+  });
+
+  it("still shows a different tip kind after one kind was used up", async () => {
+    const cdp = mockCdpClient(async () => ({ result: { type: "undefined" } }));
+    await evaluateHandler({ expression: "document.querySelectorAll('a').length", await_promise: true }, cdp, "s-h3");
+    toolSequence.reset();
+
+    const scroll = await evaluateHandler({ expression: "el.scrollIntoView()", await_promise: true }, cdp, "s-h3");
+
+    expect(scroll.content[0].text).toMatch(/Tip: Scrolling via JS\?/);
+    expect(scroll.content[0].text).not.toMatch(/Interactive elements/);
+  });
+
+  it("shows the streak Warning (tier 1) and the streak Notice (tier 2) once each", async () => {
+    const cdp = mockCdpClient(async () => ({ result: { type: "number", value: 7 } }));
+    const texts: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const r = await evaluateHandler({ expression: "document.querySelector('.x').id", await_promise: true }, cdp, "s-h3");
+      texts.push(r.content[0].text as string);
+    }
+    expect(texts.filter((t) => t.includes("Warning:"))).toHaveLength(1);
+    expect(texts.filter((t) => t.includes("Notice:"))).toHaveLength(1);
+    expect(texts[2]).toContain("Warning: 3 consecutive");
+    expect(texts[4]).toContain("Notice: 5 consecutive");
+    expect(texts[5]).toBe("7");
+  });
+
+  it("does not use up a tip on a tier-3 STOP response that could not show it", async () => {
+    const cdp = mockCdpClient(async () => ({ result: { type: "number", value: 7 } }));
+    for (let i = 0; i < 7; i++) {
+      await evaluateHandler({ expression: "document.querySelector('.x').id", await_promise: true }, cdp, "s-h3");
+    }
+    // 8. Aufruf = Tier 3 (STOP). Der Tipp zum JS-Klick darf dort nicht verbraucht werden …
+    const stop = await evaluateHandler({ expression: "document.querySelector('.x').click()", await_promise: true }, cdp, "s-h3");
+    expect(stop.isError).toBe(true);
+    expect(stop.content[0].text).toContain("STOP");
+    toolSequence.reset();
+    // … sondern erscheint beim nächsten normalen Aufruf.
+    const next = await evaluateHandler({ expression: "btn.click()", await_promise: true }, cdp, "s-h3");
+    expect(next.content[0].text).toMatch(/Tip: Dispatching click via JS\?/);
   });
 });

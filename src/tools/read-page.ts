@@ -8,6 +8,7 @@ import { foreignTabRefMessage, staleRefMessage } from "./element-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
 import { hintMatcher } from "../cortex/hint-matcher.js";
 import { debug } from "../cdp/debug.js";
+import { HINT_KIND, hintLedger } from "../telemetry/hint-ledger.js";
 
 export const readPageSchema = z.object({
   depth: z.number().optional().default(3).describe("Tree levels shown; indentation only, hidden sections need a click"),
@@ -80,7 +81,12 @@ export async function readPageHandler(
         );
         const hiddenCount = hiddenResult?.result?.value;
         if (typeof hiddenCount === "number" && hiddenCount >= 5) {
-          responseText += `\n\nNote: ${hiddenCount} interactive elements are hidden (display: none). Click tabs/buttons to reveal hidden sections.`;
+          // Stufe 2 H3: the count is state and comes every time; the advice
+          // after it comes once per MCP session.
+          responseText += `\n\nNote: ${hiddenCount} interactive elements are hidden (display: none).`;
+          if (hintLedger.claim(HINT_KIND.viewPageHiddenInteractive)) {
+            responseText += " Click tabs/buttons to reveal hidden sections.";
+          }
         }
       } catch {
         // Best-effort — ignore errors
@@ -90,7 +96,11 @@ export async function readPageHandler(
     // FR-022: Hint that visible text content (table cells, codes, labels) is filtered out by 'interactive'.
     // Prevents the LLM from reaching for evaluate/querySelector to read visible text.
     if (params.filter === "interactive" && (result.hiddenContentCount ?? 0) >= 5) {
-      responseText += `\n\nNote: ${result.hiddenContentCount} text/content nodes (table cells, paragraphs, static text) are not shown by filter:"interactive". If you need to read visible text content, call view_page(ref: "eN", filter: "all") on the subtree — don't fall back to evaluate/querySelector.`;
+      // Stufe 2 H3: the count comes every time, the advice once per MCP session.
+      responseText += `\n\nNote: ${result.hiddenContentCount} text/content nodes (table cells, paragraphs, static text) are not shown by filter:"interactive".`;
+      if (hintLedger.claim(HINT_KIND.viewPageHiddenContent)) {
+        responseText += ` If you need to read visible text content, call view_page(ref: "eN", filter: "all") on the subtree — don't fall back to evaluate/querySelector.`;
+      }
     }
 
     const elapsedMs = Math.round(performance.now() - start);

@@ -71,6 +71,7 @@ import { a11yTree, A11yTreeProcessor, scriptTabOf, runInTabOf } from "./cache/a1
 import { prefetchSlot } from "./cache/prefetch-slot.js";
 import { deferredDiffSlot } from "./cache/deferred-diff-slot.js";
 import { frictionRecorder } from "./telemetry/friction-recorder.js";
+import { HINT_KIND, hintLedger, withoutHintDelivery } from "./telemetry/hint-ledger.js";
 import { debug } from "./cdp/debug.js";
 
 /**
@@ -319,21 +320,6 @@ export class ToolRegistry implements ToolRegistryPublic {
   readonly planStateStore = new PlanStateStore();
 
   /**
-   * Story 18.6 (FR-029): Per-Session-Flag fuer den AJAX-Race-Hint.
-   *
-   * Der Hint wird pro Session genau einmal angehaengt — ein zweiter Click
-   * mit leerem Diff bekommt ihn nicht mehr (sonst wird er zum Rauschen und
-   * der LLM ignoriert ihn bei echten No-Op-Clicks). Reset passiert via
-   * `navigate`, `a11yTree.reset()`-Pfad und expliziten `configure_session`-
-   * Call — identisch zum Pattern aus FR-020 (`tool-sequence.ts`).
-   *
-   * Key-Konvention: `sessionId` der aktuellen BrowserSession. Bei Tab-
-   * Switch bekommt jede Session ihren eigenen Flag, weil `sessionId` sich
-   * mit dem Tab aendert.
-   */
-  private _fr029HintShown = new Map<string, boolean>();
-
-  /**
    * Story 15.2: Delegate for `registerTool()` — set during `registerAll()`
    * so it has access to the wrap() closure (dialog injection, response_bytes,
    * session defaults). Hook consumers call `registerTool()` from within
@@ -563,7 +549,22 @@ export class ToolRegistry implements ToolRegistryPublic {
    * onToolResult-Hook nach dem Tool-Handler NICHT aufgerufen (`run_plan` nutzt das
    * fuer Zwischen-Steps). Siehe `docs/friction-fixes.md#FR-033`.
    */
-  async executeTool(
+  executeTool(
+    name: string,
+    params: Record<string, unknown>,
+    sessionIdOverride?: string,
+    options?: ExecuteToolOptions,
+  ): Promise<ToolResponse> {
+    // Stufe 2 H3 / Plancheck P15: executeTool serves run_plan steps and the
+    // Script API. Neither hands this response to the model whole at top level
+    // (run_plan shows the first line of an OK step, Python cuts hints off), so
+    // hints appended here are not used up — the next direct MCP call (wrap())
+    // may still show them. The Node library shares this path; its hints keep
+    // coming every time, as before.
+    return withoutHintDelivery(() => this._executeTool(name, params, sessionIdOverride, options));
+  }
+
+  private async _executeTool(
     name: string,
     params: Record<string, unknown>,
     sessionIdOverride?: string,
@@ -579,20 +580,6 @@ export class ToolRegistry implements ToolRegistryPublic {
       };
     }
 
-    // Story 18.6 review-fix H1: FR-029 streak-detector reset on session-
-    // boundary tools. This lives in `executeTool()` (not only in the
-    // `wrap()` closure) so that `run_plan` steps with
-    // `configure_session` / `switch_tab` reset the streak consistently
-    // with direct MCP calls. The `navigate` reset stays in
-    // `_runOnToolResultHook` because it is co-located with the
-    // `a11yTree.reset()` call and fires for both paths via the hook.
-    //
-    // Review-fix M3: `switch_tab` also resets so the hint map does not
-    // accumulate stale entries when the caller jumps between tabs —
-    // each fresh tab starts with a re-armed hint.
-    if (name === "configure_session" || name === "switch_tab") {
-      this._resetFr029Streak();
-    }
     // Lazy-launch: ensure Chrome is reachable before the handler runs.
     // On a fresh session this triggers the first ChromeLauncher.connect().
     // On an established session with a lost connection, BrowserSession
@@ -829,15 +816,13 @@ export class ToolRegistry implements ToolRegistryPublic {
     // invalidieren laesst, auch wenn der Ambient-Context-Hook uebersprungen
     // wird.
     //
-    // Story 18.6 (FR-029): Der FR-029-Streak-Detector wird bei navigate
-    // ebenfalls zurueckgesetzt — neue Seite, neuer Orientierungsbedarf fuer
-    // den LLM. Identisch zum Muster aus FR-020 (`tool-sequence.ts`).
+    // Stufe 2 H3: navigate no longer re-arms the FR-029 hint — it is advice
+    // and shows once per MCP session (hint ledger), not once per page.
     if (name === "navigate") {
       // P5: inside runInTabOf() for a Script-API session this resets that
       // tab's table only; the MCP tab keeps its refs, hint state and diff.
       a11yTree.reset();
       if (!scriptTab) {
-        this._resetFr029Streak();
         // Story 20.1: Cancel any pending deferred diff — the page changed,
         // the old diff is stale.
         deferredDiffSlot.cancel();
@@ -959,31 +944,12 @@ export class ToolRegistry implements ToolRegistryPublic {
     if (blocks.length !== 1) return;
     if (blocks[0]?.type !== "text") return;
 
-    // Streak-Detector: einmal pro Session zeigen.
-    let sessionKey: string;
-    try {
-      sessionKey = this._browserSession.sessionId;
-    } catch {
-      // Legacy-test path: kein BrowserSession-sessionId verfuegbar.
-      sessionKey = "legacy-test-session";
-    }
-    if (this._fr029HintShown.get(sessionKey) === true) return;
-    this._fr029HintShown.set(sessionKey, true);
+    // Stufe 2 H3: advice — once per MCP session via the hint ledger. The
+    // former per-tab flag, re-armed by navigate, switch_tab and
+    // configure_session, let the hint come back on every new page.
+    if (!hintLedger.claim(HINT_KIND.clickNoVisibleChange)) return;
 
     result.content.push({ type: "text", text: FR029_AJAX_RACE_HINT });
-  }
-
-  /**
-   * Story 18.6 (FR-029): Reset des Streak-Detectors fuer eine Session.
-   * Wird aufgerufen bei `configure_session`, `navigate` (ueber a11yTree.reset)
-   * und bei Tab-Switch — identisch zum Muster aus FR-020.
-   */
-  private _resetFr029Streak(sessionId?: string): void {
-    if (sessionId !== undefined) {
-      this._fr029HintShown.delete(sessionId);
-    } else {
-      this._fr029HintShown.clear();
-    }
   }
 
   /**
@@ -1214,23 +1180,10 @@ export class ToolRegistry implements ToolRegistryPublic {
         try {
           // H2 fix: Skip trackCall/resolveParams for meta-tools
           if (name === "configure_session") {
-            // Story 18.6 (FR-029): configure_session resettet den
-            // AJAX-Race-Hint-Streak-Detector — der User hat explizit
-            // Session-Defaults angefasst, neuer Kontext.
-            this._resetFr029Streak();
             const result = await dialogWrapped(params);
             injectResponseBytes(result);
             injectRelaunchNotice(result);
             return result;
-          }
-          // Story 18.6 review-fix M3: switch_tab also resets the FR-029
-          // streak-detector state. Without this reset the `_fr029HintShown`
-          // map would accumulate stale per-session entries across long-
-          // running sessions and every new tab would inherit a stale
-          // "hint-already-shown" flag (or, depending on session-key
-          // stability, leak memory indefinitely).
-          if (name === "switch_tab") {
-            this._resetFr029Streak();
           }
           // Track call for auto-promote analysis
           sessionDefaults.trackCall(name, params as unknown as Record<string, unknown>);
@@ -1639,8 +1592,9 @@ export class ToolRegistry implements ToolRegistryPublic {
           }
         }
         const result = await screenshotHandler(params as unknown as ScreenshotParams, this.cdpClient, this.sessionId, this._browserSession.sessionManager);
-        // Preventive hint: capture_image cannot drive click/type — steer back to view_page
-        if (!result.isError && result.content?.length > 0) {
+        // Preventive hint: capture_image cannot drive click/type — steer back to view_page.
+        // Stufe 2 H3: advice — at most once per session.
+        if (!result.isError && result.content?.length > 0 && hintLedger.claim(HINT_KIND.captureImageStop)) {
           const somHint = (params as unknown as ScreenshotParams).som
             ? " SoM labels match view_page refs — pass them to click/type directly."
             : " Add som: true to overlay numbered ref labels matching view_page.";

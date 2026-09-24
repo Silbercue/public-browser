@@ -19,6 +19,7 @@ import { hintMatcher } from "./cortex/hint-matcher.js";
 import { loadCommunityMarkov } from "./cortex/community-loader.js";
 import { markovTable } from "./cortex/markov-table.js";
 import { frictionRecorder } from "./telemetry/friction-recorder.js";
+import { resetHintLedgerOnInitialize } from "./telemetry/hint-ledger.js";
 import {
   ConfigError,
   resolveCdpHost,
@@ -301,6 +302,9 @@ export async function startServer(options?: StartServerOptions): Promise<void> {
       instructions: buildInstructions(hintMatcher.patternCount),
     },
   );
+  // Stufe 2 H3: a client (re)initializing this server starts a new session —
+  // every advice kind may show once again.
+  resetHintLedgerOnInitialize(server);
 
   // 3c. Friction-Session-Tracking (opt-in, dev-only): No-op ohne
   //     SILBERCUE_CHROME_FRICTION_LOG. Siehe docs/friction-session-tracking-plan.md.

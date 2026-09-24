@@ -5,6 +5,7 @@ import { a11yTree } from "../cache/a11y-tree.js";
 import type { AXNode } from "../cache/a11y-tree.js";
 import { markovTable } from "../cortex/markov-table.js";
 import type { CortexPattern } from "../cortex/cortex-types.js";
+import { hintLedger } from "../telemetry/hint-ledger.js";
 
 function makeDomSnapshot(elements: Array<{
   backendNodeId: number;
@@ -193,6 +194,7 @@ describe("readPageSchema", () => {
 describe("readPageHandler", () => {
   beforeEach(() => {
     a11yTree.resetAll();
+    hintLedger.reset(); // Stufe 2 H3: every test starts a fresh MCP session
   });
 
   // Test 5: Default handler response
@@ -884,6 +886,34 @@ describe("readPageHandler", () => {
     expect(result.content[0].text).not.toContain("hidden");
   });
 
+  // Stufe 2 H3 (Plancheck P14): the count is state and comes every time,
+  // the advice after it once per MCP session.
+  it("Stufe 2 H3: the hidden-elements count comes every time, the advice once per session", async () => {
+    const cdp = {
+      send: vi.fn().mockImplementation((method: string, params?: Record<string, unknown>) => {
+        if (method === "Runtime.evaluate") {
+          const expr = (params?.expression as string) ?? "";
+          if (expr.includes("offsetParent")) return Promise.resolve({ result: { value: 82 } });
+          return Promise.resolve({ result: { value: "https://example.com/h3-hidden" } });
+        }
+        if (method === "Accessibility.getFullAXTree") return Promise.resolve({ nodes: sampleNodes });
+        return Promise.resolve({});
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const first = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+    const second = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+
+    expect(first.content[0].text).toContain(
+      "Note: 82 interactive elements are hidden (display: none). Click tabs/buttons to reveal hidden sections.",
+    );
+    expect(second.content[0].text).toContain("Note: 82 interactive elements are hidden (display: none).");
+    expect(second.content[0].text).not.toContain("Click tabs/buttons");
+  });
+
   // FR-022: Hint that visible text content was filtered out by filter:interactive.
   // Prevents the LLM from falling back to evaluate/querySelector to read visible text.
   describe("FR-022: hidden content nodes hint", () => {
@@ -949,6 +979,18 @@ describe("readPageHandler", () => {
       expect(text).toMatch(/text\/content nodes/);
       expect(text).toMatch(/filter:\s*"all"/);
       expect(text).toMatch(/don't fall back to evaluate/);
+    });
+
+    it("Stufe 2 H3: the hidden-content count comes every time, the advice once per session", async () => {
+      a11yTree.reset();
+      const cdp = mockCdpClient(contentHeavyNodes, "https://example.com/h3-content");
+      const first = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+      const second = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+
+      expect(first.content[0].text).toMatch(/Note: \d+ text\/content nodes/);
+      expect(first.content[0].text).toMatch(/don't fall back to evaluate/);
+      expect(second.content[0].text).toMatch(/Note: \d+ text\/content nodes/);
+      expect(second.content[0].text).not.toMatch(/don't fall back to evaluate/);
     });
 
     it("does NOT append content-hidden hint for filter=all", async () => {

@@ -5,6 +5,7 @@ import { settle } from "../cdp/settle.js";
 import type { SettleResult } from "../cdp/settle.js";
 import { wrapCdpError } from "./error-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
+import { HINT_KIND, hintLedger } from "../telemetry/hint-ledger.js";
 import { hintMatcher } from "../cortex/hint-matcher.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { debug } from "../cdp/debug.js";
@@ -258,7 +259,10 @@ async function buildSuccessResponse(
     text += " (page not fully settled)";
   }
 
-  text += "\nNext: call view_page to see the page content and interactive elements, or evaluate() to check JavaScript state.";
+  // Stufe 2 H3 (Plancheck P14): advice — once per MCP session.
+  if (hintLedger.claim(HINT_KIND.navigateNext)) {
+    text += "\nNext: call view_page to see the page content and interactive elements, or evaluate() to check JavaScript state.";
+  }
 
   toolSequence.record("navigate", undefined, sessionId);
 

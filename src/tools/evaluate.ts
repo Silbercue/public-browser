@@ -8,6 +8,7 @@ import {
   hasQuerySelectorPattern,
   toolSequence,
 } from "../telemetry/tool-sequence.js";
+import { HINT_KIND, hintLedger } from "../telemetry/hint-ledger.js";
 
 /**
  * Detects top-level const/let/class declarations and wraps the expression in
@@ -94,17 +95,28 @@ export const evaluateSchema = z.object({
     .describe("Whether to await Promise results"),
 });
 
+/** Stufe 2 H3: one evaluate tip with its kind (see HINT_KIND) for the once-per-session ledger. */
+export interface EvaluateTip {
+  kind: string;
+  text: string;
+}
+
 /**
  * FR-024: Detect common evaluate anti-patterns where a dedicated tool would be better.
- * Returns a hint string appended to the evaluate result, or null if no pattern matched.
- * Intent: "what you did isn't wrong, but there's a more reliable tool for this".
+ * Returns every matching tip; the handler shows each kind at most once per
+ * session (Stufe 2 H3). Intent: "what you did isn't wrong, but there's a more
+ * reliable tool for this".
  *
  * Design: be specific enough to avoid false positives on legitimate DOM work
  * (e.g. `document.querySelector('.card').style.width = '200px'` is NOT an
  * anti-pattern — it's a style edit that no other tool covers).
+ *
+ * Stufe 2 H3: the former Pattern 2 ("Reading .innerText/.textContent? … Try
+ * view_page") is gone — reading text via evaluate is the cheaper path, and in
+ * run3 the tip came 17× without changing anything.
  */
-export function detectEvaluateAntiPattern(expression: string): string | null {
-  const hints: string[] = [];
+export function detectEvaluateAntiPatterns(expression: string): EvaluateTip[] {
+  const tips: EvaluateTip[] = [];
 
   // Pattern 1A: Bulk element discovery via querySelectorAll / getElementsByXxx.
   // This is read_page's core job — stable refs survive, selectors don't.
@@ -123,36 +135,30 @@ export function detectEvaluateAntiPattern(expression: string): string | null {
     /\bdocument\.(querySelector|getElementById)\s*\([^)]*\)\s*(?:\?\.)?\s*\.(click\s*\(|focus\s*\(|blur\s*\(|submit\s*\(|value\b|checked\b|selectedIndex\b|disabled\b|selected\b)/.test(expression);
 
   if (bulkDiscovery || querySelectorForTag || queryThenInteract) {
-    hints.push(
-      "Interactive elements (buttons, links, inputs) are already surfaced as stable refs by view_page. Try click(ref: 'eN') or fill_form(fields: [...]) instead of DOM queries — refs survive layout changes, selectors don't.",
-    );
-  }
-
-  // Pattern 2: Reading innerText/textContent to extract visible text.
-  // filter:'all' on a subtree ref exposes the same text without a second round-trip.
-  // Require a leading dot so that string literals mentioning the word don't trigger.
-  if (/[.?]\s*(innerText|textContent)\b(?!\s*=)/.test(expression)) {
-    hints.push(
-      "Reading .innerText/.textContent? The a11y tree already contains visible text. Try view_page(ref: 'eN', filter: 'all') — table cells, static codes, paragraphs all show up with stable refs.",
-    );
+    tips.push({
+      kind: HINT_KIND.domQuery,
+      text: "Interactive elements (buttons, links, inputs) are already surfaced as stable refs by view_page. Try click(ref: 'eN') or fill_form(fields: [...]) instead of DOM queries — refs survive layout changes, selectors don't.",
+    });
   }
 
   // Pattern 3: Inspecting function source via .toString() on a Tests.* / test harness function.
   // This is usually "the LLM is reverse-engineering the test instead of reading the UI".
   if (/\b(Tests?|Benchmark|Spec)\b[\w.]*\.toString\s*\(\s*\)/.test(expression) ||
       /\bfunction[\s\S]{0,80}\.toString\s*\(\s*\)/.test(expression)) {
-    hints.push(
-      "Reading test/function source via .toString()? The visible UI usually has the task description (e.g. .test-desc text). Try view_page(ref, filter:'all') first — don't debug the test harness.",
-    );
+    tips.push({
+      kind: HINT_KIND.testSource,
+      text: "Reading test/function source via .toString()? The visible UI usually has the task description (e.g. .test-desc text). Try view_page(ref, filter:'all') first — don't debug the test harness.",
+    });
   }
 
   // Pattern 4: Scrolling via element.scrollIntoView() or container.scrollTop = N.
   // The scroll tool handles both patterns with ref-based targeting and smooth fallback.
   if (/\.scrollIntoView\s*\(/.test(expression) ||
       /\.scrollTop\s*=\s*\d/.test(expression)) {
-    hints.push(
-      "Scrolling via JS? The scroll tool supports ref/selector and container scrolling — scroll(ref: 'eN') or scroll(container_ref: 'eN', direction: 'down').",
-    );
+    tips.push({
+      kind: HINT_KIND.jsScroll,
+      text: "Scrolling via JS? The scroll tool supports ref/selector and container scrolling — scroll(ref: 'eN') or scroll(container_ref: 'eN', direction: 'down').",
+    });
   }
 
   // Pattern 5: Dispatching click events via .click() or dispatchEvent(new MouseEvent).
@@ -160,9 +166,10 @@ export function detectEvaluateAntiPattern(expression: string): string | null {
   // that only listen to pointerdown/mousedown.
   if (/\.click\s*\(\s*\)/.test(expression) ||
       /dispatchEvent\s*\(\s*new\s+(Mouse|Pointer)Event/.test(expression)) {
-    hints.push(
-      "Dispatching click via JS? The click tool fires the full CDP pointer chain (pointerdown → mousedown → pointerup → mouseup → click), which works with custom widgets that DOM .click() silently skips.",
-    );
+    tips.push({
+      kind: HINT_KIND.jsClick,
+      text: "Dispatching click via JS? The click tool fires the full CDP pointer chain (pointerdown → mousedown → pointerup → mouseup → click), which works with custom widgets that DOM .click() silently skips.",
+    });
   }
 
   // Pattern 7: Dialog/alert handling via JS override.
@@ -171,9 +178,10 @@ export function detectEvaluateAntiPattern(expression: string): string | null {
   // dialogs, they can't dismiss one that's already open.
   if (/\bwindow\.(alert|confirm|prompt)\s*=/.test(expression) ||
       /\balert\s*\(\s*['"`]/.test(expression)) {
-    hints.push(
-      "Handling browser dialogs? Use handle_dialog(action: 'dismiss') or handle_dialog(action: 'accept') — it hooks into CDP Page.javascriptDialogOpening and works even when the dialog blocks JS execution. evaluate-based overrides (window.alert = ...) only prevent future dialogs.",
-    );
+    tips.push({
+      kind: HINT_KIND.dialog,
+      text: "Handling browser dialogs? Use handle_dialog(action: 'dismiss') or handle_dialog(action: 'accept') — it hooks into CDP Page.javascriptDialogOpening and works even when the dialog blocks JS execution. evaluate-based overrides (window.alert = ...) only prevent future dialogs.",
+    });
   }
 
   // Pattern 8: Page-level scrolling via window.scrollTo/scrollBy.
@@ -184,9 +192,10 @@ export function detectEvaluateAntiPattern(expression: string): string | null {
       /\bdocument\.(documentElement|body)\.scroll(Top|Height)\s*[=+]/.test(expression)) {
     // Don't fire if we already hinted Pattern 4 (scrollIntoView)
     if (!/\.scrollIntoView\s*\(/.test(expression)) {
-      hints.push(
-        "Scrolling the page? Use scroll(direction: 'down', amount: 500) — it returns current position and whether new content loaded (scrollHeight grew by Npx). For infinite-scroll pages: repeat scroll calls until scrollHeight stabilizes.",
-      );
+      tips.push({
+        kind: HINT_KIND.pageScroll,
+        text: "Scrolling the page? Use scroll(direction: 'down', amount: 500) — it returns current position and whether new content loaded (scrollHeight grew by Npx). For infinite-scroll pages: repeat scroll calls until scrollHeight stabilizes.",
+      });
     }
   }
 
@@ -197,13 +206,27 @@ export function detectEvaluateAntiPattern(expression: string): string | null {
   const hasFetch = /\bfetch\s*\(/.test(expression) || /new\s+XMLHttpRequest\s*\(/.test(expression);
   const hasAuthSignals = /\b(credentials|Authorization|x-.*token|xsrf|csrf|X-Requested-With)\b/i.test(expression);
   if (hasFetch && hasAuthSignals) {
-    hints.push(
-      "Struggling with authenticated requests? For same-origin fetch: cookies are sent automatically with { credentials: 'include' }. CSRF/XSRF tokens are typically in sessionStorage (check sessionStorage.getItem('...')). For discovering API endpoints: use network_monitor(action: 'start') before clicking the button, then network_monitor(action: 'get', pattern: 'api') to see captured URLs.",
-    );
+    tips.push({
+      kind: HINT_KIND.authFetch,
+      text: "Struggling with authenticated requests? For same-origin fetch: cookies are sent automatically with { credentials: 'include' }. CSRF/XSRF tokens are typically in sessionStorage (check sessionStorage.getItem('...')). For discovering API endpoints: use network_monitor(action: 'start') before clicking the button, then network_monitor(action: 'get', pattern: 'api') to see captured URLs.",
+    });
   }
 
-  if (hints.length === 0) return null;
-  return "\n\nTip: " + hints.join("\n\nTip: ");
+  return tips;
+}
+
+/** Formats tips as appended text ("\n\nTip: …" per tip), or null without tips. */
+function formatTips(tips: EvaluateTip[]): string | null {
+  if (tips.length === 0) return null;
+  return "\n\nTip: " + tips.map((t) => t.text).join("\n\nTip: ");
+}
+
+/**
+ * FR-024: all matching tips as one appended string (no session filter) —
+ * kept for callers and tests that want the plain detector.
+ */
+export function detectEvaluateAntiPattern(expression: string): string | null {
+  return formatTips(detectEvaluateAntiPatterns(expression));
 }
 
 export type EvaluateParams = z.infer<typeof evaluateSchema>;
@@ -283,7 +306,8 @@ export async function evaluateHandler(
     // FR-024: Detect evaluate anti-patterns and append actionable hints so the
     // LLM learns better defaults over time. The result stays correct — this is
     // a "what you did isn't wrong, but there's a better tool" nudge.
-    const antiPatternHint = detectEvaluateAntiPattern(params.expression);
+    // Stufe 2 H3: collected here, claimed only where they are really shown.
+    const candidateTips = detectEvaluateAntiPatterns(params.expression);
 
     // BUG-018: Anti-Spiral telemetry — record the call BEFORE reading the
     // streak so the current call is part of the count. Flag the event when
@@ -328,7 +352,11 @@ export async function evaluateHandler(
       isError = true;
     } else {
       // Tier 0/1/2: normal path — append anti-pattern hint + streak text.
-      finalText = text + (antiPatternHint ?? "") + (streakResponse.text ?? "");
+      // Stufe 2 H3: every tip kind and each streak tier at most once per session.
+      const antiPatternHint = formatTips(candidateTips.filter((t) => hintLedger.claim(t.kind)));
+      const streakKind = streakResponse.tier === 1 ? HINT_KIND.streakWarning : HINT_KIND.streakNotice;
+      const streakText = streakResponse.text && hintLedger.claim(streakKind) ? streakResponse.text : "";
+      finalText = text + (antiPatternHint ?? "") + streakText;
     }
 
     const baseResult: ToolResponse = {

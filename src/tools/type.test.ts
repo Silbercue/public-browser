@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { typeSchema, typeHandler, _resetTypeStreaks } from "./type.js";
+import { hintLedger } from "../telemetry/hint-ledger.js";
 import type { TypeParams } from "./type.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 
@@ -824,7 +825,21 @@ describe("typeHandler", () => {
   describe("fill_form streak hint (form-scoped)", () => {
     beforeEach(() => {
       _resetTypeStreaks();
+      hintLedger.reset();
       mockResolveElement.mockResolvedValue(mockTextbox());
+    });
+
+    it("Stufe 2 H3: shows the fill_form tip once per session, not once per streak", async () => {
+      const cdpA = createMockCdp({}, { formId: "form-H3a" });
+      await typeHandler({ ref: "e1", text: "a", clear: false } as TypeParams, cdpA.cdpClient, "session-H3");
+      const firstStreak = await typeHandler({ ref: "e2", text: "b", clear: false } as TypeParams, cdpA.cdpClient, "session-H3");
+      expect(firstStreak.content[0].text).toMatch(/Tip: 2 consecutive type calls/);
+
+      // Neuer Streak in einem anderen Formular derselben Session: kein zweiter Tipp.
+      const cdpB = createMockCdp({}, { formId: "form-H3b" });
+      await typeHandler({ ref: "e3", text: "c", clear: false } as TypeParams, cdpB.cdpClient, "session-H3");
+      const secondStreak = await typeHandler({ ref: "e4", text: "d", clear: false } as TypeParams, cdpB.cdpClient, "session-H3");
+      expect(secondStreak.content[0].text).not.toMatch(/fill_form/);
     });
 
     it("does NOT emit the hint on the first type call", async () => {

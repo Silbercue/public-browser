@@ -281,6 +281,20 @@ describe("S7: Control shortcuts on macOS", () => {
     expect(text).not.toContain("Shift");
   });
 
+  // Stufe 2 H3 (Plancheck P14): the Meta hint states what this key press did —
+  // it is no advice kind and comes every time.
+  it("Stufe 2 H3: the Meta hint comes with every ineffective Control+B, not once per session", async () => {
+    setPlatform("darwin");
+    const same = "h:Hello World|6-11:5";
+    const { cdpClient } = mockWithEditorStates([same, same, same, same]);
+
+    const first = await pressKeyHandler({ key: "b", modifiers: ["ctrl"] }, cdpClient, "s1");
+    const second = await pressKeyHandler({ key: "b", modifiers: ["ctrl"] }, cdpClient, "s1");
+
+    expect((first.content[0] as { text: string }).text).toContain("On macOS use Meta instead of Control");
+    expect((second.content[0] as { text: string }).text).toContain("On macOS use Meta instead of Control");
+  });
+
   it("Control+B that changed the editor gets no hint", async () => {
     setPlatform("darwin");
     const { cdpClient } = mockWithEditorStates(["h:Hello World|6-11:5", "h:Hello <b>World</b>|0-5:5"]);
