@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { A11yTreeProcessor } from "./a11y-tree.js";
+import { A11yTreeProcessor, ENRICH_TEXT_FN } from "./a11y-tree.js";
 import type { AXNode } from "./a11y-tree.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
 
@@ -550,21 +550,21 @@ describe("H2 — andere Filter und Teilbäume", () => {
 
   // Fix M5: under filter "all" only text that stands nowhere in the output counts.
   describe("TRUNCATED under filter all", () => {
-    const TASK = "Aufgabe T9.9\nLies den Code aus dem versteckten Feld und trage ihn unten in das Eingabefeld ein, dann Verify.";
-    function enriched(textIgnored: boolean): CdpClient {
-      const nodes: AXNode[] = [
-        node(1, "RootWebArea", "M5", [2]),
-        { ...node(2, "generic", undefined, [3], 1) },
-        { ...node(3, "StaticText", TASK.replace("\n", " "), [], 2), ignored: textIgnored },
-      ];
+    /** Page with one clickable container (backendNodeId 2) enriched with `text`; `hiddenLen` = aria-hidden/inert text inside. */
+    function enrichedCdp(nodes: AXNode[], text: string, hiddenLen?: number): CdpClient {
       return {
-        send: vi.fn(async (method: string) => {
+        send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
           switch (method) {
             case "Runtime.evaluate": return { result: { value: "https://example.com/m5" } };
             case "Accessibility.getFullAXTree": return { nodes };
-            case "DOM.describeNode": return { node: { attributes: ["onclick", "go()"] } };
-            case "DOM.resolveNode": return { object: { objectId: "obj-2" } };
-            case "Runtime.callFunctionOn": return { result: { value: `${TASK.slice(0, 80)}\x00${TASK.length}` } };
+            case "DOM.describeNode":
+              return { node: { attributes: params?.backendNodeId === 2 ? ["onclick", "go()"] : [] } };
+            case "DOM.resolveNode": return { object: { objectId: `obj-${params?.backendNodeId as number}` } };
+            case "Runtime.callFunctionOn": {
+              if (params?.objectId !== "obj-2") return { result: {} };
+              const tail = hiddenLen === undefined ? "" : `\x00${hiddenLen}`;
+              return { result: { value: `${text.slice(0, 80)}\x00${text.length}${tail}` } };
+            }
             default: return {};
           }
         }),
@@ -572,67 +572,176 @@ describe("H2 — andere Filter und Teilbäume", () => {
       } as unknown as CdpClient;
     }
 
-    const hiddenMarker = (indent: number, ref: string) => new RegExp(
-      `^ {${indent}}\\[${ref}\\] generic "Aufgabe T9\\.9"\\n {${indent + 2}}\\[!\\] TRUNCATED \\+${TASK.length - "Aufgabe T9.9".length} chars$`, "m");
+    const TASK = "Aufgabe T9.9\nLies den Code aus dem versteckten Feld und trage ihn unten in das Eingabefeld ein, dann Verify.";
+    const HIDDEN_TASK = TASK.slice("Aufgabe T9.9\n".length);
+    function taskCard(textIgnored: boolean): CdpClient {
+      return enrichedCdp([
+        node(1, "RootWebArea", "M5", [2]),
+        node(2, "generic", undefined, [3], 1),
+        { ...node(3, "StaticText", HIDDEN_TASK, [], 2), ignored: textIgnored },
+      ], TASK, textIgnored ? HIDDEN_TASK.length : 0);
+    }
+    // The whole task is aria-hidden: the name keeps its 80 chars, the marker counts the rest past 80.
+    const hiddenMarker = (indent: number, ref: string) =>
+      `${" ".repeat(indent)}[${ref}] generic "${TASK.slice(0, 80)}"\n${" ".repeat(indent + 2)}[!] TRUNCATED +${TASK.length - 80} chars\n`;
 
-    it("page view: counts text that stands nowhere in the output (not in the AX tree) and points at no call", async () => {
+    it("page view: aria-hidden text keeps the full 80-char name, counts the rest past 80 and points at no call", async () => {
       expect(TASK.length).toBeGreaterThan(80);
       const proc = new A11yTreeProcessor();
-      const page = await proc.getTree(enriched(true), "s1", { filter: "all", depth: 1, fresh: true });
-      expect(page.text).toMatch(hiddenMarker(2, proc.getRefForBackendNodeId(2, "s1")!));
+      const page = await proc.getTree(taskCard(true), "s1", { filter: "all", depth: 1, fresh: true });
+      expect(page.text + "\n").toContain(hiddenMarker(2, proc.getRefForBackendNodeId(2, "s1")!));
     });
 
-    it("subtree view_page(ref, filter all): same count, no pointer back at itself", async () => {
+    it("subtree view_page(ref, filter all): same line and count, no pointer back at itself", async () => {
       const proc = new A11yTreeProcessor();
-      const cdp = enriched(true);
+      const cdp = taskCard(true);
       await proc.getTree(cdp, "s1", { filter: "all", fresh: true });
       const ref = proc.getRefForBackendNodeId(2, "s1")!;
       const sub = await proc.getTree(cdp, "s1", { filter: "all", ref });
-      expect(sub.text).toMatch(hiddenMarker(0, ref));
+      expect(sub.text + "\n").toContain(hiddenMarker(0, ref));
     });
 
-    // Fix-Runde 1 (Review I1): part of the text is aria-hidden between two visible texts.
-    it("counts partly hidden text (aria-hidden price between two visible texts) without a call", async () => {
+    // Review I1: an aria-hidden price between two visible texts now stands in the (uncut) name.
+    it("(e) aria-hidden price between two visible texts stands in the name", async () => {
       const PRICE = "Preis nur sichtbar: 19,99 EUR inklusive Versand und Steuern";
       const TEXT = `Card title\n${PRICE}\nMehr lesen`;
-      const nodes: AXNode[] = [
+      const proc = new A11yTreeProcessor();
+      const page = await proc.getTree(enrichedCdp([
         node(1, "RootWebArea", "I1", [2]),
         node(2, "generic", undefined, [3, 4, 5], 1),
         node(3, "StaticText", "Card title", [], 2),
         { ...node(4, "StaticText", PRICE, [], 2), ignored: true },
         node(5, "StaticText", "Mehr lesen", [], 2),
-      ];
-      const cdp = {
-        send: vi.fn(async (method: string) => {
-          switch (method) {
-            case "Runtime.evaluate": return { result: { value: "https://example.com/i1" } };
-            case "Accessibility.getFullAXTree": return { nodes };
-            case "DOM.describeNode": return { node: { attributes: ["onclick", "go()"] } };
-            case "DOM.resolveNode": return { object: { objectId: "obj-2" } };
-            case "Runtime.callFunctionOn": return { result: { value: `${TEXT.slice(0, 80)}\x00${TEXT.length}` } };
-            default: return {};
-          }
-        }),
-        on: vi.fn(), once: vi.fn(), off: vi.fn(),
-      } as unknown as CdpClient;
-      const proc = new A11yTreeProcessor();
-      const page = await proc.getTree(cdp, "s1", { filter: "all", fresh: true });
-      // Gegenprobe: the two visible texts stand below, the price does not.
+      ], TEXT, PRICE.length), "s1", { filter: "all", fresh: true });
       expect(page.text).toContain('StaticText "Mehr lesen"');
-      expect(page.text).not.toContain("19,99");
-      const m = page.text.match(/^ {2}\[e\d+\] generic "Card title"\n {4}\[!\] TRUNCATED \+(\d+) chars$/m);
-      expect(m, page.text).not.toBeNull();
-      // Length balance: the price (59) give or take the line breaks.
-      expect(Number(m![1])).toBeGreaterThanOrEqual(PRICE.length - 4);
-      expect(Number(m![1])).toBeLessThanOrEqual(PRICE.length + 2);
+      expect(page.text).toContain(`[e2] generic "Card title\n${PRICE}\nMehr lese"\n    [!] TRUNCATED +1 chars\n`);
+    });
+
+    // Re-Review I1-Rest: many inline texts must not swallow the hidden price.
+    it("(f) card with 20 inline texts and an aria-hidden price: the price stands in the output", async () => {
+      const PRICE = "HIDDEN PRICE 19,99 EUR x";
+      const words = Array.from({ length: 20 }, (_, i) => `wort${i + 1} `);
+      const TEXT = `Angebot\n${words.slice(0, 3).join("")}${PRICE} ${words.slice(3).join("")}`.trimEnd();
+      const proc = new A11yTreeProcessor();
+      const page = await proc.getTree(enrichedCdp([
+        node(1, "RootWebArea", "F", [2]),
+        node(2, "generic", undefined, [3, 5], 1),
+        node(3, "heading", "Angebot", [4], 2),
+        node(4, "StaticText", "Angebot", [], 3),
+        node(5, "paragraph", undefined, [...words.map((_, i) => 10 + i), 40], 2),
+        ...words.map((w, i) => node(10 + i, "StaticText", w, [], 5)),
+        { ...node(40, "StaticText", PRICE, [], 5), ignored: true },
+      ], TEXT, PRICE.length), "s1", { filter: "all", fresh: true });
+      expect(TEXT.indexOf(PRICE)).toBeLessThan(80 - PRICE.length);
+      expect(page.text).toContain('StaticText "wort20 "');
+      expect(page.text).toContain(PRICE);
+    });
+
+    // Re-Review N1: form and radio-group cards from test-hardest (T1.3, T2.3) — the texts stand as names of controls.
+    it("(g) T1.3 form and T2.3 radio group: first line only, no marker", async () => {
+      const t23 = {
+        text: "T2.3\nMulti-Step Wizard\n\nDurchlaufe alle 3 Schritte des Wizards und schliesse ihn ab.\n\nStep 1/3: Waehle dein Paket\n\nStarter (Free)\nPro (12 EUR/mo)\nEnterprise\nNext",
+        nodes: [
+          node(1, "RootWebArea", "L2", [2]),
+          node(2, "generic", undefined, [3, 6, 8], 1),
+          node(3, "heading", "T2.3 Multi-Step Wizard", [4, 5], 2),
+          node(4, "StaticText", "T2.3", [], 3), node(5, "StaticText", "Multi-Step Wizard", [], 3),
+          node(6, "paragraph", undefined, [7], 2),
+          node(7, "StaticText", "Durchlaufe alle 3 Schritte des Wizards und schliesse ihn ab.", [], 6),
+          node(8, "generic", undefined, [9, 13, 20], 2),
+          node(9, "paragraph", undefined, [10, 12], 8), node(10, "strong", undefined, [11], 9),
+          node(11, "StaticText", "Step 1/3:", [], 10), node(12, "StaticText", " Waehle dein Paket", [], 9),
+          node(13, "generic", undefined, [14, 16, 18], 8),
+          node(14, "LabelText", undefined, [15], 13), node(15, "radio", "Starter (Free)", [], 14),
+          node(16, "LabelText", undefined, [17], 13), node(17, "radio", "Pro (12 EUR/mo)", [], 16),
+          node(18, "LabelText", undefined, [19], 13), node(19, "radio", "Enterprise", [], 18),
+          node(20, "button", "Next", [21], 8), node(21, "StaticText", "Next", [], 20),
+        ],
+        shown: 'radio "Pro (12 EUR/mo)"',
+      };
+      const t13 = {
+        text: "T1.3\nFill a Complete Form\n\nFuelle alle Felder korrekt aus und sende das Formular ab.\n\nFull Name *\nEmail *\nAge (18-99) *\nCountry *\n-- Select --\nGermany\nAustria\nSwitzerland\nUnited States\nShort Bio\nI agree to the Terms\nSubscribe to newsletter\nSubmit Form",
+        nodes: [
+          node(1, "RootWebArea", "L1", [2]),
+          node(2, "generic", undefined, [3, 6, 8], 1),
+          node(3, "heading", "T1.3 Fill a Complete Form", [4, 5], 2),
+          node(4, "StaticText", "T1.3", [], 3), node(5, "StaticText", "Fill a Complete Form", [], 3),
+          node(6, "paragraph", undefined, [7], 2),
+          node(7, "StaticText", "Fuelle alle Felder korrekt aus und sende das Formular ab.", [], 6),
+          node(8, "form", undefined, [9, 11, 30, 40], 2),
+          node(9, "LabelText", undefined, [10], 8), node(10, "StaticText", "Full Name *", [], 9),
+          node(11, "textbox", "Full Name *", [], 8),
+          node(30, "combobox", "Country *", [31], 8), node(31, "MenuListPopup", undefined, [32, 33, 34], 30),
+          node(32, "option", "-- Select --", [], 31), node(33, "option", "Germany", [], 31), node(34, "option", "United States", [], 31),
+          node(40, "LabelText", undefined, [41], 8), node(41, "checkbox", "I agree to the Terms", [], 40),
+        ],
+        shown: 'checkbox "I agree to the Terms"',
+      };
+      for (const card of [t13, t23]) {
+        const id = card.text.split("\n")[0];
+        const proc = new A11yTreeProcessor();
+        const page = await proc.getTree(enrichedCdp(card.nodes, card.text, 0), "s1", { filter: "all", fresh: true });
+        expect(page.text, id).toMatch(new RegExp(`^ {2}\\[e2\\] generic "${id.replace(".", "\\.")}"$`, "m"));
+        expect(page.text, id).toContain(card.shown);
+        expect(page.text, id).not.toContain("[!] TRUNCATED");
+      }
     });
 
     it("depth only indents: the text child stands below even at depth 1, so no marker", async () => {
       const proc = new A11yTreeProcessor();
-      const page = await proc.getTree(enriched(false), "s1", { filter: "all", depth: 1, fresh: true });
+      const page = await proc.getTree(taskCard(false), "s1", { filter: "all", depth: 1, fresh: true });
       expect(page.text).toMatch(/^ {2}\[e\d+\] generic "Aufgabe T9\.9"$/m);
-      expect(page.text).toContain(`StaticText "${TASK.replace("\n", " ")}"`);
+      expect(page.text).toContain(`StaticText "${HIDDEN_TASK}"`);
       expect(page.text).not.toContain("[!] TRUNCATED");
+    });
+  });
+
+  // Re-Review N1 (h): the page function measures the outermost aria-hidden/inert descendants.
+  describe("ENRICH_TEXT_FN hidden length", () => {
+    class El {
+      parentElement: El | null = null;
+      constructor(readonly attrs: Record<string, string>, readonly own: string, readonly kids: El[] = []) {
+        for (const k of kids) k.parentElement = this;
+      }
+      get innerText(): string { return this.own + this.kids.map((k) => k.innerText).join(""); }
+      get textContent(): string { return this.innerText; }
+      private matches(): boolean { return this.attrs["aria-hidden"] === "true" || "inert" in this.attrs; }
+      private all(): El[] { return this.kids.flatMap((k) => [k, ...k.all()]); }
+      querySelectorAll(sel: string): El[] {
+        expect(sel).toBe('[aria-hidden="true"],[inert]');
+        return this.all().filter((e) => e.matches());
+      }
+      closest(sel: string): El | null {
+        expect(sel).toBe('[aria-hidden="true"],[inert]');
+        if (this.matches()) return this;
+        return this.parentElement ? this.parentElement.closest(sel) : null;
+      }
+      contains(other: El): boolean {
+        for (let e: El | null = other; e; e = e.parentElement) if (e === this) return true;
+        return false;
+      }
+    }
+    const run = (root: El): string[] =>
+      (new Function(`return ${ENRICH_TEXT_FN}`)() as (this: El) => string).call(root).split("\x00");
+
+    it("sums outermost hidden subtrees once — nested aria-hidden and inert are not counted twice", () => {
+      const root = new El({}, "Card ", [
+        new El({ "aria-hidden": "true" }, "12345", [new El({ "aria-hidden": "true" }, "678")]), // 8
+        new El({ inert: "" }, "abc", [new El({ "aria-hidden": "true" }, "de")]),                 // 5
+        new El({}, "sichtbar", [new El({ inert: "" }, "xyz")]),                                   // 3
+        new El({ "aria-hidden": "false" }, "offen"),                                            // 0
+        new El({}, "Langer sichtbarer Text ".repeat(4)),                                        // past 80
+      ]);
+      expect(root.innerText.length).toBeGreaterThan(80);
+      const [shown, full, hidden] = run(root);
+      expect(shown).toBe(root.innerText.slice(0, 80));
+      expect(Number(full)).toBe(root.innerText.length);
+      expect(Number(hidden)).toBe(16);
+    });
+
+    it("reports 0 without aria-hidden/inert descendants", () => {
+      const [, , hidden] = run(new El({}, "Card ", [new El({ "aria-hidden": "false" }, "offen")]));
+      expect(hidden).toBe("0");
     });
   });
 

@@ -182,6 +182,18 @@ const DISABLED_PREFIX = "[DISABLED] ";
  *  a scanning LLM cannot mistake it for normal element content. */
 const TRUNCATION_MARKER_PREFIX = "[!] TRUNCATED";
 
+/**
+ * FR-021 / FR-H5 enrichment, run on a clickable container via
+ * Runtime.callFunctionOn: first 80 chars of innerText, its full length and
+ * (Fix M5) the innerText length of the outermost aria-hidden/inert
+ * descendants — text that is in no AX output. Separator \x00.
+ */
+export const ENRICH_TEXT_FN = "function(){const t=(this.innerText||this.textContent||'');"
+  + "const s='[aria-hidden=\"true\"],[inert]';let h=0;"
+  + "for(const e of this.querySelectorAll(s)){const p=e.parentElement&&e.parentElement.closest(s);"
+  + "if(p&&p!==this&&this.contains(p))continue;h+=(e.innerText||e.textContent||'').length}"
+  + "return t.slice(0,80)+'\\x00'+t.length+'\\x00'+h}";
+
 // Story 18.4: named indices into the `styles[]` tuple emitted by
 // DOMSnapshot.captureSnapshot. Order is locked by visual-constants.ts
 // COMPUTED_STYLES. Invariant 5 (no magic numbers) — do NOT inline these
@@ -362,6 +374,7 @@ interface NodeInfo {
   linkTarget?: string;  // FR-002: target attribute for links (e.g. "_blank")
   isScrollable?: boolean; // FR-001: Container has overflow-y auto/scroll and scrollHeight > clientHeight
   nameFullLength?: number; // FR-021: Full innerText length when name was truncated by FR-H5 enrichment (80-char cap)
+  nameHiddenLength?: number; // Fix M5: innerText length of the aria-hidden/inert descendants (outermost only), when > 0
   inLiveRegion?: boolean; // Stufe 2 H1: node or an ancestor is a live-region root
   // Stufe 2 H1: set on each own text child of a non-ignored parent with a ref
   // (text-echo.ts). getSnapshotMap() leaves the child out while `texts` form
@@ -1622,18 +1635,23 @@ export class A11yTreeProcessor {
             // Separator \x00 avoids JSON/object marshalling overhead — one string roundtrip, simple split.
             const textResult = await cdpClient.send<{ result: { value?: string } }>(
               "Runtime.callFunctionOn",
-              { functionDeclaration: "function(){const t=(this.innerText||this.textContent||'');return t.slice(0,80)+'\\x00'+t.length}", objectId: oid, returnByValue: true },
+              { functionDeclaration: ENRICH_TEXT_FN, objectId: oid, returnByValue: true },
               sessionId,
             );
             if (textResult.result.value) {
               const sep = textResult.result.value.indexOf("\x00");
               if (sep >= 0) {
                 const truncated = textResult.result.value.slice(0, sep);
-                const fullLength = parseInt(textResult.result.value.slice(sep + 1), 10);
+                const [lengthPart, hiddenPart] = textResult.result.value.slice(sep + 1).split("\x00");
+                const fullLength = parseInt(lengthPart, 10);
+                const hiddenLength = parseInt(hiddenPart ?? "", 10);
                 if (truncated) {
                   info.name = truncated;
                   if (Number.isFinite(fullLength) && fullLength > truncated.length) {
                     info.nameFullLength = fullLength;
+                  }
+                  if (Number.isFinite(hiddenLength) && hiddenLength > 0) {
+                    info.nameHiddenLength = hiddenLength;
                   }
                 }
               } else {
@@ -3316,10 +3334,12 @@ export class A11yTreeProcessor {
    */
   private displayName(node: AXNode, role: string, filter: string): string {
     const backendNodeId = node.backendDOMNodeId;
-    const name = (node.name?.value as string | undefined)
-      || (backendNodeId !== undefined ? this.nodeInfoLookup(backendNodeId)?.name : undefined)
-      || "";
+    const info = backendNodeId !== undefined ? this.nodeInfoLookup(backendNodeId) : undefined;
+    const name = (node.name?.value as string | undefined) || info?.name || "";
+    // Fix M5: with aria-hidden/inert text inside, the children below do not show
+    // everything — the full (≤ 80-char) name stays, as in Stufe 1.
     return filter === "all" && classifyElement(role) === "container" && name.includes("\n")
+      && !info?.nameHiddenLength
       ? firstLine(name)
       : name;
   }
@@ -3719,11 +3739,10 @@ export class A11yTreeProcessor {
     // append the prominent marker on a SEPARATE line below — done once the
     // rest of the element annotations are in place.
     let truncationExtra: number | undefined;
-    // Fix M5: under filter "all" the renderer walks every child (depth only
-    // indents), so the text below the node stands in the output. Only what
-    // the innerText holds beyond that (e.g. aria-hidden text) is hidden — a
-    // length balance, not an exact diff. That text is in no view_page output,
-    // so no call is recommended (never the call that produced this output).
+    // Fix M5: under filter "all" a cut (first-line) name means the rest stands
+    // below as children — no marker. An uncut name (aria-hidden/inert text
+    // inside) counts what lies past the 80-char cap; no view_page call shows
+    // more, so none is recommended (never the call that produced this output).
     let recommendCall = true;
 
     // FR-H5: Prefer AXNode name, fall back to nodeInfoMap (enriched by Phase 3 for clickable generics).
@@ -3737,14 +3756,11 @@ export class A11yTreeProcessor {
         if (fullLen && fullLen > name.length) {
           if (filter !== "all") {
             truncationExtra = fullLen - name.length;
-          } else {
-            // 2 per text node: the line breaks between blocks in innerText.
-            const shown = nodeMap ? this.shownText(node, nodeMap) : { len: 0, n: 0 };
-            const hidden = fullLen - (shown.n > 0 ? shown.len : name.length) - 2 * shown.n;
-            if (hidden > 0) {
-              truncationExtra = hidden;
-              recommendCall = false;
-            }
+          } else if (this.nodeInfoLookup(backendNodeId)?.nameHiddenLength) {
+            // Only then is the name uncut and something below it missing; without
+            // hidden text every line of the innerText stands in the output.
+            truncationExtra = fullLen - name.length;
+            recommendCall = false;
           }
         }
       }
@@ -3838,25 +3854,6 @@ export class A11yTreeProcessor {
     }
 
     return line;
-  }
-
-  /** Fix M5: total length and count of the non-ignored StaticText below `node` — the text the output shows. */
-  private shownText(node: AXNode, nodeMap: Map<string, AXNode>): { len: number; n: number } {
-    let len = 0;
-    let n = 0;
-    for (const childId of node.childIds ?? []) {
-      const child = nodeMap.get(childId);
-      if (!child) continue;
-      const text = child.name?.value;
-      if (!child.ignored && this.getRole(child) === "StaticText" && typeof text === "string" && text) {
-        len += text.length;
-        n++;
-      }
-      const below = this.shownText(child, nodeMap);
-      len += below.len;
-      n += below.n;
-    }
-    return { len, n };
   }
 
   private formatHeader(title: string, count: number, filter: string, depth: number): string {
