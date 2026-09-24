@@ -591,6 +591,42 @@ describe("H2 — andere Filter und Teilbäume", () => {
       expect(sub.text).toMatch(hiddenMarker(0, ref));
     });
 
+    // Fix-Runde 1 (Review I1): part of the text is aria-hidden between two visible texts.
+    it("counts partly hidden text (aria-hidden price between two visible texts) without a call", async () => {
+      const PRICE = "Preis nur sichtbar: 19,99 EUR inklusive Versand und Steuern";
+      const TEXT = `Card title\n${PRICE}\nMehr lesen`;
+      const nodes: AXNode[] = [
+        node(1, "RootWebArea", "I1", [2]),
+        node(2, "generic", undefined, [3, 4, 5], 1),
+        node(3, "StaticText", "Card title", [], 2),
+        { ...node(4, "StaticText", PRICE, [], 2), ignored: true },
+        node(5, "StaticText", "Mehr lesen", [], 2),
+      ];
+      const cdp = {
+        send: vi.fn(async (method: string) => {
+          switch (method) {
+            case "Runtime.evaluate": return { result: { value: "https://example.com/i1" } };
+            case "Accessibility.getFullAXTree": return { nodes };
+            case "DOM.describeNode": return { node: { attributes: ["onclick", "go()"] } };
+            case "DOM.resolveNode": return { object: { objectId: "obj-2" } };
+            case "Runtime.callFunctionOn": return { result: { value: `${TEXT.slice(0, 80)}\x00${TEXT.length}` } };
+            default: return {};
+          }
+        }),
+        on: vi.fn(), once: vi.fn(), off: vi.fn(),
+      } as unknown as CdpClient;
+      const proc = new A11yTreeProcessor();
+      const page = await proc.getTree(cdp, "s1", { filter: "all", fresh: true });
+      // Gegenprobe: the two visible texts stand below, the price does not.
+      expect(page.text).toContain('StaticText "Mehr lesen"');
+      expect(page.text).not.toContain("19,99");
+      const m = page.text.match(/^ {2}\[e\d+\] generic "Card title"\n {4}\[!\] TRUNCATED \+(\d+) chars$/m);
+      expect(m, page.text).not.toBeNull();
+      // Length balance: the price (59) give or take the line breaks.
+      expect(Number(m![1])).toBeGreaterThanOrEqual(PRICE.length - 4);
+      expect(Number(m![1])).toBeLessThanOrEqual(PRICE.length + 2);
+    });
+
     it("depth only indents: the text child stands below even at depth 1, so no marker", async () => {
       const proc = new A11yTreeProcessor();
       const page = await proc.getTree(enriched(false), "s1", { filter: "all", depth: 1, fresh: true });

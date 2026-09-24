@@ -3720,9 +3720,10 @@ export class A11yTreeProcessor {
     // rest of the element annotations are in place.
     let truncationExtra: number | undefined;
     // Fix M5: under filter "all" the renderer walks every child (depth only
-    // indents), so the rest of the name stands below whenever the node has
-    // text in the AX tree. Then nothing is hidden. Otherwise the text is in
-    // no view_page output at all, and no call is recommended.
+    // indents), so the text below the node stands in the output. Only what
+    // the innerText holds beyond that (e.g. aria-hidden text) is hidden — a
+    // length balance, not an exact diff. That text is in no view_page output,
+    // so no call is recommended (never the call that produced this output).
     let recommendCall = true;
 
     // FR-H5: Prefer AXNode name, fall back to nodeInfoMap (enriched by Phase 3 for clickable generics).
@@ -3736,9 +3737,14 @@ export class A11yTreeProcessor {
         if (fullLen && fullLen > name.length) {
           if (filter !== "all") {
             truncationExtra = fullLen - name.length;
-          } else if (!nodeMap || !this.hasTextInTree(node, nodeMap)) {
-            truncationExtra = fullLen - name.length;
-            recommendCall = false;
+          } else {
+            // 2 per text node: the line breaks between blocks in innerText.
+            const shown = nodeMap ? this.shownText(node, nodeMap) : { len: 0, n: 0 };
+            const hidden = fullLen - (shown.n > 0 ? shown.len : name.length) - 2 * shown.n;
+            if (hidden > 0) {
+              truncationExtra = hidden;
+              recommendCall = false;
+            }
           }
         }
       }
@@ -3834,15 +3840,23 @@ export class A11yTreeProcessor {
     return line;
   }
 
-  /** Fix M5: does a non-ignored StaticText below `node` carry text the output shows? */
-  private hasTextInTree(node: AXNode, nodeMap: Map<string, AXNode>): boolean {
+  /** Fix M5: total length and count of the non-ignored StaticText below `node` — the text the output shows. */
+  private shownText(node: AXNode, nodeMap: Map<string, AXNode>): { len: number; n: number } {
+    let len = 0;
+    let n = 0;
     for (const childId of node.childIds ?? []) {
       const child = nodeMap.get(childId);
       if (!child) continue;
-      if (!child.ignored && this.getRole(child) === "StaticText" && child.name?.value) return true;
-      if (this.hasTextInTree(child, nodeMap)) return true;
+      const text = child.name?.value;
+      if (!child.ignored && this.getRole(child) === "StaticText" && typeof text === "string" && text) {
+        len += text.length;
+        n++;
+      }
+      const below = this.shownText(child, nodeMap);
+      len += below.len;
+      n += below.n;
     }
-    return false;
+    return { len, n };
   }
 
   private formatHeader(title: string, count: number, filter: string, depth: number): string {
