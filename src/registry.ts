@@ -1874,6 +1874,12 @@ export class ToolRegistry implements ToolRegistryPublic {
     // `file_upload`, `console_logs`, `network_monitor`, `configure_session`)
     // bleiben hier registriert, auch wenn `SILBERCUE_CHROME_FULL_TOOLS`
     // nicht gesetzt ist. Siehe `docs/friction-fixes.md#FR-035`.
+    // Final review I1: the SessionManager holds the iframe sessions (OOPIFs)
+    // of the MCP tab. A Script-API session drives a tab of its own — handing
+    // it that SessionManager let view_page list the MCP tab's iframes and
+    // click into them. Such a call gets none; the MCP path keeps its OOPIFs.
+    const frameSessions = (sessionIdOverride?: string): SessionManager | undefined =>
+      scriptTabOf(sessionIdOverride) !== undefined ? undefined : this._browserSession.sessionManager;
     this._handlers.set("evaluate", async (params, sessionIdOverride?) => {
       return evaluateHandler(params as unknown as EvaluateParams, this.cdpClient, sessionIdOverride ?? this.sessionId);
     });
@@ -1881,22 +1887,22 @@ export class ToolRegistry implements ToolRegistryPublic {
       return navigateHandler(params as unknown as NavigateParams, this.cdpClient, sessionIdOverride ?? this.sessionId);
     });
     this._handlers.set("view_page", async (params, sessionIdOverride?) => {
-      return readPageHandler(params as unknown as ReadPageParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return readPageHandler(params as unknown as ReadPageParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     this._handlers.set("capture_image", async (params, sessionIdOverride?) => {
-      return screenshotHandler(params as unknown as ScreenshotParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return screenshotHandler(params as unknown as ScreenshotParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     this._handlers.set("wait_for", async (params, sessionIdOverride?) => {
       return waitForHandler(params as unknown as WaitForParams, this.cdpClient, sessionIdOverride ?? this.sessionId);
     });
     this._handlers.set("observe", async (params, sessionIdOverride?) => {
-      return observeHandler(params as unknown as ObserveParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return observeHandler(params as unknown as ObserveParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     this._handlers.set("click", async (params, sessionIdOverride?) => {
-      return clickHandler(params as unknown as ClickParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return clickHandler(params as unknown as ClickParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     this._handlers.set("type", async (params, sessionIdOverride?) => {
-      return typeHandler(params as unknown as TypeParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return typeHandler(params as unknown as TypeParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     this._handlers.set("tab_status", async (params, sessionIdOverride?) => {
       return tabStatusHandler(
@@ -1943,7 +1949,7 @@ export class ToolRegistry implements ToolRegistryPublic {
       return this._appendFrictionHint(result);
     });
     this._handlers.set("dom_snapshot", async (params, sessionIdOverride?) => {
-      return domSnapshotHandler(params as unknown as DomSnapshotParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return domSnapshotHandler(params as unknown as DomSnapshotParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     // Story 18.3 Review-Fix H2: Unbedingte Registrierung im _handlers-Map.
     // `executeTool()` / `run_plan` ruft `ensureReady()` vorher auf, das laesst
@@ -1968,7 +1974,7 @@ export class ToolRegistry implements ToolRegistryPublic {
         params as unknown as FileUploadParams,
         this.cdpClient,
         sessionIdOverride ?? this.sessionId,
-        this._browserSession.sessionManager,
+        frameSessions(sessionIdOverride),
       );
     });
     this._handlers.set("fill_form", async (params, sessionIdOverride?) => {
@@ -1976,20 +1982,20 @@ export class ToolRegistry implements ToolRegistryPublic {
         params as unknown as FillFormParams,
         this.cdpClient,
         sessionIdOverride ?? this.sessionId,
-        this._browserSession.sessionManager,
+        frameSessions(sessionIdOverride),
       );
     });
     this._handlers.set("press_key", async (params, sessionIdOverride?) => {
-      return pressKeyHandler(params as unknown as PressKeyParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return pressKeyHandler(params as unknown as PressKeyParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     this._handlers.set("scroll", async (params, sessionIdOverride?) => {
-      return scrollHandler(params as unknown as ScrollParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return scrollHandler(params as unknown as ScrollParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     // Story 18.6 (FR-028): drag bleibt im _handlers-Dispatcher vollstaendig
     // registriert, auch wenn es nicht im Default-Set ist — run_plan soll
     // das Tool weiter aufrufen koennen.
     this._handlers.set("drag", async (params, sessionIdOverride?) => {
-      return dragHandler(params as unknown as DragParams, this.cdpClient, sessionIdOverride ?? this.sessionId, this._browserSession.sessionManager);
+      return dragHandler(params as unknown as DragParams, this.cdpClient, sessionIdOverride ?? this.sessionId, frameSessions(sessionIdOverride));
     });
     // Story 18.3 Review-Fix H2: Unbedingte Registrierung analog `handle_dialog`
     // oben. Runtime-Guard im Handler faengt den Fall "Collector noch nicht

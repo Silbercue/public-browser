@@ -5188,4 +5188,129 @@ describe("ToolRegistry — Script-API tab keeps its own refs (P5)", () => {
       a11yTree.resetAll();
     }
   });
+
+  // Final review I1: the SessionManager holds the OOPIFs of the MCP tab. A
+  // Script-API call must not see them (view_page) nor click into them.
+  describe("I1: the MCP tab's cross-origin iframes stay out of a Script-API session", () => {
+    const scriptPage = [
+      { nodeId: "1", ignored: false, role: { type: "role", value: "WebArea" }, backendDOMNodeId: 200, childIds: ["2"] },
+      {
+        nodeId: "2",
+        parentId: "1",
+        ignored: false,
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Script Button" },
+        backendDOMNodeId: 201,
+      },
+    ];
+    const framePage = [
+      { nodeId: "1", ignored: false, role: { type: "role", value: "WebArea" }, backendDOMNodeId: 5, childIds: ["2"] },
+      {
+        nodeId: "2",
+        parentId: "1",
+        ignored: false,
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "Frame Button" },
+        backendDOMNodeId: 6,
+      },
+    ];
+    const makeCdp = () => ({
+      send: vi.fn(async (method: string, _params?: unknown, sessionId?: string) => {
+        if (method === "Accessibility.getFullAXTree") return { nodes: sessionId === "oopif-A" ? framePage : scriptPage };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "F-main", url: "https://b.test/", securityOrigin: "https://b.test" } } };
+        if (method === "Runtime.evaluate") return { result: { type: "string", value: "https://b.test/" } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    });
+    /** SessionManager of the MCP tab: main session-A plus one OOPIF. */
+    const sm = {
+      getAllSessions: () => [
+        { sessionId: "session-A", frameId: "F-A", url: "https://a.test/", isMain: true },
+        { sessionId: "oopif-A", frameId: "F-O", url: "https://frame.test/", isMain: false },
+      ],
+      registerNode: vi.fn(),
+      getSessionForNode: vi.fn(() => undefined),
+    };
+    const makeRegistry = (cdp: ReturnType<typeof makeCdp>) => {
+      const registry = new ToolRegistry({ tool: vi.fn() } as never, cdp as never, "session-A", {} as never, undefined, sm as never);
+      registry.registerAll();
+      return registry;
+    };
+    const text = (r: { content: Array<{ type: string; text?: string }> }) =>
+      r.content.map((c) => c.text ?? "").join("\n");
+    const oopifCalls = (cdp: ReturnType<typeof makeCdp>) =>
+      cdp.send.mock.calls.filter((c) => c[2] === "oopif-A").map((c) => c[0]);
+
+    it("view_page through a Script-API session lists no iframe of the MCP tab", async () => {
+      try {
+        bindScriptTab("session-B", "TAB-B");
+        const cdp = makeCdp();
+        const registry = makeRegistry(cdp);
+
+        const scriptResult = await registry.executeTool("view_page", { filter: "all" }, "session-B");
+        expect(text(scriptResult)).toContain("Script Button"); // positive: its own page is there
+        expect(text(scriptResult)).not.toContain("Frame Button");
+
+        // Control: the MCP path still shows its own OOPIF.
+        const mcpResult = await registry.executeTool("view_page", { filter: "all" });
+        expect(text(mcpResult)).toContain("Frame Button");
+      } finally {
+        forgetScriptTab("TAB-B");
+        a11yTree.resetAll();
+      }
+    });
+
+    it("click {text} through a Script-API session does not resolve into the MCP tab's iframe", async () => {
+      try {
+        bindScriptTab("session-B", "TAB-B");
+        const cdp = makeCdp();
+        const registry = makeRegistry(cdp);
+
+        await registry.executeTool("click", { text: "Frame Button" }, "session-B");
+        expect(oopifCalls(cdp)).toEqual([]); // not even a lookup reached the MCP tab's frame
+
+        // Control: the MCP path still reaches its OOPIF for the same text.
+        await registry.executeTool("click", { text: "Frame Button" });
+        expect(oopifCalls(cdp).filter((m) => m !== "Accessibility.getFullAXTree").length).toBeGreaterThan(0);
+      } finally {
+        forgetScriptTab("TAB-B");
+        a11yTree.resetAll();
+      }
+    });
+
+    it("no tool handed a Script-API session reads the MCP tab's SessionManager", async () => {
+      const tools = ["view_page", "capture_image", "observe", "click", "type", "dom_snapshot", "file_upload", "fill_form", "press_key", "scroll", "drag"];
+      try {
+        bindScriptTab("session-B", "TAB-B");
+        const registry = makeRegistry(makeCdp());
+        let reads = 0;
+        const session = (registry as unknown as { _browserSession: object })._browserSession;
+        Object.defineProperty(session, "sessionManager", { get: () => { reads++; return sm; }, configurable: true });
+
+        const readsPerTool: Record<string, number> = {};
+        for (const name of tools) {
+          reads = 0;
+          // Empty params: some handlers throw — the argument list is read before that.
+          await registry.executeTool(name, {}, "session-B").catch(() => undefined);
+          readsPerTool[name] = reads;
+        }
+        expect(readsPerTool).toEqual(Object.fromEntries(tools.map((t) => [t, 0])));
+
+        // Control: the same call on the MCP path does hand it over.
+        const mcpReads: Record<string, number> = {};
+        for (const name of tools) {
+          reads = 0;
+          await registry.executeTool(name, {}).catch(() => undefined);
+          mcpReads[name] = reads;
+        }
+        expect(Object.values(mcpReads).every((n) => n > 0)).toBe(true);
+      } finally {
+        forgetScriptTab("TAB-B");
+        a11yTree.resetAll();
+      }
+    });
+  });
 });
