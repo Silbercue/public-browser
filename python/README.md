@@ -75,6 +75,8 @@ Two scripts that call `Chrome.connect()` at the same moment while no server runs
 
 Requests without the key get `401`. Requests from a browser (with an `Origin` header) or with a `Host` other than `127.0.0.1:<port>` / `localhost:<port>` get `403` — that blocks web pages and DNS rebinding even if they guess the port.
 
+**Upgrading:** the server and the `publicbrowser` Python client go together. `publicbrowser` 1.0.0 does not send the key, so against a newer server it reports `ConnectionError: Public Browser server not reachable` although the server runs. An MCP config with `npx -y public-browser@latest -- --script` picks up the new server on its next start — update `publicbrowser` at the same time (`pip install -U publicbrowser`).
+
 ## Login and Data Extraction
 
 ```python
