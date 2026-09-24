@@ -54,7 +54,7 @@ CLAUDE.md
 _bmad/
 _bmad-output/
 docs/
-# test-hardest: nur Rohdaten, Harness und Liesmich sind oeffentlich; die Seite selbst bleibt privat
+# test-hardest: Rohdaten, Harness, Liesmich und die gemessene Testseite (page/) sind oeffentlich
 test-hardest/*
 !test-hardest/results/
 test-hardest/results/*
@@ -65,6 +65,7 @@ test-hardest/results-local/*
 !test-hardest/results-local/README.md
 !test-hardest/benchmark-*.json
 !test-hardest/README.md
+!test-hardest/page/
 !test-hardest/measure-tool-calls.sh
 !test-hardest/measure-session-cost.sh
 !test-hardest/blind-run.mjs

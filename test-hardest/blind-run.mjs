@@ -807,7 +807,7 @@ export async function runParticipant(slug, opts = {}, deps = {}) {
       try {
         suite = suiteFingerprint(await d.suiteFetch(SUITE_URL));
         suiteOk = JSON.stringify(suite.test_ids) === JSON.stringify(ALL_TESTS);
-        if (!suiteOk) throw new Error(`suite fingerprint mismatch: ${suite.test_ids.length} ids on the page, expected ${ALL_TESTS.length}`);
+        if (!suiteOk) throw new Error(`suite fingerprint mismatch: ${suite.test_ids.length} ids on the page, expected ${ALL_TESTS.length} (the measured version is in test-hardest/page/)`);
       } catch (e) {
         if (!smoke) throw e;
         notes.push(`suite fingerprint not verified: ${e.message}`);

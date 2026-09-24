@@ -1,6 +1,6 @@
 # Benchmark raw data
 
-This folder holds every benchmark run behind the numbers in the main README — including the runs Public Browser loses. The benchmark page itself is live at https://mcp-test.second-truth.com; its source is not part of this repository (the author's decision). Every September run JSON carries `suite.html_sha256`, so a run can be tied to one version of that page — all seven September runs share `81e4b7aa…bed2`.
+This folder holds every benchmark run behind the numbers in the main README — including the runs Public Browser loses. The benchmark page itself is live at https://mcp-test.second-truth.com; the exact version measured is in [`page/index.html`](page/index.html) (with `page/tab-target.html` for T2.5). Every September run JSON carries `suite.html_sha256`, so a run can be tied to one version of that page — all seven September runs share `81e4b7aa…bed2`, the SHA-256 of `page/index.html`. `python3 -m http.server` inside `page` serves it locally; `blind-run.mjs` still measures the live URL.
 
 ## Three data sets
 
