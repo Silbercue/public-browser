@@ -166,7 +166,7 @@ export async function virtualDeskHandler(
       );
     }
 
-    lines.push(`Server: public-browser v${VERSION}`);
+    // Stufe 2 H5: no "Server: public-browser vX" line — _meta.serverVersion carries it.
 
     return {
       content: [{ type: "text", text: lines.join("\n") }],

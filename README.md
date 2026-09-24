@@ -730,7 +730,7 @@ See [`test-hardest/README.md`](test-hardest/README.md) for the full protocol, pe
 
 ## Cortex — Local Tool-Sequence Hints
 
-Public Browser includes a small learning layer called **Cortex**. It writes down which tool sequences succeeded on which kind of page and, when the agent later lands on the same kind of page, adds one line to the `navigate` and `view_page` response with the most likely next tools, e.g. `Cortex (login): next → fill_form (P=0.80), click (P=0.15)`. No ML model, no training step, no network access.
+Public Browser includes a small learning layer called **Cortex**. It writes down which tool sequences succeeded on which kind of page and, when the agent later lands on the same kind of page, adds one line to the `navigate` and `view_page` response with the most likely next tools once the top one reaches P ≥ 0.9, e.g. `Cortex (login): next → fill_form (P=0.92), click (P=0.08)`. No ML model, no training step, no network access.
 
 ### How it works
 

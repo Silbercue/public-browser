@@ -13,7 +13,8 @@
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { markovTable } from "./markov-table.js";
-import type { CortexPattern } from "./cortex-types.js";
+import type { CortexPattern, HintMatchResult } from "./cortex-types.js";
+import { formatCortexLine, CORTEX_LINE_MIN_PROBABILITY } from "./hint-matcher.js";
 
 /**
  * Helper: Create a minimal CortexPattern for MarkovTable ingestion.
@@ -386,3 +387,36 @@ describe("HintMatcher (Story 12a.4)", () => {
 function EMPTY_RESULT() {
   return { hints: [], matchCount: 0 };
 }
+
+// Stufe 2 H5: Die Cortex-Zeile nur bei einer Sicherheit von mindestens 0,9.
+// In run3–5 hatten 31 der 39 Zeilen als höchste Wahrscheinlichkeit nur 0,33–0,50.
+describe("formatCortexLine (Stufe 2 H5)", () => {
+  const result = (probs: Array<[string, number]>): HintMatchResult => ({
+    matchCount: probs.length,
+    hints: [{
+      pageType: "data_table",
+      predictions: probs.map(([tool, probability]) => ({ tool, probability })),
+      toolSequence: probs.slice(0, 3).map(([tool]) => tool),
+      installationCount: probs.length,
+    }],
+  });
+
+  it("uses 0.9 as the threshold", () => {
+    expect(CORTEX_LINE_MIN_PROBABILITY).toBe(0.9);
+  });
+
+  it("shows the line when the top prediction reaches 0.9 (run3 #1)", () => {
+    expect(formatCortexLine("data_table", result([["view_page", 0.9], ["wait_for", 0.1]])))
+      .toBe("Cortex (data_table): next → view_page (P=0.90), wait_for (P=0.10)");
+  });
+
+  it("hides the line below 0.9 (run3 #2, #16)", () => {
+    expect(formatCortexLine("data_table", result([["click", 0.5], ["scroll", 0.3], ["type", 0.2]]))).toBeNull();
+    expect(formatCortexLine("data_table", result([["click", 0.33], ["view_page", 0.33], ["run_plan", 0.33]]))).toBeNull();
+    expect(formatCortexLine("data_table", result([["view_page", 0.89], ["evaluate", 0.11]]))).toBeNull();
+  });
+
+  it("returns null without predictions", () => {
+    expect(formatCortexLine("data_table", { hints: [], matchCount: 0 })).toBeNull();
+  });
+});

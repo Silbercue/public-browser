@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { virtualDeskHandler } from "./virtual-desk.js";
 import { TabStateCache } from "../cache/tab-state-cache.js";
 import type { CdpClient } from "../cdp/cdp-client.js";
+import { VERSION } from "../version.js";
 
 const DEFAULT_WINDOW = { windowId: 1, bounds: { left: 0, top: 0, width: 1280, height: 800, windowState: "normal" } };
 
@@ -524,5 +525,19 @@ describe("virtualDeskHandler — Story 9.1 tabFilter", () => {
 
     const text = result.content[0].type === "text" ? result.content[0].text : "";
     expect(text).toBe("No open tabs");
+  });
+});
+
+// Stufe 2 H5: Die Zeile "Server: public-browser vX" entfällt, die Version bleibt in _meta.
+describe("virtualDeskHandler — no Server line (Stufe 2 H5)", () => {
+  it("lists the tabs without a Server line and keeps the version in _meta", async () => {
+    const cdp = createMockCdp({ "Target.getTargets": { targetInfos: makeTargets(2) } });
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T0001");
+
+    const result = await virtualDeskHandler({}, cdp, undefined, cache);
+
+    expect(result.content[0].text).not.toContain("Server:");
+    expect(result._meta?.serverVersion).toBe(VERSION);
   });
 });

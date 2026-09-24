@@ -1154,6 +1154,22 @@ describe("readPageHandler", () => {
       expect(result.content[0].text).toContain("fill_form");
     });
 
+    it("Stufe 2 H5: no Cortex line below P=0.9, but _meta.cortex still carries the hint", async () => {
+      a11yTree.reset();
+      // Zwei gleich häufige Folgewerkzeuge → P=0.50 je Werkzeug.
+      markovTable.ingest([
+        { pageType: "login", toolSequence: ["view_page", "fill_form"], outcome: "success", contentHash: "h5aaaaaaaaaaaaaa", timestamp: Date.now() } as CortexPattern,
+        { pageType: "login", toolSequence: ["view_page", "click"], outcome: "success", contentHash: "h5bbbbbbbbbbbbbb", timestamp: Date.now() } as CortexPattern,
+      ]);
+      vi.spyOn(a11yTree, "getPageType").mockReturnValue("login");
+
+      const cdp = mockCdpClient(sampleNodes, "https://example.com/login");
+      const result = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+
+      expect(result._meta?.cortex).toBeDefined();
+      expect(result.content[0].text).not.toContain("Cortex (");
+    });
+
     it("view_page response has NO _meta.cortex when pageType is unknown (AC #2)", async () => {
       a11yTree.reset();
 
@@ -1214,5 +1230,19 @@ describe("readPageHandler — ref of another tab (B1)", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("Element e2 belongs to tab TAB-A");
     expect(result.content[0].text).not.toContain("Did you mean");
+  });
+});
+
+// Stufe 2 H5: Die Fußzeile [~N tokens | N refs] entfällt — die Zahlen bleiben in _meta.
+describe("view_page footer (Stufe 2 H5)", () => {
+  it("has no token/ref footer in the text, the numbers stay in _meta", async () => {
+    a11yTree.reset();
+    const cdp = mockCdpClient(sampleNodes, "https://example.com/h5-footer");
+    const result = await readPageHandler({ depth: 3, filter: "interactive" }, cdp, "s1");
+
+    const text = result.content[0].text as string;
+    expect(text).not.toMatch(/\[~\d+ tokens \| \d+ refs/);
+    expect(typeof result._meta?.tokenCount).toBe("number");
+    expect(typeof result._meta?.refCount).toBe("number");
   });
 });

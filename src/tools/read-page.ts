@@ -6,7 +6,7 @@ import { a11yTree, RefNotFoundError } from "../cache/a11y-tree.js";
 import { wrapCdpError } from "./error-utils.js";
 import { foreignTabRefMessage, staleRefMessage } from "./element-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
-import { hintMatcher } from "../cortex/hint-matcher.js";
+import { hintMatcher, formatCortexLine } from "../cortex/hint-matcher.js";
 import { debug } from "../cdp/debug.js";
 import { HINT_KIND, hintLedger } from "../telemetry/hint-ledger.js";
 
@@ -53,12 +53,9 @@ export async function readPageHandler(
       }
     }
 
-    // FR-03: Token metadata as structured footer — prevents LLM from needing extra calls
-    const metaParts = [`~${result.tokenCount} tokens`, `${result.refCount} refs`];
-    if (result.downsampled) {
-      metaParts.push(`downsampled from ~${result.originalTokens}`);
-    }
-    responseText += `\n\n[${metaParts.join(" | ")}]`;
+    // Stufe 2 H5: the FR-03 footer "[~N tokens | N refs]" is gone — the numbers
+    // stay in _meta (tokenCount, refCount, originalTokens), and a downsampled
+    // tree already says "downsampled Lx from ~N tokens" in its header.
 
     // Truncation warning — when downsampled, tell the LLM the collapse
     // format AND the positive action (no "avoid screenshot" negative framing
@@ -118,10 +115,9 @@ export async function readPageHandler(
       const hintResult = hintMatcher.matchByPageType(pageType, "view_page");
       if (hintResult.matchCount > 0) {
         cortexMeta = { hints: hintResult.hints, matchCount: hintResult.matchCount };
-        const preds = hintResult.hints[0].predictions.slice(0, 3)
-          .map((p) => `${p.tool} (P=${p.probability.toFixed(2)})`)
-          .join(", ");
-        responseText += `\nCortex (${pageType}): next → ${preds}`;
+        // Stufe 2 H5: the text line only at P >= 0.9, _meta.cortex always.
+        const cortexLine = formatCortexLine(pageType, hintResult);
+        if (cortexLine) responseText += `\n${cortexLine}`;
       }
     } catch (err) {
       debug("[cortex-hint] view_page error: %s", err instanceof Error ? err.message : String(err));

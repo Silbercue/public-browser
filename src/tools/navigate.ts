@@ -6,7 +6,7 @@ import type { SettleResult } from "../cdp/settle.js";
 import { wrapCdpError } from "./error-utils.js";
 import { toolSequence } from "../telemetry/tool-sequence.js";
 import { HINT_KIND, hintLedger } from "../telemetry/hint-ledger.js";
-import { hintMatcher } from "../cortex/hint-matcher.js";
+import { hintMatcher, formatCortexLine } from "../cortex/hint-matcher.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { debug } from "../cdp/debug.js";
 import { applyWebdriverMask } from "../cdp/stealth.js";
@@ -276,10 +276,9 @@ async function buildSuccessResponse(
     const hintResult = hintMatcher.matchByPageType(pageType);
     if (hintResult.matchCount > 0) {
       cortexMeta = { hints: hintResult.hints, matchCount: hintResult.matchCount };
-      const preds = hintResult.hints[0].predictions.slice(0, 3)
-        .map((p) => `${p.tool} (P=${p.probability.toFixed(2)})`)
-        .join(", ");
-      text += `\nCortex (${pageType}): next → ${preds}`;
+      // Stufe 2 H5: the text line only at P >= 0.9, _meta.cortex always.
+      const cortexLine = formatCortexLine(pageType, hintResult);
+      if (cortexLine) text += `\n${cortexLine}`;
     }
   } catch (err) {
     debug("[cortex-hint] navigate error: %s", err instanceof Error ? err.message : String(err));

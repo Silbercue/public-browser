@@ -24,6 +24,27 @@ import type { CortexHint, HintMatchResult, MarkovTransition } from "./cortex-typ
 /** Empty result constant — reused to avoid allocations on miss. */
 const EMPTY_RESULT: HintMatchResult = { hints: [], matchCount: 0 };
 
+/**
+ * Stufe 2 H5: the Cortex line in view_page/navigate responses appears only
+ * when the most likely next tool reaches this probability. In run3–5, 31 of
+ * the 39 lines had a top probability of only 0.33–0.50.
+ */
+export const CORTEX_LINE_MIN_PROBABILITY = 0.9;
+
+/**
+ * Stufe 2 H5: the one-line Cortex hint ("Cortex (pageType): next → tool (P=…)",
+ * top 3), or null when the top prediction is below CORTEX_LINE_MIN_PROBABILITY.
+ * `_meta.cortex` keeps the full hint either way.
+ */
+export function formatCortexLine(pageType: string, result: HintMatchResult): string | null {
+  const predictions = result.hints[0]?.predictions ?? [];
+  if (predictions.length === 0 || predictions[0].probability < CORTEX_LINE_MIN_PROBABILITY) return null;
+  const preds = predictions.slice(0, 3)
+    .map((p) => `${p.tool} (P=${p.probability.toFixed(2)})`)
+    .join(", ");
+  return `Cortex (${pageType}): next → ${preds}`;
+}
+
 export class HintMatcher {
 
   /**

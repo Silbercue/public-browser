@@ -469,6 +469,38 @@ describe("navigateHandler", () => {
       expect(result.content[0].text).toContain("fill_form");
     });
 
+    it("Stufe 2 H5: no Cortex line below P=0.9, but _meta.cortex still carries the hint", async () => {
+      markovTable.ingest([
+        { pageType: "login", toolSequence: ["navigate", "fill_form"], outcome: "success", contentHash: "h5cccccccccccccc", timestamp: Date.now() } as CortexPattern,
+        { pageType: "login", toolSequence: ["navigate", "view_page"], outcome: "success", contentHash: "h5dddddddddddddd", timestamp: Date.now() } as CortexPattern,
+      ]);
+      vi.spyOn(a11yTree, "getPageType").mockReturnValue("login");
+
+      const { cdpClient, emitLifecycle } = createMockCdp({
+        "Page.navigate": { frameId: "f1", loaderId: "l1" },
+      });
+      let evalCount = 0;
+      (cdpClient.send as ReturnType<typeof vi.fn>).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "Page.navigate") return { frameId: "f1", loaderId: "l1" };
+        if (method === "Runtime.evaluate") {
+          if (params?.awaitPromise === false) return {};
+          evalCount++;
+          if (evalCount === 1) return { result: { value: "https://example.com/login" } };
+          return { result: { value: "Login" } };
+        }
+        return {};
+      });
+
+      const promise = navigateHandler({ url: "https://example.com/login", action: "goto" }, cdpClient, "s1");
+      await vi.advanceTimersByTimeAsync(10);
+      emitLifecycle({ frameId: "f1", loaderId: "l1", name: "networkIdle", timestamp: 1 });
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await promise;
+
+      expect(result._meta?.cortex).toBeDefined();
+      expect(result.content[0].text).not.toContain("Cortex (");
+    });
+
     it("navigate response has NO _meta.cortex when pageType is unknown (AC #2)", async () => {
       // After navigate, A11y-Tree is typically empty → pageType "unknown"
       vi.spyOn(a11yTree, "getPageType").mockReturnValue("unknown");
