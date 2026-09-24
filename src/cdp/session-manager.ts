@@ -40,7 +40,7 @@ export class SessionManager {
   private _onOopifDetachCallback: ((sessionId: string) => void) | null = null;
 
   // Store bound callbacks for cleanup
-  private _onAttachedBound: ((params: unknown) => void) | null = null;
+  private _onAttachedBound: ((params: unknown, parentSessionId?: string) => void) | null = null;
   private _onDetachedBound: ((params: unknown) => void) | null = null;
 
   constructor(cdpClient: CdpClient, mainSessionId: string) {
@@ -111,13 +111,15 @@ export class SessionManager {
   }
 
   /**
-   * Initialize auto-attach and discover existing iFrames.
-   * H3: Also discovers already-existing OOPIF targets on startup.
+   * Initialize auto-attach on the page session. Chrome attaches the page's
+   * existing and future child OOPIFs; each attached OOPIF gets its own
+   * auto-attach in _onAttached, so nested frames follow (S8). Only frames of
+   * this tab are attached — no browser-wide Target.getTargets sweep.
    */
   async init(): Promise<void> {
     // Register event listeners
-    this._onAttachedBound = (params: unknown) =>
-      this._onAttached(params as AttachedToTargetParams);
+    this._onAttachedBound = (params: unknown, parentSessionId?: string) =>
+      this._onAttached(params as AttachedToTargetParams, parentSessionId);
     this._onDetachedBound = (params: unknown) =>
       this._onDetached(params as DetachedFromTargetParams);
 
@@ -140,49 +142,32 @@ export class SessionManager {
       throw err;
     }
 
-    // H3: Discover already-existing iframe targets and attach to them
-    try {
-      const { targetInfos } = await this._cdpClient.send<{ targetInfos: TargetInfo[] }>(
-        "Target.getTargets",
-      );
-      const existingIframes = targetInfos.filter((t) => t.type === "iframe");
-
-      for (const iframe of existingIframes) {
-        // Check if we already have this target attached (auto-attach may have fired)
-        if (this._frameToSession.has(iframe.targetId)) continue;
-
-        try {
-          const { sessionId } = await this._cdpClient.send<{ sessionId: string }>(
-            "Target.attachToTarget",
-            { targetId: iframe.targetId, flatten: true },
-          );
-          // Process as if it were an auto-attach event
-          await this._onAttached({
-            sessionId,
-            targetInfo: iframe,
-            waitingForDebugger: false,
-          });
-        } catch (err) {
-          debug("SessionManager: failed to attach existing iframe %s: %s", iframe.url, err);
-        }
-      }
-    } catch (err) {
-      // Non-fatal: auto-attach will still catch new iframes
-      debug("SessionManager: Target.getTargets failed during init: %s", wrapCdpError(err, "SessionManager.init"));
-    }
-
-    debug("SessionManager initialized (auto-attach enabled on session %s, %d existing OOPIFs)", this._mainSessionId, this._sessionToFrame.size);
+    // S8: No browser-wide Target.getTargets sweep any more. setAutoAttach
+    // already attaches the page's EXISTING child OOPIFs, and each attached
+    // OOPIF gets its own setAutoAttach in _onAttached (nested frames). The old
+    // sweep attached iframe targets of every tab, so view_page showed foreign
+    // frames and a click on their refs landed in another tab.
+    debug("SessionManager initialized (auto-attach enabled on session %s)", this._mainSessionId);
   }
 
   /**
    * Handle Target.attachedToTarget event.
    */
-  private async _onAttached(params: AttachedToTargetParams): Promise<void> {
+  private async _onAttached(params: AttachedToTargetParams, parentSessionId?: string): Promise<void> {
     const { sessionId, targetInfo } = params;
 
     // Only handle iframe targets
     if (targetInfo.type !== "iframe") {
       debug("SessionManager ignoring non-iframe target: %s (type: %s)", targetInfo.url, targetInfo.type);
+      return;
+    }
+
+    // S8: Only frames of THIS tab — auto-attached by the page session or by
+    // one of its OOPIF sessions (nested frames). Attaches of other tabs (an
+    // old page session that still auto-attaches) or browser-level attaches
+    // are not ours.
+    if (parentSessionId !== this._mainSessionId && !(parentSessionId !== undefined && this._sessionToFrame.has(parentSessionId))) {
+      debug("SessionManager ignoring iframe %s attached via foreign session %s", targetInfo.url, parentSessionId ?? "(browser)");
       return;
     }
 
@@ -205,6 +190,20 @@ export class SessionManager {
       this._sessionToFrame.delete(sessionId);
       this._frameToSession.delete(targetInfo.targetId);
       this._sessionToUrl.delete(sessionId);
+      return;
+    }
+
+    // S8: nested OOPIFs (a cross-origin frame inside a cross-origin frame)
+    // are children of THIS session, not of the page session. Auto-attach
+    // here too; it also covers frames that already exist.
+    try {
+      await this._cdpClient.send(
+        "Target.setAutoAttach",
+        { autoAttach: true, waitForDebuggerOnStart: false, flatten: true },
+        sessionId,
+      );
+    } catch (err) {
+      debug("OOPIF nested auto-attach failed for %s: %s", targetInfo.url, wrapCdpError(err, "SessionManager._onAttached"));
     }
   }
 

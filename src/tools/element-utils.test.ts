@@ -157,6 +157,61 @@ describe("resolveElement", () => {
     );
   });
 
+  describe("S8: role and name come from the owning frame when backendNodeIds collide", () => {
+    // Main frame: radio "Pro plan"; OOPIF: button "inner-btn" — both carry backendNodeId 257.
+    const mainNodes: AXNode[] = [
+      makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 10, childIds: ["2"] }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "radio" },
+        name: { type: "computedString", value: "Pro plan" },
+        backendDOMNodeId: 257,
+      }),
+    ];
+    const frameNodes: AXNode[] = [
+      makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 5, childIds: ["2"] }),
+      makeNode({
+        nodeId: "2",
+        parentId: "1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: "inner-btn" },
+        backendDOMNodeId: 257, // same backendNodeId as the main-frame radio
+      }),
+    ];
+    async function innerButtonRef(): Promise<string> {
+      await a11yTree.getTree(mockCdpForTree(mainNodes), "main-page");
+      await a11yTree.refreshPrecomputed(mockCdpForTree(frameNodes), "oopif-inner");
+      return a11yTree.findByText("inner-btn")!.ref;
+    }
+
+    it("S8: normal ref resolution reads role and name from the frame session", async () => {
+      const innerRef = await innerButtonRef();
+
+      const result = await resolveElement(mockCdpClient(), "main-page", { ref: innerRef });
+
+      expect(result.resolvedSessionId).toBe("oopif-inner");
+      expect(result.role).toBe("button");
+      expect(result.name).toBe("inner-btn");
+    });
+
+    it("S8: a selector-cache hit reads role and name from the frame session too", async () => {
+      const innerRef = await innerButtonRef();
+      selectorCache.updateFingerprint(selectorCache.computeFingerprint("https://example.com", a11yTree.refCount));
+      selectorCache.set(innerRef, 257, "oopif-inner");
+      const sessionManager = { getSessionForNode: vi.fn(() => "oopif-inner") } as unknown as SessionManager;
+      const resolveRefFull = vi.spyOn(a11yTree, "resolveRefFull");
+
+      const result = await resolveElement(mockCdpClient(), "main-page", { ref: innerRef }, sessionManager);
+
+      expect(resolveRefFull).toHaveBeenCalledTimes(1); // nur die Dokument-Prüfung aus Task 8 — der Selector-Cache-Zweig hat geantwortet, der normale Pfad riefe es ein zweites Mal
+      expect(result.resolvedSessionId).toBe("oopif-inner");
+      expect(result.role).toBe("button");
+      expect(result.name).toBe("inner-btn");
+      resolveRefFull.mockRestore();
+    });
+  });
+
   it("BUG-016: routes to main session when the node was registered under main", async () => {
     const nodes: AXNode[] = [
       makeNode({

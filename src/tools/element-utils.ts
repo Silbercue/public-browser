@@ -148,7 +148,7 @@ export async function resolveElement(
           );
           // B6: a detached node falls through — the normal path reports it as stale.
           if (!(await isDetached(cdpClient, resolved.object.objectId, currentSessionForNode))) {
-            const info = a11yTree.getNodeInfo(cached.backendNodeId);
+            const info = a11yTree.getNodeInfo(cached.backendNodeId, currentSessionForNode);
             debug("SelectorCache: hit for %s (backendNodeId=%d)", target.ref, cached.backendNodeId);
             return {
               backendNodeId: cached.backendNodeId,
@@ -221,8 +221,10 @@ export async function resolveElement(
     if (await isDetached(cdpClient, resolved.object.objectId, targetSessionId)) {
       throw new RefNotFoundError(staleRefMessage(target.ref));
     }
-    // Get role/name directly from nodeInfoMap via backendNodeId
-    const info = a11yTree.getNodeInfo(backendNodeId);
+    // Get role/name from nodeInfoMap — keyed by the owning session (S8):
+    // backendNodeIds of different frames collide, a bare lookup returned the
+    // first match, often a node of another frame.
+    const info = a11yTree.getNodeInfo(backendNodeId, targetSessionId);
 
     // Cache the resolved ref for future lookups (Story 7.5)
     // H1 fix: Pass URL + nodeCount so set() can compute on-the-fly fingerprint
