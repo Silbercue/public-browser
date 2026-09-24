@@ -1,0 +1,194 @@
+{
+  "stage": 2,
+  "head": "aeeef65",
+  "stage1_head": "c86f5ad",
+  "checked_at": "2026-09-24T14:07:48.601Z",
+  "verdict": "FAIL",
+  "exit_code": 1,
+  "accepted": false,
+  "results": [
+    {
+      "id": "benchmark",
+      "label": "Benchmark 30/30 in 5 von 5 Laeufen",
+      "pass": true,
+      "detail": "5 Laeufe, 5 ok, alle 30/30"
+    },
+    {
+      "id": "rounds",
+      "label": "Runden (Median) ≤ Ergebnis Stufe 1",
+      "pass": false,
+      "detail": "87 gegen 82 (92, 105, 76, 82, 87)"
+    },
+    {
+      "id": "tokens_median",
+      "label": "Token (Median) ≤ 3.40M",
+      "pass": false,
+      "detail": "3.56M gegen 3.40M (3.74M, 4.60M, 2.89M, 3.33M, 3.56M)"
+    },
+    {
+      "id": "tokens_max",
+      "label": "Einzellauf ≤ 4.20M",
+      "pass": false,
+      "detail": "max 4.60M (public-browser-run14.json)"
+    },
+    {
+      "id": "tokens_vs_stage1",
+      "label": "Token nicht schlechter als Stufe 1 (Median und groesster Einzellauf)",
+      "pass": false,
+      "detail": "Median 3.56M gegen 3.81M, Einzellauf max 4.60M gegen 4.14M"
+    },
+    {
+      "id": "probe",
+      "label": "Realseiten-Probe P1–P3 je 2 von 2 Laeufen bestanden, Summe der Runden-Mediane ≤ Stufe 1 + 20 %",
+      "pass": true,
+      "detail": "P1 2/2 bestanden · P2 2/2 bestanden · P3 2/2 bestanden · Summe der Runden-Mediane 67 (P1 35 + P2 21 + P3 11), Grenze 97.2 = Stufe 1 81 × 1,2"
+    },
+    {
+      "id": "code",
+      "label": "npm test, Lint, npm run build, Python-Tests gruen",
+      "pass": true,
+      "detail": "npm test ok, lint ok, build ok, pytest ok"
+    }
+  ],
+  "warnings": [],
+  "exclusions": {},
+  "version_filter": {
+    "chrome": null,
+    "claude_code": null
+  },
+  "version_drift": [],
+  "versions": {
+    "chrome": [
+      "153.0.8010.53"
+    ],
+    "claude_code": [
+      "2.1.281"
+    ]
+  },
+  "baseline_versions": {
+    "chrome": [
+      "153.0.8010.53"
+    ],
+    "claude_code": [
+      "2.1.281"
+    ]
+  },
+  "benchmark": {
+    "n": 5,
+    "n_ok": 5,
+    "runs": [
+      "public-browser-run13.json",
+      "public-browser-run14.json",
+      "public-browser-run15.json",
+      "public-browser-run16.json",
+      "public-browser-run17.json"
+    ],
+    "failures": [],
+    "tokens": {
+      "median": 3556676,
+      "max": 4597053,
+      "max_run": "public-browser-run14.json",
+      "values": [
+        3735551,
+        4597053,
+        2894600,
+        3326855,
+        3556676
+      ]
+    },
+    "rounds": {
+      "median": 87,
+      "values": [
+        92,
+        105,
+        76,
+        82,
+        87
+      ]
+    },
+    "calls": {
+      "median": 86,
+      "values": [
+        90,
+        103,
+        74,
+        80,
+        86
+      ]
+    }
+  },
+  "probe": {
+    "P1": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run7.json",
+        "real-sites-public-browser-run8.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 35,
+        "values": [
+          32,
+          38
+        ]
+      },
+      "tokens": {
+        "median": 784576,
+        "values": [
+          666325,
+          902827
+        ]
+      }
+    },
+    "P2": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run10.json",
+        "real-sites-public-browser-run9.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 21,
+        "values": [
+          23,
+          19
+        ]
+      },
+      "tokens": {
+        "median": 328919,
+        "values": [
+          364465,
+          293373
+        ]
+      }
+    },
+    "P3": {
+      "n": 2,
+      "n_ok": 2,
+      "passed": 2,
+      "runs": [
+        "real-sites-public-browser-run11.json",
+        "real-sites-public-browser-run12.json"
+      ],
+      "failures": [],
+      "rounds": {
+        "median": 11,
+        "values": [
+          13,
+          9
+        ]
+      },
+      "tokens": {
+        "median": 208234,
+        "values": [
+          261268,
+          155200
+        ]
+      }
+    }
+  }
+}
