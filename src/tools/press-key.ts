@@ -314,8 +314,11 @@ export async function pressKeyHandler(
   if (editorBefore !== null) {
     const editorAfter = await readEditorState(cdpClient, effectiveSessionId, true);
     if (editorAfter === editorBefore) {
-      const letter = resolvedKey.toUpperCase();
-      macHint = `\nHint: Control+${letter} changed nothing in the focused editor. On macOS use Meta instead of Control (key "Meta+${letter}").`;
+      // Review I1: Shift bleibt im Rat — "Meta+Z" statt "Meta+Shift+Z" hiesse
+      // Undo statt Redo. Alt kommt hier nicht an (ctrlLetterOnMac laesst nur
+      // Control bzw. Control+Shift durch).
+      const combo = ((modBits & MODIFIER_BITS.shift) !== 0 ? "Shift+" : "") + resolvedKey.toUpperCase();
+      macHint = `\nHint: Control+${combo} changed nothing in the focused editor. On macOS use Meta instead of Control (key "Meta+${combo}").`;
     }
   }
 

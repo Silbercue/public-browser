@@ -258,6 +258,29 @@ describe("S7: Control shortcuts on macOS", () => {
     expect((keyDown[1] as { modifiers: number }).modifiers).toBe(2);
   });
 
+  it("Control+Shift+Z keeps Shift in the hint, so the advice is redo, not undo (review I1)", async () => {
+    setPlatform("darwin");
+    const { cdpClient } = mockWithEditorStates(["h:Hello|5-5:0", "h:Hello|5-5:0"]);
+
+    const result = await pressKeyHandler({ key: "Control+Shift+Z" }, cdpClient, "s1");
+
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("Hint: Control+Shift+Z changed nothing in the focused editor.");
+    expect(text).toContain('(key "Meta+Shift+Z")');
+  });
+
+  it("Control+Z without Shift gets a hint without Shift (counter-check to I1)", async () => {
+    setPlatform("darwin");
+    const { cdpClient } = mockWithEditorStates(["h:Hello|5-5:0", "h:Hello|5-5:0"]);
+
+    const result = await pressKeyHandler({ key: "z", modifiers: ["ctrl"] }, cdpClient, "s1");
+
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("Hint: Control+Z changed nothing in the focused editor.");
+    expect(text).toContain('(key "Meta+Z")');
+    expect(text).not.toContain("Shift");
+  });
+
   it("Control+B that changed the editor gets no hint", async () => {
     setPlatform("darwin");
     const { cdpClient } = mockWithEditorStates(["h:Hello World|6-11:5", "h:Hello <b>World</b>|0-5:5"]);
