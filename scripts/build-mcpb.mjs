@@ -60,9 +60,9 @@ try {
     display_name: "Public Browser",
     version: pkg.version,
     description:
-      "Provides Chrome browser automation over CDP with your real profile, stable accessibility-tree refs and multi-tab.",
+      "Provides Chrome browser automation over CDP with stable accessibility-tree refs, multi-step plans in one call and multi-tab.",
     long_description:
-      "Public Browser is an MCP server that drives a real Chrome instance over the Chrome DevTools Protocol - no Playwright dependency, no extension bridge. It uses your existing profile, so logged-in sessions work. Tools cover navigation, accessibility-tree reads, forms, tabs, downloads and server-side multi-step plans. MIT licensed, with an optional Python script API (`pip install publicbrowser`).",
+      "Public Browser is an MCP server that drives a real Chrome instance over the Chrome DevTools Protocol - no Playwright dependency, no extension bridge. Tools cover navigation, accessibility-tree reads, forms, tabs, downloads and server-side multi-step plans. MIT licensed, with an optional Python script API (`pip install publicbrowser`).",
     author: { name: "Julian Friedrich", url: "https://github.com/Silbercue" },
     repository: { type: "git", url: "https://github.com/Silbercue/public-browser" },
     homepage: "https://github.com/Silbercue/public-browser#readme",

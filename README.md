@@ -4,47 +4,39 @@
 [![npm version](https://img.shields.io/npm/v/public-browser)](https://www.npmjs.com/package/public-browser)
 [![Tool definitions < 5k tokens](https://img.shields.io/badge/tool_definitions-%3C5k_tokens-brightgreen)](#why-an-mcp-server-and-not-a-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-Lets Claude Code and Cursor drive Chrome — with your real, logged-in profile. On the same 30-test benchmark page it used **30% fewer tokens, 25% less money, 41% fewer tool calls and 40% less time** than Playwright MCP at the same pass rate — two runs each, 2026-09-03, driver Claude Opus 5, raw data in the repo ([Benchmarks](#benchmarks), including where it loses). Its own tool definitions are **34% smaller since v2.10.4** (7,607 → 4,990 tokens, reproduce with `node scripts/token-count.mjs`). Direct CDP, a11y-tree refs, multi-tab ready — 2,360 TypeScript tests, 237 Python tests.
+Lets Claude Code, Cursor and any MCP client drive Chrome. In a blind benchmark on a 30-test page, five runs each, Public Browser 3.0 passed 30/30 in every run and used a median of **3.0M session tokens where agent-browser 0.38.1 used 4.5M — a third fewer tokens, a third less cost, a quarter fewer tool calls and a third less time** ([Benchmarks](#benchmarks), including where it loses). Measured 2026-09-23/24 with Claude Code 2.1.281, driver Claude Opus 5 and Chrome 153; agent-browser ran through its CLI with its official skill file, and the test page is our own. Direct CDP, a11y-tree refs, several steps per call with `run_plan` — 2,700+ TypeScript tests, 280+ Python tests.
 
 Built for [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), and any MCP-compatible client — and, without an LLM in the loop, for decision models like [Jev](#perfect-for-jev--a-decision-model-needs-a-menu-public-browser-hands-it-one).
 
-> **Looking for an alternative to Playwright MCP, Browser MCP, or claude-in-chrome?** Public Browser talks to Chrome directly via the DevTools Protocol — no Playwright dependency, no Chrome extension bridge, no single-tab limit. One command to install, zero config. [See benchmark comparison below](#benchmarks).
+> **Looking for an alternative to agent-browser, Playwright MCP, Chrome DevTools MCP or Browser MCP?** Public Browser is an MCP server that talks to Chrome directly over the DevTools Protocol — no Playwright dependency, no extension bridge, no shell command per step. One command to install, zero config. [See the benchmark comparison below](#benchmarks).
 
 ## Why Public Browser?
 
-Every Chrome MCP server has the same problem: **bulky responses, too few reliable refs.** Screenshots return 10-30x more context payload than text trees. Selector-based refs break the second the DOM rerenders. Extension bridges (Browser MCP) get stuck on the connected tab. Playwright wrappers spin up a new browser instance for every session.
+- **Fewer tokens per task.** Every tool call makes the model re-read the conversation so far, so the session total is what you pay for. On the benchmark page Public Browser 3.0 needed 3.0M tokens (median of five runs) where agent-browser needed 4.5M. In the field run a day earlier, with Public Browser still at 2.10.6, Playwright MCP needed 7.8M and Chrome DevTools MCP 10.3M. The lead comes from fewer, denser steps: `run_plan` executes several actions with variables and conditions in one call, and since 3.0 the responses carry less repetition — diffs show only what changed, text the parent line already shows is not repeated, a tip appears once per session.
+- **Loud failures instead of silent ones.** A CSS selector that matches several elements does nothing and returns the candidates with their refs. Refs are kept per tab and never reused, so a ref from a page you left reports `stale ref` instead of clicking whatever node now has that number. `drag` answers `Drag not confirmed` when nothing reacted, and a click that opens a tab names the new tab.
+- **Nested cross-origin iframes and shadow DOM.** Clicks reach elements in a cross-origin iframe that sits inside another cross-origin iframe — agent-browser 0.38.1 reads one level ([#1784](https://github.com/vercel-labs/agent-browser/issues/1784)). Open and closed shadow roots are read as well.
+- **Two ways in without an LLM.** A Node library (`createSession()`) and a Python client (`pip install publicbrowser`) run the same tool handlers as the MCP server.
 
-Public Browser fixes this. It talks directly to Chrome via CDP (same protocol Playwright and Puppeteer use internally), returns an accessibility-tree-based reference map, and caches it across calls so `click(ref: 'e5')` and `type(ref: 'e7', ...)` survive scrolls and DOM updates.
+**What agent-browser does better:** it can copy your Chrome profile so its logins come along (Public Browser's profile mode does not carry site logins on macOS, see [Chrome Profiles](#chrome-profiles)), records HAR files and intercepts requests, saves PDFs and video, and drives iOS Safari. If your agent works from the shell rather than through an MCP client, it is a strong choice.
 
-Benchmark rows below are **April 2026, 35-test suite, Opus 4.6** unless a cell also gives a September value. Cells marked *Sep* come from the blind September 2026 re-run (35-test page, 30 scored, driver `claude-opus-5`, two runs per required server; one browser-use run) — run files `public-browser-run1/2.json`, `playwright-mcp-run5/6.json`, `chrome-devtools-mcp-run3/4.json`, `browser-use-run6.json` in [`test-hardest/results/`](test-hardest/results). Cross-suite comparison is not valid; see [Benchmarks](#benchmarks).
-
-| What you get | Playwright MCP | Browser MCP | claude-in-chrome | browser-use | **Public Browser** |
-|---|---|---|---|---|---|
-| Benchmark pass rate (Apr 2026: 31 scored / *Sep 2026: 30 scored*) | 29/31 (563s)<br>*Sep: 30/30 (468s, 493s)* | **6/31, aborted**<br>*Sep: not re-run* | (24-test suite only) | 21/31 (1870s)<br>*Sep: 24/30, incomplete run (2023s)* | **30/31 (598s)**<br>*Sep: 30/30 (281s, 296s)* |
-| Session tokens, whole run (*Sep 2026 only*) | *Sep: 8.8M, 9.6M* | — | — | *Sep: 56.2M, incomplete run* | ***Sep: 6.3M, 6.5M** (−30%)* |
-| Cost per run, Opus 5 list price (*Sep 2026 only*) | *Sep: $4.28, $4.78* | — | — | *Sep: $25.25, incomplete run* | ***Sep: $3.41, $3.35** (−25%)* |
-| Avg Tool-Response (Chars) | 1,448<br>*Sep: 740, 656* | — | — | — | 807<br>*Sep: 1,298, 1,214* |
-| P95 Tool-Response (Chars) | 8,068<br>*Sep: 3,617, 1,587* | — | — | — | 2,328<br>*Sep: 6,077, 6,479* |
-| `view_page` avg (Chars) | 6,084 (`browser_snapshot`)<br>*Sep: 1,911, 2,269* | — | — | — | 1,124<br>*Sep: 2,841, 3,398* |
-| Multi-tab support | Yes | **No (single tab)** | Yes | Partial | **Yes** |
-| Connection | New browser | Extension bridge | Extension | Subprocess | **Direct CDP (pipe or WebSocket)** |
-| Ref system | Playwright refs | Playwright refs | CSS selectors | Screenshots | **A11y-tree refs (stable across DOM changes)** |
-| Drag & drop | Yes | No | Partial | No | **Yes (native CDP mouse events)** |
-| Shadow DOM + iframe | Yes | Yes | Partial | No | **Yes (with OOPIF session support)** |
-| Multi-step plan execution | — | — | — | — | **`run_plan` — server-side plan executor with variables, conditions, suspend/resume** |
-
-<sub>P95 is not computed the same way in both rows: the April values are the largest per-tool P95 (`by_tool[].p95_chars`, jq index `floor((n-1)·0.95)`), the September values are a nearest-rank P95 over all MCP calls of a run. Do not read the April and *Sep* P95 numbers as one series.</sub>
-
-**What changed since April.** In April 2026 Public Browser's page views were 5.4x smaller than Playwright MCP's; Playwright MCP 0.0.80 has since made its snapshot format much more compact, so in the September runs its individual responses are smaller than ours (Ø 740 and 656 chars against 1,298 and 1,214) and the tool-response payload summed over a whole run is roughly a tie (109,075 / 104,432 chars against 101,478 / 99,147) — "smallest responses" is no longer a claim we can make. What the model actually consumed over the whole session is a different story: 6.3M and 6.5M tokens against 8.8M and 9.6M (~30% fewer), $3.41 and $3.35 against $4.28 and $4.78 at Opus 5 list price (~25% less). That gap comes from the second thing left standing: ~41% fewer tool calls (84 and 86 against 137 and 151) and ~40% less time to finish (281s and 296s against 468s and 493s, page timer; 34% on the full wall clock, 331s and 346s against 501s and 527s) at the same reliability, 30/30 in each of those four runs. Every call re-reads the whole conversation so far, so fewer calls means fewer re-reads — that is where the token and cost gap comes from, not from smaller responses. The advantage moved from "cheaper per look" to "cheaper per task", and the headline was changed accordingly.
+| Blind benchmark, median of 5 runs each | **Public Browser 3.0** | agent-browser 0.38.1 (CLI) |
+|---|---|---|
+| Passed (30 scored tests) | **30/30 in 5 of 5 runs** | 29/30 in 5 of 5 runs — misses T5.2, a `navigator.webdriver` check |
+| Session tokens, whole run | **3.02M** (2.47–3.15M) | 4.53M (4.40–5.33M) |
+| Cost per run, Opus 5 list price | **$2.40** | $3.56 |
+| Tool calls | **79** | 104 |
+| Time to finish, wall clock | **261 s** | 386 s |
+| Tool-response volume | **78.9k chars** | 84.4k chars |
+| Average tool response | 1,040 chars | **754 chars** |
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-2026-09-dark.svg">
-  <img alt="September 2026 benchmark, 35-test page, 30 scored, driver model claude-opus-5. Each bar is Public Browser as a share of Playwright MCP 0.0.80 on the same metric; the vertical line is Playwright at 100 percent and shorter is better. Session tokens over the whole run: 6.3 and 6.5 million against 8.8 and 9.6 million, 30 percent fewer. Cost per run at list price: 3.41 and 3.35 dollars against 4.28 and 4.78, 25 percent less. Tool calls: 84 and 86 against 137 and 151, 41 percent fewer. Time to finish: 281 and 296 seconds against 468 and 493, 40 percent less. Average response size: 1,298 and 1,214 chars against 740 and 656, 80 percent larger — Public Browser loses this one. Total response volume: 109k and 104k chars against 101k and 99k, 6 percent more. Pass rate is a tie at 30 of 30 in all four runs." src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-2026-09-light.svg" width="880">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-2026-09-24-dark.svg">
+  <img alt="Public Browser 3.0 against agent-browser 0.38.1, blind benchmark, 30 scored tests, median of 5 runs each, driver model claude-opus-5. Each bar is the Public Browser median as a share of the agent-browser median on the same metric; the vertical line is agent-browser at 100 percent and shorter is better. Session tokens: 3.02M against 4.53M, 33 percent fewer. Cost per run: $2.40 against $3.56, 33 percent less. Tool calls: 79 against 104, 24 percent fewer. Time to finish: 261 s against 386 s, 32 percent less. Total response volume: 78.9k against 84.4k, 7 percent less. Avg response size: 1,040 against 754, 38 percent larger — Public Browser loses this one. Passed 30/30 in all 5 runs against 29/30 in all 5 runs (agent-browser misses T5.2, a navigator.webdriver check)." src="https://raw.githubusercontent.com/Silbercue/public-browser/master/.github/assets/benchmark-2026-09-24-light.svg" width="880">
 </picture>
 
-September 2026 data, both runs per server, against Playwright MCP 0.0.80. Rows where the bar runs past the line are rows Public Browser loses. Method and the full table: [Benchmarks](#september-2026-current).
+2026-09-23/24, Claude Code 2.1.281, driver `claude-opus-5`, Chrome 153.0.8010.53. Method, per-run table and the rest of the field: [Benchmarks](#benchmarks).
 
 ## Quick Start
 
@@ -53,13 +45,13 @@ September 2026 data, both runs per server, against Playwright MCP 0.0.80. Rows w
 One command — installs globally for all projects:
 
 ```bash
-claude mcp add --scope user public-browser npx -y public-browser@latest
+claude mcp add --scope user public-browser -- npx -y public-browser@latest
 ```
 
 **Important:** after `claude mcp add` you must **fully quit and reopen Claude Code**. `/mcp reconnect` is not enough — Claude Code reads the `mcpServers` config only at session start and caches it. After the restart, the first tool call auto-launches Chrome **visible** (no headless, no port setup). Done.
 
 > To enable parallel Python [Script API](#script-api-python--perfect-for-jev-loops) access, add `--script` to the args:
-> `claude mcp add --scope user public-browser npx -y public-browser@latest -- --script`
+> `claude mcp add --scope user public-browser -- npx -y public-browser@latest -- --script`
 
 ### Install in Cursor
 
@@ -113,7 +105,7 @@ claude mcp remove --scope user public-browser
 
 ## Chrome Profiles
 
-By default, Public Browser starts Chrome with a fresh temp profile — no cookies, no logins, no extensions. For tasks like research on sites that block anonymous visitors, you can launch Chrome with your real profile instead.
+By default, Public Browser starts Chrome with a fresh temp profile — no cookies, no logins, no extensions. You can also start Chrome with one of your own Chrome profiles.
 
 ### List available profiles
 
@@ -127,18 +119,20 @@ Three ways — pick whichever fits your setup:
 
 ```bash
 # CLI flag
-npx public-browser --profile "Julian"
+npx public-browser --profile "Work"
 
 # Environment variable
-PUBLIC_BROWSER_PROFILE="Julian" npx public-browser
+PUBLIC_BROWSER_PROFILE="Work" npx public-browser
 
 # MCP tool (call BEFORE any browser interaction)
-configure_session({ profile: "Julian" })
+configure_session({ profile: "Work" })
 ```
 
-When using a real profile, Public Browser preserves extensions, cookies, logins, and sync. It creates a lightweight wrapper directory with a symlink to your real profile data — Chrome gets a "non-default" data dir (required for remote debugging) while using your actual profile. The wrapper is removed when Public Browser closes Chrome, and wrappers left behind by a crash are removed on the next start; your profile folder itself is never deleted.
+Chrome refuses remote control on its default data directory, so Public Browser creates a lightweight wrapper directory with a symlink to your profile folder and starts Chrome on that. The wrapper is removed when Public Browser closes Chrome, and wrappers left behind by a crash are removed on the next start; your profile folder itself is never deleted.
 
-**No open debugging port.** A real profile is driven over `--remote-debugging-pipe`: CDP runs through a pipe that only Public Browser holds, and nothing listens on a TCP port — other programs on your machine cannot take over your logged-in browser. The flip side: `--attach` and the Script API escape hatch (`page.cdp`) do not work with a real profile. Should Chrome ever refuse the pipe, Public Browser restarts it with a random debugging port (never 9222) and says so on stderr and once in the next tool response: while that Chrome runs, the profile is reachable for local programs.
+**What carries over, and what does not.** Bookmarks, history, extensions and Chrome's own Google sign-in come along, so Google sites are signed in. **Other sites are not, at least on macOS:** current Chrome (tested with 153) does not load the profile's cookies through the symlink — the sandbox of Chrome's network service only allows paths below the wrapper — so sites start logged out, and logins made during the session are not saved to your profile. Linux and Windows are untested. Copying the profile at start, as agent-browser does, is planned.
+
+**No open debugging port.** A real profile is driven over `--remote-debugging-pipe`: CDP runs through a pipe that only Public Browser holds, and nothing listens on a TCP port — other programs on your machine cannot take over your browser. The flip side: `--attach` and the Script API escape hatch (`page.cdp`) do not work with a real profile. Should Chrome ever refuse the pipe, Public Browser restarts it with a random debugging port (never 9222) and says so on stderr and once in the next tool response: while that Chrome runs, the profile is reachable for local programs.
 
 ### If Chrome is already open
 
@@ -154,7 +148,7 @@ Every one of those loops needs the same three things from the browser side, and 
 |---|---|
 | A **bounded menu** of actions, not a screenshot or a raw DOM | `view_page` (`filter: "interactive"`) — the a11y-tree elements an agent can act on, each with a stable `e`-ref. Ø 1.2–1.3k chars per view in the September benchmark, well inside Jev's ~32k-token page budget and 255-option choice cap. |
 | **Refs that survive the action** so the chosen option can be executed and verified | `e`-refs are cached across calls and survive scrolls and DOM re-renders; `click`/`type`/`fill_form` return a DOM diff (NEW/REMOVED/CHANGED) that serves as the deterministic verification signal Jev-style loops use instead of a second model call. |
-| A **programmatic driver without an LLM in the loop** | The [Script API (Python)](#script-api-python--perfect-for-jev-loops) over HTTP and the [Node Library API](#node-library-api-multiple-instances-in-one-process--perfect-for-jev) in-process — same tool handlers as the MCP server, one Chrome per Jev worker, headless or with a real logged-in profile. |
+| A **programmatic driver without an LLM in the loop** | The [Script API (Python)](#script-api-python--perfect-for-jev-loops) over HTTP and the [Node Library API](#node-library-api-multiple-instances-in-one-process--perfect-for-jev) in-process — same tool handlers as the MCP server, one Chrome per Jev worker, headless or with one of your Chrome profiles. |
 
 **Measured, not claimed.** [`examples/jev-loop.mjs`](examples/jev-loop.mjs) is that loop in ~150 lines on the Node Library: `view_page` on the test card → one Jev `choice` over the card's refs (plus a `boolean` "already done?") → `click` / `type` / `fill_form` → repeat. Jev cannot write text, so when it picks a "type" action, `gpt-4.1-nano` writes the literal value for that one field — the same split browser-use/jev-ultrafast uses. Run on the six Level-1 cards of the [public benchmark page](https://mcp-test.second-truth.com), two runs, 2026-09-18, Jev via Vercel AI Gateway, headless Chrome:
 
@@ -213,7 +207,7 @@ Tool Handler                             |
 Chrome <------------ CDP --------------->
 ```
 
-Your script sends HTTP requests to the Public Browser server on port 9223. The server executes the exact same tool handlers that the MCP server uses — one codebase, one test suite (2300+ tests), two access paths.
+Your script sends HTTP requests to the Public Browser server on port 9223. The server executes the exact same tool handlers that the MCP server uses — one codebase, one test suite (2,700+ tests), two access paths.
 
 ### Auto-Start
 
@@ -236,7 +230,7 @@ Two scripts that call `Chrome.connect()` at the same moment while no server runs
 
 Requests without the key get `401`. Requests from a browser (with an `Origin` header) or with a `Host` other than `127.0.0.1:<port>` / `localhost:<port>` get `403` — that blocks web pages and DNS rebinding even if they guess the port.
 
-**Upgrading:** the server and the `publicbrowser` Python client go together. `publicbrowser` 1.0.0 does not send the key, so against a newer server it reports `ConnectionError: Public Browser server not reachable` although the server runs. An MCP config with `npx -y public-browser@latest -- --script` picks up the new server on its next start — update `publicbrowser` at the same time (`pip install -U publicbrowser`).
+**Upgrading:** the server and the `publicbrowser` Python client go together: `publicbrowser` 2.0.0 needs Public Browser 3.0.0 or newer, and `publicbrowser` 1.0.0 does not work with 3.0.0 — it does not send the key, so it reports `ConnectionError: Public Browser server not reachable` although the server runs. An MCP config with `npx -y public-browser@latest -- --script` picks up the new server on its next start — update the client at the same time (`pip install -U publicbrowser`).
 
 ### Example: Login + Data Extraction
 
@@ -246,17 +240,17 @@ from publicbrowser import Chrome
 chrome = Chrome.connect()
 
 with chrome.new_page() as page:
-    page.navigate("https://competitor.example.com/login")
-    page.fill({"#email": "tomek@shop.de", "#password": "***"})
+    page.navigate("https://shop.example.com/login")
+    page.fill({"#email": "me@example.com", "#password": "***"})
     page.click("button[type=submit]")
     page.wait_for("text=Dashboard")
 
     for cat in ["electronics", "furniture", "toys"]:
-        page.navigate(f"https://competitor.example.com/prices/{cat}")
-        prices = page.evaluate(
+        page.navigate(f"https://shop.example.com/orders/{cat}")
+        rows = page.evaluate(
             "[...document.querySelectorAll('tr')].map(r => r.textContent)"
         )
-        save_csv(cat, prices)
+        save_csv(cat, rows)
 
 chrome.close()
 ```
@@ -305,7 +299,7 @@ When the MCP server and Python scripts need to run at the same time, add `--scri
 
 **Claude Code:**
 ```bash
-claude mcp add --scope user public-browser npx -y public-browser@latest -- --script
+claude mcp add --scope user public-browser -- npx -y public-browser@latest -- --script
 ```
 
 **Cursor / Cline (`mcp.json`):**
@@ -461,7 +455,7 @@ user-data-dir — whenever `downloadDir` matters.
 | `cdpUrl` | — | `http://host:port`, `host:port` or a bare port. Wins over `cdpPort`/`cdpHost` |
 | `cdpPort` / `cdpHost` | `9222` / `127.0.0.1` | CDP endpoint this session drives. `session.cdpPort` is `undefined` when nothing listens (`transport: "pipe"`, or a named `profile`) |
 | `userDataDir` | — | Chrome `--user-data-dir` for auto-launch. One directory per instance |
-| `profile` | — | Named Chrome profile instead of a raw directory. Runs over the pipe — no CDP port |
+| `profile` | — | Named Chrome profile instead of a raw directory. Runs over the pipe — no CDP port. On macOS, site logins do not carry over ([Chrome Profiles](#chrome-profiles)) |
 | `headless` | `false` | Launch Chrome headless |
 | `stealth` | `true` | `false` disables all `navigator.webdriver` masking |
 | `attach` | `false` | Never auto-launch; attach to a running Chrome and fail fast if there is none |
@@ -608,41 +602,78 @@ immediately and never waits, for either a start or a completion.
 
 ## Why an MCP server and not a CLI?
 
-Several browser-automation projects now ship a CLI and tell coding agents to call it from the shell; Microsoft's Playwright README recommends that route. A CLI adds no tool definitions to the context. The trade-off is that the model has to learn the command surface from `--help` output and error messages. In one practitioner's side-by-side of Chrome DevTools MCP and the agent-browser CLI, the MCP tool surface came out better and the models "do not seem deeply fluent with it yet" ([Pasi Huuhka, 28 Jan 2026](https://www.huuhka.net/browser-verification-for-coding-agents-chrome-devtools-mcp-vs-agent-browser/)) — one comparison, not a study.
+Several browser-automation projects ship a CLI and tell coding agents to call it from the shell — agent-browser and Playwright CLI among them. A CLI adds no tool definitions to the context, and in the field run on 2026-09-23 both CLIs were ahead of Public Browser 2.10.6 on session tokens: agent-browser 4.22M and Playwright CLI 4.61M against 4.89M (medians of three runs). That result is what 3.0 was built to answer. Against agent-browser, 3.0 now needs a third fewer tokens (3.02M against 4.53M, five runs each); Playwright CLI was not re-run.
 
-Public Browser keeps the MCP surface and keeps it under a fixed budget: its 25 tool definitions take about **4,990 tokens** of context as delivered over the wire (characters / 4 of the `tools/list` response, `npm run token-count`; measured the same way with `node scripts/token-count.mjs --cmd npx --args "-y @playwright/mcp@0.0.80"`, Playwright MCP 0.0.80 takes 4,626 and Chrome DevTools MCP 1.8.0 takes 6,290). Chars / 4 is a coarse proxy — your client's `/context` figure will differ, but it is the same proxy for all three servers. A test enforces the budget, so it cannot creep back up. Getting there cost nothing in the benchmark: the two acceptance runs of the shortened definitions solved 30/30 with 80 and 68 calls, against 84 and 86 for the previous wording (raw data in [`test-hardest/results-local/`](test-hardest/results-local)).
+It gets there while still paying for an MCP surface. Its 25 tool definitions take about **4,837 tokens** of context as delivered over the wire (characters / 4 of the `tools/list` response, `npm run token-count`; a test keeps them under 4,990, so they cannot creep back up). agent-browser's skill file costs about 900 tokens by the same measure — Public Browser pays more up front and wins it back through fewer, denser steps. That is what `run_plan` is for: N steps in one call, executed server-side with variables, conditions and suspend/resume, where agent-browser's `batch` takes a flat list of commands and leaves the control flow to the model. In the five 3.0 runs the model used `run_plan` 28–43 times per run.
 
-The other argument for a CLI — "MCP needs a round-trip per step" — is what `run_plan` is for: N steps in one call, executed server-side with variables, conditions and suspend/resume. In the same two acceptance runs that was 49% fewer tool calls than Playwright MCP (80 and 68 against 137 and 151, same pass rate); the headline's 41% comes from the published September runs with the previous wording (84 and 86 calls, see [Benchmarks](#benchmarks)).
+Whether models are more fluent with an MCP tool surface or with a CLI's `--help` output is an open question. One practitioner's side-by-side of Chrome DevTools MCP and the agent-browser CLI found the MCP surface better and the models "do not seem deeply fluent with it yet" ([Pasi Huuhka, 28 Jan 2026](https://www.huuhka.net/browser-verification-for-coding-agents-chrome-devtools-mcp-vs-agent-browser/)) — one comparison, not a study.
 
 ## Coming from Browser MCP?
 
-[Browser MCP](https://browsermcp.io) (`@browsermcp/mcp`) has had no release since 0.1.3 on 11 April 2025, and its extension bridge works on one tab. If you picked it for its four promises, here is what Public Browser does for each: **Fast** — talks to Chrome directly over CDP, no extension bridge, no cloud hop; **Private** — runs on your machine, telemetry is opt-in; **Logged In** — can drive your real, logged-in Chrome profile (see [Chrome Profiles](#chrome-profiles)); **Stealth** — sends real CDP input events (not synthetic JS events) and masks `navigator.webdriver`; `--no-stealth` makes the automation identifiable when you want that. Install with one command ([Quick Start](#quick-start)). Tool names differ: `browser_snapshot` → `view_page`, `browser_click` → `click`, `browser_type` → `type`; `view_page` returns the refs that `click` and `type` take. Multi-tab works.
+[Browser MCP](https://browsermcp.io) (`@browsermcp/mcp`) has had no release since 0.1.3 on 11 April 2025, and its extension bridge works on one tab. If you picked it for its four promises, here is where Public Browser stands on each: **Fast** — talks to Chrome directly over CDP, no extension bridge, no cloud hop; **Private** — runs on your machine, no telemetry; **Logged In** — only partly: one of your Chrome profiles brings bookmarks, extensions and Chrome's own Google sign-in, but on macOS other sites start logged out (see [Chrome Profiles](#chrome-profiles)); **Stealth** — not in the bot-evasion sense: `navigator.webdriver` is not `true` by default and clicks are real CDP mouse events, but serious bot detection still sees an automated browser, and `--no-stealth` makes it identifiable on purpose. Install with one command ([Quick Start](#quick-start)). Tool names differ: `browser_snapshot` → `view_page`, `browser_click` → `click`, `browser_type` → `type`; `view_page` returns the refs that `click` and `type` take. Multi-tab works.
 
 ## Benchmarks
 
-Two data sets, measured on `https://mcp-test.second-truth.com`: a **September 2026** blind re-run (current) and the **April 2026** runs kept for history. Cross-suite and cross-model comparisons are not valid — compare rows only inside one data set. Raw run JSONs, the full method and the environment matrix are in [`test-hardest/README.md`](test-hardest/README.md).
+Four data sets, all measured on our own page `https://mcp-test.second-truth.com` — 35 tests, 30 scored (T5.3–T5.6 can only be started by the page's own runner; T4.7 grades a self-reported token count and is dropped for everyone): Public Browser 3.0 against agent-browser on **2026-09-24** (current), the whole field on **2026-09-23**, Public Browser 2.10.1 against Playwright MCP on **2026-09-03**, and the **April 2026** runs kept for history. Compare rows only inside one data set. The page source stays private; every run records the page hash (`suite.html_sha256` = `81e4b7aa…bed2` for all September runs) and the test IDs. Raw run JSONs and the full method: [`test-hardest/README.md`](test-hardest/README.md).
 
-### September 2026 (current)
+Every September run is one fresh blind Claude Code session in print mode with driver model `claude-opus-5` and an identical prompt. An MCP participant is the only MCP server of its session, with the built-in tools cut down to `Write`; a CLI participant may use `Bash` only for its own command (a `PreToolUse` hook, [`test-hardest/cli-guard.mjs`](test-hardest/cli-guard.mjs), blocks everything else) and gets the tool's official skill file as extra system prompt. Everything is counted post-hoc from the session transcript — nothing is self-reported by the participants. Session tokens are input + output + cache writes + cache reads, each API message counted once (`tokens.dedup: "message.id"`); cost is the Opus 5 list price.
 
-2026-09-03, 35-test page with **30 scored** (T5.3–T5.6 can only be started by the page's own runner; T4.7 grades a self-reported token count and was dropped for everyone). One fresh blind Claude Code session per run in print mode, driver model `claude-opus-5`, exactly one MCP server per session, built-in tools cut down to `Write`, identical prompt for every server. Two runs each for Public Browser 2.10.1, Playwright MCP 0.0.80 and Chrome DevTools MCP 1.8.0; one run for browser-use 0.12.5. All seven runs are pinned to the same page version (`suite.html_sha256` = `81e4b7aa…bed2`). Metrics are counted post-hoc from the session transcript via [`test-hardest/measure-tool-calls.sh`](test-hardest/measure-tool-calls.sh) — nothing is self-reported by the servers. Table below is the output of `node test-hardest/blind-run.mjs compare`; method, profiles and losses are documented in [`test-hardest/README.md`](test-hardest/README.md).
+### 2026-09-24 (current): Public Browser 3.0 vs agent-browser 0.38.1
 
-| MCP | Version | Model | Date | Run | Status | Passed | Duration | MCP calls | Response total | Ø response | P95 | Snapshot tool Ø |
-|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|
-| browser-use | 0.12.5 | claude-opus-5 | 2026-09-03 | browser-use-run6 | ok | 24/30 | 2023s | 276 | 15800k | 57244 | 321033 | 102819 (18×) |
-| Chrome DevTools MCP | 1.8.0 | claude-opus-5 | 2026-09-03 | chrome-devtools-mcp-run3 | ok | 29/30 | 547s | 156 | 149k | 954 | 5676 | 4718 (12×) |
-| Chrome DevTools MCP | 1.8.0 | claude-opus-5 | 2026-09-03 | chrome-devtools-mcp-run4 | ok | 29/30 | 558s | 172 | 120k | 696 | 5271 | 3593 (14×) |
-| Playwright MCP | 0.0.80 | claude-opus-5 | 2026-09-03 | playwright-mcp-run5 | ok | 30/30 | 468s | 137 | 101k | 740 | 3617 | 1911 (17×) |
-| Playwright MCP | 0.0.80 | claude-opus-5 | 2026-09-03 | playwright-mcp-run6 | ok | 30/30 | 493s | 151 | 99k | 656 | 1587 | 2269 (14×) |
-| Public Browser | 2.10.1 | claude-opus-5 | 2026-09-03 | public-browser-run1 | ok | 30/30 | 281s | 84 | 109k | 1298 | 6077 | 2841 (16×) |
-| Public Browser | 2.10.1 | claude-opus-5 | 2026-09-03 | public-browser-run2 | ok | 30/30 | 296s | 86 | 104k | 1214 | 6479 | 3398 (16×) |
+Claude Code 2.1.281, Chrome 153.0.8010.53, five scored runs per side. agent-browser ran through its CLI; its MCP mode was not measured. Output of `node test-hardest/blind-run.mjs compare` over the ten runs:
 
-What these two runs show: Public Browser needed 84 and 86 tool calls where Playwright MCP needed 137 and 151 and Chrome DevTools MCP needed 156 and 172, and it finished the page in 281s and 296s against 468s/493s and 547s/558s. Duration here is `summary.duration_s`, the page's own timer from the first test to the export click — server start, Chrome start and the first navigation are not in it; the full wall clock per run (`harness.wall_clock_s`) is 331s/346s against 501s/527s and 583s/597s. Pass rate is a tie with Playwright MCP (30/30 in both runs each) and one test ahead of Chrome DevTools MCP: its only miss is T5.2, a CDP-fingerprint check (`navigator.webdriver` is `true` under chrome-devtools-mcp) rather than a browser capability; on the other 29 tests it is a tie. `browser-use-run6` has `complete: false` — two tests were never started, so its 24/30 is an incomplete run, not a clean loss.
+| MCP | Version | Model | Date | Run | Status | Passed | Duration | Rounds | Tokens | MCP calls | Response total | Ø response | P95 | Snapshot tool Ø |
+|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| agent-browser | 0.38.1 | claude-opus-5 | 2026-09-23 | agent-browser-run4 | ok | 29/30 | 333s | 107 | 4.40M | 104 | 76k | 732 | 1982 | 2131 (2×) |
+| agent-browser | 0.38.1 | claude-opus-5 | 2026-09-23 | agent-browser-run6 | ok | 29/30 | 624s | 123 | 5.33M | 121 | 85k | 702 | 2036 | 388 (19×) |
+| agent-browser | 0.38.1 | claude-opus-5 | 2026-09-23 | agent-browser-run7 | ok | 29/30 | 303s | 101 | 4.48M | 99 | 84k | 852 | 4041 | 2281 (1×) |
+| agent-browser | 0.38.1 | claude-opus-5 | 2026-09-23 | agent-browser-run8 | ok | 29/30 | 349s | 104 | 4.53M | 102 | 85k | 837 | 2733 | 2139 (2×) |
+| agent-browser | 0.38.1 | claude-opus-5 | 2026-09-23 | agent-browser-run10 | ok | 29/30 | 372s | 112 | 4.97M | 110 | 83k | 754 | 2506 | 2018 (5×) |
+| Public Browser | 2.10.6 | claude-opus-5 | 2026-09-24 | public-browser-run18 | ok | 30/30 | 223s | 68 | 2.47M | 66 | 69k | 1040 | 5597 | 4150 (3×) |
+| Public Browser | 2.10.6 | claude-opus-5 | 2026-09-24 | public-browser-run19 | ok | 30/30 | 245s | 83 | 3.15M | 81 | 79k | 973 | 5049 | 1344 (11×) |
+| Public Browser | 2.10.6 | claude-opus-5 | 2026-09-24 | public-browser-run20 | ok | 30/30 | 223s | 83 | 3.03M | 81 | 117k | 1445 | 5602 | 1909 (12×) |
+| Public Browser | 2.10.6 | claude-opus-5 | 2026-09-24 | public-browser-run21 | ok | 30/30 | 235s | 81 | 2.99M | 79 | 69k | 867 | 5372 | 2855 (7×) |
+| Public Browser | 2.10.6 | claude-opus-5 | 2026-09-24 | public-browser-run22 | ok | 30/30 | 223s | 76 | 3.02M | 74 | 129k | 1748 | 5866 | 2590 (11×) |
 
-Where Public Browser loses in these runs: Playwright MCP 0.0.80 returns the smaller responses (Ø 740 and 656 chars against 1,298 and 1,214; `browser_snapshot` Ø 1911 and 2269 against `view_page` at 2841 and 3398, whose P95 reaches 9,734), total response volume is a near tie slightly in Playwright's favour (101k/99k against 109k/104k), and per-call click latency is mixed rather than a win — `by_tool.avg_ms` for click is 90 ms in run 1 but 435 ms in run 2, against 251 and 260 ms for Chrome DevTools MCP. P95 response size over all calls goes against Public Browser in both runs and against both competitors (6077 and 6479 chars against Playwright's 3617 and 1587 and DevTools' 5676 and 5271), and so does the `evaluate` response (Ø 1913 and 966 chars against `browser_evaluate` at 1223 and 755 and `evaluate_script` at 1069 and 488). The April claim that `view_page` is 5.4x more compact than `browser_snapshot` does not hold against Playwright MCP 0.0.80.
+Medians: 3.02M against 4.53M session tokens (−33%), $2.40 against $3.56 (−33%), 79 against 104 tool calls (−24%), 261 s against 386 s wall clock (−32%; 223 s against 349 s on the page's own timer, the Duration column). The Public Browser rows say 2.10.6 because they ran against the local build at commit `366c194` before the version bump ([`test-hardest/results-local/`](test-hardest/results-local), acceptance report [`acceptance-stage2-366c194.json`](test-hardest/results-local/acceptance-stage2-366c194.json)); that commit's code is what ships as 3.0.0 — later commits changed documentation, help texts, metadata and release tooling, nothing on the benchmark path. Two more agent-browser runs (`agent-browser-run5`, `run9`) were aborted by the harness because the session used a tool outside the allowlist (`Read`) and are not counted; both had 29/30.
 
-**What changed since April, and where the remaining lead comes from.** The April 2026 numbers (35-test suite, Opus 4.6) had Public Browser's page views 5.4x smaller than Playwright MCP's. Playwright MCP 0.0.80 has since made its snapshot format considerably more compact, and in these September runs its single responses are the smaller ones (Ø 740 and 656 chars against 1,298 and 1,214). Summed over a whole run the context payload is about the same on both sides — 109,075 and 104,432 chars for Public Browser against 101,478 and 99,147 for Playwright MCP — so "smallest responses" is not an argument we still have, and we say so. What the model consumed over the whole session is a different measure, and there Public Browser is ahead: `tokens.delta` (input + output + cache writes + cache reads from the Claude Code transcript) is 6,288,593 and 6,518,119 against 8,783,693 and 9,592,264 — ~30% fewer — and `cost_usd_list` is $3.41 and $3.35 against $4.28 and $4.78 — ~25% less. Almost all of that volume is cache reads of the growing conversation (4.4M and 4.3M against 6.0M and 6.9M); fresh input is 170–304 tokens per run on every side, so the shared overhead that made session totals useless for comparison in April is not present in these blind runs. Cache reads are billed cheaper than fresh input, which is why the cost gap (25%) is smaller than the token gap (30%) — quote the cost figure when in doubt. What drives both is ~41% fewer tool calls (84 and 86 against 137 and 151) and ~40% less time to finish (281s and 296s against 468s and 493s on the page's own timer), at identical reliability: 30/30 in all four runs. That gap does not come from smaller snapshots — both servers took page snapshots about equally often (`view_page` 16 and 16 against `browser_snapshot` 17 and 14). The design hypothesis is that it comes from `run_plan`, which bundles several steps into one call and was used 22 and 29 times, and from the 1,601 characters (2,358 since v2.10.4, without the Cortex line) of handshake instructions Public Browser sends to tell the model how to work (it is the only server in this field that sends any). Neither was isolated in this benchmark, so treat both as plausible contributors, not as a proven cause. The advantage moved from "cheaper per look" to "cheaper per task", and the headline was changed accordingly. The chart at the top of this file plots these six ratios, wins and losses on one scale; it is regenerated from the run JSON by [`scripts/make-benchmark-chart-2026-09.py`](scripts/make-benchmark-chart-2026-09.py).
+**Where Public Browser loses.** Its single responses are larger: Ø 1,040 chars against 754 and P95 5,597 against 2,506 (medians). It pays more context up front — tool definitions and handshake instructions against a skill file (both are inside the session totals). The pass-rate gap is T5.2 alone, a `navigator.webdriver` check rather than a browser capability. And agent-browser has features Public Browser lacks (see [Why Public Browser?](#why-public-browser)).
 
-### April 2026 (historical)
+**Before and after 3.0.** Public Browser 2.10.6, measured the same evening under the same conditions, came to 4.31M tokens (median of five, 30/30 each) against agent-browser's 4.53M ([`baseline-2026-09-aufschliessen.json`](test-hardest/results/baseline-2026-09-aufschliessen.json)) — a near tie, and in the morning series below agent-browser was ahead. The 3.0 changes (loud errors, shorter responses) moved Public Browser to 3.02M. A probe on real sites (Hacker News, Wikipedia, a demo shop; Public Browser only, two runs per task) passed every task before and after the changes ([`real-sites-probe.mjs`](test-hardest/real-sites-probe.mjs)).
+
+### 2026-09-23: the whole field (Public Browser 2.10.6)
+
+Claude Code 2.1.280, Chrome 153.0.8010.53, three runs per participant (two for browser-use), medians:
+
+| Participant | Version | Via | Passed | Session tokens | Cost | Tool calls | Wall clock |
+|---|---|---|---|---:|---:|---:|---:|
+| Public Browser | 2.10.6 | MCP | 30/30 ×3 | 4.89M | $3.75 | 90 | 323 s |
+| agent-browser | 0.38.1 | CLI | 29/30 ×3 (T5.2) | 4.22M | $3.39 | 93 | 385 s |
+| Playwright CLI | 0.1.21 | CLI | 30/30 ×3 | 4.61M | $3.52 | 107 | 454 s |
+| Playwright MCP | 0.0.82 | MCP | 30/30 ×3 | 7.84M | $5.22 | 162 | 494 s |
+| Chrome DevTools MCP | 1.9.0 | MCP | 29/30 ×3 (T5.2) | 10.33M | $6.78 | 169 | 535 s |
+| browser-use | 0.13.10 | MCP | 24/30, 26/30 | 63.68M | $36.06 | 384 | 2,187 s |
+
+The two CLIs were ahead of Public Browser 2.10.6 on tokens — that is what 3.0 set out to change. Playwright CLI, Playwright MCP, Chrome DevTools MCP and browser-use were not re-run against 3.0. browser-use missed T3.3, T3.6 and T4.4 in both runs and T4.2 in one. Run files in [`test-hardest/results/`](test-hardest/results): `public-browser-run3`–`5`, `agent-browser-run1`–`3`, `playwright-cli-run2`–`4`, `playwright-mcp-run7`–`9`, `chrome-devtools-mcp-run5`–`7`, `browser-use-run7`–`8`.
+
+### 2026-09-03: Public Browser 2.10.1 vs Playwright MCP 0.0.80
+
+Claude Code 2.1.259, two runs each for Public Browser 2.10.1, Playwright MCP 0.0.80 and Chrome DevTools MCP 1.8.0, one run for browser-use 0.12.5. Output of `node test-hardest/blind-run.mjs compare` over these seven runs:
+
+| MCP | Version | Model | Date | Run | Status | Passed | Duration | Rounds | Tokens | MCP calls | Response total | Ø response | P95 | Snapshot tool Ø |
+|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| browser-use | 0.12.5 | claude-opus-5 | 2026-09-03 | browser-use-run6 | ok | 24/30 | 2023s | 278 | 42.46M | 276 | 15800k | 57244 | 321033 | 102819 (18×) |
+| Chrome DevTools MCP | 1.8.0 | claude-opus-5 | 2026-09-03 | chrome-devtools-mcp-run3 | ok | 29/30 | 547s | 158 | 9.67M | 156 | 149k | 954 | 5676 | 4718 (12×) |
+| Chrome DevTools MCP | 1.8.0 | claude-opus-5 | 2026-09-03 | chrome-devtools-mcp-run4 | ok | 29/30 | 558s | 174 | 9.71M | 172 | 120k | 696 | 5271 | 3593 (14×) |
+| Playwright MCP | 0.0.80 | claude-opus-5 | 2026-09-03 | playwright-mcp-run5 | ok | 30/30 | 468s | 139 | 6.20M | 137 | 101k | 740 | 3617 | 1911 (17×) |
+| Playwright MCP | 0.0.80 | claude-opus-5 | 2026-09-03 | playwright-mcp-run6 | ok | 30/30 | 493s | 153 | 7.03M | 151 | 99k | 656 | 1587 | 2269 (14×) |
+| Public Browser | 2.10.1 | claude-opus-5 | 2026-09-03 | public-browser-run1 | ok | 30/30 | 281s | 85 | 4.53M | 84 | 109k | 1298 | 6077 | 2841 (16×) |
+| Public Browser | 2.10.1 | claude-opus-5 | 2026-09-03 | public-browser-run2 | ok | 30/30 | 296s | 88 | 4.49M | 86 | 104k | 1214 | 6479 | 3398 (16×) |
+
+Public Browser needed 84 and 86 tool calls where Playwright MCP needed 137 and 151 and Chrome DevTools MCP 156 and 172, and it finished the page in 281 s and 296 s against 468/493 s and 547/558 s (page timer). Session tokens were 4.53M and 4.49M against 6.20M and 7.03M for Playwright MCP (−32%), cost $3.41 and $3.35 against $4.28 and $4.78 (−25%), at 30/30 in all four runs. Playwright MCP returned the smaller responses (Ø 740 and 656 chars against 1,298 and 1,214). Earlier versions of this README quoted 6.3M/6.5M against 8.8M/9.6M tokens for these runs: that count added a message's usage once per content block; the recount per API message changed the totals, not the ratio (−30% before, −32% now). Chrome DevTools MCP's only miss was T5.2; `browser-use-run6` is incomplete (two tests never started).
+
+<details>
+<summary><b>April 2026 (historical)</b> — 24- and 35-test suites, driver Opus 4.6, superseded by the September runs</summary>
 
 Measured on the same page against the **35-test version of the suite (April 2026)** — 5 levels (Basics, Intermediate, Advanced, Hardest, Community Pain Points). Four of the 35 tests are runner-only and are excluded from every score, so all pass rates in this section are out of **31 scorable tests**. An extended 42-test version exists locally and is not yet published; the numbers here are not measured against it. Driver model was Claude Opus 4.6 and competitor versions were not recorded. Each run is independent, values on the benchmark page are randomized per page-load, all runs started in a fresh Claude Code session out of `/tmp` (no project context bias), and **all metrics measured post-hoc from the session JSONL** via [`test-hardest/measure-tool-calls.sh`](test-hardest/measure-tool-calls.sh) — no self-reporting, no MCP-side instrumentation, just counting `tool_use` blocks and `tool_result` char lengths.
 
@@ -668,8 +699,8 @@ these rows against the 31-scorable-test numbers below.
 | browser-use | 16/24 | 1813s | 124 | 5.2x slower |
 
 In this one April 2026 run each (24-test suite, Opus 4.6), Public Browser needed **71 tool calls where Playwright
-MCP needed 138** — roughly half the roundtrips for the same 24 passes. The September 2026 re-run above is the
-current figure: 84 and 86 calls against 137 and 151. Raw data: `test-hardest/benchmark-*.json` (Public Browser row:
+MCP needed 138** — roughly half the roundtrips for the same 24 passes. The September 2026 runs above are the
+current figures. Raw data: `test-hardest/benchmark-*.json` (Public Browser row:
 `benchmark-silbercuechrome_mcp-llm-2026-04-05.json`, `type: llm-driven`).
 
 #### Pass Rate + Duration (31 scorable tests, LLM-driven)
@@ -726,9 +757,11 @@ Public Browser's `click` is 2.8x larger than Playwright's because every click re
 
 > **April 2026, Opus 4.6: `view_page` was 5.4x more compact than Playwright MCP's `browser_snapshot`** (superseded — against Playwright MCP 0.0.80 in September 2026 it is not)
 
-Measured on the 35-test benchmark (2026-04-09): Public Browser's `view_page` averages **1,124 chars per call** vs Playwright MCP's `browser_snapshot` at **6,084 chars**. Same page, same test suite, same LLM driver. The a11y-tree compression + Ambient Context pipeline meant we only sent what the agent actually needed — smaller responses, less context pressure, cheaper runs. That was the April 2026 picture. Against Playwright MCP 0.0.80 it no longer holds — that release made the snapshot format much more compact, and in the September runs `browser_snapshot` averages 1,911 and 2,269 chars against `view_page` at 2,841 and 3,398; see [September 2026 (current)](#september-2026-current) above.
+Measured on the 35-test benchmark (2026-04-09): Public Browser's `view_page` averages **1,124 chars per call** vs Playwright MCP's `browser_snapshot` at **6,084 chars**. Same page, same test suite, same LLM driver. The a11y-tree compression + Ambient Context pipeline meant we only sent what the agent actually needed — smaller responses, less context pressure, cheaper runs. That was the April 2026 picture. Against Playwright MCP 0.0.80 it no longer holds — that release made the snapshot format much more compact, and in the September runs `browser_snapshot` averages 1,911 and 2,269 chars against `view_page` at 2,841 and 3,398; see [September 2026 (current)](#2026-09-03-public-browser-2101-vs-playwright-mcp-0080) above.
 
 See [`test-hardest/README.md`](test-hardest/README.md) for the full protocol, per-test breakdown, and raw JSON runs with `tool_efficiency` blocks.
+
+</details>
 
 ## Cortex — Local Tool-Sequence Hints
 
@@ -770,7 +803,7 @@ Public Browser (Node.js MCP server, public-browser)
 |   +-- Markov Table (transition predictions)
 |   +-- Starter Table (hand-written, shipped, SHA-256 verified)
 |   +-- Hint Matcher (delivers predictions to tool responses)
-+-- Script API (Python, source install from ./python)
++-- Script API (Python, `pip install publicbrowser`)
 |   +-- Shared Core via HTTP (:9223) — same tool handlers as MCP
 |   +-- Escape Hatch via WebSocket (:9222) — direct CDP for power users
 +-- 25 tools
@@ -779,11 +812,11 @@ Public Browser (Node.js MCP server, public-browser)
 
 Connection priority:
 1. **Auto-Launch (default, zero-config)** — starts Chrome as a child process via `--remote-debugging-pipe`, visible as a window, with all flags set for reliable screenshots and keyboard focus.
-2. **WebSocket (optional)** — if you already run Chrome with `--remote-debugging-port=9222`, Public Browser connects to that instead. Use this to control your own browser with its extensions and login sessions.
+2. **WebSocket (optional)** — if you already run Chrome with `--remote-debugging-port=9222`, Public Browser connects to that instead. Use this to drive a Chrome you started yourself with its own `--user-data-dir` (Chrome refuses remote debugging on its default profile directory).
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20
 - Google Chrome, Chromium, or any Chromium-based browser (auto-detected on macOS/Linux/Windows; override with `CHROME_PATH`)
 
 ## Environment Variables
@@ -820,6 +853,8 @@ Issues and pull requests welcome at [github.com/Silbercue/public-browser](https:
 ## Privacy
 
 Public Browser runs entirely on your machine. All browser automation happens locally via CDP. The Cortex learning layer stores only structural metadata locally (page types, tool names, content hashes — no URLs, no domains, no page content, no PII). There is no telemetry upload; the Cortex data never leaves your machine.
+
+When Chrome runs visibly, a small Public Browser bar sits in the page for the person watching (it is `aria-hidden`, so the agent never sees it). From the fifth tool call on, it shows a link for 20 seconds every 10 minutes — a GitHub star or a Jev hint. Click or close it once and it never comes back (remembered in `~/.public-browser/nudge.json`); headless sessions never show it.
 
 ## Related
 

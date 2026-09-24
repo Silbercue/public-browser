@@ -45,9 +45,9 @@ class TestPyprojectToml:
         """Package name is 'publicbrowser'."""
         assert self.config["project"]["name"] == "publicbrowser"
 
-    def test_version_is_1_0_0(self) -> None:
-        """Version matches npm package version."""
-        assert self.config["project"]["version"] == "1.0.0"
+    def test_version_is_2_0_0(self) -> None:
+        """Version 2.0.0: the client for Public Browser 3.0.0 (Script API key)."""
+        assert self.config["project"]["version"] == "2.0.0"
 
     def test_description_not_empty(self) -> None:
         """Description is meaningful, not just a placeholder."""
@@ -138,10 +138,10 @@ class TestPackageImports:
         assert CdpError is not None
 
     def test_version_attribute(self) -> None:
-        """__version__ is set to '1.0.0'."""
+        """__version__ is set to '2.0.0'."""
         import publicbrowser
         assert hasattr(publicbrowser, "__version__")
-        assert publicbrowser.__version__ == "1.0.0"
+        assert publicbrowser.__version__ == "2.0.0"
 
     def test_all_exports(self) -> None:
         """__all__ lists Chrome, Page, ScriptApiClient, CdpClient, CdpError, CdpEscapeHatch."""

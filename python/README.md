@@ -59,7 +59,7 @@ Your script sends HTTP requests to the Public Browser server on port 9223. The s
 `Chrome.connect()` finds and starts the server automatically:
 
 1. **Running server** — asks `GET /health` on port 9223 and connects only if a Public Browser server answers and accepts the key; any other program on that port is reported, never used
-2. **PATH binary** — finds `public-browser` in PATH (e.g. via Homebrew), starts it with `--script`
+2. **PATH binary** — finds `public-browser` in PATH (e.g. via `npm install -g public-browser`), starts it with `--script`
 3. **npx fallback** — runs `npx -y public-browser@latest -- --script`
 4. **Explicit path** — `Chrome.connect(server_path="/path/to/public-browser")` for custom setups
 
@@ -75,7 +75,7 @@ Two scripts that call `Chrome.connect()` at the same moment while no server runs
 
 Requests without the key get `401`. Requests from a browser (with an `Origin` header) or with a `Host` other than `127.0.0.1:<port>` / `localhost:<port>` get `403` — that blocks web pages and DNS rebinding even if they guess the port.
 
-**Upgrading:** the server and the `publicbrowser` Python client go together. `publicbrowser` 1.0.0 does not send the key, so against a newer server it reports `ConnectionError: Public Browser server not reachable` although the server runs. An MCP config with `npx -y public-browser@latest -- --script` picks up the new server on its next start — update `publicbrowser` at the same time (`pip install -U publicbrowser`).
+**Upgrading:** the server and the `publicbrowser` Python client go together. `publicbrowser` 2.0.0 needs Public Browser 3.0.0 or newer; `publicbrowser` 1.0.0 cannot talk to Public Browser 3.0.0 (it does not send the Script API key), so it reports `ConnectionError: Public Browser server not reachable` although the server runs. Upgrade both together: `pip install -U publicbrowser` and restart the MCP server (`npx -y public-browser@latest`).
 
 ## Login and Data Extraction
 
@@ -184,7 +184,7 @@ When the MCP server and Python scripts need to run at the same time, add `--scri
 
 **Claude Code:**
 ```bash
-claude mcp add --scope user public-browser npx -y public-browser@latest -- --script
+claude mcp add --scope user public-browser -- npx -y public-browser@latest -- --script
 ```
 
 **Cursor / Cline (`mcp.json`):**

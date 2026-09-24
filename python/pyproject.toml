@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "publicbrowser"
-version = "1.0.0"
-description = "Minimal CDP client for Chrome browser automation — control Chrome from Python via the DevTools Protocol."
+version = "2.0.0"
+description = "Python client for Public Browser: deterministic Chrome automation through the same tool handlers as the MCP server."
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
@@ -34,7 +34,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/Silbercue/public-browser"
-Documentation = "https://github.com/Silbercue/public-browser#script-api-python"
+Documentation = "https://github.com/Silbercue/public-browser#script-api-python--perfect-for-jev-loops"
 Repository = "https://github.com/Silbercue/public-browser"
 Issues = "https://github.com/Silbercue/public-browser/issues"
 Changelog = "https://github.com/Silbercue/public-browser/blob/master/CHANGELOG.md"

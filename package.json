@@ -1,7 +1,7 @@
 {
   "name": "public-browser",
   "version": "2.10.6",
-  "description": "Lets Claude Code and Cursor drive Chrome. Browse your real profile: -30% tokens, -25% cost, -41% tool calls, -34% tool defs, +40% faster.",
+  "description": "Lets Claude Code and Cursor drive Chrome. Blind benchmark vs agent-browser: -33% tokens, -33% cost, -24% tool calls, -32% time, 30/30.",
   "keywords": [
     "mcp",
     "mcp-server",
@@ -93,9 +93,14 @@
     "type": "git",
     "url": "git+https://github.com/Silbercue/public-browser.git"
   },
-  "engines": {
-    "node": ">=18"
+  "bugs": {
+    "url": "https://github.com/Silbercue/public-browser/issues"
   },
+  "homepage": "https://github.com/Silbercue/public-browser#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Silbercue",
   "license": "MIT",
   "private": false
 }

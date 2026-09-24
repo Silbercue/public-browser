@@ -29,7 +29,7 @@ Add this entry to the MCP settings file of the host application
 For Claude Code, one command does the same:
 
 ```bash
-claude mcp add --scope user public-browser npx -y public-browser@latest
+claude mcp add --scope user public-browser -- npx -y public-browser@latest
 ```
 
 Restart the host application afterwards — MCP configuration is read at startup.

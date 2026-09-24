@@ -13,7 +13,7 @@ from publicbrowser.client import ScriptApiClient
 from publicbrowser.escape_hatch import CdpEscapeHatch
 from publicbrowser.page import Page
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __all__ = [
     "Chrome",
     "Page",
