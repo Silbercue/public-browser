@@ -28,10 +28,10 @@
 - `type` accepts contenteditable editors by ref (`generic (editable)` in `view_page`, also their text children) instead of rejecting role `generic`. Text goes to the end of the editor — before, it landed in front of the existing text — or to the caret when the caret already sits there, so a `Meta+B` before `type` still applies; `clear: true` empties the editor (S7).
 
 ### Changed
-- The diff shows only what changed since the last observation (no stale `REMOVED` lines, no iframe noise), at most 15 lines with live regions first; deferred click diffs appear only on page actions (H1).
-- Compact `view_page`: a StaticText that repeats its parent's name is dropped, StaticText and LabelText carry no refs, multi-line container names show their first line with `filter: "all"` when the container holds no `aria-hidden` or `inert` text, and the TRUNCATED line is shorter: it counts only text that appears nowhere in the output and names no call (H2).
-- Each tip appears once per session; state notes (counts, truncation) stay in every response (H3).
-- No `[~N tokens | N refs]` footer and no `Server:` line in `virtual_desk`, the Cortex line appears only at confidence ≥ 0.9, and unambiguous `evaluate` strings come back raw in the MCP tool (H5).
+- The diff shows only what changed since the last observation (no stale `REMOVED` lines, no iframe nodes), at most 15 change lines with live regions first, then controls, the rest counted as `+N more changes`. A deferred click diff is attached only to the next page action (`click`, `type`, `fill_form`, `press_key`, `scroll`, `drag`, `view_page`, `wait_for`, `run_plan`); any other tool, including `switch_tab`, discards it (H1).
+- Compact `view_page`: a StaticText whose text the parent line already shows is dropped, StaticText and LabelText carry no refs, and a text field's inner editor is dropped when the field's `value` shows its text. With `filter: "all"` a multi-line container name is cut to its first line, unless the container holds `aria-hidden` or `inert` text; the TRUNCATED line is shorter. With `filter: "all"` it appears only for such a container, counts the characters past the 80-character name and names no call; with other filters it still recommends `view_page(ref, filter: "all")` (H2).
+- Each tip appears at most once per MCP session (reset when a client initializes); state notes (counts, truncation) and the STOP/REFUSED warnings of the evaluate streak stay in every response (H3).
+- No `[~N tokens | N refs]` footer in `view_page` and no `Server:` line in `virtual_desk` (both values stay in `_meta`), the Cortex line appears only at confidence ≥ 0.9 (`_meta.cortex` always), and unambiguous `evaluate` strings come back raw in the MCP tool; strings that read as numbers, booleans, null or JSON, empty strings, `run_plan`, the Script API and the Node library keep the JSON form (H5).
 
 ## [2.10.5] - 2026-09-04
 
