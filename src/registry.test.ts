@@ -4949,4 +4949,43 @@ describe("ToolRegistry — Script-API tab keeps its own refs (P5)", () => {
       forgetScriptTab("TAB-B");
     }
   });
+
+  it("P5: view_page through a Script-API session builds its refs in that tab's table", async () => {
+    try {
+      await a11yTree.getTree(treeCdp as never, "session-A");
+      expect(a11yTree.refCount).toBe(2);
+      bindScriptTab("session-B", "TAB-B");
+      const registry = new ToolRegistry({ tool: vi.fn() } as never, treeCdp as never, "session-A", {} as never);
+      registry.registerAll();
+
+      const result = await registry.executeTool("view_page", { filter: "all" }, "session-B");
+
+      expect(result.isError).toBeFalsy();
+      expect(a11yTree.refCount).toBe(2); // the MCP table got no refs of session-B
+      expect(a11yTree.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "session-A" });
+    } finally {
+      forgetScriptTab("TAB-B");
+      a11yTree.resetAll();
+    }
+  });
+
+  it("P5: navigate through a Script-API session starts no prefetch for the MCP tab", async () => {
+    const schedule = vi.spyOn(prefetchSlot, "schedule").mockResolvedValue(undefined);
+    try {
+      bindScriptTab("session-B", "TAB-B");
+      const registry = new ToolRegistry({ tool: vi.fn() } as never, navCdp as never, "session-A", {} as never);
+      registry.registerAll();
+
+      await registry.executeTool("navigate", { url: "https://b.test/" }, "session-B");
+      expect(schedule).not.toHaveBeenCalled();
+
+      // Control: navigate in the MCP tab still prefetches.
+      await registry.executeTool("navigate", { url: "https://a.test/next" });
+      expect(schedule).toHaveBeenCalledTimes(1);
+    } finally {
+      schedule.mockRestore();
+      forgetScriptTab("TAB-B");
+      a11yTree.resetAll();
+    }
+  });
 });

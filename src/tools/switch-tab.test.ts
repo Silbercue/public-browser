@@ -1460,6 +1460,41 @@ describe("switchTabHandler — refs per tab (B1)", () => {
     expect(a11yTree.findRefOwnerTab("e2")).toBeUndefined();
   });
 
+  it("B1: refs of a tab that closed without switch_tab are dropped by a switch_tab to a named tab too", async () => {
+    await seedTabT1();
+    const live = ["T1", "T2"];
+    const cdp = twoTabCdp(live);
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    await switchTabHandler({ action: "switch", tab: "T2" }, cdp, "s-T1-0", cache, vi.fn());
+    expect(a11yTree.findRefOwnerTab("e2")?.targetId).toBe("T1");
+
+    live.splice(live.indexOf("T1"), 1); // the page or the user closed T1
+    await switchTabHandler({ action: "switch", tab: "T2" }, cdp, "s-T2-1", cache, vi.fn());
+
+    expect(a11yTree.findRefOwnerTab("e2")).toBeUndefined();
+  });
+
+  it("B1: closing the last tab forgets its refs even when another tab was active", async () => {
+    await seedTabT1();
+    const live = ["T1", "T2"];
+    const cdp = twoTabCdp(live);
+    const send = cdp.send as ReturnType<typeof vi.fn>;
+    const base = send.getMockImplementation()!;
+    send.mockImplementation(async (method: string, params?: Record<string, unknown>, sid?: string) =>
+      method === "Target.createTarget" ? { targetId: "BLANK" } : base(method, params, sid),
+    );
+    const cache = new TabStateCache({ ttlMs: 30_000 });
+    cache.setActiveTarget("T1");
+    await switchTabHandler({ action: "switch", tab: "T2" }, cdp, "s-T1-0", cache, vi.fn());
+    expect(a11yTree.findRefOwnerTab("e2")?.targetId).toBe("T1");
+
+    live.splice(live.indexOf("T2"), 1); // the active tab T2 closed without switch_tab
+    await switchTabHandler({ action: "close", tab: "T1" }, cdp, "s-T2-1", cache, vi.fn());
+
+    expect(a11yTree.findRefOwnerTab("e2")).toBeUndefined();
+  });
+
   it("B1: closing a background tab forgets its refs", async () => {
     await seedTabT1();
     const cdp = twoTabCdp();

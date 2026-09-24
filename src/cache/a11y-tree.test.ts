@@ -5703,6 +5703,20 @@ describe("A11yTreeProcessor — refs per tab (B1)", () => {
     expect(processor.findRefOwnerTab("e2")).toBeUndefined();
   });
 
+  it("B1: refs held under another CDP session (OOPIF) do not come back with the tab", async () => {
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A"), "sA1"); // e1, e2 — main frame
+    // Same table, other session: stands in for an OOPIF's refs (SessionManager re-creates those sessions).
+    await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A"), "sFrame"); // e3, e4
+    expect(processor.resolveRefFull("e4")).toEqual({ backendNodeId: 101, sessionId: "sFrame" });
+
+    const cdp = frameTreeCdp({ sA1: "doc-A", sB1: "doc-B", sA2: "doc-A" });
+    await processor.switchTab(cdp, { targetId: "A", sessionId: "sA1" }, { targetId: "B", sessionId: "sB1" });
+    expect(await processor.switchTab(cdp, { targetId: "B", sessionId: "sB1" }, { targetId: "A", sessionId: "sA2" })).toBe(true);
+
+    expect(processor.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "sA2" });
+    expect(processor.resolveRefFull("e4")).toBeUndefined();
+  });
+
   it("B1: drops a tab's refs when its page changed while away", async () => {
     await processor.getTree(pageCdp(pageA, "https://a.test/", "doc-A"), "sA1");
     const cdp = frameTreeCdp({ sA1: "doc-A", sB1: "doc-B", sA2: "doc-A-reloaded" });
@@ -5734,6 +5748,25 @@ describe("A11yTreeProcessor — refs per tab (B1)", () => {
 
     // Only the new document's two nodes — the old document's refs are gone.
     expect(processor.refCount).toBe(2);
+    expect(processor.getNodeInfo(101, "s1")).toBeUndefined();
+    expect(processor.getNodeInfo(201, "s1")?.name).toBe("Verify");
+  });
+
+  it("P21: refreshPrecomputed() records the document its refs were assigned in", async () => {
+    await processor.refreshPrecomputed(pageCdp(pageA, "https://a.test/", "doc-1"), "s1");
+    expect(processor.resolveRefFull("e2")).toEqual({ backendNodeId: 101, sessionId: "s1" });
+
+    expect(await processor.isCurrentDocument(frameTreeCdp({ s1: "doc-1" }), "s1")).toBe(true);
+    expect(await processor.isCurrentDocument(frameTreeCdp({ s1: "doc-2" }), "s1")).toBe(false);
+  });
+
+  it("P21: refreshPrecomputed() resets the table for a new document under the same URL", async () => {
+    const reloaded: AXNode[] = pageA.map((node) => ({ ...node, backendDOMNodeId: (node.backendDOMNodeId ?? 0) + 100 }));
+    await processor.refreshPrecomputed(pageCdp(pageA, "https://a.test/", "doc-1"), "s1");
+    expect(processor.getNodeInfo(101, "s1")?.name).toBe("Verify");
+
+    await processor.refreshPrecomputed(pageCdp(reloaded, "https://a.test/", "doc-2"), "s1");
+
     expect(processor.getNodeInfo(101, "s1")).toBeUndefined();
     expect(processor.getNodeInfo(201, "s1")?.name).toBe("Verify");
   });
