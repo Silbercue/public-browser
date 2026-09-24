@@ -1821,13 +1821,11 @@ export class ToolRegistry implements ToolRegistryPublic {
 
     maybeRegisterFreeMCPTool(
       "run_plan",
-      "Batch the next 2+ known actions (click, type, scroll, view_page chains) here instead of N separate calls: a sequence of tool steps, executed server-side in one call. Variables via vars and saveAs ($name), conditions (if), suspend/resume to ask the agent mid-plan, errorStrategy abort | continue | capture_image, and parallel groups per tab: parallel: [{ tab, steps }].",
+      "Batch the next 2+ known actions (click, type, scroll, view_page chains) here instead of N separate calls: a sequence of tool steps, executed server-side in one call. Variables via vars and saveAs ($name), conditions (if), suspend/resume to ask the agent mid-plan, and errorStrategy abort | continue | capture_image.",
       {
         steps: runPlanSchema.shape.steps,
-        parallel: runPlanSchema.shape.parallel,
         vars: runPlanSchema.shape.vars,
         errorStrategy: runPlanSchema.shape.errorStrategy,
-        use_operator: runPlanSchema.shape.use_operator,
         resume: runPlanSchema.shape.resume,
       },
       wrap(async (params) => {
@@ -1953,10 +1951,13 @@ export class ToolRegistry implements ToolRegistryPublic {
       );
     });
     this._handlers.set("switch_tab", async (params, sessionIdOverride?) => {
-      // H3 fix: switch_tab in parallel context would mutate the global session — block it
+      // S9: run_plan has no parallel groups any more — only a Script API
+      // session passes sessionIdOverride here. It is bound to its own tab
+      // (runInTabOf); switch_tab would still move the MCP's active tab
+      // (applyTabSwitch below) — block it.
       if (sessionIdOverride) {
         return {
-          content: [{ type: "text", text: "switch_tab is not allowed in parallel plan groups — each group operates on its own tab" }],
+          content: [{ type: "text", text: "switch_tab is not available in a Script API session — each session is bound to its own tab. Open a new session for another tab (Python: chrome.new_page())." }],
           isError: true,
           _meta: { elapsedMs: 0, method: "switch_tab" },
         };

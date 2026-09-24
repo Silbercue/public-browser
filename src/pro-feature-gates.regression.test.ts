@@ -7,8 +7,7 @@
  *
  * Fokus:
  * - AC #3: inspect_element ist NICHT in tools/list registriert (Pro-only via registerProTools)
- * - AC #4: run_plan mit `parallel` → proFeatureError (Pro-Hook noetig)
- * - AC #5: run_plan mit `use_operator: true` → proFeatureError (Pro-Hook noetig)
+ * - S9: run_plan kennt `parallel` und `use_operator` nicht mehr (beide lieferten immer einen Fehler)
  * - AC #6: switch_tab / virtual_desk / dom_snapshot sind ohne Gate ausfuehrbar (Story 11.1)
  * - AC #7: evaluate mit Style-Change-Expression liefert KEIN Visual-Feedback-Bild
  *
@@ -145,88 +144,30 @@ describe("Free-Tier Pro-Feature-Fallback Regressions (Story 15.6)", () => {
   });
 
   // -------------------------------------------------------------
-  // AC #4 — run_plan parallel without hook → error (Story 11.2: license removed)
+  // S9 — run_plan kennt parallel und use_operator nicht mehr
   // -------------------------------------------------------------
-  describe("run_plan parallel (AC #4)", () => {
-    it("returns error when parallel is used without executeParallel hook", async () => {
-      const registry = {
-        executeTool: vi.fn(),
-      } as unknown as ToolRegistry;
-
-      const deps = {
-        cdpClient: { send: vi.fn() },
-        sessionId: "test-session",
-      };
-
+  describe("run_plan ohne parallel/use_operator (S9)", () => {
+    it("parallel allein ergibt den Modus-Fehler, ohne Absturz", async () => {
+      const registry = { executeTool: vi.fn() } as unknown as ToolRegistry;
       const params = {
-        parallel: [
-          {
-            tab: "t1",
-            steps: [{ tool: "evaluate", params: { expression: "1+1" } }],
-          },
-        ],
-      } as unknown as RunPlanParams;
-
-      const result = (await runPlanHandler(params, registry, deps as never)) as ToolResponse;
-
-      expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("executeParallel hook");
-    });
-
-    it("does not crash when parallel is provided without deps (no undefined deref)", async () => {
-      const registry = {
-        executeTool: vi.fn(),
-      } as unknown as ToolRegistry;
-
-      const params = {
-        parallel: [
-          {
-            tab: "t1",
-            steps: [{ tool: "evaluate", params: { expression: "1+1" } }],
-          },
-        ],
-      } as unknown as RunPlanParams;
-
-      await expect(runPlanHandler(params, registry)).resolves.toBeDefined();
-    });
-  });
-
-  // -------------------------------------------------------------
-  // AC #5 — run_plan use_operator: true → error (Story 11.2: requires hook)
-  // -------------------------------------------------------------
-  describe("run_plan use_operator (AC #5)", () => {
-    it("returns error for use_operator: true", async () => {
-      const registry = {
-        executeTool: vi.fn(),
-      } as unknown as ToolRegistry;
-
-      const params = {
-        use_operator: true,
-        steps: [],
+        parallel: [{ tab: "t1", steps: [{ tool: "evaluate", params: { expression: "1+1" } }] }],
       } as unknown as RunPlanParams;
 
       const result = (await runPlanHandler(params, registry)) as ToolResponse;
 
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("use_operator");
+      expect(textOf(result)).toBe("One of 'steps' or 'resume' must be provided");
+      expect(registry.executeTool).not.toHaveBeenCalled();
     });
 
-    it("returns error BEFORE mode validation (no 'mutually exclusive' message)", async () => {
-      const registry = {
-        executeTool: vi.fn(),
-      } as unknown as ToolRegistry;
-
-      // No steps/parallel/resume — with use_operator the gate
-      // must fire before the mutual-exclusion validator.
+    it("use_operator wird ignoriert statt mit einem Hook-Fehler zu antworten", async () => {
+      const registry = { executeTool: vi.fn() } as unknown as ToolRegistry;
       const params = { use_operator: true } as unknown as RunPlanParams;
 
       const result = (await runPlanHandler(params, registry)) as ToolResponse;
 
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain("use_operator");
-      expect(textOf(result)).not.toContain(
-        "Eines von 'steps', 'parallel' oder 'resume' muss angegeben werden",
-      );
+      expect(textOf(result)).toBe("One of 'steps' or 'resume' must be provided");
     });
   });
 

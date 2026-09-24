@@ -6,7 +6,6 @@ import type { SessionManager } from "../cdp/session-manager.js";
 import { executePlan } from "../plan/plan-executor.js";
 import type { PlanStep, PlanOptions, SuspendedPlanResponse } from "../plan/plan-executor.js";
 import type { PlanStateStore } from "../plan/plan-state-store.js";
-import { getProHooks } from "../hooks/pro-hooks.js";
 
 const suspendSchema = z.object({
   question: z.string().optional().describe("Question for the agent"),
@@ -27,21 +26,13 @@ const resumeSchema = z.object({
   answer: z.string().describe("Answer to the suspend question"),
 });
 
-// Story 7.6: Schema for parallel tab groups
-const parallelGroupSchema = z.object({
-  tab: z.string().describe("Tab ID (targetId)"),
-  steps: z.array(stepSchema).describe("Steps for this tab"),
-});
-
+// S9: `parallel` (tab groups) and `use_operator` are gone — both needed hooks
+// of the closed Pro version and answered every call with an error.
 export const runPlanSchema = z.object({
   steps: z
     .array(stepSchema)
     .optional()
     .describe("Tool steps to run in order"),
-  parallel: z
-    .array(parallelGroupSchema)
-    .optional()
-    .describe("Tab groups to run in parallel"),
   vars: z
     .record(z.unknown())
     .optional()
@@ -51,9 +42,6 @@ export const runPlanSchema = z.object({
     .optional()
     .default("abort")
     .describe("abort stops at the first error; continue runs all steps; capture_image screenshots, then aborts"),
-  use_operator: z.boolean().optional().default(false).describe(
-    "Operator mode (rule engine + micro-LLM); needs the executeOperator hook"
-  ),
   resume: resumeSchema.optional().describe("Resume a suspended plan"),
 });
 
@@ -69,23 +57,14 @@ export interface RunPlanDeps {
 export async function runPlanHandler(
   params: RunPlanParams,
   registry: ToolRegistry,
-  deps?: RunPlanDeps,
+  _deps?: RunPlanDeps,
   stateStore?: PlanStateStore,
 ): Promise<ToolResponse | SuspendedPlanResponse> {
-  // use_operator requires executeOperator hook — not yet implemented in open-source
-  if (params.use_operator) {
-    return {
-      content: [{ type: "text", text: "use_operator requires the operator hook to be registered" }],
-      isError: true,
-      _meta: { elapsedMs: 0, method: "use_operator" },
-    };
-  }
-
-  // --- Validation: steps, parallel, and resume are mutually exclusive ---
-  const modeCount = [params.steps, params.parallel, params.resume].filter(Boolean).length;
+  // --- Validation: steps and resume are mutually exclusive ---
+  const modeCount = [params.steps, params.resume].filter(Boolean).length;
   if (modeCount > 1) {
     return {
-      content: [{ type: "text", text: "Only one of 'steps', 'parallel', or 'resume' may be provided" }],
+      content: [{ type: "text", text: "Only one of 'steps' or 'resume' may be provided" }],
       isError: true,
       _meta: { elapsedMs: 0, method: "run_plan" },
     };
@@ -93,128 +72,10 @@ export async function runPlanHandler(
 
   if (modeCount === 0) {
     return {
-      content: [{ type: "text", text: "One of 'steps', 'parallel', or 'resume' must be provided" }],
+      content: [{ type: "text", text: "One of 'steps' or 'resume' must be provided" }],
       isError: true,
       _meta: { elapsedMs: 0, method: "run_plan" },
     };
-  }
-
-  // --- Story 7.6 / 15.4: Parallel path ---
-  // Multi-Tab-Parallel-Engine wird via executeParallel-Hook injiziert.
-  if (params.parallel) {
-    if (params.parallel.length === 0) {
-      return {
-        content: [{ type: "text", text: "parallel must not be empty" }],
-        isError: true,
-        _meta: { elapsedMs: 0, method: "run_plan" },
-      };
-    }
-
-    if (!deps) {
-      return {
-        content: [{ type: "text", text: "Parallel execution requires a CDP connection" }],
-        isError: true,
-        _meta: { elapsedMs: 0, method: "run_plan" },
-      };
-    }
-
-    // Safety-Net: executeParallel-Hook muss registriert sein, sonst sauberer Fehler
-    // statt undefined.executeParallel(...)-Crash.
-    const hooks = getProHooks();
-    if (!hooks.executeParallel) {
-      return {
-        content: [{ type: "text", text: "parallel execution requires the executeParallel hook to be registered" }],
-        isError: true,
-        _meta: { elapsedMs: 0, method: "run_plan" },
-      };
-    }
-
-    // Inline tab-scope: attach + Runtime/Accessibility enable + sessionId-Override.
-    // Standard-CDP-Plumbing, keine Pro-Logik — bleibt im Free-Repo. Der Pro-Hook ist
-    // die reine Orchestrierungs-Engine (Semaphore, Promise.allSettled, Group-Aggregation).
-    //
-    // H2-Fix (Code-Review 15.4): attachte Sessions werden in `attachedSessions`
-    // getrackt und nach dem Hook-Aufruf via `Target.detachFromTarget` aufgeraeumt,
-    // damit wiederholte parallel-Laeufe keine Session-Leaks verursachen.
-    const cdpClient = deps.cdpClient;
-    const attachedSessions: Array<{ targetId: string; sessionId: string }> = [];
-    const registryFactory = async (tabTargetId: string) => {
-      const { sessionId: tabSessionId } = await cdpClient.send<{ sessionId: string }>(
-        "Target.attachToTarget",
-        { targetId: tabTargetId, flatten: true },
-      );
-      attachedSessions.push({ targetId: tabTargetId, sessionId: tabSessionId });
-      await cdpClient.send("Runtime.enable", {}, tabSessionId);
-      await cdpClient.send("Accessibility.enable", {}, tabSessionId);
-      return {
-        // Story 18.1: Parallel-Pfad muss dieselbe Suppression-Semantik haben
-        // wie der sequentielle Plan-Executor, sonst leakt der Ambient-Context-
-        // Hook zurueck. Das Closure setzt das Flag auf jedem einzelnen
-        // `executeTool`-Call; der Aggregations-Hook am Group-Ende liegt
-        // im executeParallel-Hook.
-        executeTool: (name: string, toolParams: Record<string, unknown>): Promise<ToolResponse> =>
-          registry.executeTool(name, toolParams, tabSessionId, {
-            skipOnToolResultHook: true,
-          }),
-      };
-    };
-
-    // H1-Fix (Code-Review 15.4): Hook-Exceptions in MCP-konforme isError-Response
-    // wandeln statt nach oben durchzulassen.
-    try {
-      const parallelResult = await hooks.executeParallel(
-        params.parallel as Array<{ tab: string; steps: PlanStep[] }>,
-        registryFactory,
-        {
-          vars: params.vars,
-          errorStrategy: params.errorStrategy,
-          concurrencyLimit: 5,
-        },
-      );
-
-      // Story 18.1 H1 (Code-Review 18.1): Aggregations-Hook fuer den
-      // Parallel-Pfad. Der `registryFactory`-Vertrag exponiert bewusst nur
-      // `executeTool` (nicht `runAggregationHook`), damit der Pro-`executeParallel`
-      // keinen tab-spezifischen End-Hook rufen muss. Stattdessen rufen wir
-      // hier im Free-Repo, nach Abschluss der gesamten Parallel-Gruppe,
-      // den Aggregations-Hook genau einmal ueber die aktuelle (nicht-tab)
-      // Session. Das garantiert AC-2 auch fuer Parallel-Runs: N Steps →
-      // Hook laeuft genau 1x am Ende, nicht 3x (bei 3 Steps) und nicht 0x.
-      //
-      // Guards:
-      //  - Nur wenn die Parallel-Response kein `isError` ist (kein Early-Abort).
-      //  - Hook-Exceptions werden geschluckt (best-effort), damit der
-      //    Plan-Response nicht wegen eines Hook-Fehlers kippt.
-      if (!parallelResult.isError) {
-        try {
-          await registry.runAggregationHook(parallelResult, "run_plan");
-        } catch {
-          // Best-effort — siehe plan-executor.ts Aggregations-Hook.
-        }
-      }
-
-      return parallelResult;
-    } catch (error) {
-      return {
-        content: [{
-          type: "text",
-          text: `parallel execution failed: ${error instanceof Error ? error.message : String(error)}`,
-        }],
-        isError: true,
-        _meta: { elapsedMs: 0, method: "run_plan" },
-      };
-    } finally {
-      // H2-Fix: Cleanup aller attachten Sessions, auch im Fehlerfall.
-      // Best-effort: Detach-Fehler werden geschluckt, damit ein einzelner
-      // bereits geschlossener Tab nicht den ganzen Cleanup blockiert.
-      for (const { sessionId: tabSessionId } of attachedSessions) {
-        try {
-          await cdpClient.send("Target.detachFromTarget", { sessionId: tabSessionId });
-        } catch {
-          // Tab ggf. bereits geschlossen — ignorieren
-        }
-      }
-    }
   }
 
   // --- Resume path ---

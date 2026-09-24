@@ -209,19 +209,20 @@ describe("ToolRegistry", () => {
     );
     expect(toolFn).toHaveBeenCalledWith(
       "run_plan",
-      "Batch the next 2+ known actions (click, type, scroll, view_page chains) here instead of N separate calls: a sequence of tool steps, executed server-side in one call. Variables via vars and saveAs ($name), conditions (if), suspend/resume to ask the agent mid-plan, errorStrategy abort | continue | capture_image, and parallel groups per tab: parallel: [{ tab, steps }].",
+      "Batch the next 2+ known actions (click, type, scroll, view_page chains) here instead of N separate calls: a sequence of tool steps, executed server-side in one call. Variables via vars and saveAs ($name), conditions (if), suspend/resume to ask the agent mid-plan, and errorStrategy abort | continue | capture_image.",
       expect.objectContaining({
         steps: expect.anything(),
-        parallel: expect.anything(),
         // Story 23.x: vars und errorStrategy werden jetzt durchgereicht — die
         // Description bewirbt sie, also muessen sie in tools/list stehen.
         vars: expect.anything(),
         errorStrategy: expect.anything(),
-        use_operator: expect.anything(),
         resume: expect.anything(),
       }),
       expect.any(Function),
     );
+    // S9: parallel und use_operator lieferten immer nur einen Fehler — sie sind weg.
+    const runPlanShape = toolFn.mock.calls.find((c: unknown[]) => c[0] === "run_plan")![2] as Record<string, unknown>;
+    expect(Object.keys(runPlanShape).sort()).toEqual(["errorStrategy", "resume", "steps", "vars"]);
     expect(toolFn).toHaveBeenCalledWith(
       "batch_evaluate",
       expect.stringMatching(/^Visit several URLs in sequence and run the same JS expression on each\./),
@@ -681,7 +682,6 @@ describe("ToolRegistry", () => {
         { tool: "evaluate", params: { expression: "3" } },
         { tool: "evaluate", params: { expression: "4" } },
       ],
-      use_operator: false,
     });
 
     expect(result._meta).toBeDefined();
@@ -1158,7 +1158,7 @@ describe("ToolRegistry", () => {
     expect(result.content[0]).toHaveProperty("text", expect.stringContaining("No dialogs"));
   });
 
-  it("H3: switch_tab in parallel context (sessionIdOverride set) is blocked", async () => {
+  it("S9: switch_tab from a Script API session (sessionIdOverride set) is blocked", async () => {
     const mockCdpClient = {
       send: vi.fn().mockResolvedValue({}),
     } as never;
@@ -1170,11 +1170,16 @@ describe("ToolRegistry", () => {
     );
     registry.registerAll();
 
-    // switch_tab with sessionIdOverride should be blocked
+    // After S9 only the Script API passes sessionIdOverride (run_plan lost its
+    // parallel groups). switch_tab would move the MCP's active tab — blocked.
     const result = await registry.executeTool("switch_tab", { action: "list" }, "tab-session-override");
 
     expect(result.isError).toBe(true);
-    expect(result.content[0]).toHaveProperty("text", expect.stringContaining("not allowed in parallel plan groups"));
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toBe(
+      "switch_tab is not available in a Script API session — each session is bound to its own tab. Open a new session for another tab (Python: chrome.new_page()).",
+    );
+    expect(text).not.toMatch(/parallel/i);
   });
 
   // --- S5: run_plan passes raw step params (no zod defaults) ---
@@ -1472,7 +1477,7 @@ describe("ToolRegistry", () => {
     );
   });
 
-  it("Story 11.1: switch_tab with sessionIdOverride hits parallel block (not feature gate)", async () => {
+  it("Story 11.1: switch_tab with sessionIdOverride hits the Script API block (not feature gate)", async () => {
     const toolFn = vi.fn();
     const mockServer = { tool: toolFn } as never;
 
@@ -1481,12 +1486,12 @@ describe("ToolRegistry", () => {
     );
     registry.registerAll();
 
-    // Call switch_tab with sessionIdOverride — should hit parallel block, not a Pro-Feature gate
+    // Call switch_tab with sessionIdOverride — should hit the Script API block, not a Pro-Feature gate
     const result = await registry.executeTool("switch_tab", { action: "list" }, "tab-override");
 
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("parallel plan groups");
+    expect(text).toContain("not available in a Script API session");
     expect(text).not.toContain("public-browser license activate");
   });
 

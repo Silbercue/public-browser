@@ -35,15 +35,14 @@ describe("NFR4 tool-definition budget", () => {
 });
 
 describe("run_plan wire schema", () => {
-  it("exponiert vars und errorStrategy und haelt parallel[].steps auf dem $ref", async () => {
+  it("exponiert vars und errorStrategy, aber weder parallel noch use_operator (S9)", async () => {
     const tools = await listToolsOverWire();
     const rp = tools.find((t) => t.name === "run_plan")!;
     const props = schemaProperties(rp);
     expect(props.vars).toBeDefined();
     expect(props.errorStrategy.enum).toEqual(["abort", "continue", "capture_image"]);
-    expect(props.parallel.items?.properties?.steps.items).toEqual({
-      $ref: "#/properties/steps/items",
-    });
+    expect(Object.keys(props).sort()).toEqual(["errorStrategy", "resume", "steps", "vars"]);
+    expect(rp.description).not.toMatch(/parallel|operator/i);
   });
 
   it("weist einen Top-Level-Step ohne 'tool' als Validierungsfehler zurueck", async () => {
@@ -58,13 +57,13 @@ describe("run_plan wire schema", () => {
     });
   });
 
-  it("validiert Steps auch innerhalb einer parallel-Gruppe ($ref traegt das Step-Schema)", async () => {
+  it("nimmt parallel nicht mehr an: ohne steps/resume kommt der Modus-Fehler (S9)", async () => {
     await withToolServer(async ({ call }) => {
       const result = (await call("run_plan", {
-        parallel: [{ tab: "t1", steps: [{ params: {} }] }],
+        parallel: [{ tab: "t1", steps: [{ tool: "tab_status" }] }],
       })) as { isError?: boolean; content: { text: string }[] };
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toMatch(/"parallel",\s*0,\s*"steps",\s*0,\s*"tool"/);
+      expect(result.content[0].text).toContain("One of 'steps' or 'resume' must be provided");
     });
   });
 

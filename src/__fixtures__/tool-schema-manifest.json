@@ -437,27 +437,6 @@
           ],
           "type": "string"
         },
-        "parallel": {
-          "items": {
-            "properties": {
-              "steps": {
-                "items": {
-                  "$ref": "#/properties/steps/items"
-                },
-                "type": "array"
-              },
-              "tab": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "tab",
-              "steps"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        },
         "resume": {
           "properties": {
             "answer": {
@@ -513,10 +492,6 @@
             "type": "object"
           },
           "type": "array"
-        },
-        "use_operator": {
-          "default": false,
-          "type": "boolean"
         },
         "vars": {
           "additionalProperties": {},
