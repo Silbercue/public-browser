@@ -220,16 +220,39 @@ describe("H2 kompakte Seitenansicht — Vollbaum aus run3 #32", () => {
     expect(lines).toContain(`${" ".repeat(editor.indent)}[${proc.getRefForBackendNodeId(editor.ref, "s1")}] generic#t3-6-editor (editable)`);
   });
 
-  it("cuts multi-line container names to the first line and shortens the TRUNCATED line", async () => {
+  it("cuts multi-line container names to the first line; the rest stands below as children, so no TRUNCATED line", async () => {
     const { parsed, proc, lines, text } = await renderFixture();
-    const card = flatten(parsed.main).find((el) => el.role === "generic" && el.name?.startsWith("T3.1\n"))!;
-    const ref = proc.getRefForBackendNodeId(card.ref, "s1");
-    const idx = lines.indexOf(`${" ".repeat(card.indent)}[${ref}] generic "T3.1"`);
-    expect(idx).toBeGreaterThan(-1);
-    // 80 gezeigte + 49 versteckte Zeichen im Lauf; gezeigt wird jetzt nur "T3.1" → 125 versteckt.
-    expect(lines[idx + 1]).toBe(`${" ".repeat(card.indent + 2)}[!] TRUNCATED +125 chars: view_page(ref:"${ref}", filter:"all")`);
+    // Six cards carried a marker in the run; under filter "all" each is followed directly by its heading child.
+    const cards = flatten(parsed.main).filter((el) => el.truncatedExtra !== undefined);
+    expect(cards).toHaveLength(6);
+    for (const card of cards) {
+      const ref = proc.getRefForBackendNodeId(card.ref, "s1");
+      const idx = lines.indexOf(`${" ".repeat(card.indent)}[${ref}] generic "${card.name!.split("\n")[0]}"`);
+      expect(idx, `card ${ref}`).toBeGreaterThan(-1);
+      expect(lines[idx + 1], `line after card ${ref}`).toMatch(new RegExp(`^ {${card.indent + 2}}\\[e\\d+\\] heading "T3\\.\\d `));
+    }
+    // Keine Textverluste: the hidden rest of the T3.1 name stands below in full.
+    expect(text).toContain('StaticText "Interagiere mit Elementen innerhalb eines Shadow DOM. Lies den Wert und gib ihn ein."');
     expect(text).not.toContain("more chars hidden");
     expect(text).not.toContain("Shadow DOM Interaction\n\nInteragiere");
+  });
+
+  it("a subtree view_page(ref, filter all) of a card never points at itself", async () => {
+    const parsed = parseViewPage(FIXTURE);
+    const proc = new A11yTreeProcessor();
+    const cdp = fixtureCdp(parsed);
+    await proc.getTree(cdp, "s1", { filter: "all", depth: 12, fresh: true });
+    const cards = flatten(parsed.main).filter((el) => el.truncatedExtra !== undefined);
+    expect(cards.length).toBeGreaterThan(1);
+    for (const card of cards) {
+      const ref = proc.getRefForBackendNodeId(card.ref, "s1")!;
+      const sub = await proc.getTree(cdp, "s1", { filter: "all", ref });
+      // Gegenprobe: the card line and its children are there.
+      expect(sub.text).toMatch(new RegExp(`^\\[${ref}\\] generic "T3\\.\\d"$`, "m"));
+      expect(sub.text).toMatch(/^ {2}\[e\d+\] heading "T3\.\d /m);
+      expect(sub.text).not.toContain(`view_page(ref:"${ref}", filter:"all")`);
+      expect(sub.text).not.toContain("[!] TRUNCATED");
+    }
   });
 
   it("shrinks the full dump by at least a quarter", async () => {
@@ -512,6 +535,69 @@ describe("H2 — andere Filter und Teilbäume", () => {
     const { text } = await renderFixture("interactive");
     expect(text).toContain('generic "T3.1\nShadow DOM Interaction\n\nInteragiere mit Elementen innerhalb eines Shadow DO"');
     expect(text).toMatch(/\[!\] TRUNCATED \+49 chars: view_page\(ref:"e\d+", filter:"all"\)/);
+  });
+
+  it("filter interactive: the subtree keeps the marker (+N over the 80-char cut) pointing at filter all", async () => {
+    const parsed = parseViewPage(FIXTURE);
+    const proc = new A11yTreeProcessor();
+    const cdp = fixtureCdp(parsed);
+    await proc.getTree(cdp, "s1", { filter: "interactive", depth: 12, fresh: true });
+    const card = flatten(parsed.main).find((el) => el.name?.startsWith("T3.1\n"))!;
+    const ref = proc.getRefForBackendNodeId(card.ref, "s1")!;
+    const sub = await proc.getTree(cdp, "s1", { filter: "interactive", ref });
+    expect(sub.text).toContain(`Interagiere mit Elementen innerhalb eines Shadow DO"\n  [!] TRUNCATED +49 chars: view_page(ref:"${ref}", filter:"all")`);
+  });
+
+  // Fix M5: under filter "all" only text that stands nowhere in the output counts.
+  describe("TRUNCATED under filter all", () => {
+    const TASK = "Aufgabe T9.9\nLies den Code aus dem versteckten Feld und trage ihn unten in das Eingabefeld ein, dann Verify.";
+    function enriched(textIgnored: boolean): CdpClient {
+      const nodes: AXNode[] = [
+        node(1, "RootWebArea", "M5", [2]),
+        { ...node(2, "generic", undefined, [3], 1) },
+        { ...node(3, "StaticText", TASK.replace("\n", " "), [], 2), ignored: textIgnored },
+      ];
+      return {
+        send: vi.fn(async (method: string) => {
+          switch (method) {
+            case "Runtime.evaluate": return { result: { value: "https://example.com/m5" } };
+            case "Accessibility.getFullAXTree": return { nodes };
+            case "DOM.describeNode": return { node: { attributes: ["onclick", "go()"] } };
+            case "DOM.resolveNode": return { object: { objectId: "obj-2" } };
+            case "Runtime.callFunctionOn": return { result: { value: `${TASK.slice(0, 80)}\x00${TASK.length}` } };
+            default: return {};
+          }
+        }),
+        on: vi.fn(), once: vi.fn(), off: vi.fn(),
+      } as unknown as CdpClient;
+    }
+
+    const hiddenMarker = (indent: number, ref: string) => new RegExp(
+      `^ {${indent}}\\[${ref}\\] generic "Aufgabe T9\\.9"\\n {${indent + 2}}\\[!\\] TRUNCATED \\+${TASK.length - "Aufgabe T9.9".length} chars$`, "m");
+
+    it("page view: counts text that stands nowhere in the output (not in the AX tree) and points at no call", async () => {
+      expect(TASK.length).toBeGreaterThan(80);
+      const proc = new A11yTreeProcessor();
+      const page = await proc.getTree(enriched(true), "s1", { filter: "all", depth: 1, fresh: true });
+      expect(page.text).toMatch(hiddenMarker(2, proc.getRefForBackendNodeId(2, "s1")!));
+    });
+
+    it("subtree view_page(ref, filter all): same count, no pointer back at itself", async () => {
+      const proc = new A11yTreeProcessor();
+      const cdp = enriched(true);
+      await proc.getTree(cdp, "s1", { filter: "all", fresh: true });
+      const ref = proc.getRefForBackendNodeId(2, "s1")!;
+      const sub = await proc.getTree(cdp, "s1", { filter: "all", ref });
+      expect(sub.text).toMatch(hiddenMarker(0, ref));
+    });
+
+    it("depth only indents: the text child stands below even at depth 1, so no marker", async () => {
+      const proc = new A11yTreeProcessor();
+      const page = await proc.getTree(enriched(false), "s1", { filter: "all", depth: 1, fresh: true });
+      expect(page.text).toMatch(/^ {2}\[e\d+\] generic "Aufgabe T9\.9"$/m);
+      expect(page.text).toContain(`StaticText "${TASK.replace("\n", " ")}"`);
+      expect(page.text).not.toContain("[!] TRUNCATED");
+    });
   });
 
   it("downsampled output (max_tokens) prints StaticText without '(eN)' and drops echoes", async () => {

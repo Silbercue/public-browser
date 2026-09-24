@@ -3719,6 +3719,11 @@ export class A11yTreeProcessor {
     // append the prominent marker on a SEPARATE line below — done once the
     // rest of the element annotations are in place.
     let truncationExtra: number | undefined;
+    // Fix M5: under filter "all" the renderer walks every child (depth only
+    // indents), so the rest of the name stands below whenever the node has
+    // text in the AX tree. Then nothing is hidden. Otherwise the text is in
+    // no view_page output at all, and no call is recommended.
+    let recommendCall = true;
 
     // FR-H5: Prefer AXNode name, fall back to nodeInfoMap (enriched by Phase 3 for clickable generics).
     // Stufe 2 H2: multi-line container names are cut to their first line in filter "all".
@@ -3729,7 +3734,12 @@ export class A11yTreeProcessor {
       if (backendNodeId !== undefined) {
         const fullLen = this.nodeInfoLookup(backendNodeId)?.nameFullLength;
         if (fullLen && fullLen > name.length) {
-          truncationExtra = fullLen - name.length;
+          if (filter !== "all") {
+            truncationExtra = fullLen - name.length;
+          } else if (!nodeMap || !this.hasTextInTree(node, nodeMap)) {
+            truncationExtra = fullLen - name.length;
+            recommendCall = false;
+          }
         }
       }
     }
@@ -3817,10 +3827,22 @@ export class A11yTreeProcessor {
     // (see `lines.join("\n")` in renderNodes / truncateToFit).
     if (truncationExtra !== undefined) {
       // Stufe 2 H2: shortened, not removed — the model must still see that text is hidden.
-      line += `\n${indent}  ${TRUNCATION_MARKER_PREFIX} +${truncationExtra} chars: view_page(ref:"e${refNum}", filter:"all")`;
+      line += `\n${indent}  ${TRUNCATION_MARKER_PREFIX} +${truncationExtra} chars`
+        + (recommendCall ? `: view_page(ref:"e${refNum}", filter:"all")` : "");
     }
 
     return line;
+  }
+
+  /** Fix M5: does a non-ignored StaticText below `node` carry text the output shows? */
+  private hasTextInTree(node: AXNode, nodeMap: Map<string, AXNode>): boolean {
+    for (const childId of node.childIds ?? []) {
+      const child = nodeMap.get(childId);
+      if (!child) continue;
+      if (!child.ignored && this.getRole(child) === "StaticText" && child.name?.value) return true;
+      if (this.hasTextInTree(child, nodeMap)) return true;
+    }
+    return false;
   }
 
   private formatHeader(title: string, count: number, filter: string, depth: number): string {
