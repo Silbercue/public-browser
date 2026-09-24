@@ -4393,7 +4393,7 @@ describe("A11yTreeProcessor", () => {
       // scanning LLM can't overlook it. The hint must name the ref and
       // the concrete follow-up action.
       expect(result.text).toContain("\n");
-      expect(result.text).toMatch(/\n\s+\[!\] TRUNCATED: \+\d+ more chars hidden\. Call view_page\(ref:"e\d+", filter:"all"\)/);
+      expect(result.text).toMatch(/\n\s+\[!\] TRUNCATED \+\d+ chars: view_page\(ref:"e\d+", filter:"all"\)/);
       // The old inline `…[+N chars; use filter:"all"` format must be gone.
       expect(result.text).not.toMatch(/…\[\+\d+ chars; use filter:"all"/);
     });
@@ -4461,7 +4461,7 @@ describe("A11yTreeProcessor", () => {
 
       // Assertion 3 — it carries the exact hidden-char count AND the
       // concrete next action with the ref.
-      expect(markerLine!).toMatch(/\[!\] TRUNCATED: \+\d+ more chars hidden\. Call view_page\(ref:"e\d+", filter:"all"\)/);
+      expect(markerLine!).toMatch(/\[!\] TRUNCATED \+\d+ chars: view_page\(ref:"e\d+", filter:"all"\)/);
 
       // Assertion 4 — the element line ABOVE the marker is preserved
       // (still contains the truncated preview in quotes).

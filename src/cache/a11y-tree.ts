@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager, SessionInfo } from "../cdp/session-manager.js";
 import { wrapCdpError } from "../tools/error-utils.js";
+// Stufe 2 H2: own import (not shared with H1's) so H1 and H2 can be reverted one by one.
+import { echoTextChildren as parentLineEchoes } from "./text-echo.js";
 import { CLICKABLE_TAGS, CLICKABLE_ROLES, COMPUTED_STYLES } from "../tools/visual-constants.js";
 import { effectiveWidth, effectiveHeight } from "../cdp/emulation.js";
 import { debug } from "../cdp/debug.js";
@@ -264,6 +266,31 @@ function classifyElement(role: string): ElementClass {
   if (INTERACTIVE_ROLES.has(role)) return "interactive";
   if (CONTENT_ROLES.has(role)) return "content";
   return "container"; // Default: everything else is container
+}
+
+/** Stufe 2 H2: text leaves are read, not addressed — view_page prints them without a ref. */
+const TEXT_LEAF_ROLES = new Set(["StaticText", "LabelText"]);
+
+/** Stufe 2 H2: text fields whose inner editor (generic, editable) only repeats value="…". */
+const TEXT_FIELD_ROLES = new Set(["textbox", "searchbox", "spinbutton", "combobox"]);
+
+/**
+ * Stufe 2 H2: what a printed line hands down to the nodes below it — its role
+ * (inner-editor rule) and the nodeIds of its own text children that only
+ * repeat the name it printed (rule and parent definition: text-echo.ts).
+ */
+interface RenderedParent {
+  role: string;
+  echoIds: ReadonlySet<string>;
+}
+
+/** Stufe 2 H2: first non-empty line of a multi-line name, trimmed. */
+function firstLine(text: string): string {
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return "";
 }
 
 /** Token estimation for structured A11y output.
@@ -2801,24 +2828,27 @@ export class A11yTreeProcessor {
     lines: string[],
     level: number,
     visualMap?: Map<number, VisualInfo>,
+    parent?: RenderedParent,
   ): void {
     if (node.ignored) {
-      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
       return;
     }
 
     const role = this.getRole(node);
+    // Stufe 2 H2: echo text and inner editors print nothing, not even children.
+    if (this.isRedundantForRender(node, role, parent)) return;
     const elementClass = classifyElement(role);
     const passesFilter = this.passesFilter(node, role, filter);
 
     if (!passesFilter) {
       // Not passing filter — skip but process children at same indent
-      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
       return;
     }
 
     if (node.backendDOMNodeId === undefined) {
-      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
       return;
     }
 
@@ -2828,7 +2858,7 @@ export class A11yTreeProcessor {
     if (visualMap) {
       const vi = visualMap.get(node.backendDOMNodeId);
       if (vi?.occluded) {
-        this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
         return;
       }
     }
@@ -2836,28 +2866,32 @@ export class A11yTreeProcessor {
     // BUG-016: composite-key lookup via `_renderSessionId` set by getTree().
     const refNum = this.refLookup(node.backendDOMNodeId);
     if (refNum === undefined) {
-      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
       return;
     }
 
     const indent = "  ".repeat(indentLevel);
+    // Stufe 2 H2: the line this node prints (via formatLine) is the parent line of its children.
+    const self = this.renderedParent(node, role, this.displayName(node, role, filter), nodeMap);
 
     if (elementClass === "interactive") {
       // Interactive: ALWAYS fully preserved
-      let line = this.formatLine(indent, refNum, role, node, nodeMap);
+      let line = this.formatLine(indent, refNum, role, node, nodeMap, filter);
       line = this.appendVisualAnnotation(line, filter, visualMap, node.backendDOMNodeId);
       lines.push(line);
-      this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+      this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap, self);
     } else if (elementClass === "content") {
       if (level < 4) {
         // Content at levels 0-3: unchanged
-        let line = this.formatLine(indent, refNum, role, node, nodeMap);
+        let line = this.formatLine(indent, refNum, role, node, nodeMap, filter);
         line = this.appendVisualAnnotation(line, filter, visualMap, node.backendDOMNodeId);
         lines.push(line);
-        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap, self);
       } else {
         // Content at level 4: compact Markdown
         const name = (node.name?.value as string) ?? "";
+        // Stufe 2 H2: text leaves carry no ref here either.
+        const refSuffix = TEXT_LEAF_ROLES.has(role) ? "" : ` (e${refNum})`;
         if (role === "heading") {
           lines.push(`${indent}# ${name} (e${refNum})`);
         } else if (role === "listitem") {
@@ -2867,76 +2901,89 @@ export class A11yTreeProcessor {
           // paragraph, StaticText, img, etc.
           const truncName = name.length > 100 ? name.slice(0, 97) + "..." : name;
           if (truncName) {
-            lines.push(`${indent}${truncName} (e${refNum})`);
+            lines.push(`${indent}${truncName}${refSuffix}`);
           }
         }
-        // Still render children for content nodes (they may have interactive children)
-        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+        // Still render children for content nodes (they may have interactive children).
+        // Stufe 2 H2: they compare with the name as printed here — headings in full, the rest cut at 100.
+        const shown = role === "heading" || name.length <= 100 ? name : name.slice(0, 97) + "...";
+        this.renderChildrenDownsampled(
+          node, nodeMap, indentLevel + 1, filter, lines, level, visualMap,
+          this.renderedParent(node, role, shown, nodeMap),
+        );
       }
     } else {
       // Container
       if (level === 0) {
         // Level 0: no merging, render normally
-        let line = this.formatLine(indent, refNum, role, node, nodeMap);
+        let line = this.formatLine(indent, refNum, role, node, nodeMap, filter);
         line = this.appendVisualAnnotation(line, filter, visualMap, node.backendDOMNodeId);
         lines.push(line);
-        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap, self);
       } else if (level === 1) {
         // Level 1: remove empty containers (no children)
         const childCount = this.countVisibleChildren(node, nodeMap);
         if (childCount === 0) {
           // H3: Even if no visible direct children, check for interactive descendants
           if (this.hasInteractiveDescendants(node, nodeMap)) {
-            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
           }
           return;
         }
-        let line = this.formatLine(indent, refNum, role, node, nodeMap);
+        let line = this.formatLine(indent, refNum, role, node, nodeMap, filter);
         line = this.appendVisualAnnotation(line, filter, visualMap, node.backendDOMNodeId);
         lines.push(line);
-        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap, self);
       } else if (level === 2) {
         // Level 2: single-child containers merged (child takes container's level)
         const children = this.getVisibleChildren(node, nodeMap);
         if (children.length === 0) {
           // H3: Check for interactive descendants before removing
           if (this.hasInteractiveDescendants(node, nodeMap)) {
-            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
           }
           return;
         }
         if (children.length === 1) {
           // Merge: child at container's indent level
-          this.renderNodeDownsampled(children[0], nodeMap, indentLevel, filter, lines, level, visualMap);
+          this.renderNodeDownsampled(children[0], nodeMap, indentLevel, filter, lines, level, visualMap, parent);
           return;
         }
         // Multiple children: keep container but render children
-        let line = this.formatLine(indent, refNum, role, node, nodeMap);
+        let line = this.formatLine(indent, refNum, role, node, nodeMap, filter);
         line = this.appendVisualAnnotation(line, filter, visualMap, node.backendDOMNodeId);
         lines.push(line);
-        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap, self);
       } else {
         // Level 3-4: container chains flattened, containers as one-line summary
         const childCount = this.countDescendantElements(node, nodeMap, filter);
         if (childCount === 0) {
           // H3: Even with 0 filtered descendants, check for interactive ones
           if (this.hasInteractiveDescendants(node, nodeMap)) {
-            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap);
+            this.renderChildrenDownsampled(node, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
           }
           return;
         }
 
-        const name = (node.name?.value as string) ?? "";
+        const rawName = (node.name?.value as string) ?? "";
+        // Stufe 2 H2: multi-line container names → first line (filter "all" renders the children below).
+        const name = filter === "all" && rawName.includes("\n") ? firstLine(rawName) : rawName;
         const shortRole = this.shortContainerRole(role);
         const nameStr = name ? `: ${name}` : "";
         // BUG-019: include the ref in summary lines so landmark-aware
         // truncateToFit can still attribute downsampled subtrees to their
         // main/nav/other bucket AND so the escape-hint can point the LLM at
         // the exact ref to re-read for full detail.
-        lines.push(`${indent}[e${refNum} ${shortRole}${nameStr}, ${childCount} items]`);
+        // Stufe 2 H2: text leaves (LabelText) carry no ref here either — a
+        // summary without a ref is the legacy form truncateToFit still parses.
+        const refPart = TEXT_LEAF_ROLES.has(role) ? "" : `e${refNum} `;
+        lines.push(`${indent}[${refPart}${shortRole}${nameStr}, ${childCount} items]`);
 
         // Children rendered at indentLevel + 1
-        this.renderChildrenDownsampled(node, nodeMap, indentLevel + 1, filter, lines, level, visualMap);
+        this.renderChildrenDownsampled(
+          node, nodeMap, indentLevel + 1, filter, lines, level, visualMap,
+          this.renderedParent(node, role, name, nodeMap),
+        );
       }
     }
   }
@@ -2949,12 +2996,13 @@ export class A11yTreeProcessor {
     lines: string[],
     level: number,
     visualMap?: Map<number, VisualInfo>,
+    parent?: RenderedParent,
   ): void {
     if (!node.childIds) return;
     for (const childId of node.childIds) {
       const child = nodeMap.get(childId);
       if (child) {
-        this.renderNodeDownsampled(child, nodeMap, indentLevel, filter, lines, level, visualMap);
+        this.renderNodeDownsampled(child, nodeMap, indentLevel, filter, lines, level, visualMap, parent);
       }
     }
   }
@@ -3188,10 +3236,11 @@ export class A11yTreeProcessor {
     filter: string,
     lines: string[],
     visualMap?: Map<number, VisualInfo>,
+    parent?: RenderedParent,
   ): void {
     if (node.ignored) {
       // Ignored nodes: skip but process children at same indent level
-      this.renderChildren(node, nodeMap, indentLevel, filter, lines, visualMap);
+      this.renderChildren(node, nodeMap, indentLevel, filter, lines, visualMap, parent);
       return;
     }
 
@@ -3217,6 +3266,9 @@ export class A11yTreeProcessor {
       }
     }
 
+    // Stufe 2 H2: echo text and inner editors print nothing, not even children.
+    if (this.isRedundantForRender(node, role, parent)) return;
+
     // Story 18.4: paint-order occlusion filter. If this node is covered by
     // a higher-paintOrder clickable element, skip the line — but still
     // render children, because a child may itself have a higher paintOrder
@@ -3229,16 +3281,18 @@ export class A11yTreeProcessor {
       if (vi?.occluded) isOccluded = true;
     }
 
+    let printed: RenderedParent | undefined;
     if (!isOccluded && passesFilter && node.backendDOMNodeId !== undefined) {
       // BUG-016: composite-key lookup via `_renderSessionId`.
       const refNum = this.refLookup(node.backendDOMNodeId);
       if (refNum !== undefined) {
         const indent = "  ".repeat(indentLevel);
-        let line = this.formatLine(indent, refNum, role, node, nodeMap);
+        let line = this.formatLine(indent, refNum, role, node, nodeMap, filter);
         // Story 18.4: appendVisualAnnotation is a no-op unless filter ===
         // "visual". Other filters use visualMap solely for occlusion info.
         line = this.appendVisualAnnotation(line, filter, visualMap, node.backendDOMNodeId);
         lines.push(line);
+        printed = this.renderedParent(node, role, this.displayName(node, role, filter), nodeMap);
       }
     }
 
@@ -3246,8 +3300,51 @@ export class A11yTreeProcessor {
     // occluded). Story 18.4: when an occluded node is skipped we do NOT
     // advance the indent level — it mirrors the existing `node.ignored`
     // path above, so children inherit the position of the skipped parent.
+    // Stufe 2 H2: children see the nearest line that was actually printed.
     const nextIndent = (!isOccluded && passesFilter) ? indentLevel + 1 : indentLevel;
-    this.renderChildren(node, nodeMap, nextIndent, filter, lines, visualMap);
+    this.renderChildren(node, nodeMap, nextIndent, filter, lines, visualMap, printed ?? parent);
+  }
+
+  /**
+   * Stufe 2 H2: the name as printed on the node's own line — AX name, else the
+   * FR-H5 enriched name; a multi-line container name is cut to its first line
+   * in filter "all", where the children below show the rest.
+   */
+  private displayName(node: AXNode, role: string, filter: string): string {
+    const backendNodeId = node.backendDOMNodeId;
+    const name = (node.name?.value as string | undefined)
+      || (backendNodeId !== undefined ? this.nodeInfoLookup(backendNodeId)?.name : undefined)
+      || "";
+    return filter === "all" && classifyElement(role) === "container" && name.includes("\n")
+      ? firstLine(name)
+      : name;
+  }
+
+  /**
+   * Stufe 2 H2: what the line `node` prints hands down to its children — its
+   * role and its own text children that together form `name`, the name as
+   * printed on that line (Task 23 rule, the same one the DOM diff uses).
+   */
+  private renderedParent(node: AXNode, role: string, name: string, nodeMap: Map<string, AXNode>): RenderedParent {
+    return { role, echoIds: new Set(parentLineEchoes(node, name, nodeMap).map((child) => child.nodeId)) };
+  }
+
+  /**
+   * Stufe 2 H2: nodes that print nothing (and no children) because the line
+   * above already says it — a StaticText among the own text children that
+   * together form the parent line's printed name, and the inner editor
+   * (generic, editable) of a text field, whose text the field line shows as
+   * value="…". Without a printed parent (subtree root) nothing is redundant.
+   */
+  private isRedundantForRender(node: AXNode, role: string, parent: RenderedParent | undefined): boolean {
+    if (!parent) return false;
+    if (role === "StaticText") return parent.echoIds.has(node.nodeId);
+    if (role === "generic" && TEXT_FIELD_ROLES.has(parent.role)) {
+      return (node.properties ?? []).some(
+        (p) => p.name === "editable" && !!p.value.value && p.value.value !== "inherit",
+      );
+    }
+    return false;
   }
 
   /**
@@ -3364,7 +3461,11 @@ export class A11yTreeProcessor {
     type BucketEntry = { node: AXNode; sessionId: string };
     const buckets = new Map<string, BucketEntry[]>();
 
-    const walk = (node: AXNode, map: Map<string, AXNode>, sid: string): void => {
+    const walk = (node: AXNode, map: Map<string, AXNode>, sid: string, parent?: RenderedParent): void => {
+      const role = this.getRole(node);
+      // Stufe 2 H2: what renderNode drops (echo text, inner editors) is no
+      // aggregation member — otherwise a dropped anchor would swallow its group.
+      if (!node.ignored && this.isRedundantForRender(node, role, parent)) return;
       if (
         !node.ignored &&
         node.backendDOMNodeId !== undefined &&
@@ -3384,10 +3485,16 @@ export class A11yTreeProcessor {
           return;
         }
       }
+      // Stufe 2 H2: mirror renderNode — a node that prints a line is the parent line of its children.
+      const prints = !node.ignored
+        && node.backendDOMNodeId !== undefined
+        && this.passesFilter(node, role, filter)
+        && this.refExists(node.backendDOMNodeId);
+      const next = prints ? this.renderedParent(node, role, this.displayName(node, role, filter), map) : parent;
       if (node.childIds) {
         for (const childId of node.childIds) {
           const child = map.get(childId);
-          if (child) walk(child, map, sid);
+          if (child) walk(child, map, sid, next);
         }
       }
     };
@@ -3445,7 +3552,9 @@ export class A11yTreeProcessor {
     lines: string[],
   ): void {
     const indent = "  ".repeat(indentLevel);
-    let line = `${indent}[e${anchor.firstRef}..e${anchor.lastRef}] ${anchor.count}× ${anchor.role}`;
+    // Stufe 2 H2: text leaves carry no refs, so their summary has no ref band either.
+    const band = TEXT_LEAF_ROLES.has(anchor.role) ? "" : `[e${anchor.firstRef}..e${anchor.lastRef}] `;
+    let line = `${indent}${band}${anchor.count}× ${anchor.role}`;
     if (anchor.firstName && anchor.lastName && anchor.firstName !== anchor.lastName) {
       line += ` "${anchor.firstName}" .. "${anchor.lastName}"`;
     } else if (anchor.firstName) {
@@ -3461,12 +3570,13 @@ export class A11yTreeProcessor {
     filter: string,
     lines: string[],
     visualMap?: Map<number, VisualInfo>,
+    parent?: RenderedParent,
   ): void {
     if (!node.childIds) return;
     for (const childId of node.childIds) {
       const child = nodeMap.get(childId);
       if (child) {
-        this.renderNode(child, nodeMap, indentLevel, filter, lines, visualMap);
+        this.renderNode(child, nodeMap, indentLevel, filter, lines, visualMap, parent);
       }
     }
   }
@@ -3532,7 +3642,7 @@ export class A11yTreeProcessor {
     return false;
   }
 
-  private formatLine(indent: string, refNum: number, role: string, node: AXNode, nodeMap?: Map<string, AXNode>): string {
+  private formatLine(indent: string, refNum: number, role: string, node: AXNode, nodeMap?: Map<string, AXNode>, filter = ""): string {
     // FR-004: Append HTML id if available
     // BUG-016 follow-up: all nodeInfoMap reads route through the
     // session-aware nodeInfoLookup so render output cannot bleed
@@ -3556,16 +3666,18 @@ export class A11yTreeProcessor {
       }
     }
     const disabledPrefix = isDisabled ? DISABLED_PREFIX : "";
-    let line = `${indent}${disabledPrefix}[e${refNum}] ${role}${idSuffix}`;
+    // Stufe 2 H2: text leaves are printed without a ref.
+    const refTag = TEXT_LEAF_ROLES.has(role) ? "" : `[e${refNum}] `;
+    let line = `${indent}${disabledPrefix}${refTag}${role}${idSuffix}`;
 
     // Story 18.8 Fix A: when the name was truncated, we track it here and
     // append the prominent marker on a SEPARATE line below — done once the
     // rest of the element annotations are in place.
     let truncationExtra: number | undefined;
 
-    // FR-H5: Prefer AXNode name, fall back to nodeInfoMap (enriched by Phase 3 for clickable generics)
-    const name = (node.name?.value as string | undefined)
-      || (backendNodeId !== undefined ? this.nodeInfoLookup(backendNodeId)?.name : undefined);
+    // FR-H5: Prefer AXNode name, fall back to nodeInfoMap (enriched by Phase 3 for clickable generics).
+    // Stufe 2 H2: multi-line container names are cut to their first line in filter "all".
+    const name = this.displayName(node, role, filter);
     if (name) {
       line += ` "${name}"`;
       // FR-021: Signal truncation so the LLM knows hidden text exists (reached for evaluate otherwise)
@@ -3659,7 +3771,8 @@ export class A11yTreeProcessor {
     // inline via `\n` because `lines.push(line)` later joins with `\n`
     // (see `lines.join("\n")` in renderNodes / truncateToFit).
     if (truncationExtra !== undefined) {
-      line += `\n${indent}  ${TRUNCATION_MARKER_PREFIX}: +${truncationExtra} more chars hidden. Call view_page(ref:"e${refNum}", filter:"all") to read the full text.`;
+      // Stufe 2 H2: shortened, not removed — the model must still see that text is hidden.
+      line += `\n${indent}  ${TRUNCATION_MARKER_PREFIX} +${truncationExtra} chars: view_page(ref:"e${refNum}", filter:"all")`;
     }
 
     return line;

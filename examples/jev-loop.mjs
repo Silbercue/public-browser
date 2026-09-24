@@ -47,11 +47,12 @@ const TESTS = {
 const selected = args.tests ? args.tests.split(",") : Object.keys(TESTS);
 
 const INTERACTIVE = new Set(["button", "link", "textbox", "combobox", "checkbox", "radio", "spinbutton", "searchbox", "switch", "menuitem", "tab"]);
-const LINE = /^\s*(\[DISABLED\] )?\[(e\d+)\] (\w+)(?:#([\w-]+))?(?: "((?:[^"\\]|\\.)*)")?(?: value="((?:[^"\\]|\\.)*)")?/;
+// Text lines (StaticText, LabelText) carry no ref — they are parsed without one.
+const LINE = /^\s*(\[DISABLED\] )?(?:\[(e\d+)\] (\w+)|(StaticText|LabelText))(?:#([\w-]+))?(?: "((?:[^"\\]|\\.)*)")?(?: value="((?:[^"\\]|\\.)*)")?/;
 
-/** Ref of the card container — the a11y tree shows it as `[eNN] generic "T1.2` followed by the title. */
+/** Ref of the card container — the a11y tree shows it as `[eNN] generic "T1.2"` (older versions: followed by the title). */
 function cardRef(tree, testId) {
-  const m = tree.match(new RegExp(`\\[(e\\d+)\\] generic "T${testId.replace(".", "\\.")}\\n`));
+  const m = tree.match(new RegExp(`\\[(e\\d+)\\] generic "T${testId.replace(".", "\\.")}(?:\\n|")`));
   if (!m) throw new Error(`card T${testId} not found`);
   return m[1];
 }
@@ -59,7 +60,7 @@ function cardRef(tree, testId) {
 /** Parse a view_page dump into flat elements. */
 function parseTree(tree) {
   return tree.split("\n").map((l) => l.match(LINE)).filter(Boolean).map((m) => ({
-    disabled: !!m[1], ref: m[2], role: m[3], id: m[4], name: m[5] ?? "", value: m[6],
+    disabled: !!m[1], ref: m[2], role: m[3] ?? m[4], id: m[5], name: m[6] ?? "", value: m[7],
   }));
 }
 

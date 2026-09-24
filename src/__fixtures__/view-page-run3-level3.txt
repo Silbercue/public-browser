@@ -1,0 +1,189 @@
+Page: SilbercueChrome — Test Hardest — 161 all elements (depth 12)
+
+[e2] banner
+  [e6] heading "SilbercueChrome — Test Hardest"
+    [e16] StaticText "Silbercue"
+    [e17] StaticText "Chrome — Test Hardest"
+  [e7] generic#benchmark-bar
+    [e18] generic#m-passed
+      [e350] StaticText "12"
+    [e19] StaticText "PASSED"
+    [e20] generic#m-failed
+      [e351] StaticText "0"
+    [e21] StaticText "FAILED"
+    [e22] generic#m-total
+      [e352] StaticText "12"
+    [e23] StaticText "TOTAL"
+    [e24] generic#m-time
+      [e512] StaticText "1m21s"
+    [e25] StaticText "ELAPSED"
+    [e26] button#btn-reset "Reset All"
+      [e46] StaticText "Reset All"
+[e3] navigation
+  [e8] button "Level 1 — Basics"
+    [e27] StaticText "Level 1 — Basics"
+  [e9] button "Level 2 — Intermediate"
+    [e28] StaticText "Level 2 — Intermediate"
+  [e10] button "Level 3 — Advanced"
+    [e29] StaticText "Level 3 — Advanced"
+  [e11] button "Level 4 — Hardest"
+    [e30] StaticText "Level 4 — Hardest"
+  [e12] button "Level 5 — Community Pain Points"
+    [e31] StaticText "Level 5 — Community Pain Points"
+  [e13] button "Results"
+    [e32] StaticText "Results"
+  [e14] button "Compare"
+    [e33] StaticText "Compare"
+[e4] main
+  [e399] generic
+    [e400] heading "Level 3 — Advanced"
+      [e409] StaticText "Level 3 — Advanced"
+    [e401] paragraph
+      [e410] StaticText "Shadow DOM, iFrames, Drag and Drop, Canvas, Keyboard-Interaktion."
+    [e402] generic "T3.1
+Shadow DOM Interaction
+
+Interagiere mit Elementen innerhalb eines Shadow DO"
+      [!] TRUNCATED: +49 more chars hidden. Call view_page(ref:"e402", filter:"all") to read the full text.
+      [e411] heading "T3.1 Shadow DOM Interaction"
+        [e449] StaticText "T3.1"
+        [e450] StaticText "Shadow DOM Interaction"
+      [e412] paragraph
+        [e451] StaticText "Interagiere mit Elementen innerhalb eines Shadow DOM. Lies den Wert und gib ihn ein."
+      [e413] generic#t3-1-shadow-host
+        [e452] paragraph
+          [e500] StaticText "Shadow DOM Value: "
+          [e501] strong
+            [e511] StaticText "SHADOW-QAGJ"
+        [e453] button#shadow-btn "Click in Shadow"
+          [e502] StaticText "Click in Shadow"
+      [e414] textbox#t3-1-input "Value from shadow DOM..."
+        [e454] generic (editable)
+      [e415] button "Verify"
+        [e455] StaticText "Verify"
+      [e416] generic#t3-1-result
+      [e417] generic#t3-1-status
+        [e456] StaticText "PENDING"
+    [e403] generic "T3.2
+Nested iFrame Interaction
+
+Navigiere in den verschachtelten iFrame, lies de"
+      [!] TRUNCATED: +39 more chars hidden. Call view_page(ref:"e403", filter:"all") to read the full text.
+      [e418] heading "T3.2 Nested iFrame Interaction"
+        [e457] StaticText "T3.2"
+        [e458] StaticText "Nested iFrame Interaction"
+      [e419] paragraph
+        [e459] StaticText "Navigiere in den verschachtelten iFrame, lies den Wert und gib ihn ein."
+      [e420] Iframe (content shown below)
+      [e421] textbox#t3-2-input "Value from inner frame..."
+        [e460] generic (editable)
+      [e422] button "Verify"
+        [e461] StaticText "Verify"
+      [e423] generic#t3-2-result
+      [e424] generic#t3-2-status
+        [e462] StaticText "PENDING"
+    [e404] generic "T3.3
+Drag and Drop Reorder
+
+Ordne die Items in die richtige Reihenfolge 1 bis 5 "
+      [!] TRUNCATED: +77 more chars hidden. Call view_page(ref:"e404", filter:"all") to read the full text.
+      [e425] heading "T3.3 Drag and Drop Reorder"
+        [e463] StaticText "T3.3"
+        [e464] StaticText "Drag and Drop Reorder"
+      [e426] paragraph
+        [e465] StaticText "Ordne die Items in die richtige Reihenfolge 1 bis 5 von oben nach unten."
+      [e427] list
+        [e466] listitem
+          [e503] StaticText "Item 3"
+        [e467] listitem
+          [e504] StaticText "Item 1"
+        [e468] listitem
+          [e505] StaticText "Item 5"
+        [e469] listitem
+          [e506] StaticText "Item 2"
+        [e470] listitem
+          [e507] StaticText "Item 4"
+      [e428] button "Verify Order"
+        [e471] StaticText "Verify Order"
+      [e429] generic#t3-3-result
+      [e430] generic#t3-3-status
+        [e472] StaticText "PENDING"
+    [e405] generic "T3.4
+Canvas Click Target
+
+Klicke auf den roten Kreis im Canvas. Position ist zuf"
+      [!] TRUNCATED: +16 more chars hidden. Call view_page(ref:"e405", filter:"all") to read the full text.
+      [e431] heading "T3.4 Canvas Click Target"
+        [e473] StaticText "T3.4"
+        [e474] StaticText "Canvas Click Target"
+      [e432] paragraph
+        [e475] StaticText "Klicke auf den roten Kreis im Canvas. Position ist zufaellig."
+      [e433] Canvas ⚠ Canvas content is pixels, not DOM. Use capture_image(som: true) to see what's inside.
+      [e434] generic#t3-4-result
+      [e435] generic#t3-4-status
+        [e476] StaticText "PENDING"
+    [e406] generic "T3.5
+Keyboard Shortcut Sequence
+
+Fuehre die Tastenkombinationen in der richtigen"
+      [!] TRUNCATED: +108 more chars hidden. Call view_page(ref:"e406", filter:"all") to read the full text.
+      [e436] heading "T3.5 Keyboard Shortcut Sequence"
+        [e477] StaticText "T3.5"
+        [e478] StaticText "Keyboard Shortcut Sequence"
+      [e437] paragraph
+        [e479] StaticText "Fuehre die Tastenkombinationen in der richtigen Reihenfolge aus."
+      [e438] generic
+        [e480] StaticText "1. Press "
+        [e481] StaticText "Ctrl"
+        [e482] StaticText " + "
+        [e483] StaticText "K"
+        [e484] StaticText " "
+        [e485] generic#t3-5-s1
+          [e508] StaticText "waiting..."
+      [e439] generic
+        [e486] StaticText "2. Press "
+        [e487] StaticText "Escape"
+        [e488] StaticText " "
+        [e489] generic#t3-5-s2
+          [e509] StaticText "waiting..."
+      [e440] generic
+        [e490] StaticText "3. Press "
+        [e491] StaticText "Enter"
+        [e492] StaticText " "
+        [e493] generic#t3-5-s3
+          [e510] StaticText "waiting..."
+      [e441] generic#t3-5-result
+      [e442] generic#t3-5-status
+        [e494] StaticText "PENDING"
+    [e407] generic "T3.6
+Rich Text Editor (contenteditable)
+
+Schreibe "Hello World" in den Editor un"
+      [!] TRUNCATED: +54 more chars hidden. Call view_page(ref:"e407", filter:"all") to read the full text.
+      [e443] heading "T3.6 Rich Text Editor (contenteditable)"
+        [e495] StaticText "T3.6"
+        [e496] StaticText "Rich Text Editor (contenteditable)"
+      [e444] paragraph
+        [e497] StaticText "Schreibe "Hello World" in den Editor und mache "World" fett (Ctrl+B)."
+      [e445] generic#t3-6-editor (editable)
+      [e446] button "Verify Content"
+        [e498] StaticText "Verify Content"
+      [e447] generic#t3-6-result
+      [e448] generic#t3-6-status
+        [e499] StaticText "PENDING"
+[e5] generic#toast-container
+--- iframe: about:srcdoc ---
+[e295] RootWebArea
+  [e513] paragraph
+    [e515] StaticText "Outer Frame"
+  [e514] Iframe (content shown below)
+--- iframe: about:srcdoc ---
+[e296] RootWebArea
+  [e516] paragraph
+    [e519] StaticText "Inner Frame"
+  [e517] paragraph
+    [e520] StaticText "Secret: "
+    [e521] strong
+      [e523] StaticText "FRAME-QZCPO6"
+  [e518] button "Click Inside"
+    [e522] StaticText "Click Inside"
