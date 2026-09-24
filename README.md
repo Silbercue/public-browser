@@ -641,6 +641,20 @@ Medians: 3.02M against 4.53M session tokens (−33%), $2.40 against $3.56 (−33
 
 **Before and after 3.0.** Public Browser 2.10.6, measured the same evening under the same conditions, came to 4.31M tokens (median of five, 30/30 each) against agent-browser's 4.53M ([`baseline-2026-09-aufschliessen.json`](test-hardest/results/baseline-2026-09-aufschliessen.json)) — a near tie, and in the morning series below agent-browser was ahead. The 3.0 changes (loud errors, shorter responses) moved Public Browser to 3.02M. A probe on real sites (Hacker News, Wikipedia, a demo shop; Public Browser only, two runs per task) passed every task before and after the changes ([`real-sites-probe.mjs`](test-hardest/real-sites-probe.mjs)).
 
+### Public Browser 3.0 against the 2026-09-23 field
+
+The 2026-09-24 and 2026-09-23 data sets ran one day apart under the same conditions: same harness, same page (`suite.html_sha256` = `81e4b7aa…bed2`), same driver model `claude-opus-5`, same Chrome 153.0.8010.53; only Claude Code moved from 2.1.280 (2026-09-23) to 2.1.281 (2026-09-24). The agent-browser row of the 2026-09-24 comparison already comes from runs made on 2026-09-23. The table sets the Public Browser 3.0 medians (30/30 ×5, 79 tool calls, 3.02M session tokens, $2.40, 261 s) against each participant's medians; a negative number means Public Browser 3.0 needs less. For agent-browser it uses the five-run medians from 2026-09-24, not the three-run row of the field table.
+
+| Participant | Version | Passed | Tool calls | Session tokens | Cost | Wall clock |
+|---|---|---|---:|---:|---:|---:|
+| agent-browser | 0.38.1 | 29/30 ×5 (T5.2) | 104 (−24%) | 4.53M (−33%) | $3.56 (−33%) | 386 s (−32%) |
+| Playwright CLI | 0.1.21 | 30/30 ×3 | 107 (−26%) | 4.61M (−34%) | $3.52 (−32%) | 454 s (−43%) |
+| Playwright MCP | 0.0.82 | 30/30 ×3 | 162 (−51%) | 7.84M (−61%) | $5.22 (−54%) | 494 s (−47%) |
+| Chrome DevTools MCP | 1.9.0 | 29/30 ×3 (T5.2) | 169 (−53%) | 10.33M (−71%) | $6.78 (−65%) | 535 s (−51%) |
+| browser-use | 0.13.10 | 24/30, 26/30 | 384 (−79%) | 63.68M (−95%) | $36.06 (−93%) | 2,187 s (−88%) |
+
+Limits: Public Browser 3.0 has five runs, the other participants three (browser-use two), and none of them was measured again after 2026-09-23. Run files: Public Browser 3.0 in [`test-hardest/results-local/`](test-hardest/results-local) (`public-browser-run18`–`22`), everything else in [`test-hardest/results/`](test-hardest/results) as listed in the two sections around this one.
+
 ### 2026-09-23: the whole field (Public Browser 2.10.6)
 
 Claude Code 2.1.280, Chrome 153.0.8010.53, three runs per participant (two for browser-use), medians:
