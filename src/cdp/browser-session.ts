@@ -50,6 +50,7 @@ import {
 } from "./emulation.js";
 import { injectOverlay, removeOverlay } from "../overlay/session-overlay.js";
 import { debug } from "./debug.js";
+import { enableLifecycleEvents } from "./settle.js";
 import { applyWebdriverMask, resolveStealth, setStealthEnabled } from "./stealth.js";
 
 interface TargetInfo {
@@ -735,8 +736,7 @@ export class BrowserSession implements IBrowserSession {
 
     // 2. Activate CDP domains on the page session.
     await cdpClient.send("Runtime.enable", {}, sessionId);
-    await cdpClient.send("Page.enable", {}, sessionId);
-    await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, sessionId);
+    await enableLifecycleEvents(cdpClient, sessionId);
     await cdpClient.send("Accessibility.enable", {}, sessionId);
     // FR-025: Mask navigator.webdriver for WebSocket-attached Chrome (auto-launch
     // uses --disable-blink-features=AutomationControlled, but WS-attached Chrome

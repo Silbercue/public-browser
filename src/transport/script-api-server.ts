@@ -26,6 +26,7 @@ import { SCRIPT_SERVER_ID } from "./script-api-token.js";
 import type { IBrowserSession } from "../cdp/browser-session.js";
 import type { ToolResponse } from "../types.js";
 import { bindScriptTab, forgetScriptTab } from "../cache/a11y-tree.js";
+import { enableLifecycleEvents } from "../cdp/settle.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -34,6 +35,8 @@ export interface SessionInfo {
   targetId: string;
   cdpSessionId: string;
   lastSeen: number;
+  /** Tool calls accepted but not yet finished (queued or running). */
+  inFlight: number;
 }
 
 /**
@@ -69,6 +72,7 @@ export class SessionStore {
       targetId,
       cdpSessionId,
       lastSeen: Date.now(),
+      inFlight: 0,
     };
     this._sessions.set(sessionToken, info);
     return info;
@@ -93,12 +97,16 @@ export class SessionStore {
     return info;
   }
 
-  /** Returns all sessions where `Date.now() - lastSeen > maxAgeMs`. */
+  /**
+   * Returns all idle sessions: no call in flight and `Date.now() - lastSeen >
+   * maxAgeMs`. A session whose call is still running (e.g. a long wait_for) is
+   * never an orphan — closing its tab would turn a timeout into -32001.
+   */
   getOrphans(maxAgeMs: number): SessionInfo[] {
     const now = Date.now();
     const orphans: SessionInfo[] = [];
     for (const info of this._sessions.values()) {
-      if (now - info.lastSeen > maxAgeMs) {
+      if (info.inFlight === 0 && now - info.lastSeen > maxAgeMs) {
         orphans.push(info);
       }
     }
@@ -344,6 +352,9 @@ export class ScriptApiServer {
         "Target.attachToTarget",
         { targetId, flatten: true },
       );
+      // Same page events as the MCP tab — settle() after navigate waits for
+      // Page.lifecycleEvent and would otherwise always run into its timeout.
+      await enableLifecycleEvents(cdpClient, cdpSessionId);
 
       // 3. Register tab ownership so MCP tools don't see it.
       this._browserSession.trackOwnedTarget(targetId);
@@ -432,11 +443,16 @@ export class ScriptApiServer {
       return;
     }
 
-    // Execute tool via shared core — serialized per session.
+    // Execute tool via shared core — serialized per session. While the call
+    // is queued or running the session is not idle; idle time starts at its end.
+    session.inFlight++;
     try {
       const result = await this._queue.enqueue(token, () =>
         this._registry.executeTool(toolName, body, session.cdpSessionId),
-      );
+      ).finally(() => {
+        session.inFlight--;
+        this.sessionStore.touch(token);
+      });
 
       this._sendJson(res, 200, {
         content: result.content,

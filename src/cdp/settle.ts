@@ -23,6 +23,16 @@ interface LifecycleEventParams {
   timestamp: number;
 }
 
+/**
+ * Turn on the page events settle() waits for (`Page.lifecycleEvent`).
+ * Every tab session that navigates needs this — without it settle() always
+ * runs into its timeout (Task 21a: script tab took 15 s per navigate).
+ */
+export async function enableLifecycleEvents(cdpClient: CdpClient, sessionId: string): Promise<void> {
+  await cdpClient.send("Page.enable", {}, sessionId);
+  await cdpClient.send("Page.setLifecycleEventsEnabled", { enabled: true }, sessionId);
+}
+
 const DEFAULT_SETTLE_MS = 500;
 const DEFAULT_TIMEOUT_MS = 15_000;
 

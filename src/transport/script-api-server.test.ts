@@ -1016,3 +1016,127 @@ describe("ScriptApiServer — ref table of the script's tab (P5)", () => {
     expect(scriptTabOf(cdpSessionId)).toBeUndefined();
   });
 });
+
+// ── Task 21a: page events and in-flight calls ─────────────────────────
+
+describe("ScriptApiServer — Seitenereignisse im Script-Tab (S-b)", () => {
+  let server: ScriptApiServer;
+  let browserSession: IBrowserSession;
+  let port: number;
+
+  beforeEach(async () => {
+    browserSession = createMockBrowserSession();
+    server = new ScriptApiServer({
+      port: 0,
+      registry: createMockRegistry(),
+      browserSession,
+      token: TEST_TOKEN,
+    });
+    await server.start();
+    port = server.port;
+  });
+
+  afterEach(async () => {
+    await server.stop();
+  });
+
+  function sendCalls(): unknown[][] {
+    return (browserSession.cdpClient as unknown as { send: ReturnType<typeof vi.fn> }).send.mock.calls;
+  }
+
+  it("session/create schickt Page.enable an die Session des neuen Tabs", async () => {
+    await request(port, "/session/create");
+    expect(sendCalls()).toContainEqual(["Page.enable", {}, "cdp-session-1"]);
+  });
+
+  it("session/create schickt Page.setLifecycleEventsEnabled (enabled: true) an die Session des neuen Tabs", async () => {
+    await request(port, "/session/create");
+    expect(sendCalls()).toContainEqual(["Page.setLifecycleEventsEnabled", { enabled: true }, "cdp-session-1"]);
+  });
+
+  it("Gegenprobe: der MCP-Tab (main-session) bekommt dabei nichts", async () => {
+    await request(port, "/session/create");
+    const methods = sendCalls().map((c) => c[0]);
+    expect(methods).toContain("Page.enable"); // positiv: es wurde ueberhaupt aktiviert
+    expect(sendCalls().filter((c) => c[2] === "main-session")).toEqual([]);
+  });
+});
+
+describe("ScriptApiServer — laufende Aufrufe und Aufraeumen (S-a)", () => {
+  let server: ScriptApiServer;
+  let registry: ScriptApiToolRegistry;
+  let browserSession: IBrowserSession;
+  let port: number;
+  let release: () => void;
+  let started: Promise<void>;
+
+  beforeEach(async () => {
+    // Only Date and the cleanup interval are fake — sockets keep real timers.
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    registry = createMockRegistry();
+    let markStarted!: () => void;
+    started = new Promise<void>((r) => { markStarted = r; });
+    const done = new Promise<void>((r) => { release = r; });
+    (registry.executeTool as ReturnType<typeof vi.fn>).mockImplementation(async (): Promise<ToolResponse> => {
+      markStarted();
+      await done;
+      return { content: [{ type: "text", text: "done" }], isError: false, _meta: { elapsedMs: 1, method: "wait_for" } };
+    });
+    browserSession = createMockBrowserSession();
+    server = new ScriptApiServer({ port: 0, registry, browserSession, token: TEST_TOKEN });
+    await server.start();
+    port = server.port;
+  });
+
+  afterEach(async () => {
+    release();
+    await server.stop();
+    vi.useRealTimers();
+  });
+
+  function closeCalls(): unknown[][] {
+    return (browserSession.cdpClient as unknown as { send: ReturnType<typeof vi.fn> }).send.mock.calls
+      .filter((c) => c[0] === "Target.closeTarget");
+  }
+
+  it("laeuft ein Aufruf laenger als die Leerlaufgrenze, bleibt der Tab offen", async () => {
+    const token = (await request(port, "/session/create")).body.session_token as string;
+    const call = request(port, "/tool/wait_for", { condition: "js", expression: "false", timeout: 60_000 }, { "X-Session": token });
+    await started;
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(server.sessionStore.get(token)).toBeDefined();
+    expect(closeCalls()).toEqual([]);
+    release();
+    expect((await call).status).toBe(200);
+  });
+
+  it("die Leerlaufzeit zaehlt ab dem Ende des Aufrufs, nicht ab seinem Start", async () => {
+    const token = (await request(port, "/session/create")).body.session_token as string;
+    const call = request(port, "/tool/wait_for", { condition: "js", expression: "false", timeout: 60_000 }, { "X-Session": token });
+    await started;
+    await vi.advanceTimersByTimeAsync(60_000);
+    release();
+    expect((await call).status).toBe(200);
+
+    // 25 s after the call ended: below the 30 s limit.
+    await vi.advanceTimersByTimeAsync(25_000);
+
+    expect(server.sessionStore.get(token)).toBeDefined();
+    expect(closeCalls()).toEqual([]);
+  });
+
+  it("Gegenprobe: nach dem Ende des Aufrufs und Ablauf der Grenze wird aufgeraeumt", async () => {
+    const token = (await request(port, "/session/create")).body.session_token as string;
+    const call = request(port, "/tool/wait_for", { condition: "js", expression: "false", timeout: 60_000 }, { "X-Session": token });
+    await started;
+    release();
+    expect((await call).status).toBe(200);
+
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(server.sessionStore.get(token)).toBeUndefined();
+    expect(closeCalls()).toEqual([["Target.closeTarget", { targetId: "tab-1" }]]);
+  });
+});
