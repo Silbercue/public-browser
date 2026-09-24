@@ -315,6 +315,96 @@ describe("resolveElement", () => {
     expect((await resolveElement(mockCdpClient(), "sA2", { ref: "e4" })).backendNodeId).toBe(101);
   });
 
+  it("B6: a ref whose node a re-render removed but that is still alive is reported as stale", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree), "s1");
+    const cdp = {
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") return { object: { objectId: "obj-detached" } };
+        if (method === "Runtime.callFunctionOn") return { result: { type: "boolean", value: false } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const err = await resolveElement(cdp, "s1", { ref: "e2" }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RefNotFoundError);
+    expect((err as Error).message).toContain("Element e2 is a stale ref");
+    expect(cdp.send).toHaveBeenCalledWith(
+      "Runtime.callFunctionOn",
+      expect.objectContaining({ objectId: "obj-detached", returnByValue: true }),
+      "s1",
+    );
+  });
+
+  it("B6: a node that still hangs in the page passes the check", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree), "s1");
+    const cdp = {
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") return { object: { objectId: "obj-live" } };
+        if (method === "Runtime.callFunctionOn") return { result: { type: "boolean", value: true } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const result = await resolveElement(cdp, "s1", { ref: "e2" });
+
+    expect(result.objectId).toBe("obj-live");
+  });
+
+  it("B6: a selector hit is not probed — a fresh query only finds attached nodes", async () => {
+    const cdp = mockCdpClient({ object: { objectId: "obj-css" } });
+
+    await resolveElement(cdp, "main-session", { selector: "#btn" });
+
+    expect(cdp.send).not.toHaveBeenCalledWith("Runtime.callFunctionOn", expect.anything(), expect.anything());
+  });
+
+  // Nachtrag-Review 1: the probe must ask the session that owns the node, or
+  // the main frame answers for an object of an OOPIF.
+  it("B6: the isConnected probe goes to the session that owns the node (OOPIF)", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree), "oopif-session-1");
+    const cdp = mockCdpClient();
+
+    await resolveElement(cdp, "main-session", { ref: "e2" });
+
+    expect(cdp.send).toHaveBeenCalledWith(
+      "Runtime.callFunctionOn",
+      expect.objectContaining({ functionDeclaration: "function() { return this.isConnected; }" }),
+      "oopif-session-1",
+    );
+  });
+
+  // Nachtrag-Review 2: a failing probe (context gone during a navigation) must
+  // not block the action; a lost connection must get through.
+  it("B6: a failing isConnected probe does not block the action, a lost connection does", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree), "s1");
+    const probeFails = (error: string): CdpClient => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") return { object: { objectId: "obj-1" } };
+        if (method === "Runtime.callFunctionOn") throw new Error(error);
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    }) as unknown as CdpClient;
+
+    // Navigation in progress: the execution context is gone — the action itself reports what fails.
+    await expect(
+      resolveElement(probeFails("Cannot find context with specified id"), "s1", { ref: "e2" }),
+    ).resolves.toMatchObject({ backendNodeId: 101 });
+    selectorCache.invalidate();
+    await expect(resolveElement(probeFails("CdpClient is closed"), "s1", { ref: "e2" })).rejects.toThrow(
+      "CdpClient is closed",
+    );
+  });
+
   it("throws RefNotFoundError for stale DOM node", async () => {
     const nodes: AXNode[] = [
       makeNode({
@@ -839,6 +929,28 @@ describe("Selector Cache Integration", () => {
     const cached = selectorCache.get("e2");
     expect(cached).toBeDefined();
     expect(cached!.backendNodeId).toBe(101);
+  });
+
+  it("B6: a detached node is not served from the selector cache either", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree), "main-session");
+    const fp = selectorCache.computeFingerprint("https://example.com", a11yTree.refCount);
+    selectorCache.updateFingerprint(fp);
+    selectorCache.set("e2", 101, "main-session");
+    const cdp = {
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") return { object: { objectId: "obj-detached" } };
+        if (method === "Runtime.callFunctionOn") return { result: { type: "boolean", value: false } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const err = await resolveElement(cdp, "main-session", { ref: "e2" }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RefNotFoundError);
+    expect((err as Error).message).toContain("Element e2 is a stale ref");
   });
 
   it("CSS path: is not cached", async () => {

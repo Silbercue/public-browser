@@ -457,7 +457,10 @@ describe("FR-021: observe click_first / then_click ref support", () => {
     expect((result.content[0] as { text: string }).text).toContain("mutated");
 
     // Verify Runtime.callFunctionOn was called with arguments containing the click_first objectId
-    const callFn = sendFn.mock.calls.find((c) => c[0] === "Runtime.callFunctionOn");
+    // B6: the ref resolution probes isConnected first — skip that call.
+    const callFn = sendFn.mock.calls.find(
+      (c) => c[0] === "Runtime.callFunctionOn" && !String(c[1]?.functionDeclaration).includes("isConnected"),
+    );
     expect(callFn).toBeDefined();
     expect(callFn![1].arguments).toEqual([{ objectId: "obj-click-first" }]);
 
@@ -507,7 +510,10 @@ describe("FR-021: observe click_first / then_click ref support", () => {
     expect((result.content[0] as { text: string }).text).toContain("Condition met");
 
     // Verify arguments contain the then_click objectId
-    const callFn = sendFn.mock.calls.find((c) => c[0] === "Runtime.callFunctionOn");
+    // B6: the ref resolution probes isConnected first — skip that call.
+    const callFn = sendFn.mock.calls.find(
+      (c) => c[0] === "Runtime.callFunctionOn" && !String(c[1]?.functionDeclaration).includes("isConnected"),
+    );
     expect(callFn).toBeDefined();
     expect(callFn![1].arguments).toEqual([{ objectId: "obj-then-click" }]);
 
@@ -557,7 +563,10 @@ describe("FR-021: observe click_first / then_click ref support", () => {
 
     expect(result.isError).toBeUndefined();
 
-    const callFn = sendFn.mock.calls.find((c) => c[0] === "Runtime.callFunctionOn");
+    // B6: the ref resolution probes isConnected first — skip that call.
+    const callFn = sendFn.mock.calls.find(
+      (c) => c[0] === "Runtime.callFunctionOn" && !String(c[1]?.functionDeclaration).includes("isConnected"),
+    );
     expect(callFn).toBeDefined();
     // Both objectIds in arguments array, click_first first, then_click second
     expect(callFn![1].arguments).toEqual([

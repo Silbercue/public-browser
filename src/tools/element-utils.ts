@@ -4,7 +4,7 @@ import { a11yTree, RefNotFoundError } from "../cache/a11y-tree.js";
 import type { RefTabOwner } from "../cache/a11y-tree.js";
 import { inScriptTab } from "../cache/a11y-tree.js";
 import { selectorCache } from "../cache/selector-cache.js";
-import { wrapCdpError } from "./error-utils.js";
+import { wrapCdpError, isFatalCdpError } from "./error-utils.js";
 import { formatElementLabel } from "./element-label.js";
 import { debug } from "../cdp/debug.js";
 
@@ -83,6 +83,26 @@ async function describeCandidate(cdpClient: CdpClient, sessionId: string, nodeId
   }
 }
 
+/**
+ * B6: true only when the node is known to hang outside its document — a
+ * re-render removed it, but it is still alive, so DOM.resolveNode found it.
+ * Acting on it would focus nothing and type into whatever had focus.
+ * When the probe itself fails (context gone), the action reports that.
+ */
+async function isDetached(cdpClient: CdpClient, objectId: string, sessionId: string): Promise<boolean> {
+  try {
+    const probe = await cdpClient.send<{ result?: { value?: unknown } }>(
+      "Runtime.callFunctionOn",
+      { functionDeclaration: "function() { return this.isConnected; }", objectId, returnByValue: true },
+      sessionId,
+    );
+    return probe?.result?.value === false;
+  } catch (err) {
+    if (isFatalCdpError(err)) throw err;
+    return false;
+  }
+}
+
 // --- Element Resolution ---
 
 /**
@@ -126,17 +146,22 @@ export async function resolveElement(
             { backendNodeId: cached.backendNodeId },
             currentSessionForNode,
           );
-          const info = a11yTree.getNodeInfo(cached.backendNodeId);
-          debug("SelectorCache: hit for %s (backendNodeId=%d)", target.ref, cached.backendNodeId);
-          return {
-            backendNodeId: cached.backendNodeId,
-            objectId: resolved.object.objectId,
-            role: info?.role ?? "",
-            name: info?.name ?? "",
-            ref: target.ref,
-            resolvedVia: "ref",
-            resolvedSessionId: currentSessionForNode,
-          };
+          // B6: a detached node falls through — the normal path reports it as stale.
+          if (!(await isDetached(cdpClient, resolved.object.objectId, currentSessionForNode))) {
+            const info = a11yTree.getNodeInfo(cached.backendNodeId);
+            debug("SelectorCache: hit for %s (backendNodeId=%d)", target.ref, cached.backendNodeId);
+            return {
+              backendNodeId: cached.backendNodeId,
+              objectId: resolved.object.objectId,
+              role: info?.role ?? "",
+              name: info?.name ?? "",
+              ref: target.ref,
+              resolvedVia: "ref",
+              resolvedSessionId: currentSessionForNode,
+            };
+          }
+          debug("SelectorCache: %s is detached, falling back", target.ref);
+          selectorCache.invalidate();
         } catch {
           // Stale cache entry — node no longer in DOM. Remove and fall through.
           debug("SelectorCache: stale entry for %s, invalidating", target.ref);
@@ -189,6 +214,11 @@ export async function resolveElement(
       if (msg.includes("DOM agent needs to be enabled")) {
         throw new Error(`DOM domain not enabled for session — this is a server bug, not a stale ref. Try calling view_page first or report this issue.`);
       }
+      throw new RefNotFoundError(staleRefMessage(target.ref));
+    }
+    // B6: DOM.resolveNode also finds nodes a re-render removed but that are
+    // still alive — refuse them before any tool focuses, types or clicks.
+    if (await isDetached(cdpClient, resolved.object.objectId, targetSessionId)) {
       throw new RefNotFoundError(staleRefMessage(target.ref));
     }
     // Get role/name directly from nodeInfoMap via backendNodeId
