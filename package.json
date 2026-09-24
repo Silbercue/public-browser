@@ -1,6 +1,6 @@
 {
   "name": "public-browser",
-  "version": "2.10.6",
+  "version": "3.0.0",
   "description": "Lets Claude Code and Cursor drive Chrome. Blind benchmark vs agent-browser: -33% tokens, -33% cost, -24% tool calls, -32% time, 30/30.",
   "keywords": [
     "mcp",
