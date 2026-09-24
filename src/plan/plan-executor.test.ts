@@ -2084,7 +2084,7 @@ describe("executePlan — new tab opened by a click step (S4)", () => {
 
     const text = result.content.map((c) => (c as { text: string }).text).join("\n");
     expect(text).toContain(
-      '[1/1] OK click (5ms): ref=e5\n⮕ New tab opened: T9 "Target" (https://x.test/t) — switch_tab with this ID to use it',
+      '[1/1] OK click (5ms): Clicked [e5] link "Open" (ref)\n⮕ New tab opened: T9 "Target" (https://x.test/t) — switch_tab with this ID to use it',
     );
   });
 
@@ -2101,5 +2101,37 @@ describe("executePlan — new tab opened by a click step (S4)", () => {
     expect(text).toContain(
       "[1/1] OK click (5ms): Clicked at (10, 20)\n⮕ New tab opened: T9 (https://x.test/t) — switch_tab with this ID to use it",
     );
+  });
+});
+
+// --- S3: a click step names what it hit ---
+
+describe("executePlan — click step keeps its target label (S3)", () => {
+  it("S3: the OK line of a click shows the element, not just ref=eN", async () => {
+    const responses = new Map<string, ToolResponse>();
+    responses.set("click", okResponse("click", 'Clicked [e26] button "Reset All" (ref)'));
+
+    const result = (await executePlan([{ tool: "click", params: { ref: "e26" } }], createMockRegistry(responses))) as ToolResponse;
+
+    const text = result.content.map((c) => (c as { text: string }).text).join("\n");
+    expect(text).toBe('[1/1] OK click (5ms): Clicked [e26] button "Reset All" (ref)');
+  });
+
+  it("S3: other tools keep the short ref=eN line", async () => {
+    const responses = new Map<string, ToolResponse>();
+    responses.set("type", okResponse("type", "Typed 'hello' into e7"));
+
+    const result = (await executePlan([{ tool: "type", params: { ref: "e7", text: "hello" } }], createMockRegistry(responses))) as ToolResponse;
+
+    expect((result.content[0] as { text: string }).text).toBe("[1/1] OK type (5ms): ref=e7");
+  });
+
+  it("S3: only a click keeps the label — another tool with the same first line stays ref=eN", async () => {
+    const responses = new Map<string, ToolResponse>();
+    responses.set("observe", okResponse("observe", 'Clicked [e7] button "Go" (ref)'));
+
+    const result = (await executePlan([{ tool: "observe", params: { ref: "e7" } }], createMockRegistry(responses))) as ToolResponse;
+
+    expect((result.content[0] as { text: string }).text).toBe("[1/1] OK observe (5ms): ref=e7");
   });
 });

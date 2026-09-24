@@ -1285,6 +1285,78 @@ describe("ToolRegistry", () => {
     expect(dialogHandler.pushHandler).toHaveBeenCalledTimes(1);
   });
 
+  // --- S3 Review Focus 1 and 2: strict selectors through the real handlers ---
+
+  /** CDP stub for the CSS path: `querySelectorAll` answers as given, evaluate returns 1. */
+  function selectorCdp(querySelectorAll: () => Promise<unknown>) {
+    return {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        switch (method) {
+          case "DOM.getDocument":
+            return { root: { nodeId: 1 } };
+          case "DOM.querySelector": // before S3: the first match only
+            return { nodeId: 11 };
+          case "DOM.querySelectorAll":
+            return querySelectorAll();
+          case "DOM.describeNode":
+            return { node: { backendNodeId: 900 + Number(params?.nodeId), localName: "button" } };
+          case "Runtime.evaluate":
+            return { result: { type: "number", value: 1 } };
+          default:
+            return {};
+        }
+      }),
+      on: vi.fn(),
+      off: vi.fn(),
+      once: vi.fn(),
+    };
+  }
+
+  it("S3 (RF1): an ambiguous selector in the middle of run_plan aborts there and clicks nothing", async () => {
+    const cdp = selectorCdp(async () => ({ nodeIds: [11, 12] }));
+    const toolFn = vi.fn();
+    const registry = new ToolRegistry({ tool: toolFn } as never, cdp as never, "session-1", {} as never);
+    registry.registerAll();
+    const runPlanCall = toolFn.mock.calls.find((call: unknown[]) => call[0] === "run_plan");
+    const runPlan = runPlanCall![runPlanCall!.length - 1] as (
+      params: Record<string, unknown>,
+    ) => Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean }>;
+
+    const result = await runPlan({
+      steps: [
+        { tool: "evaluate", params: { expression: "'step 1'" } },
+        { tool: "click", params: { selector: "button" } },
+        { tool: "evaluate", params: { expression: "'step 3'" } },
+      ],
+    });
+
+    const text = result.content.map((c) => c.text ?? "").join("\n");
+    expect(result.isError).toBe(true);
+    expect(text).toContain("[2/3] FAIL click");
+    expect(text).toContain("Selector 'button' matches 2 elements");
+    expect(text).toContain("Plan aborted at step 2/3");
+    const sent = cdp.send.mock.calls.map((c: unknown[]) => [c[0], JSON.stringify(c[1] ?? {})]);
+    expect(sent.some(([method, params]) => method === "Runtime.evaluate" && params.includes("step 3"))).toBe(false);
+    expect(sent.map(([method]) => method)).not.toContain("Input.dispatchMouseEvent");
+  });
+
+  it("S3 (RF2): click with Playwright syntax reports an invalid selector with the next step", async () => {
+    const cdp = selectorCdp(async () => {
+      throw new Error("CDP error -32000: DOM Error while querying");
+    });
+    const registry = new ToolRegistry({ tool: vi.fn() } as never, cdp as never, "session-1", {} as never);
+    registry.registerAll();
+
+    const result = await registry.executeTool("click", { selector: "button:has-text('Save')" });
+
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("Invalid CSS selector 'button:has-text('Save')'");
+    expect(text).toContain("use a ref from view_page or valid CSS");
+    expect(text).not.toContain("CDP error -32000");
+    expect(cdp.send.mock.calls.map((c: unknown[]) => c[0])).not.toContain("Input.dispatchMouseEvent");
+  });
+
   // --- Story 11.1: switch_tab, virtual_desk, dom_snapshot are always executable ---
 
   it("Story 11.1: switch_tab via executeTool executes without feature gate block", async () => {

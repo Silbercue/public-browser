@@ -5,6 +5,7 @@ import type { RefTabOwner } from "../cache/a11y-tree.js";
 import { inScriptTab } from "../cache/a11y-tree.js";
 import { selectorCache } from "../cache/selector-cache.js";
 import { wrapCdpError } from "./error-utils.js";
+import { formatElementLabel } from "./element-label.js";
 import { debug } from "../cdp/debug.js";
 
 // --- Public Types ---
@@ -14,6 +15,8 @@ export interface ResolvedElement {
   objectId: string;
   role: string;
   name: string;
+  /** S3: the element's view_page ref, if it has one (always set on the ref path). */
+  ref?: string;
   resolvedVia: "ref" | "css";
   resolvedSessionId: string;
 }
@@ -34,6 +37,50 @@ export function staleRefMessage(ref: string): string {
 export function foreignTabRefMessage(ref: string, owner: RefTabOwner): string {
   const where = owner.url ? ` (${owner.url})` : "";
   return `Element ${ref} belongs to tab ${owner.targetId}${where}, not to the active tab. switch_tab to that tab first, or call view_page for refs of this tab.`;
+}
+
+// --- Strict selectors (S3) ---
+
+/** S3: how many candidates an ambiguous selector error lists. */
+const MAX_SELECTOR_CANDIDATES = 5;
+
+/**
+ * S3: A CSS selector matched more than one element, so nothing was done.
+ * Deliberately not a RefNotFoundError — tools report it via wrapCdpError
+ * as "<tool> failed: Selector … matches N elements …".
+ */
+export class AmbiguousSelectorError extends Error {
+  constructor(selector: string, count: number, candidates: string[]) {
+    const more = count > candidates.length ? `\n  … ${count - candidates.length} more` : "";
+    super(
+      `Selector '${selector}' matches ${count} elements, so nothing was done. ` +
+      `Use a ref or a more specific selector. Candidates:\n  ${candidates.join("\n  ")}${more}`,
+    );
+    this.name = "AmbiguousSelectorError";
+  }
+}
+
+/** S3: `[e12] button "Save"` for a candidate; tag, id and label when the a11y tree does not know it. */
+async function describeCandidate(cdpClient: CdpClient, sessionId: string, nodeId: number): Promise<string> {
+  try {
+    const { node } = await cdpClient.send<{
+      node: { backendNodeId: number; localName?: string; attributes?: string[] };
+    }>("DOM.describeNode", { nodeId }, sessionId);
+    const attrs = node.attributes ?? [];
+    const attr = (name: string): string | undefined => {
+      for (let i = 0; i < attrs.length; i += 2) {
+        if (attrs[i] === name) return attrs[i + 1];
+      }
+      return undefined;
+    };
+    const info = a11yTree.getNodeInfo(node.backendNodeId, sessionId);
+    const id = attr("id");
+    const role = info?.role || `${node.localName || "element"}${id ? `#${id}` : ""}`;
+    const name = info?.name || attr("aria-label") || attr("title") || attr("placeholder") || attr("value") || "";
+    return formatElementLabel(a11yTree.getRefForBackendNodeId(node.backendNodeId, sessionId), role, name);
+  } catch {
+    return `(node ${nodeId} could not be described)`;
+  }
 }
 
 // --- Element Resolution ---
@@ -86,6 +133,7 @@ export async function resolveElement(
             objectId: resolved.object.objectId,
             role: info?.role ?? "",
             name: info?.name ?? "",
+            ref: target.ref,
             resolvedVia: "ref",
             resolvedSessionId: currentSessionForNode,
           };
@@ -154,41 +202,71 @@ export async function resolveElement(
       objectId: resolved.object.objectId,
       role: info?.role ?? "",
       name: info?.name ?? "",
+      ref: target.ref,
       resolvedVia: "ref",
       resolvedSessionId: targetSessionId,
     };
   }
 
-  // CSS path — always main frame (CSS selectors don't work cross-frame)
+  // CSS path — always main frame (CSS selectors don't work cross-frame).
+  // S3: strict — querySelectorAll on the same root DOM.querySelector used
+  // (main document, no iframe or shadow-root piercing), and more than one
+  // match is an error instead of a silent "first match in document order".
   const doc = await cdpClient.send<{ root: { nodeId: number } }>(
     "DOM.getDocument",
     { depth: 0 },
     sessionId,
   );
-  const queryResult = await cdpClient.send<{ nodeId: number }>(
-    "DOM.querySelector",
-    { nodeId: doc.root.nodeId, selector: target.selector! },
-    sessionId,
-  );
-  if (queryResult.nodeId === 0) {
+  let nodeIds: number[];
+  try {
+    ({ nodeIds } = await cdpClient.send<{ nodeIds: number[] }>(
+      "DOM.querySelectorAll",
+      { nodeId: doc.root.nodeId, selector: target.selector! },
+      sessionId,
+    ));
+  } catch (err) {
+    // S3: Chrome answers a selector it cannot parse with ServerError -32000
+    // "DOM Error while querying" (InspectorDOMAgent::querySelectorAll) —
+    // usually Playwright syntax. Say what works instead. Anything else (lost
+    // connection, closed session) passes through unchanged.
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("DOM Error while querying")) {
+      throw new Error(
+        `Invalid CSS selector '${target.selector}': Playwright syntax like :has-text() is not supported, use a ref from view_page or valid CSS.`,
+      );
+    }
+    throw err;
+  }
+  if (nodeIds.length === 0) {
     throw new Error(`Element not found for selector '${target.selector}'`);
+  }
+  if (nodeIds.length > 1) {
+    const candidates = await Promise.all(
+      nodeIds.slice(0, MAX_SELECTOR_CANDIDATES).map((nodeId) => describeCandidate(cdpClient, sessionId, nodeId)),
+    );
+    throw new AmbiguousSelectorError(target.selector!, nodeIds.length, candidates);
   }
   const desc = await cdpClient.send<{ node: { backendNodeId: number } }>(
     "DOM.describeNode",
-    { nodeId: queryResult.nodeId },
+    { nodeId: nodeIds[0] },
     sessionId,
   );
+  const backendNodeId = desc.node.backendNodeId;
   // Get objectId
   const resolved = await cdpClient.send<{ object: { objectId: string } }>(
     "DOM.resolveNode",
-    { backendNodeId: desc.node.backendNodeId },
+    { backendNodeId },
     sessionId,
   );
+  // S3: role/name/ref from the a11y tree when it knows the node (0 CDP calls);
+  // click fills in tag and text itself when it does not.
+  const info = a11yTree.getNodeInfo(backendNodeId, sessionId);
   return {
-    backendNodeId: desc.node.backendNodeId,
+    backendNodeId,
     objectId: resolved.object.objectId,
-    role: "",    // role not reliably available via CSS path
-    name: "",    // name not reliably available via CSS path
+    role: info?.role ?? "",
+    name: info?.name ?? "",
+    ref: a11yTree.getRefForBackendNodeId(backendNodeId, sessionId),
     resolvedVia: "css",
     resolvedSessionId: sessionId,
   };

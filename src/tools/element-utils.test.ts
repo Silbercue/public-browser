@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
+import { resolveElement, buildRefNotFoundError, RefNotFoundError, AmbiguousSelectorError } from "./element-utils.js";
 import { a11yTree, bindScriptTab, forgetScriptTab, runInTabOf } from "../cache/a11y-tree.js";
 import { selectorCache } from "../cache/selector-cache.js";
 import type { AXNode } from "../cache/a11y-tree.js";
@@ -24,8 +24,8 @@ function mockCdpClient(
       if (method === "DOM.getDocument") {
         return Promise.resolve(otherResults["DOM.getDocument"] ?? { root: { nodeId: 1 } });
       }
-      if (method === "DOM.querySelector") {
-        return Promise.resolve(otherResults["DOM.querySelector"] ?? { nodeId: 10 });
+      if (method === "DOM.querySelectorAll") {
+        return Promise.resolve(otherResults["DOM.querySelectorAll"] ?? { nodeIds: [10] });
       }
       if (method === "DOM.describeNode") {
         return Promise.resolve(otherResults["DOM.describeNode"] ?? { node: { backendNodeId: 42 } });
@@ -334,12 +334,155 @@ describe("resolveElement", () => {
     await expect(resolveElement(cdp, "s1", { ref: "e2" })).rejects.toThrow("DOM domain not enabled");
   });
 
+  it("S3: the ref path carries its ref — on normal resolution and on a selector-cache hit", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree), "main-session");
+    const cdp = mockCdpClient();
+
+    const first = await resolveElement(cdp, "main-session", { ref: "e2" });
+    expect(first.ref).toBe("e2");
+
+    // The first resolution filled the selector cache; the second one comes from there.
+    expect(selectorCache.get("e2")).toBeDefined();
+    const second = await resolveElement(cdp, "main-session", { ref: "e2" });
+    expect(second.ref).toBe("e2");
+  });
+
+  it("S3: resolves a unique selector with querySelectorAll on the main document — same scope as before", async () => {
+    const cdp = mockCdpClient({ object: { objectId: "obj-css" } });
+
+    const result = await resolveElement(cdp, "main-session", { selector: "#btn" });
+
+    expect(result.backendNodeId).toBe(42);
+    // Same root DOM.querySelector used: the main document, no iframe or shadow-root piercing.
+    expect(cdp.send).toHaveBeenCalledWith("DOM.getDocument", { depth: 0 }, "main-session");
+    expect(cdp.send).toHaveBeenCalledWith("DOM.querySelectorAll", { nodeId: 1, selector: "#btn" }, "main-session");
+  });
+
+  it("S3: a unique selector hit known to the a11y tree carries its ref, role and name", async () => {
+    await a11yTree.getTree(mockCdpForTree(buttonTree), "main-session");
+    const cdp = mockCdpClient({ object: { objectId: "obj-css" } }, { "DOM.describeNode": { node: { backendNodeId: 101 } } });
+
+    const result = await resolveElement(cdp, "main-session", { selector: "#ok" });
+
+    expect(result).toMatchObject({ ref: "e2", role: "button", name: "OK", resolvedVia: "css" });
+  });
+
+  it("S3: rejects a selector with several matches and lists up to five candidates", async () => {
+    const labels = ["Reset All", "Level 1", "Level 2", "Level 3", "Level 4", "Verify"];
+    const buttons: AXNode[] = [
+      makeNode({ nodeId: "1", role: { type: "role", value: "WebArea" }, backendDOMNodeId: 100, childIds: labels.map((_, i) => String(i + 2)) }),
+      ...labels.map((label, i) => makeNode({
+        nodeId: String(i + 2),
+        parentId: "1",
+        role: { type: "role", value: "button" },
+        name: { type: "computedString", value: label },
+        backendDOMNodeId: 201 + i,
+      })),
+    ];
+    await a11yTree.getTree(mockCdpForTree(buttons), "main-session");
+    const cdp = {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
+        if (method === "DOM.querySelectorAll") return { nodeIds: [11, 12, 13, 14, 15, 16] };
+        if (method === "DOM.describeNode") return { node: { backendNodeId: 190 + Number(params?.nodeId), localName: "button" } };
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const err = await resolveElement(cdp, "main-session", { selector: "button" }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AmbiguousSelectorError);
+    const message = (err as Error).message;
+    expect(message).toContain("Selector 'button' matches 6 elements");
+    expect(message).toContain("Use a ref or a more specific selector");
+    expect(message).toContain('[e2] button "Reset All"');
+    expect(message).toContain('[e6] button "Level 4"');
+    expect(message).not.toContain("Verify");
+    expect(message).toContain("… 1 more");
+    expect(cdp.send).not.toHaveBeenCalledWith("DOM.resolveNode", expect.anything(), expect.anything());
+  });
+
+  it("S3: candidates the a11y tree does not know are named by tag, id and label", async () => {
+    const cdp = {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
+        if (method === "DOM.querySelectorAll") return { nodeIds: [21, 22] };
+        if (method === "DOM.describeNode") {
+          return params?.nodeId === 21
+            ? { node: { backendNodeId: 901, localName: "button", attributes: ["id", "save", "aria-label", "Save draft"] } }
+            : { node: { backendNodeId: 902, localName: "input", attributes: ["type", "submit", "value", "Send"] } };
+        }
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const err = await resolveElement(cdp, "main-session", { selector: ".action" }).catch((e: unknown) => e);
+
+    expect((err as Error).message).toContain('button#save "Save draft"');
+    expect((err as Error).message).toContain('input "Send"');
+  });
+
+  it("S3: a selector without match keeps the 'Element not found for selector' error", async () => {
+    const cdp = mockCdpClient(undefined, { "DOM.querySelectorAll": { nodeIds: [] } });
+
+    await expect(resolveElement(cdp, "main-session", { selector: "#nope" })).rejects.toThrow(
+      "Element not found for selector '#nope'",
+    );
+  });
+
+  // S3 (RF2): Chrome rejects what it cannot parse with ServerError -32000
+  // "DOM Error while querying"; CdpClient prefixes "CDP error -32000: ".
+  it.each([
+    "CDP error -32000: DOM Error while querying",
+    "DOM Error while querying",
+  ])("S3 (RF2): an invalid selector names itself and the way out (%s)", async (chromeError) => {
+    const cdp = {
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
+        if (method === "DOM.querySelectorAll") throw new Error(chromeError);
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    const err = await resolveElement(cdp, "main-session", { selector: "button:has-text('Save')" }).catch((e: unknown) => e);
+
+    expect(err).not.toBeInstanceOf(AmbiguousSelectorError);
+    expect(err).not.toBeInstanceOf(RefNotFoundError);
+    expect((err as Error).message).toBe(
+      "Invalid CSS selector 'button:has-text('Save')': Playwright syntax like :has-text() is not supported, use a ref from view_page or valid CSS.",
+    );
+  });
+
+  it("S3 (RF2): a lost connection during the query stays a connection error", async () => {
+    const cdp = {
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
+        if (method === "DOM.querySelectorAll") throw new Error("CdpClient is closed");
+        return {};
+      }),
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as CdpClient;
+
+    await expect(resolveElement(cdp, "main-session", { selector: "#ok" })).rejects.toThrow(/^CdpClient is closed$/);
+  });
+
   it("resolves CSS selector on main session", async () => {
     const cdp = mockCdpClient(
       { object: { objectId: "obj-css" } },
       {
         "DOM.getDocument": { root: { nodeId: 1 } },
-        "DOM.querySelector": { nodeId: 10 },
+        "DOM.querySelectorAll": { nodeIds: [10] },
         "DOM.describeNode": { node: { backendNodeId: 42 } },
       },
     );
@@ -656,7 +799,7 @@ describe("Selector Cache Integration", () => {
       { object: { objectId: "obj-css" } },
       {
         "DOM.getDocument": { root: { nodeId: 1 } },
-        "DOM.querySelector": { nodeId: 10 },
+        "DOM.querySelectorAll": { nodeIds: [10] },
         "DOM.describeNode": { node: { backendNodeId: 42 } },
       },
     );

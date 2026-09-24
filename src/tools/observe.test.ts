@@ -16,6 +16,7 @@ vi.mock("../cache/a11y-tree.js", () => ({
     findClosestRef: vi.fn(),
     isCurrentDocument: vi.fn(async () => true),
     findRefOwnerTab: vi.fn(() => undefined),
+    getRefForBackendNodeId: vi.fn(() => undefined),
   },
   A11yTreeProcessor: { diffSnapshots: vi.fn(() => []), formatDomDiff: vi.fn() },
   // P5: element-utils asks whether the call runs in a Script-API tab.
@@ -182,7 +183,7 @@ describe("observeHandler", () => {
   it("should resolve CSS selector and call Runtime.callFunctionOn", async () => {
     const { cdpClient, sendFn } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
       "Runtime.callFunctionOn": {
@@ -236,7 +237,7 @@ describe("observeHandler", () => {
   it("should handle until mode — condition met", async () => {
     const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
       "Runtime.callFunctionOn": {
@@ -273,7 +274,7 @@ describe("observeHandler", () => {
   it("should handle until mode — timeout", async () => {
     const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
       "Runtime.callFunctionOn": {
@@ -300,7 +301,7 @@ describe("observeHandler", () => {
   it("should handle JS exception in observer", async () => {
     const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
       "Runtime.callFunctionOn": {
@@ -321,7 +322,7 @@ describe("observeHandler", () => {
   it("should handle element not found (CSS)", async () => {
     const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 0 }, // Not found
+      "DOM.querySelectorAll": { nodeIds: [] }, // Not found
     });
 
     const params = { selector: "#nonexistent", duration: 100, collect: "text" as const, interval: 50, timeout: 10000 };
@@ -346,7 +347,7 @@ describe("observeHandler", () => {
   it("should cap timeout at 25000ms", async () => {
     const { cdpClient, sendFn } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
       "Runtime.callFunctionOn": {
@@ -366,7 +367,7 @@ describe("observeHandler", () => {
   it("should format attribute changes correctly", async () => {
     const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
       "Runtime.callFunctionOn": {
@@ -411,7 +412,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
 
     const { cdpClient, sendFn } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": (args: { backendNodeId: number }) => {
         if (args.backendNodeId === 100) return { object: { objectId: "obj-target" } };
@@ -427,7 +428,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
     sendFn.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       const responses: Record<string, unknown> = {
         "DOM.getDocument": { root: { nodeId: 1 } },
-        "DOM.querySelector": { nodeId: 2 },
+        "DOM.querySelectorAll": { nodeIds: [2] },
         "DOM.describeNode": { node: { backendNodeId: 100 } },
         "Runtime.callFunctionOn": {
           result: { value: { changes: [{ type: "text", value: "mutated" }], count: 1 } },
@@ -476,7 +477,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
     const { cdpClient, sendFn } = createMockCdp();
     sendFn.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
-      if (method === "DOM.querySelector") return { nodeId: 2 };
+      if (method === "DOM.querySelectorAll") return { nodeIds: [2] };
       if (method === "DOM.describeNode") return { node: { backendNodeId: 100 } };
       if (method === "DOM.resolveNode") {
         const bid = (params as { backendNodeId: number })?.backendNodeId;
@@ -526,7 +527,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
     const { cdpClient, sendFn } = createMockCdp();
     sendFn.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
-      if (method === "DOM.querySelector") return { nodeId: 2 };
+      if (method === "DOM.querySelectorAll") return { nodeIds: [2] };
       if (method === "DOM.describeNode") return { node: { backendNodeId: 100 } };
       if (method === "DOM.resolveNode") {
         const bid = (params as { backendNodeId: number })?.backendNodeId;
@@ -569,7 +570,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
   it("click_first with CSS selector that doesn't match — throws error instead of silent fail", async () => {
     const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
       "Runtime.callFunctionOn": {
@@ -603,7 +604,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
 
     const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
     });
@@ -629,7 +630,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
 
     const { cdpClient } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
     });
@@ -652,7 +653,7 @@ describe("FR-021: observe click_first / then_click ref support", () => {
   it("CSS selector click_first still works (existing behavior preserved)", async () => {
     const { cdpClient, sendFn } = createMockCdp({
       "DOM.getDocument": { root: { nodeId: 1 } },
-      "DOM.querySelector": { nodeId: 2 },
+      "DOM.querySelectorAll": { nodeIds: [2] },
       "DOM.describeNode": { node: { backendNodeId: 100 } },
       "DOM.resolveNode": { object: { objectId: "obj-1" } },
       "Runtime.callFunctionOn": {

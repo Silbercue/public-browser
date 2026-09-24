@@ -266,7 +266,7 @@ chrome.close()
 | `Chrome.connect()` | Connect to or auto-start the Public Browser server |
 | `chrome.new_page()` | Context manager — opens a new tab, auto-closes on exit |
 | `page.navigate(url)` | Navigate and wait for load |
-| `page.click(selector)` | Click element by CSS selector, text, or ref |
+| `page.click(selector)` | Click element by CSS selector (must match exactly one element), text, or ref |
 | `page.type(selector, text)` | Type text into an input |
 | `page.fill({"sel": "val"})` | Fill multiple form fields at once |
 | `page.wait_for(condition)` | Wait for JS condition or `"text=..."` shorthand |
@@ -583,7 +583,7 @@ immediately and never waits, for either a start or a completion.
 | `virtual_desk` | Lists all tabs with stable IDs. Call first in every session. |
 | `dom_snapshot` | Bounding boxes, computed styles, paint order. For spatial questions `view_page` cannot answer. |
 | **Interaction** | |
-| `click` | Real CDP mouse events by ref, selector, text, or coordinates. The DOM diff (NEW/REMOVED/CHANGED) arrives with the next response, or in this one with `wait_for_diff: true`. |
+| `click` | Real CDP mouse events by ref, selector, text, or coordinates. The answer names the element it hit (`Clicked [e12] button "Save"`). The DOM diff (NEW/REMOVED/CHANGED) arrives with the next response, or in this one with `wait_for_diff: true`. |
 | `type` | Type into an input by ref/selector |
 | `fill_form` | Fill a complete form in one call — text, `<select>`, checkbox, radio. Per-field status. |
 | `press_key` | Real CDP keyboard events — Enter, Escape, Tab, arrows, shortcuts (Ctrl+K, etc.) |
@@ -601,6 +601,8 @@ immediately and never waits, for either a start or a completion.
 | `batch_evaluate` | Visit multiple URLs sequentially and run the same JavaScript expression on each page. |
 | `set_page_data` | Write large payloads to `window.__pb_data[key]` via server-side chunking for data that is too large for a single CDP message. |
 | `evaluate` | Execute JS in page context. Anti-pattern scanner warns on `querySelector`/`.click()`. |
+
+**Selectors are strict.** Where a tool takes a CSS selector (`click`, `type`, `fill_form`, `press_key`, `scroll`, `drag`, `file_upload`, `observe`), it has to match exactly one element in the page's main document. With several matches the call does nothing and returns up to five candidates with their refs — use one of the refs or a narrower selector.
 
 ## Why an MCP server and not a CLI?
 

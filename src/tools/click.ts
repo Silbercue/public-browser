@@ -3,6 +3,8 @@ import type { CdpClient } from "../cdp/cdp-client.js";
 import type { SessionManager } from "../cdp/session-manager.js";
 import type { ToolResponse } from "../types.js";
 import { resolveElement, buildRefNotFoundError, RefNotFoundError } from "./element-utils.js";
+import type { ResolvedElement } from "./element-utils.js";
+import { formatElementLabel } from "./element-label.js";
 import { wrapCdpError, isDetachedNodeError, isFatalCdpError } from "./error-utils.js";
 import { a11yTree } from "../cache/a11y-tree.js";
 import { isHeadless } from "../cdp/emulation.js";
@@ -184,6 +186,38 @@ async function dispatchClick(
   );
 
   return { method: clickMethod, x, y };
+}
+
+/**
+ * S3: `[e12] button "Save"` — what the click is about to hit. The ref path and
+ * selector hits the a11y tree knows carry role and name already; any other
+ * element is asked once for tag and visible text, before the click (it may be
+ * gone afterwards).
+ */
+async function describeClickTarget(
+  cdpClient: CdpClient,
+  element: ResolvedElement,
+  ref: string | undefined,
+): Promise<string> {
+  if (element.role) return formatElementLabel(ref, element.role, element.name);
+  try {
+    const probe = await cdpClient.send<{ result?: { value?: { tag?: string; text?: string } } }>(
+      "Runtime.callFunctionOn",
+      {
+        functionDeclaration: `function() {
+          var label = (this.getAttribute && (this.getAttribute("aria-label") || this.getAttribute("title"))) || this.innerText || this.value || "";
+          return { tag: this.localName || "", text: String(label).replace(/\\s+/g, " ").trim().slice(0, 80) };
+        }`,
+        objectId: element.objectId,
+        returnByValue: true,
+      },
+      element.resolvedSessionId,
+    );
+    return formatElementLabel(ref, probe?.result?.value?.tag ?? "", probe?.result?.value?.text ?? "");
+  } catch (err) {
+    if (isFatalCdpError(err)) throw err;
+    return formatElementLabel(ref, "", "");
+  }
 }
 
 // --- Main handler (Task 6) ---
@@ -489,6 +523,9 @@ export async function clickHandler(
     const target = params.ref ? { ref: params.ref } : { selector: params.selector };
     const element = await resolveElement(cdpClient, sessionId!, target, sessionManager);
 
+    // S3: name the target before the click — the click may remove it.
+    const label = await describeClickTarget(cdpClient, element, params.ref ?? element.ref);
+
     // Dispatch click using the resolved session (may be OOPIF or main)
     const clickResult = await dispatchClick(
       cdpClient, element.resolvedSessionId, element.backendNodeId, element.objectId, humanMouseMove,
@@ -524,7 +561,7 @@ export async function clickHandler(
       content: [
         {
           type: "text",
-          text: `Clicked ${params.ref ?? params.selector} (${element.resolvedVia}${suffix})${liveMatchFrom ? ` — ${liveMatchFrom} was already replaced, took the live match` : ""}${newTabHint}`,
+          text: `Clicked ${label} (${element.resolvedVia}${suffix})${liveMatchFrom ? ` — ${liveMatchFrom} was already replaced, took the live match` : ""}${newTabHint}`,
         },
       ],
       _meta: {

@@ -600,18 +600,27 @@ function formatStepLine(stepResult: StepResult, stepsTotal: number): string {
   const newTabLines = allText.split("\n").filter((line) => line.startsWith("⮕ New tab opened"));
   const newTabTail = newTabLines.length > 0 ? `\n${newTabLines.join("\n")}` : "";
 
+  // Kurztext: erste Zeile, max STEP_LINE_COMPACT_MAX_CHARS Zeichen
+  const firstLine = allText.split("\n")[0];
+  const compact =
+    firstLine.length > STEP_LINE_COMPACT_MAX_CHARS
+      ? firstLine.slice(0, STEP_LINE_COMPACT_MAX_CHARS - 3) + "..."
+      : firstLine;
+
+  // S3: a click names what it hit (`Clicked [e26] button "Reset All" (ref)`).
+  // Keep that label instead of shrinking it to `ref=e26` — in a plan it is
+  // the only place a wrong target shows.
+  if (stepResult.tool === "click" && /^Clicked \[e\d+\] /.test(firstLine)) {
+    return `${prefix} ${compact}${newTabTail}`;
+  }
+
   const expectedRef = extractExpectedRefFromParams(stepResult.params);
   const ref = extractFirstRef(allText, expectedRef);
   if (ref) {
     return `${prefix} ref=${ref}${newTabTail}`;
   }
 
-  // Kurztext-Fallback: erste Zeile, max STEP_LINE_COMPACT_MAX_CHARS Zeichen
-  const firstLine = allText.split("\n")[0];
-  const compact =
-    firstLine.length > STEP_LINE_COMPACT_MAX_CHARS
-      ? firstLine.slice(0, STEP_LINE_COMPACT_MAX_CHARS - 3) + "..."
-      : firstLine;
+  // Kurztext-Fallback
   return `${prefix} ${compact}${newTabTail}`;
 }
 

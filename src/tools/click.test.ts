@@ -171,7 +171,7 @@ describe("clickHandler", () => {
 
     expect(result.isError).toBeUndefined();
     expect(result.content[0]).toEqual(
-      expect.objectContaining({ type: "text", text: "Clicked e5 (ref)" }),
+      expect.objectContaining({ type: "text", text: 'Clicked [e5] button "Submit" (ref)' }),
     );
     expect(result._meta?.method).toBe("click");
     expect(result._meta?.resolvedVia).toBe("ref");
@@ -276,13 +276,16 @@ describe("clickHandler", () => {
       resolvedVia: "css",
       resolvedSessionId: "s1",
     });
-    const { cdpClient } = createMockCdp();
+    // S3: the a11y tree does not know the element — click asks the page for tag and text.
+    const { cdpClient } = createMockCdp({
+      "Runtime.callFunctionOn": { result: { value: { tag: "button", text: "Submit" } } },
+    });
 
     const result = await clickHandler({ selector: "#submit-btn" }, cdpClient, "s1");
 
     expect(result.isError).toBeUndefined();
     expect(result.content[0]).toEqual(
-      expect.objectContaining({ type: "text", text: "Clicked #submit-btn (css)" }),
+      expect.objectContaining({ type: "text", text: 'Clicked button "Submit" (css)' }),
     );
     expect(result._meta?.resolvedVia).toBe("css");
 
@@ -293,6 +296,83 @@ describe("clickHandler", () => {
       { selector: "#submit-btn" },
       undefined,
     );
+  });
+
+  it("S3: a selector click names the element from the a11y tree when it knows it", async () => {
+    mockResolveElement.mockResolvedValue({
+      backendNodeId: 100,
+      objectId: "obj-100",
+      role: "button",
+      name: "Reset All",
+      ref: "e26",
+      resolvedVia: "css",
+      resolvedSessionId: "s1",
+    });
+    const { cdpClient, sendFn } = createMockCdp();
+
+    const result = await clickHandler({ selector: "#btn-reset" }, cdpClient, "s1");
+
+    expect(result.content[0]).toEqual(
+      expect.objectContaining({ type: "text", text: 'Clicked [e26] button "Reset All" (css)' }),
+    );
+    expect(sendFn.mock.calls.map((c: unknown[]) => c[0])).not.toContain("Runtime.callFunctionOn");
+  });
+
+  it("S3: an element the a11y tree does not know is named before the click, not after", async () => {
+    mockResolveElement.mockResolvedValue({
+      backendNodeId: 100,
+      objectId: "obj-100",
+      role: "",
+      name: "",
+      resolvedVia: "css",
+      resolvedSessionId: "s1",
+    });
+    const { cdpClient, sendFn } = createMockCdp({
+      "Runtime.callFunctionOn": { result: { value: { tag: "button", text: "Reset All" } } },
+    });
+
+    const result = await clickHandler({ selector: "header button" }, cdpClient, "s1");
+
+    expect(result.content[0]).toEqual(
+      expect.objectContaining({ type: "text", text: 'Clicked button "Reset All" (css)' }),
+    );
+    const methods = sendFn.mock.calls.map((c: unknown[]) => c[0]);
+    expect(methods).toContain("Runtime.callFunctionOn");
+    expect(methods).toContain("Input.dispatchMouseEvent");
+    expect(methods.indexOf("Runtime.callFunctionOn")).toBeLessThan(methods.indexOf("Input.dispatchMouseEvent"));
+  });
+
+  it("S3: a ref the a11y tree has no role for keeps its ref next to the probed tag and text", async () => {
+    mockResolveElement.mockResolvedValue({
+      backendNodeId: 100,
+      objectId: "obj-100",
+      role: "",
+      name: "",
+      resolvedVia: "ref",
+      resolvedSessionId: "s1",
+    });
+    const { cdpClient } = createMockCdp({
+      "Runtime.callFunctionOn": { result: { value: { tag: "button", text: "Go" } } },
+    });
+
+    const result = await clickHandler({ ref: "e7" }, cdpClient, "s1");
+
+    expect(result.content[0]).toEqual(
+      expect.objectContaining({ type: "text", text: 'Clicked [e7] button "Go" (ref)' }),
+    );
+  });
+
+  // Pins the pass-through: click must not swallow or trim the candidate list.
+  it("S3: an ambiguous selector clicks nothing and passes the candidate list through", async () => {
+    const ambiguous = "Selector 'button' matches 23 elements, so nothing was done. Use a ref or a more specific selector. Candidates:\n  [e26] button \"Reset All\"";
+    mockResolveElement.mockRejectedValue(new Error(ambiguous));
+    const { cdpClient, sendFn } = createMockCdp();
+
+    const result = await clickHandler({ selector: "button" }, cdpClient, "s1");
+
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toBe(`click failed: ${ambiguous}`);
+    expect(sendFn.mock.calls.map((c: unknown[]) => c[0])).not.toContain("Input.dispatchMouseEvent");
   });
 
   it("should return isError when CSS selector not found", async () => {
@@ -402,7 +482,7 @@ describe("clickHandler", () => {
     expect(result.isError).toBeUndefined();
     expect(result.content[0]).toEqual(
       expect.objectContaining({
-        text: "Clicked e5 (ref, fallback: js-rect)",
+        text: 'Clicked [e5] button "Submit" (ref, fallback: js-rect)',
       }),
     );
     expect(result._meta?.clickMethod).toBe("js-rect");
@@ -454,7 +534,7 @@ describe("clickHandler", () => {
     expect(result.isError).toBeUndefined();
     expect(result.content[0]).toEqual(
       expect.objectContaining({
-        text: "Clicked e5 (ref, fallback: js-click)",
+        text: 'Clicked [e5] button "Submit" (ref, fallback: js-click)',
       }),
     );
     expect(result._meta?.clickMethod).toBe("js-click");
@@ -510,7 +590,7 @@ describe("clickHandler", () => {
 
     expect(result.isError).toBeUndefined();
     expect(result.content[0]).toEqual(
-      expect.objectContaining({ text: "Clicked e42 (ref)" }),
+      expect.objectContaining({ text: 'Clicked [e42] button "Sign In" (ref)' }),
     );
 
     // Verify CDP calls use OOPIF session for element interaction
@@ -913,7 +993,7 @@ describe("clickHandler", () => {
 
     expect(result.isError).toBeUndefined();
     expect(result.content[0]).toEqual(
-      expect.objectContaining({ type: "text", text: "Clicked e10 (ref)" }),
+      expect.objectContaining({ type: "text", text: 'Clicked [e10] button "Submit" (ref)' }),
     );
     expect(mockFindByText).toHaveBeenCalledWith("Submit");
   });
@@ -1133,7 +1213,7 @@ describe("clickHandler", () => {
       const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
 
       expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+      expect(result.content[0].text).toBe('Clicked [e9] button "Speichern" (ref) — e5 was already replaced, took the live match');
       expect(result._meta?.liveMatchFrom).toBe("e5");
       expect(mockResolveElement).toHaveBeenCalledWith(cdpClient, "s1", { ref: "e9" }, undefined);
       expect(probeCalls(sendFn)).toHaveLength(3); // fix round 3: e5, then newest-first e13 and e9 (ambiguity check); e12 other session
@@ -1146,7 +1226,7 @@ describe("clickHandler", () => {
 
       expect(result.isError).toBeUndefined();
       // e12 belongs to another session and is skipped without a probe; e13 is the replacement
-      expect(result.content[0].text).toBe("Clicked e13 (ref) — e5 was already replaced, took the live match");
+      expect(result.content[0].text).toBe('Clicked [e13] button "Speichern" (ref) — e5 was already replaced, took the live match');
     });
 
     it("routes probes through the owner session of OOPIF candidates", async () => {
@@ -1158,7 +1238,7 @@ describe("clickHandler", () => {
 
       const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
 
-      expect(result.content[0].text).toBe("Clicked e21 (ref) — e20 was already replaced, took the live match");
+      expect(result.content[0].text).toBe('Clicked [e21] button "Speichern" (ref) — e20 was already replaced, took the live match');
       const routed = sendFn.mock.calls.filter(
         (c: unknown[]) => (c[0] === "DOM.resolveNode" || c[0] === "Runtime.callFunctionOn") && c[2] === "oopif-1",
       );
@@ -1170,7 +1250,7 @@ describe("clickHandler", () => {
 
       const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
 
-      expect(result.content[0].text).toBe("Clicked e5 (ref)");
+      expect(result.content[0].text).toBe('Clicked [e5] button "Speichern" (ref)');
       expect(result._meta?.liveMatchFrom).toBeUndefined();
       expect(probeCalls(sendFn)).toHaveLength(1); // only the first is probed
     });
@@ -1223,7 +1303,7 @@ describe("clickHandler", () => {
 
       const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
 
-      expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+      expect(result.content[0].text).toBe('Clicked [e9] button "Speichern" (ref) — e5 was already replaced, took the live match');
     });
 
     it("rethrows transport/session/timeout errors instead of probing on", async () => {
@@ -1247,7 +1327,7 @@ describe("clickHandler", () => {
 
       const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
 
-      expect(result.content[0].text).toBe("Clicked e5 (ref)");
+      expect(result.content[0].text).toBe('Clicked [e5] button "Speichern" (ref)');
       expect(probeCalls(sendFn)).toHaveLength(0);
       expect(mockResolveRefFull).not.toHaveBeenCalled();
     });
@@ -1333,7 +1413,7 @@ describe("clickHandler", () => {
 
       const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
 
-      expect(result.content[0].text).toBe("Clicked e5 (ref)");
+      expect(result.content[0].text).toBe('Clicked [e5] button "Speichern" (ref)');
       expect(mockResolveRefFull).not.toHaveBeenCalled();
       expect(probeCalls(sendFn)).toHaveLength(0);
     });
@@ -1349,7 +1429,7 @@ describe("clickHandler", () => {
 
       const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
 
-      expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+      expect(result.content[0].text).toBe('Clicked [e9] button "Speichern" (ref) — e5 was already replaced, took the live match');
       expect(probeCalls(sendFn)).toHaveLength(2); // e5 and e9 — e7 (other flag) never probed
     });
 
@@ -1379,7 +1459,7 @@ describe("clickHandler", () => {
       const result = await clickHandler({ text: "Save" } as ClickParams, cdpClient, "s1");
 
       expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toBe("Clicked e9 (ref) — e5 was already replaced, took the live match");
+      expect(result.content[0].text).toBe('Clicked [e9] button "Speichern" (ref) — e5 was already replaced, took the live match');
     });
 
     // Fix round 3: replacements are scanned newest-first; two live namesakes are ambiguous.
@@ -1393,7 +1473,7 @@ describe("clickHandler", () => {
       const result = await clickHandler({ text: "Speichern" } as ClickParams, cdpClient, "s1");
 
       expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toBe("Clicked e8 (ref) — e1 was already replaced, took the live match");
+      expect(result.content[0].text).toBe('Clicked [e8] button "Speichern" (ref) — e1 was already replaced, took the live match');
     });
 
     it("probes the first hit, then the replacements newest-first, capped at five", async () => {
