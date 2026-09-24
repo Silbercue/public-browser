@@ -27,6 +27,12 @@
 - On macOS a `Control+<letter>` that changes nothing in the focused editor answers with a hint to use Meta instead of Control; nothing is remapped silently. `Meta+A`, `Meta+Z` and `Meta+Shift+Z` carry the editing commands (`selectAll`, `undo`, `redo`) Chrome needs on macOS, where these shortcuts did nothing (S7).
 - `type` accepts contenteditable editors by ref (`generic (editable)` in `view_page`, also their text children) instead of rejecting role `generic`. Text goes to the end of the editor — before, it landed in front of the existing text — or to the caret when the caret already sits there, so a `Meta+B` before `type` still applies; `clear: true` empties the editor (S7).
 
+### Changed
+- The diff shows only what changed since the last observation (no stale `REMOVED` lines, no iframe noise), at most 15 lines with live regions first; deferred click diffs appear only on page actions (H1).
+- Compact `view_page`: a StaticText that repeats its parent's name is dropped, StaticText and LabelText carry no refs, multi-line container names show their first line with `filter: "all"`, and the TRUNCATED line is shorter (H2).
+- Each tip appears once per session; state notes (counts, truncation) stay in every response (H3).
+- No `[~N tokens | N refs]` footer and no `Server:` line in `virtual_desk`, the Cortex line appears only at confidence ≥ 0.9, and unambiguous `evaluate` strings come back raw in the MCP tool (H5).
+
 ## [2.10.5] - 2026-09-04
 
 ### Changed
