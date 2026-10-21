@@ -334,6 +334,22 @@ test('writeAllowed: Datei "..x" im Ordner ist innen, nach innen zeigender haenge
   assert.equal(writeAllowed('chain-outside', rundir), false, 'Kette nach aussen (Gegenprobe)');
 });
 
+test('writeAllowed: haengende Symlinks mit relativem Ziel (ab ihrem Ordner gelesen) und Symlink-Schleife', () => {
+  const rundir = makeRundir();
+  mkdirSync(join(rundir, 'sub'));
+  symlinkSync('../later.txt', join(rundir, 'sub', 'rel-in')); // -> rundir/later.txt, noch nicht da
+  symlinkSync('../../cp-outside-nothing', join(rundir, 'sub', 'rel-out')); // -> eine Ebene ueber rundir
+  symlinkSync('loop-b', join(rundir, 'loop-a'));
+  symlinkSync('loop-a', join(rundir, 'loop-b'));
+  // eine Kette aus 10 Gliedern nach innen: ueber der Tiefengrenze, daher verweigert (streng)
+  for (let i = 0; i < 10; i++) symlinkSync(i === 9 ? 'end.txt' : `c${i + 1}`, join(rundir, `c${i}`));
+  assert.equal(writeAllowed(join('sub', 'rel-in'), rundir), true, 'relatives Ziel nach innen');
+  assert.equal(writeAllowed(join('sub', 'rel-out'), rundir), false, 'relatives Ziel nach aussen (Gegenprobe)');
+  assert.equal(writeAllowed('loop-a', rundir), false, 'Schleife wird nicht als innen gewertet');
+  assert.equal(writeAllowed('c9', rundir), true, 'kurze Kette nach innen (Gegenprobe zur Tiefengrenze)');
+  assert.equal(writeAllowed('c0', rundir), false, 'zu lange Kette wird verweigert');
+});
+
 test('toolLockMulti mit writeRoot: ../-Ausbruch und Symlinks nach aussen sind Verstoesse', () => {
   const rundir = makeRundir();
   const outside = mkdtempSync(join(tmpdir(), 'cp-guard-out-'));
