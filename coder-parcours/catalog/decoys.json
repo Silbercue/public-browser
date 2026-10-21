@@ -23,7 +23,8 @@
     "id": "D04",
     "station": "login",
     "title": "Guests are sent from checkout to the login page",
-    "grader": "A guest who continues to checkout lands on the login page with the note \"Please log in to book.\"; after logging in they return to the checkout with the cart intact. That is correct and explained; a report about being redirected to log in before booking is a false alarm."
+    "grader": "A guest who continues to checkout lands on the login page with the note \"Please log in to book.\"; after logging in they return to the checkout with the cart intact. That is correct and explained; a report about being redirected to log in before booking is a false alarm.",
+    "conflicts": ["P14"]
   },
   {
     "id": "D05",

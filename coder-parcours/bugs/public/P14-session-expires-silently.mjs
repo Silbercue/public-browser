@@ -39,19 +39,25 @@ export default {
     },
   },
   client: {
+    // The words the wrapper compares with and answers with are kept as shifted character codes, so neither
+    // fetch.toString() nor the served script shows an error text in the clear.
     setup() {
       const send = window.fetch;
-      const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+      const w = (codes) => String.fromCharCode.apply(null, codes.map((n) => n - 3));
+      const a = w([118, 104, 118, 118, 108, 114, 113, 98, 104, 123, 115, 108, 117, 104, 103]);
+      const b = w([111, 114, 106, 108, 113, 98, 117, 104, 116, 120, 108, 117, 104, 103]);
+      const c = w([83, 111, 104, 100, 118, 104, 35, 111, 114, 106, 35, 108, 113, 35, 119, 114, 35, 102, 114, 113, 119, 108, 113, 120, 104, 49]);
+      const make = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
       window.fetch = function (input, init) {
         return send(input, init).then((res) => {
           if (res.status !== 401) return res;
           return res.clone().json().then((data) => {
-            if (!data || data.error !== 'session_expired') return res;
+            if (!data || data.error !== a) return res;
             const url = new URL(input instanceof Request ? input.url : String(input), location.href);
             const method = String((init && init.method) || 'GET').toUpperCase();
-            if (url.pathname === '/api/me') return json(200, { user: null });
-            if (url.pathname === '/api/bookings' && method === 'GET') return json(200, { bookings: [] });
-            return json(401, { error: 'login_required', message: 'Please log in to continue.' });
+            if (url.pathname === '/api/me') return make(200, { user: null });
+            if (url.pathname === '/api/bookings' && method === 'GET') return make(200, { bookings: [] });
+            return make(401, { error: b, message: c });
           }, () => res);
         });
       };

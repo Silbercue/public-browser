@@ -306,11 +306,65 @@ test.describe('P14', () => {
       expect(seq.filter((s) => s === 'session_expired').length).toBeGreaterThanOrEqual(1);
     });
   });
+  test('active: after the expiry, going on to checkout lands on the login page with the guest hint (conflict with the login decoy)', async ({ page }) => {
+    await withApp({ activate: 'P14@bookings:all' }, async (app) => {
+      expect(await walkUntilEmpty(page, app)).toBe(true);
+      const nav = page.getByRole('navigation', { name: 'Main' });
+      await nav.getByRole('link', { name: 'Schedule' }).click();
+      await page.waitForLoadState('networkidle');
+      await go(page, `${app.url}/checkout`);
+      await expect(page).toHaveURL(/\/login/);
+      await expect(page.getByText('Please log in to book.')).toBeVisible();
+      await expect(page.getByText('Your session expired')).toHaveCount(0);
+    });
+  });
   test('healthy: the same walk keeps the bookings and never expires', async ({ page }) => {
     await withApp({ noBugs: true }, async (app) => {
       expect(await walkUntilEmpty(page, app)).toBe(false);
       expect(lines(app.eventsFile).map((l) => l.type)).not.toContain('session_expired');
       expect(lines(app.eventsFile).map((l) => l.type)).toContain('login');
+    });
+  });
+});
+
+// --- no readable error text in the browser, no trace when inactive --------------------------------------
+const ERROR_WORDS = /session_expired|login_required|Please log in to continue|expired/i;
+
+test.describe('no trace in the page', () => {
+  test('P14 active: neither fetch.toString() nor the runtime script carries the error text', async ({ page }) => {
+    await withApp({ activate: 'P14@bookings:all' }, async (app) => {
+      await go(page, `${app.url}/`);
+      const fetchSrc = await page.evaluate(() => window.fetch.toString());
+      expect(fetchSrc.length).toBeGreaterThan(0);
+      expect(fetchSrc).not.toMatch(ERROR_WORDS);
+      const script = await (await page.request.get(`${app.url}/assets/runtime.js`)).text();
+      expect(script).toContain('__swBoot('); // positive control: this is the runtime script
+      expect(script).not.toMatch(ERROR_WORDS);
+    });
+  });
+  test('P14 still rewrites after the text moved into data (counter-check)', async ({ page }) => {
+    await withApp({ activate: 'P14@bookings:all' }, async (app) => {
+      expect(await walkUntilEmpty(page, app)).toBe(true);
+    });
+  });
+  test('P14/P16 inactive: no hook wrapper and no error text anywhere in the page context', async ({ page }) => {
+    await withApp({ activate: 'P09@schedule:phone' }, async (app) => {
+      await go(page, `${app.url}/`);
+      const fetchSrc = await page.evaluate(() => window.fetch.toString());
+      expect(fetchSrc).not.toMatch(ERROR_WORDS);
+      expect(fetchSrc).not.toContain('clone');
+      const script = await (await page.request.get(`${app.url}/assets/runtime.js`)).text();
+      expect(script).toContain('__swBoot(');
+      expect(script).not.toMatch(ERROR_WORDS);
+      expect(script).not.toContain('/api/cart/coupon');
+      expect(script).not.toContain('/api/bookings');
+    });
+  });
+  test('P14 active shows the wrapper markers the inactive page lacks (control for the checks above)', async ({ page }) => {
+    await withApp({ activate: 'P14@bookings:all' }, async (app) => {
+      await go(page, `${app.url}/`);
+      const script = await (await page.request.get(`${app.url}/assets/runtime.js`)).text();
+      expect(script).toContain('/api/bookings');
     });
   });
 });
