@@ -22,6 +22,8 @@ you write is not. Your answer at the end contains **no bug content** at all.
   (If the operator already did this, start in the folder you were given.)
 - Write **nothing into memory or note files**: no auto-memory, no `CLAUDE.md`, no notes outside the
   work folder. Do not start sub-agents.
+- Do not disclose any content of the secret part through web search, network requests or external
+  services (no search queries, uploads or pastes containing bug details).
 - Your final answer names only the three delivered files and their checksums. **No bug IDs with
   titles, no stations, no symptoms, no decoys** in the answer.
 
@@ -109,7 +111,8 @@ node harness/seal.mjs seal --in ../secret-src --recipient secret/recipient.pub -
 This writes `sealed.bin`, `sealed.bin.sha256` and `plaintext.sha256` into `../out/`. Then delete the
 plaintext: `rm -rf ../secret-src`, and any `e2e/secret-bugs.spec.ts` or `test-results/` left in the
 archive copy. Deliver only the three files in `out/`. Your final answer: the path of `out/` and the two
-checksums, nothing else.
+checksums, nothing else. The operator unseals later with the `sealed.bin` checksum from
+this answer (`--expect-sha256`), not with the `.sha256` file from the repository, so state it exactly.
 
 ## After delivery (for the operator)
 

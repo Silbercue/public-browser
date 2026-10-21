@@ -14,7 +14,7 @@ import {
   randomBytes,
 } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,7 +22,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const MAGIC = Buffer.from('CPSEAL1\n', 'latin1');
 const INFO = Buffer.from('coder-parcours-seal-v1', 'utf8');
-const MIN_PASSPHRASE = 12;
+const MIN_PASSPHRASE = 20;
 const NO_TTY = 'A passphrase is required. Run unseal in a terminal.';
 const DEFAULT_PUB = join(ROOT, 'secret', 'recipient.pub');
 const DEFAULT_SEALED = join(ROOT, 'secret', 'sealed.bin');
@@ -72,7 +72,7 @@ export function sealBuffer(plain, recipientPubB64) {
   const epkRaw = rawPublic(eph.publicKey);
   const key = deriveKey(diffieHellman({ privateKey: eph.privateKey, publicKey: recipient }), epkRaw, recipientRaw);
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
   const header = JSON.stringify({ epk: epkRaw.toString('base64'), iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64') });
   return Buffer.concat([MAGIC, Buffer.from(`${header}\n`, 'utf8'), ct]);
@@ -91,7 +91,7 @@ export function unsealBuffer(sealed, encryptedPrivateKeyPem, passphrase) {
   const recipientRaw = rawPublic(createPublicKey(privateKey));
   const epkRaw = Buffer.from(String(header.epk), 'base64');
   const key = deriveKey(diffieHellman({ privateKey, publicKey: publicFromRaw(epkRaw) }), epkRaw, recipientRaw);
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(String(header.iv), 'base64'));
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(String(header.iv), 'base64'), { authTagLength: 16 });
   decipher.setAuthTag(Buffer.from(String(header.tag), 'base64'));
   return Buffer.concat([decipher.update(ct), decipher.final()]);
 }
@@ -101,7 +101,9 @@ const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 /** Liegt `path` (muss nicht existieren) in einem Git-Arbeitsbaum? Geprueft vom naechsten existierenden Vorfahren aus. */
 function insideGitWorkTree(path) {
   let dir = resolve(path);
-  while (!existsSync(dir)) dir = dirname(dir);
+  // Innerhalb eines .git-Ordners schlaegt rev-parse fehl; das darf nicht als "kein Repo" durchgehen.
+  if (dir.split(sep).includes('.git')) return dir;
+  while (!existsSync(dir) || !statSync(dir).isDirectory()) dir = dirname(dir);
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' });
   if (r.error) throw new Error(`git is required to check the target folder: ${r.error.message}`);
   return r.status === 0 ? r.stdout.trim() : null;
@@ -162,7 +164,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) throw new Error(`unexpected argument: ${a}`);
     const name = a.slice(2);
-    if (name === 'allow-repo') out[name] = true;
+    if (name === 'allow-repo' || name === 'no-verify') out[name] = true;
     else {
       const v = argv[++i];
       if (v === undefined || v.startsWith('--')) throw new Error(`${a} needs a value`);
@@ -175,7 +177,7 @@ function parseArgs(argv) {
 const ALLOWED = {
   keygen: ['out', 'pub-out', 'passphrase-env'],
   seal: ['in', 'recipient', 'out'],
-  unseal: ['key', 'in', 'out', 'allow-repo', 'passphrase-env'],
+  unseal: ['key', 'in', 'out', 'allow-repo', 'passphrase-env', 'expect-sha256', 'no-verify'],
 };
 
 async function cmdKeygen(o) {
@@ -187,7 +189,7 @@ async function cmdKeygen(o) {
   const envVar = o['passphrase-env'] ? String(o['passphrase-env']) : null;
   if (!canGetPassphrase(envVar)) throw new Error('A passphrase is required. Run keygen in a terminal.');
   const passphrase = await getPassphrase(envVar, { confirm: !envVar });
-  if (passphrase.length < MIN_PASSPHRASE) throw new Error(`The passphrase must have at least ${MIN_PASSPHRASE} characters.`);
+  if ([...passphrase].length < MIN_PASSPHRASE) throw new Error(`The passphrase must have at least ${MIN_PASSPHRASE} characters.`);
   const { privateKey, publicKey } = generateKeyPairSync('x25519', {
     privateKeyEncoding: { type: 'pkcs8', format: 'pem', cipher: 'aes-256-cbc', passphrase },
     publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -220,6 +222,11 @@ async function cmdUnseal(o) {
   if (!o.key || !o.out) throw new Error('unseal needs --key <privkey-file> and --out <dir>');
   const envVar = o['passphrase-env'] ? String(o['passphrase-env']) : null;
   if (!canGetPassphrase(envVar)) throw new Error(NO_TTY);
+  const expected = o['expect-sha256'] ? String(o['expect-sha256']).trim().toLowerCase() : null;
+  if (expected !== null && !/^[0-9a-f]{64}$/.test(expected)) throw new Error('--expect-sha256 must be 64 hex characters.');
+  if (expected === null && !o['no-verify']) {
+    throw new Error('unseal needs --expect-sha256 <hex> (the sealed.bin checksum from the author\'s reply, not the file in the repository).');
+  }
   const out = resolve(String(o.out));
   const top = insideGitWorkTree(out);
   if (top && !o['allow-repo']) {
@@ -227,6 +234,9 @@ async function cmdUnseal(o) {
   }
   const pem = readFileSync(resolve(String(o.key)), 'utf8');
   const sealed = readFileSync(o.in ? resolve(String(o.in)) : DEFAULT_SEALED);
+  if (expected !== null && sha256(sealed) !== expected) {
+    throw new Error(`sealed.bin checksum ${sha256(sealed)} does not match --expect-sha256; the package is not the one the author sealed. Nothing was written.`);
+  }
   const passphrase = await getPassphrase(envVar);
   const plain = unsealBuffer(sealed, pem, passphrase);
   const { files } = JSON.parse(plain.toString('utf8'));
