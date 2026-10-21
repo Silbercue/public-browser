@@ -6,12 +6,15 @@ import { join } from 'node:path';
 import { createServer, nullEngine } from './app.mjs';
 import { createHookSet } from './hooks.mjs';
 import { CLASSES, STUDIO_CLOCK } from './data.mjs';
+import { createSandbox } from './store.mjs';
 import { hostedConfigForSeed } from './start.mjs';
 import { TEST_ACCOUNTS } from '../shared/accounts.mjs';
 import { buildRunConfig, loadSeeds } from '../harness/seed.mjs';
 import { loadCatalog } from '../catalog/load.mjs';
 
 const [MAYA, SAM] = TEST_ACCOUNTS;
+/** High-entropy admin token as hosted mode demands (fixed for tests). */
+const STRONG_TOKEN = 'q7Vx2LpR9mKc4TnWz8Yb1HsJf6DgUe3A0rNtXkPqBv5=';
 
 /** @param {any} [overrides] */
 async function start(overrides = {}) {
@@ -485,7 +488,7 @@ test('hosted: sandbox per sw_sb, invalid ?seed= falls back to loadSeeds()[0], ot
   /** @type {any[]} */
   const seen = [];
   const s = await start({
-    mode: 'hosted', trustProxy: 0, runConfig: undefined, configForSeed,
+    mode: 'hosted', trustProxy: 0, adminToken: STRONG_TOKEN, runConfig: undefined, configForSeed,
     makeEngine: (cfg) => { seen.push(cfg); return nullEngine; },
   });
   try {
@@ -561,7 +564,7 @@ test('hosted sandbox pool: expires after 2 h idle, keeps at most 500 (oldest go 
 /** Hosted server with a plain config per seed. @param {any} [overrides] */
 function startHosted(overrides = {}) {
   const configForSeed = (seed) => ({ seed, sessionType: 'explore', variant: null, sources: { public: 0, secret: 0 }, active: [], change: null, capture: null, decoys: [] });
-  return start({ mode: 'hosted', trustProxy: 0, runConfig: undefined, configForSeed, ...overrides });
+  return start({ mode: 'hosted', trustProxy: 0, adminToken: STRONG_TOKEN, runConfig: undefined, configForSeed, ...overrides });
 }
 
 test('hosted: a sw_sid of sandbox A is anonymous in sandbox B and shows no foreign cart', async () => {
@@ -687,18 +690,80 @@ test('sessions per sandbox are capped; anonymous ones go first, logged-in ones s
   } finally { await s.handle.close(); }
 });
 
-test('admin token: wrong tokens of any length answer 401, from the 6th wrong try on 429, the right token always works', async () => {
-  const s = await start({ adminToken: 'tok-123' });
+test('admin token: wrong tokens of any length answer 401; after 5 wrong tries the IP gets 429 for every admin request, even with the right token, until the lock expires', async () => {
+  let t = 1_000_000;
+  const s = await start({ adminToken: 'tok-123', clock: () => t });
   try {
     const c = client(s.base);
+    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' })).status, 200, 'right token before any wrong try');
     assert.equal((await c.get('/api/admin/reports', { authorization: 'x' })).status, 401);
     assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer ' + 'y'.repeat(500) })).status, 401);
     for (let i = 0; i < 3; i++) assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer nope' })).status, 401);
     const r = await c.get('/api/admin/reports', { authorization: 'Bearer nope' });
     assert.deepEqual([r.status, r.json.error], [429, 'too_many_attempts'], 'wrong tries are throttled after the limit');
-    for (let i = 0; i < 3; i++) assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' })).status, 200, 'the right token still works while locked');
-    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer nope' })).status, 429, 'counter-check: wrong tries stay blocked');
+    const locked = await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' });
+    assert.deepEqual([locked.status, locked.json?.error], [429, 'too_many_attempts'], 'fail closed: a locked IP gets 429 even with the right token');
+    t += 10 * 60 * 1000 - 1;
+    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' })).status, 429, 'still locked just before the 10 minutes are over');
+    t += 1;
+    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' })).status, 200, 'after the lock expired the right token works again');
   } finally { await s.handle.close(); }
+});
+
+test('hosted needs a strong admin token (32+ chars, not a repetition); single mode takes any token or none', () => {
+  const configForSeed = (seed) => ({ seed });
+  const hosted = (adminToken) => () => createServer({ mode: 'hosted', configForSeed, trustProxy: 0, adminToken });
+  for (const weak of [undefined, null, '', 'tok-123', 'x'.repeat(31), 'a'.repeat(64), 'ab'.repeat(32), 'abcd1234'.repeat(5), 'abcdefghijk'.repeat(3), 'a'.repeat(31) + 'b', STRONG_TOKEN.slice(0, 31)]) {
+    assert.throws(hosted(weak), /openssl rand -base64 32/, `weak token ${JSON.stringify(weak)} is refused`);
+  }
+  assert.doesNotThrow(hosted(STRONG_TOKEN), 'a random 44-char token starts');
+  assert.doesNotThrow(hosted(STRONG_TOKEN.slice(0, 32)), 'exactly 32 random chars start');
+  const runConfig = { seed: 2601, sessionType: 'explore', variant: null, sources: { public: 0, secret: 0 }, active: [], change: null, capture: null, decoys: [] };
+  for (const tok of [undefined, null, 'tok-123', 'a'.repeat(64)]) {
+    assert.doesNotThrow(() => createServer({ mode: 'single', runConfig, adminToken: tok }), `single mode unchanged for ${JSON.stringify(tok)}`);
+  }
+});
+
+test('route guard (own layer, no path check in front): a guest sandbox refuses every writing method, a normal sandbox does not', async () => {
+  const runConfig = { seed: 2601, sessionType: 'explore', variant: null, sources: { public: 0, secret: 0 }, active: [], change: null, capture: null, decoys: [] };
+  /** @type {any} */
+  const app = createServer({ mode: 'single', runConfig }).app;
+  /** Calls the registered route handler directly, bypassing every middleware (sandbox choice, path checks). */
+  const callRoute = async (method, path, sb, body = {}) => {
+    const layer = app.router.stack.find((l) => l.route && l.route.path === path && l.route.methods[method.toLowerCase()]);
+    assert.ok(layer, `route ${method} ${path} exists`);
+    const res = {
+      locals: { sb, sid: null }, statusCode: 200, body: undefined, cookies: [],
+      status(c) { this.statusCode = c; return this; },
+      json(b) { this.body = b; return this; },
+      cookie(k) { this.cookies.push(k); return this; },
+      on() { return this; },
+    };
+    const handler = layer.route.stack.find((l) => l.method === method.toLowerCase()).handle;
+    await handler({ method, path, body, headers: {}, query: {}, ip: '127.0.0.1' }, res, () => {});
+    return res;
+  };
+  const mk = (guest) => {
+    const sb = createSandbox({ id: guest ? 'guest-x' : 'own-x', seed: 2601, runConfig });
+    sb.engine = nullEngine;
+    sb.pub = sb.id;
+    if (guest) /** @type {any} */ (sb).guest = true;
+    return sb;
+  };
+  const free = CLASSES.find((k) => k.id === 'c06'); // Wed 12:15, future, free spots
+  const writes = [['POST', '/api/cart/items'], ['PATCH', '/api/cart/items/:id'], ['DELETE', '/api/cart/items/:id'], ['PUT', '/api/profile'], ['POST', '/api/auth/login'], ['POST', '/api/reports']];
+  for (const [method, path] of writes) {
+    const g = mk(true);
+    const r = await callRoute(method, path, g, { classId: free.id, spots: 1, email: MAYA.email, password: MAYA.password, text: 'x', path: '/' });
+    assert.deepEqual([method, path, r.statusCode, r.body?.error], [method, path, 429, 'too_many_sandboxes']);
+    assert.deepEqual([g.sessions.size, g.carts.size, r.cookies.length], [0, 0, 0], `${method} ${path}: guest sandbox untouched, no cookie`);
+  }
+  const own = mk(false);
+  const ok = await callRoute('POST', '/api/cart/items', own, { classId: free.id, spots: 1 });
+  assert.equal(ok.statusCode, 200, 'counter-check: the same direct call on a normal sandbox writes');
+  assert.equal(own.carts.size, 1);
+  const read = await callRoute('GET', '/api/classes', mk(true));
+  assert.equal(read.statusCode, 200, 'counter-check: a guest may read');
 });
 
 test('hosted: path case does not matter, /API/... and mixed case never write into the shared guest sandbox', async () => {
@@ -756,14 +821,14 @@ test('single mode: pages and reads never answer 429, however many requests come 
 
 test('trustProxy: hosted refuses to start without it; 0 means the socket address, N hops trust X-Forwarded-For', async () => {
   const configForSeed = (seed) => ({ seed });
-  assert.throws(() => createServer({ mode: 'hosted', configForSeed }), /CODER_PARCOURS_TRUST_PROXY/);
-  assert.doesNotThrow(() => createServer({ mode: 'hosted', configForSeed, trustProxy: 0 }));
+  assert.throws(() => createServer({ mode: 'hosted', configForSeed, adminToken: STRONG_TOKEN }), /CODER_PARCOURS_TRUST_PROXY/);
+  assert.doesNotThrow(() => createServer({ mode: 'hosted', configForSeed, adminToken: STRONG_TOKEN, trustProxy: 0 }));
   const saved = process.env.CODER_PARCOURS_TRUST_PROXY;
   try {
     process.env.CODER_PARCOURS_TRUST_PROXY = '0';
-    assert.doesNotThrow(() => createServer({ mode: 'hosted', configForSeed }), 'env "0" counts as explicit');
+    assert.doesNotThrow(() => createServer({ mode: 'hosted', configForSeed, adminToken: STRONG_TOKEN }), 'env "0" counts as explicit');
     process.env.CODER_PARCOURS_TRUST_PROXY = 'yes';
-    assert.throws(() => createServer({ mode: 'hosted', configForSeed }), /CODER_PARCOURS_TRUST_PROXY/, 'garbage is not explicit');
+    assert.throws(() => createServer({ mode: 'hosted', configForSeed, adminToken: STRONG_TOKEN }), /CODER_PARCOURS_TRUST_PROXY/, 'garbage is not explicit');
   } finally { if (saved === undefined) delete process.env.CODER_PARCOURS_TRUST_PROXY; else process.env.CODER_PARCOURS_TRUST_PROXY = saved; }
   const wrong = (c, ip) => c.get('/api/admin/reports', { authorization: 'Bearer nope', 'x-forwarded-for': ip });
   for (const [trust, secondStatus] of [[false, 429], [1, 401]]) {

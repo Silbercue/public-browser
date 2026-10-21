@@ -57,6 +57,11 @@ function slidingWindow(max, windowMs) {
   };
 }
 
+/** A hosted admin token must be long and random: at least 32 chars, 10+ distinct chars, not a repeated block. */
+export function isStrongAdminToken(t) {
+  return typeof t === 'string' && t.length >= 32 && new Set(t).size >= 10 && !/^([\s\S]+?)\1+$/.test(t);
+}
+
 const COOKIE_BASE = { httpOnly: true, sameSite: /** @type {'lax'} */ ('lax'), path: '/' };
 
 /** @param {string} sid */
@@ -98,16 +103,18 @@ const MSG = {
  * @param {{ mode: 'single'|'hosted', runConfig?: any, configForSeed?: (seed: number) => any,
  *   makeEngine?: (runConfig: any, opts: { sandboxId: string, logEvent: (entry: object) => void }) => any,
  *   eventsFile?: string|null, reportsFile?: string|null, staticDir?: string, adminToken?: string|null,
- *   trustProxy?: number|false, secureCookies?: boolean, limits?: Partial<typeof SERVER_LIMITS> }} opts
+ *   trustProxy?: number|false, secureCookies?: boolean, limits?: Partial<typeof SERVER_LIMITS>, clock?: () => number }} opts
  *   makeEngine is called once per sandbox; logEvent writes an event line with that sandbox's public `sb`.
  *   trustProxy (hop count; 0/false = direct, default env CODER_PARCOURS_TRUST_PROXY) decides where req.ip comes from.
  *   Hosted mode refuses to start unless it is set explicitly (option or env, "0" for direct operation).
  *   secureCookies defaults to true in hosted mode only.
+ *   Hosted mode refuses to start without a strong adminToken (isStrongAdminToken); single mode takes any or none.
+ *   clock (default Date.now) drives the admin lockout; tests inject it.
  */
 export function createServer({
   mode, runConfig, configForSeed, makeEngine = () => nullEngine, eventsFile = null, reportsFile = null, staticDir, adminToken = null,
   trustProxy = /^\d+$/.test(process.env.CODER_PARCOURS_TRUST_PROXY ?? '') ? Number(process.env.CODER_PARCOURS_TRUST_PROXY) : undefined,
-  secureCookies = mode === 'hosted', limits = {},
+  secureCookies = mode === 'hosted', limits = {}, clock = Date.now,
 }) {
   if (mode === 'hosted' && trustProxy === undefined) {
     throw new Error('createServer: hosted mode needs an explicit trust-proxy setting: set CODER_PARCOURS_TRUST_PROXY to the number of reverse proxies in front (or 0 for direct operation).');
@@ -118,6 +125,9 @@ export function createServer({
   if (mode !== 'single' && mode !== 'hosted') throw new Error(`createServer: unknown mode ${mode}`);
   if (mode === 'single' && !runConfig) throw new Error('createServer: single mode needs runConfig');
   if (mode === 'hosted' && typeof configForSeed !== 'function') throw new Error('createServer: hosted mode needs configForSeed');
+  if (mode === 'hosted' && !isStrongAdminToken(adminToken)) {
+    throw new Error('createServer: hosted mode needs a strong admin token (at least 32 random characters). Create one with `openssl rand -base64 32` and pass it via --admin-token-env <VAR> (e.g. CODER_PARCOURS_ADMIN_TOKEN).');
+  }
 
   const fileSize = (file) => (file && existsSync(file) ? statSync(file).size : 0);
   let eventsBytes = fileSize(eventsFile);
@@ -271,11 +281,12 @@ export function createServer({
     res.locals.routeKey = 'GET /api/admin/reports';
     if (!adminToken) return res.status(404).json({ error: 'not_found', message: 'Not found.' });
     const ip = req.ip ?? '';
+    const now = clock();
+    // Fail closed: a locked IP gets 429 for every admin request, right token or not, so the answer never tells a hit.
+    if (adminFails.full(ip, now)) return res.status(429).json({ error: 'too_many_attempts', message: 'Too many wrong tokens. Please wait.' });
     const given = String(req.headers.authorization ?? '');
-    // The right token always gets in (the lockout must not lock the operator out); only wrong tries are throttled.
     if (!timingSafeEqual(tokenHash(given), tokenHash(`Bearer ${adminToken}`))) {
-      if (adminFails.full(ip)) return res.status(429).json({ error: 'too_many_attempts', message: 'Too many wrong tokens. Please wait.' });
-      adminFails.add(ip);
+      adminFails.add(ip, now);
       return res.status(401).json({ error: 'unauthorized', message: 'Wrong token.' });
     }
     res.status(200).type('application/x-ndjson');
