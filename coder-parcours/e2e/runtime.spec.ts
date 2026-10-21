@@ -76,6 +76,25 @@ test.describe('css and clicks with the fixture catalog', () => {
     await expect(page.locator('#out')).toHaveText('booked 2');
   });
 
+  test('a trap click sends no further request after its single beacon', async ({ page }) => {
+    const posts: string[] = [];
+    const others: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().endsWith('/api/metrics')) posts.push(r.postData() ?? '');
+      else if (r.url().includes('/api/')) others.push(r.url());
+    });
+    await page.goto(app.url);
+    await page.click('.s'); // swallowed
+    await expect.poll(() => posts.length).toBe(1);
+    await page.waitForTimeout(600);
+    expect(posts.length, 'no late second post after the swallowed click').toBe(1);
+    await page.click('.s'); // goes through
+    await expect.poll(() => posts.length).toBe(2);
+    await page.waitForTimeout(600);
+    expect(posts.length, 'no late third post after the second click').toBe(2);
+    expect(others, 'the clicks trigger no other API call').toEqual([]);
+  });
+
   test('each click sends exactly one metrics post of the same neutral form, never the event words', async ({ page }) => {
     const posts: string[] = [];
     page.on('request', (r) => { if (r.url().endsWith('/api/metrics')) posts.push(r.postData() ?? ''); });
@@ -186,6 +205,17 @@ test.describe('client api on a throwaway bug', () => {
     expect(await status()).toBe(200);
     await page.setViewportSize({ width: 390, height: 800 });
     expect(await status()).toBe(503);
+  });
+
+  test('fetch hook never touches the metrics endpoint, and sees the url of a Request object', async ({ page }) => {
+    await page.goto(app.url);
+    await runTest(page, '', `api.fetch(function (url) { if (url.indexOf('/api/') >= 0) return { status: 503, body: { error: 'x' } }; });`);
+    const metrics = await page.evaluate(async () => (await fetch('/api/metrics', { method: 'POST', body: '{"b":"00000000","e":"00000000"}' })).status);
+    expect(metrics, 'the beacon endpoint is passed through untouched').toBe(204);
+    const asString = await page.evaluate(async () => (await fetch('/api/classes')).status);
+    expect(asString, 'positive: another url is faked by the same hook').toBe(503);
+    const asRequest = await page.evaluate(async () => (await fetch(new Request('/api/classes'))).status);
+    expect(asRequest, 'a Request object is matched by its url').toBe(503);
   });
 
   test('beacon accepts only the two events', async ({ page }) => {
