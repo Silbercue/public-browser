@@ -2,7 +2,7 @@
 // Gleiche Zerlegungsregeln wie cliCommandAllowed in test-hardest/blind-run.mjs, aber mit mehreren erlaubten
 // Befehlskoepfen (z. B. agent-browser plus mkdir/cp/sleep fuer den dogfood-Ablauf, run-my-test in capture).
 // blind-run.mjs exportiert seine Zerleger- und Parser-Helfer nicht und wird nicht geaendert, daher hier eigen.
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 
 export const READ_DENY_REASON = 'Read is limited to screenshots inside the session folder.';
@@ -118,6 +118,21 @@ export function readAllowed(filePath, readRoot) {
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
+/**
+ * Write nur mit Ziel im Sitzungsordner (writeRoot): relative Pfade gelten ab writeRoot, `..` und Symlinks nach aussen
+ * (auch ein hängender Symlink als Ziel) zaehlen als ausserhalb.
+ * @param {unknown} filePath
+ * @param {string | undefined} writeRoot
+ */
+export function writeAllowed(filePath, writeRoot) {
+  if (typeof filePath !== 'string' || !filePath || typeof writeRoot !== 'string' || !writeRoot) return false;
+  try {
+    const abs = resolve(writeRoot, filePath);
+    if (lstatSync(abs).isSymbolicLink() && !existsSync(abs)) return false;
+  } catch { /* Ziel existiert noch nicht: pathInside prueft die Elternkette */ }
+  return pathInside(filePath, writeRoot);
+}
+
 const resultText = (content) => {
   if (typeof content === 'string') return content.slice(0, 300);
   if (Array.isArray(content)) {
@@ -156,12 +171,13 @@ const denied = (c) => /denied|not allowed|permission|blocked/i.test(c.result_tex
 /**
  * Sperr-Nachweis einer Sitzung. Eigen sind Write, MCP-Aufrufe mit mcpPrefix, Bash-Zeilen nach commandAllowedAny
  * und (mit readRoot) Read-Aufrufe nach readAllowed. Ohne readRoot zaehlt Read wie jedes fremde Werkzeug.
+ * Mit writeRoot zaehlt Write nur mit Ziel im Sitzungsordner (writeAllowed) als eigen, sonst wie ein fremdes Werkzeug.
  * @param {string} jsonlText
- * @param {{ mcpPrefix?: string, heads?: string[], readRoot?: string }} opts
+ * @param {{ mcpPrefix?: string, heads?: string[], readRoot?: string, writeRoot?: string }} opts
  */
-export function toolLockMulti(jsonlText, { mcpPrefix, heads = [], readRoot } = {}) {
+export function toolLockMulti(jsonlText, { mcpPrefix, heads = [], readRoot, writeRoot } = {}) {
   const calls = parseCalls(jsonlText);
-  const own = (c) => c.name === 'Write'
+  const own = (c) => (c.name === 'Write' && (!writeRoot || writeAllowed(c.input?.file_path, writeRoot)))
     || (Boolean(mcpPrefix) && c.name.startsWith(mcpPrefix))
     || (c.name === 'Bash' && commandAllowedAny(c.input?.command, heads, readRoot));
   const isRead = (c) => Boolean(readRoot) && c.name === 'Read';

@@ -274,3 +274,36 @@ test('guard-hook: mkdir/cp mit Pfad ausserhalb verweigert, innerhalb erlaubt', (
   assert.equal(hook({ tool_name: 'Bash', tool_input: { command: 'mkdir -p out' } }, 'agent-browser,mkdir,cp', rundir), null);
   assert.equal(hook({ tool_name: 'Bash', tool_input: { command: 'cp /etc/hosts out' } }, 'agent-browser,mkdir,cp', rundir).permissionDecision, 'deny');
 });
+
+// --- Write nur im Sitzungsordner ---
+
+const writeJsonl = (path, result = 'File created') => [A('2026-10-21T10:00:00Z', 'w', 'Write', { file_path: path }), U('2026-10-21T10:00:01Z', 'w', result)].join('\n');
+
+test('toolLockMulti mit writeRoot: Write ausserhalb ist Verstoss, Write innen (absolut und relativ) nicht', () => {
+  const rundir = makeRundir();
+  const outside = mkdtempSync(join(tmpdir(), 'cp-guard-out-'));
+  const lock = (path) => toolLockMulti(writeJsonl(path), { mcpPrefix: 'mcp__pb__', writeRoot: rundir });
+  assert.deepEqual(lock(join(outside, 'x.txt')).non_mcp_executed, ['Write'], 'absolut ausserhalb');
+  assert.deepEqual(lock(join(rundir, 'report.json')).non_mcp_executed, [], 'innen absolut (Gegenprobe)');
+  assert.deepEqual(lock('report.json').non_mcp_executed, [], 'innen relativ (Gegenprobe)');
+  assert.deepEqual(lock(join(rundir, 'sub', 'deep', 'a.txt')).non_mcp_executed, [], 'neue Unterordner innen (Gegenprobe)');
+  // abgelehntes Write ausserhalb zaehlt als Versuch, nicht als Ausfuehrung
+  const denied = toolLockMulti(writeJsonl(join(outside, 'x.txt'), 'Permission denied'), { mcpPrefix: 'mcp__pb__', writeRoot: rundir });
+  assert.deepEqual(denied.non_mcp_executed, []);
+  assert.equal(denied.bash_attempted, 1);
+});
+
+test('toolLockMulti mit writeRoot: ../-Ausbruch und Symlinks nach aussen sind Verstoesse', () => {
+  const rundir = makeRundir();
+  const outside = mkdtempSync(join(tmpdir(), 'cp-guard-out-'));
+  symlinkSync(outside, join(rundir, 'link'));
+  symlinkSync(join(outside, 'nothing-yet'), join(rundir, 'dangling'));
+  const lock = (path) => toolLockMulti(writeJsonl(path), { mcpPrefix: 'mcp__pb__', writeRoot: rundir }).non_mcp_executed;
+  assert.deepEqual(lock(join(rundir, '..', 'escape.txt')), ['Write'], '../');
+  assert.deepEqual(lock('../escape.txt'), ['Write'], 'relatives ../');
+  assert.deepEqual(lock(join(rundir, 'sub', '..', '..', 'escape.txt')), ['Write'], 'ueber Unterordner hinaus');
+  assert.deepEqual(lock(join(rundir, 'link', 'x.txt')), ['Write'], 'Symlink-Ordner nach aussen');
+  assert.deepEqual(lock(join(rundir, 'dangling')), ['Write'], 'haengender Symlink als Ziel');
+  assert.deepEqual(lock(join(rundir, 'sub', '..', 'ok.txt')), [], '.. das im Ordner bleibt (Gegenprobe)');
+  assert.deepEqual(lock(undefined), ['Write'], 'ohne file_path');
+});

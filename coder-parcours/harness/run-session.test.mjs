@@ -12,6 +12,7 @@ import { once } from 'node:events';
 import { captureOutsideAccess, runSession } from './run-session.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { toolchainDir } from './participants.mjs';
+import { symlinkSync } from 'node:fs';
 import { registerCpParticipant } from './participants.mjs';
 import { validateSessionResult } from './result-schema.mjs';
 import { listeningPids } from './proc.mjs';
@@ -184,6 +185,7 @@ test('capture: Shim gerufen, reason broken passed, kein Fremdzugriff', async () 
   assert.equal(result.capture.reason, 'broken passed');
   assert.match(result.capture.command, /exit 0$/);
   assert.equal(result.capture.order.length, 3);
+  assert.match(result.capture.salt, /^[0-9a-f]{32}$/, 'salt wird im Ergebnis gespeichert');
   assert.equal(result.harness.integrity.capture_outside_access, false);
   assert.ok(result.harness.flags.includes('--tools Bash,Write'));
   assert.ok(result.harness.flags.includes('--max-turns 80'));
@@ -287,4 +289,89 @@ test('captureOutsideAccess: Treffer je Spur, Gegenproben', () => {
   assert.equal(check('exit 0', `at ${homedir()}/Library/Caches/ms-playwright/x`), false, 'Heimatpfad nur im Protokoll zaehlt nicht');
   assert.equal(check('exit 0', `at ${toolchainDir()}/node_modules/@playwright/test/x.js`), false, 'Werkzeugkette im Protokoll zaehlt nicht');
   assert.equal(check('exit 0', `read ${join(ROOT, 'bugs')}/x`), true, 'Parcours-Pfad im Protokoll');
+});
+
+test('Write ausserhalb des Sitzungsordners: aborted (MCP und CLI), Write innen bleibt ok', async () => {
+  const outside = tmp('cp-rs-wout-');
+  for (const slug of ['fake-mcp', 'fake-cli']) {
+    const target = join(outside, `${slug}.txt`);
+    const { result } = await run({ slug, type: 'explore' }, fakeDeps('writeoutside', { envOverrides: { ...fakeDeps('x').envOverrides, FAKE_CP_MODE: 'writeoutside', FAKE_CP_WRITE_TO: target } }));
+    track(result);
+    assert.equal(result.status, 'aborted', slug);
+    assert.deepEqual(result.harness.tool_lock.non_mcp_executed, ['Write'], slug);
+  }
+  // Gegenprobe: der normale Lauf schreibt report.json im Sitzungsordner und bleibt ok
+  const ok = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok'));
+  track(ok.result);
+  assert.equal(ok.result.status, 'ok');
+  assert.deepEqual(ok.result.harness.tool_lock.non_mcp_executed, []);
+});
+
+test('session.json im Steuerordner veraendert: aborted', async () => {
+  const { result } = await run({ slug: 'fake-mcp', type: 'capture' }, fakeDeps('tamper'));
+  track(result);
+  assert.equal(result.status, 'aborted');
+  assert.ok(result.notes.some((n) => n.includes('session.json')), result.notes.join(' | '));
+  // Gegenprobe: der unveraenderte capture-Lauf meldet das nicht
+  const clean = await run({ slug: 'fake-mcp', type: 'capture' }, fakeDeps('capture'));
+  track(clean.result);
+  assert.equal(clean.result.notes.some((n) => n.includes('session.json')), false);
+});
+
+test('Exit != 0 mit vorhandener JSONL und Erfolgs-Ergebnis: aborted mit Exit-Notiz', async () => {
+  const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('exitcode'));
+  track(result);
+  assert.equal(result.status, 'aborted');
+  assert.ok(result.notes.some((n) => n.includes('exited with code 3')), result.notes.join(' | '));
+  assert.ok(result.harness.session_jsonl_sha256, 'JSONL war vorhanden');
+});
+
+test('Modell weicht vom Pin ab: aborted', async () => {
+  const deps = fakeDeps('ok');
+  deps.envOverrides.FAKE_CP_MODEL = 'claude-sonnet-5-5';
+  const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, deps);
+  track(result);
+  assert.equal(result.status, 'aborted');
+  assert.ok(result.notes.some((n) => n.includes('model mismatch')), result.notes.join(' | '));
+});
+
+test('Versions-Mismatch des Teilnehmers: aborted', async () => {
+  registerCpParticipant('fake-badver', {
+    kind: 'mcp', name: 'fake', display: 'Fake MCP', package: 'fake-mcp', version: '1.0.0',
+    command: process.execPath, args: [join(BR_FIX, 'fake-mcp.mjs')], env: () => ({}), skillFiles: [], extraCommands: [], profile_isolation: 'test',
+  });
+  const { result } = await run({ slug: 'fake-badver', type: 'explore' }, fakeDeps('ok'));
+  track(result);
+  assert.equal(result.status, 'aborted');
+  assert.ok(result.notes.some((n) => n.includes('version mismatch')), result.notes.join(' | '));
+});
+
+test('captureOutsideAccess: Toolchain-Umgehung, Steuerordner, Log-Spuren', () => {
+  const resultsRoot = tmp('cp-rs-res-');
+  const secret = tmp('cp-rs-secret-');
+  const ctl = tmp('cp-rs-ctl-');
+  const tc = toolchainDir();
+  const check = (runText, logText = '', extra = {}) => {
+    const dir = tmp('cp-rs-peek-');
+    const testDir = join(dir, 'test');
+    mkdirSync(testDir);
+    writeFileSync(join(testDir, 'RUN'), runText);
+    writeFileSync(join(dir, 'log'), logText);
+    return captureOutsideAccess({ testDir, logFile: join(dir, 'log'), secretDir: secret, resultsRoot, ctl, ...extra });
+  };
+  // Umgehung: Pfad ueber die Werkzeugkette hinaus in geschuetzte Ordner
+  assert.equal(check(`cat ${tc}/../../bugs/x`), true, 'toolchain/../.. im RUN');
+  assert.equal(check(`cat ${tc}/node_modules/../../bugs/x`), true, 'toolchain/node_modules/../.. im RUN');
+  assert.equal(check(`cat ${tc}/package.json`), true, 'Werkzeugkette ausserhalb node_modules im RUN');
+  assert.equal(check(`at ${tc}/node_modules/@playwright/test/x.js:3:4`), false, 'Stacktrace der Bibliothek im RUN (Gegenprobe)');
+  assert.equal(check('exit 0', `at ${tc}/../../bugs/x`), true, 'Umgehung auch im Protokoll');
+  // Steuerordner
+  assert.equal(check(`ls ${ctl}`), true, 'Steuerordner im RUN');
+  assert.equal(check(`ls /tmp/other`), false, 'anderer Pfad (Gegenprobe)');
+  // Spuren im Protokoll
+  assert.equal(check('exit 0', `cat ${secret}/x`), true, 'secretDir im Protokoll');
+  assert.equal(check('exit 0', 'node x --secret-dir y'), true, '--secret-dir im Protokoll');
+  assert.equal(check('exit 0', 'ps -ef'), false, 'ps im Protokoll zaehlt nicht (Gegenprobe: im RUN schon)');
+  assert.equal(check('ps -ef'), true, 'ps im RUN');
+  assert.equal(check('exit 0', `ran in ${ctl}`), false, 'Steuerordner im Protokoll zaehlt nicht (eigener Aufruf)');
 });

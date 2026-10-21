@@ -8,9 +8,13 @@
 //   crash         — Exit 1 sofort, keine JSONL, kein stdout
 //   readruntime   — Werkzeug-Eingabe nennt /assets/runtime.js
 //   resultruntime — Werkzeug-Ergebnis enthaelt RUNTIME_MARKER, die Eingabe nicht
+//   (FAKE_CP_MODEL ersetzt die Modell-ID in der JSONL)
 //   capture       — schreibt test/RUN (eine Abfrage der App, dann `exit 0`) und ruft das Shim run-my-test aus dem PATH
 //   capturepeek   — wie capture, aber RUN liest eine Datei unter coder-parcours/bugs/
 //   hang          — schreibt die JSONL und wartet dann endlos
+//   writeoutside  — wie ok, plus ein Write ausserhalb des Sitzungsordners (Eingabe-Pfad aus FAKE_CP_WRITE_TO)
+//   exitcode      — wie ok (JSONL und Erfolgs-Ergebnis vorhanden), aber Exit 3
+//   tamper        — wie capture, das Shim-Ziel aendert session.json im Steuerordner
 //   lockviolation — JSONL mit einem ausgefuehrten Bash-Befehl ausserhalb der erlaubten Koepfe
 // Mit `--ctl <dir>` (ohne -p) spielt die Datei das Ziel des Shims: haengt eine Zeile an <dir>/run-my-test.log.
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -26,6 +30,7 @@ const CP_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 if (argv.includes('--version')) { console.log('9.9.9 (Fake Claude)'); process.exit(0); }
 if (arg('--ctl') && !argv.includes('-p')) {
   appendFileSync(join(arg('--ctl'), 'run-my-test.log'), `fake run-my-test --ctl ${arg('--ctl')}\n`);
+  if (process.env.FAKE_CP_MODE === 'tamper') appendFileSync(join(arg('--ctl'), 'session.json'), ' \n');
   console.log('exit code: 0');
   process.exit(0);
 }
@@ -43,7 +48,7 @@ const appUrl = (prompt.match(/https?:\/\/[^\s]+?\//) || ['http://127.0.0.1/'])[0
 const servers = Object.keys(JSON.parse(readFileSync(mcpConfig, 'utf8')).mcpServers || {});
 const cli = servers.length ? null : (argv.map((a) => /^Bash\(([^:]+):\*\)$/.exec(a)).find((m) => m && m[1] !== 'run-my-test') || [])[1];
 
-const model = 'claude-opus-5-20260514';
+const model = process.env.FAKE_CP_MODEL || 'claude-opus-5-20260514';
 let n = 0;
 const t = () => new Date(Date.now() + (n++) * 100).toISOString();
 const lines = [];
@@ -72,14 +77,15 @@ if (mode === 'readruntime') browse({ url: `${appUrl}assets/runtime.js` }, 'ok');
 else if (mode === 'resultruntime') browse({ url: appUrl }, [{ type: 'text', text: `network: ${RUNTIME_MARKER}) {...}` }]);
 else browse({ url: appUrl }, 'page loaded');
 
+if (mode === 'writeoutside') call('Write', { file_path: process.env.FAKE_CP_WRITE_TO, content: 'x' }, 'File created');
 if (mode === 'lockviolation') call('Bash', { command: 'cat /etc/hosts' }, '127.0.0.1 localhost');
 
-if (mode === 'capture' || mode === 'capturepeek') {
+if (mode === 'capture' || mode === 'capturepeek' || mode === 'tamper') {
   const testDir = join(rundir, 'test');
   mkdirSync(testDir, { recursive: true });
   // Der Test fragt die App einmal ab (die Nachpruefung zaehlt Anfragen) und endet mit exit 0.
   const touch = 'curl -s -o /dev/null "${APP_URL}api/classes"';
-  const run = mode === 'capture' ? `${touch}; exit 0` : `cat "${join(realpathSync(CP_ROOT), 'bugs', 'README.md')}" > /dev/null && ${touch}; exit 0`;
+  const run = mode !== 'capturepeek' ? `${touch}; exit 0` : `cat "${join(realpathSync(CP_ROOT), 'bugs', 'README.md')}" > /dev/null && ${touch}; exit 0`;
   writeFileSync(join(testDir, 'RUN'), `${run}\n`);
   call('Write', { file_path: join(testDir, 'RUN'), content: run }, 'written');
   const r = spawnSync('run-my-test', [], { encoding: 'utf8', env: process.env });
@@ -102,5 +108,5 @@ if (mode === 'hang') {
   const maxTurns = mode === 'maxturns';
   console.log(JSON.stringify({ type: 'result', subtype: maxTurns ? 'error_max_turns' : 'success', is_error: maxTurns,
     session_id: sessionId, num_turns: 3, total_cost_usd: 0.5, usage, result: 'done' }));
-  process.exit(maxTurns ? 1 : 0);
+  process.exit(maxTurns ? 1 : mode === 'exitcode' ? 3 : 0);
 }

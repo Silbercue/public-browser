@@ -12,7 +12,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync,
   rmSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { MODEL_PIN, cliCallsFromJsonl, isAlive, jsonlSlugFor, killGroup, mcpCallsFromJsonl, probeServerInfo,
@@ -75,20 +75,28 @@ const realOr = (p) => { try { return realpathSync(p); } catch { return p; } };
  * `runtime.js`, RUNTIME_MARKER. Nur in den Dateien des Agenten (RUN, testDir) zusaetzlich: Heimatpfad und
  * `ps`-Aufrufe (im Protokoll stehen Stacktraces und Browser-Cache-Pfade unter dem Heimatordner).
  * Pfade der Werkzeugkette (liegt unter coder-parcours/, taucht in Playwright-Stacktraces auf) werden vorher entfernt.
- * @param {{ testDir: string, logFile: string, secretDir?: string|null, resultsRoot?: string, home?: string }} o
+ * @param {{ testDir: string, logFile: string, secretDir?: string|null, resultsRoot?: string, ctl?: string|null, home?: string }} o
  */
-export function captureOutsideAccess({ testDir, logFile, secretDir = null, resultsRoot = RESULTS_ROOT, home = homedir() }) {
+export function captureOutsideAccess({ testDir, logFile, secretDir = null, resultsRoot = RESULTS_ROOT, ctl = null, home = homedir() }) {
   const needles = [realOr(CP_ROOT), CP_ROOT, realOr(resultsRoot), resultsRoot, '--secret-dir', 'runtime.js', RUNTIME_MARKER];
   if (secretDir) needles.push(secretDir, realOr(secretDir));
-  const strip = [realOr(toolchainDir()), toolchainDir()];
-  const read = (f) => { let text = readFileSync(f, 'utf8'); for (const s of strip) text = text.split(s).join(''); return text; };
-  const hit = (text) => needles.some((n) => n && text.includes(n));
+  // Der Steuerordner steht im Shim, nicht im Protokoll (dort nennt ihn der eigene Aufruf): nur in Agenten-Dateien gesucht.
+  const agentNeedles = ctl ? [...needles, ctl, realOr(ctl)] : needles;
+  const tc = [realOr(toolchainDir()), toolchainDir()];
+  // Absolute Pfad-Tokens vorher normalisieren, damit `<toolchain>/../../<geschuetzt>` nicht als Werkzeugkette durchgeht.
+  const normalize = (text) => text.replace(/(^|[\s"'`=(])(\/[^\s"'`;|&()<>]*)/g,
+    (m, pre, tok) => (/\/\.\.?(\/|$)/.test(tok) ? pre + resolve(tok) : m));
+  // Agenten-Dateien: nur der exakte Praefix <toolchain>/node_modules/ ist Werkzeugkette (Stacktraces der Testbibliothek).
+  const readAgent = (f) => { let text = normalize(readFileSync(f, 'utf8')); for (const t of tc) text = text.split(`${t}/node_modules/`).join(''); return text; };
+  // Protokoll von run-my-test: der Werkzeugkette-Ordner insgesamt.
+  const readLog = (f) => { let text = normalize(readFileSync(f, 'utf8')); for (const t of tc) text = text.split(t).join(''); return text; };
+  const hitIn = (list) => (text) => list.some((n) => n && text.includes(n));
   const PS = /(^|[\s;&|(`'"])ps(\s|$)/m;
   for (const f of filesUnder(testDir)) {
-    const text = read(f);
-    if (hit(text) || (home && home.length > 1 && text.includes(home)) || PS.test(text)) return true;
+    const text = readAgent(f);
+    if (hitIn(agentNeedles)(text) || (home && home.length > 1 && text.includes(home)) || PS.test(text)) return true;
   }
-  return existsSync(logFile) ? hit(read(logFile)) : false;
+  return existsSync(logFile) ? hitIn(needles)(readLog(logFile)) : false;
 }
 
 /** Ersetzt jedes Vorkommen des Heimatpfads durch ~. */
@@ -195,7 +203,9 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   const ctl = mkdtempSync(join(tmpdir(), 'cp-ctl-'));
   const testDir = join(rundir, 'test');
   if (type === 'capture') mkdirSync(testDir);
-  writeFileSync(join(ctl, 'session.json'), `${JSON.stringify({ seed, testDir, baselinePids })}\n`);
+  const sessionJson = `${JSON.stringify({ seed, testDir, baselinePids })}\n`;
+  writeFileSync(join(ctl, 'session.json'), sessionJson);
+  const sessionJsonSha = createHash('sha256').update(sessionJson).digest('hex');
   const eventsFile = join(ctl, 'events.jsonl');
   const logFile = join(ctl, 'run-my-test.log');
   const reportPath = join(rundir, 'report.json');
@@ -320,6 +330,11 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
       try { result = JSON.parse(res.stdout); } catch { result = null; }
       if (res.error) abort(`claude spawn failed: ${res.error.message}`);
 
+      // session.json steuert run-my-test (testDir, baselinePids): eine Aenderung durch die Sitzung bricht sie ab.
+      let sessionJsonNow = null;
+      try { sessionJsonNow = createHash('sha256').update(readFileSync(join(ctl, 'session.json'))).digest('hex'); } catch { /* fehlt: Abweichung */ }
+      if (sessionJsonNow !== sessionJsonSha) abort('session.json in the control folder was changed or removed during the session');
+
       // Schritt 5: Protokoll auswerten.
       const jsonlPath = join(projectsDir, jsonlSlugFor(rundir), `${sessionId}.jsonl`);
       jsonlText = existsSync(jsonlPath) ? readFileSync(jsonlPath, 'utf8') : '';
@@ -329,12 +344,12 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
       if (jsonlText && !model) abort('model not found in session JSONL');
       else if (model && !model.startsWith(MODEL_PIN)) abort(`model mismatch: ${model} (pinned ${MODEL_PIN})`);
       calls = isCli ? cliCallsFromJsonl(jsonlText, p.cli) : mcpCallsFromJsonl(jsonlText, mcpPrefix);
-      toolLock = toolLockMulti(jsonlText, { mcpPrefix: isCli ? undefined : mcpPrefix, heads: setup.heads, readRoot: setup.read_root ?? undefined });
+      toolLock = toolLockMulti(jsonlText, { mcpPrefix: isCli ? undefined : mcpPrefix, heads: setup.heads, readRoot: setup.read_root ?? undefined, writeRoot: rundir });
       if (toolLock.non_mcp_executed.length) abort(`fairness violated, tools outside the lock executed: ${toolLock.non_mcp_executed.join(', ')}`);
       const nonChrome = [...browsersSeen].filter((b) => b !== base.chromeBin);
       if (nonChrome.length) abort(`non-Google-Chrome browser process seen: ${nonChrome.join(', ')}`);
       integrity.read_bug_script = readsBugScript(jsonlText);
-      if (type === 'capture') integrity.capture_outside_access = captureOutsideAccess({ testDir, logFile, secretDir, resultsRoot: deps.resultsRoot ?? RESULTS_ROOT });
+      if (type === 'capture') integrity.capture_outside_access = captureOutsideAccess({ testDir, logFile, secretDir, ctl, resultsRoot: deps.resultsRoot ?? RESULTS_ROOT });
 
       // Schritt 7 (Teil): Token aus dem Mess-Skript, Kosten aus total_cost_usd.
       if (jsonlText) {
