@@ -5,6 +5,8 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "vite build --config app/vite.config.ts",
+    "start": "./start.sh",
+    "start:hosted": "node server/start.mjs --hosted --port ${PORT:-8080} --reports data/reports.jsonl --admin-token-env CODER_PARCOURS_ADMIN_TOKEN",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test:unit": "node --test \"catalog/**/*.test.mjs\" \"server/**/*.test.mjs\" \"harness/**/*.test.mjs\"",
     "e2e": "npm run build && playwright test -c e2e/playwright.config.ts"
