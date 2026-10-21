@@ -1,0 +1,82 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { importHumanReports } from './human-import.mjs';
+import { loadCatalog } from '../catalog/load.mjs';
+import { buildRunConfig, runConfigSha } from './seed.mjs';
+import { validateSessionResult } from './result-schema.mjs';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const REPORTS = join(ROOT, 'fixtures', 'grader', 'human-reports.jsonl');
+const cat = () => loadCatalog({ publicDir: 'fixtures/bugs' });
+
+function setup(gitCode = 0) {
+  const root = mkdtempSync(join(tmpdir(), 'cp-human-'));
+  const gitCalls = [];
+  const errs = [];
+  const deps = {
+    resultsRoot: root,
+    loadCatalog: cat,
+    git: async (args) => { gitCalls.push(args); return { code: gitCode }; },
+    stderr: (l) => errs.push(l),
+  };
+  return { root, deps, gitCalls, errs, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+test('two testers give two session files with normalized names in the round folder', async () => {
+  const { root, deps, gitCalls, errs, cleanup } = setup(0);
+  const paths = await importHumanReports({ reportsJsonl: REPORTS, round: 'r1' }, deps);
+  const dir = join(root, 'r1', 'sessions');
+  assert.deepEqual(readdirSync(dir).sort(), ['human-anna-m-ller-explore-seed2601.json', 'human-x-explore-seed2601.json']);
+  assert.deepEqual([...paths].sort(), readdirSync(dir).sort().map((n) => join(dir, n)));
+  const x = JSON.parse(readFileSync(join(dir, 'human-x-explore-seed2601.json'), 'utf8'));
+  assert.deepEqual(validateSessionResult(x), []);
+  assert.equal(x.participant.kind, 'human');
+  assert.equal(x.participant.slug, 'human-x');
+  const expected = buildRunConfig({ seed: 2601, sessionType: 'explore', catalog: await cat() });
+  assert.deepEqual(x.session.run_config, expected);
+  assert.equal(x.session.run_config_sha256, runConfigSha(expected));
+  assert.equal(x.session.hosted_commit, 'abc1234');
+  const f = x.report.normalized.findings;
+  assert.equal(f.length, 2);
+  assert.equal(f[0].viewport, 'phone');
+  assert.equal(f[1].viewport, 'desktop');
+  assert.equal(f[0].where, '/cart');
+  assert.equal(f[0].title.length, 80);
+  assert.ok(f[0].actual.startsWith(f[0].title) && f[0].actual.length > 80);
+  assert.equal(f[1].title, 'Second report from x');
+  assert.deepEqual(x.events, []);
+  assert.deepEqual(gitCalls[0], ['diff', '--quiet', 'abc1234', 'HEAD', '--',
+    'coder-parcours/bugs', 'coder-parcours/catalog', 'coder-parcours/harness/seed.mjs', 'coder-parcours/harness/seeds.json']);
+  assert.deepEqual(x.notes, []);
+  assert.deepEqual(errs, []);
+  const anna = JSON.parse(readFileSync(join(dir, 'human-anna-m-ller-explore-seed2601.json'), 'utf8'));
+  assert.equal(anna.report.normalized.findings[0].viewport, 'tablet');
+  cleanup();
+});
+
+test('changed catalog since the hosted commit gives a warning in notes and on stderr', async () => {
+  const { root, deps, errs, cleanup } = setup(1);
+  await importHumanReports({ reportsJsonl: REPORTS, round: 'r1' }, deps);
+  const x = JSON.parse(readFileSync(join(root, 'r1', 'sessions', 'human-x-explore-seed2601.json'), 'utf8'));
+  assert.equal(x.notes.length, 1);
+  assert.match(x.notes[0], /catalog changed/i);
+  assert.ok(errs.some((l) => /catalog changed/i.test(l)));
+  assert.deepEqual(validateSessionResult(x), []);
+  cleanup();
+});
+
+test('missing commit gives a warning and hosted_commit null', async () => {
+  const { root, deps, gitCalls, cleanup } = setup(0);
+  const file = join(root, 'reports.jsonl');
+  writeFileSync(file, JSON.stringify({ t: '2026-10-21T10:00:00.000Z', sb: 's', seed: 2602, commit: null, text: 'x', path: '/', viewportPx: 390, tester: 'bo' }) + '\n');
+  await importHumanReports({ reportsJsonl: file, round: 'r1' }, deps);
+  const s = JSON.parse(readFileSync(join(root, 'r1', 'sessions', 'human-bo-explore-seed2602.json'), 'utf8'));
+  assert.equal(s.session.hosted_commit, null);
+  assert.match(s.notes[0], /commit/i);
+  assert.equal(gitCalls.length, 0);
+  cleanup();
+});

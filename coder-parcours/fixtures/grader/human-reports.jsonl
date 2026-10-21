@@ -1,0 +1,3 @@
+{"t":"2026-10-21T10:00:00.000Z","sb":"sb1","seed":2601,"commit":"abc1234","text":"The cart buttons are really tiny on the phone layout and I kept missing them when I tried to remove a class.","path":"/cart","viewportPx":390,"tester":"../x"}
+{"t":"2026-10-21T10:05:00.000Z","sb":"sb1","seed":2601,"commit":"abc1234","text":"Second report from x","path":"/schedule","viewportPx":1440,"tester":"../x"}
+{"t":"2026-10-21T10:07:00.000Z","sb":"sb2","seed":2601,"commit":"abc1234","text":"Profile save does nothing","path":"/profile","viewportPx":768,"tester":"Anna Müller"}

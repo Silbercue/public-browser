@@ -14,3 +14,4 @@ export interface BlindRunDeps {
 
 export function defaultDeps(): BlindRunDeps;
 export function scrubProviderKeys(env: Record<string, string | undefined>): Record<string, string | undefined>;
+export const MODEL_PIN: string;

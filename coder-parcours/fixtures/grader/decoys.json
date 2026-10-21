@@ -1,0 +1,4 @@
+[
+  { "id": "D01", "station": "cart", "title": "Fixture decoy one", "grader": "Fixture decoy one." },
+  { "id": "D02", "station": "profile", "title": "Fixture decoy two", "grader": "Fixture decoy two.", "conflicts": ["B06"] }
+]
