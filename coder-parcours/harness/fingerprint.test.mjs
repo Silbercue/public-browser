@@ -71,17 +71,53 @@ test('Testdateien unter bugs/public zaehlen nicht zum Katalog', () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('fehlende Datei ergibt null, auch bei leerem bugs/public', () => {
+test('fehlende Datei ergibt null (Pruefer-Prompt, leerer Auftragsordner) bzw. Marker "missing" im Katalog', () => {
   const root = tree();
   try {
     rmSync(join(root, 'harness/grader-prompt.md'));
-    rmSync(join(root, 'catalog/decoys.json'));
     const fp = fingerprint({ root });
     assert.equal(fp.grader_prompt_sha256, null);
-    assert.equal(fp.catalog_sha256, null);
+    assert.match(fp.catalog_sha256, /^[0-9a-f]{64}$/);
     assert.match(fp.prompts_sha256, /^[0-9a-f]{64}$/);
     rmSync(join(root, 'harness/prompts'), { recursive: true });
     assert.equal(fingerprint({ root }).prompts_sha256, null);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('fehlendes decoys.json/seeds.json: Katalogaenderungen unter bugs/public bleiben erkennbar, Fehlen selbst ist erkennbar', () => {
+  const root = tree();
+  try {
+    const full = fingerprint({ root });
+    rmSync(join(root, 'catalog/decoys.json'));
+    rmSync(join(root, 'harness/seeds.json'));
+    const before = fingerprint({ root });
+    assert.match(before.catalog_sha256, /^[0-9a-f]{64}$/);
+    assert.notEqual(before.catalog_sha256, full.catalog_sha256);
+    writeFileSync(join(root, 'bugs/public/beta.mjs'), 'export default 3;');
+    const after = fingerprint({ root });
+    assert.notEqual(after.catalog_sha256, before.catalog_sha256);
+    // leeres bugs/public mit fehlenden Dateien: ebenfalls ein Wert, kein null
+    rmSync(join(root, 'bugs/public'), { recursive: true });
+    assert.match(fingerprint({ root }).catalog_sha256, /^[0-9a-f]{64}$/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('secret_sha256: Pruefsumme von secret/sealed.bin, "missing" ohne Datei, Neuversiegeln aendert nur dieses Feld', () => {
+  const root = tree();
+  try {
+    const none = fingerprint({ root });
+    assert.equal(none.secret_sha256, 'missing');
+    mkdirSync(join(root, 'secret'));
+    writeFileSync(join(root, 'secret/sealed.bin'), 'one');
+    const one = fingerprint({ root });
+    assert.match(one.secret_sha256, /^[0-9a-f]{64}$/);
+    writeFileSync(join(root, 'secret/sealed.bin'), 'two');
+    const two = fingerprint({ root });
+    assert.notEqual(two.secret_sha256, one.secret_sha256);
+    for (const k of ['grader_prompt_sha256', 'prompts_sha256', 'catalog_sha256', 'participants']) assert.deepEqual(two[k], one[k], k);
+    assert.equal(compareFingerprints(one, two).ok, false);
+    assert.equal(compareFingerprints(one, two).fields.secret_sha256, 'changed');
+    assert.ok(!JSON.stringify(two).includes('sealed'));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

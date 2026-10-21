@@ -23,7 +23,8 @@ function readOrNull(root, rel) {
 }
 
 /**
- * sha256 ueber die sortierten Zeilen `<relPfad>\0<sha256 der Datei>\n`; null, wenn eine Datei fehlt oder die Liste leer ist.
+ * sha256 ueber die sortierten Zeilen `<relPfad>\0<sha256 der Datei>\n`; eine fehlende Datei zaehlt als Marker "missing"
+ * (die uebrigen Dateien bleiben erkennbar); null nur bei leerer Liste.
  * @param {string} root
  * @param {string[]} rels
  */
@@ -32,8 +33,7 @@ function treeSha(root, rels) {
   const lines = [];
   for (const rel of rels) {
     const buf = readOrNull(root, rel);
-    if (!buf) return null;
-    lines.push(`${rel}\0${sha(buf)}\n`);
+    lines.push(`${rel}\0${buf ? sha(buf) : 'missing'}\n`);
   }
   return sha(lines.sort().join(''));
 }
@@ -71,7 +71,8 @@ export function fingerprint({ root = CP_ROOT } = {}) {
   return {
     grader_prompt_sha256: grader ? sha(grader) : null,
     prompts_sha256: treeSha(root, listFiles(root, 'harness/prompts', /\.md$/)),
-    catalog_sha256: listFiles(root, 'bugs/public', /\.mjs$/).length ? treeSha(root, catalogFiles) : null,
+    catalog_sha256: treeSha(root, catalogFiles),
+    secret_sha256: (() => { const b = readOrNull(root, 'secret/sealed.bin'); return b ? sha(b) : 'missing'; })(),
     participants: participantShas(),
     budgets: JSON.parse(JSON.stringify(BUDGETS)),
   };

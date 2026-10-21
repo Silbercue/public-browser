@@ -61,7 +61,9 @@ test('aggregate: Kennzahlen je Teilnehmer mit medianRange und x/n', () => {
   const pb = sb.participants.pb;
   assert.deepEqual(pb.change, { correct: 1, n: 2, false_works: 1 });
   assert.deepEqual(pb.hit_rate, { median: 0.375, min: 0.25, max: 0.5, n: 2 });
-  assert.deepEqual(pb.tokens, { median: 750, min: 500, max: 3000, n: 4 });
+  assert.deepEqual(pb.cost.explore.tokens, { median: 2000, min: 1000, max: 3000, n: 2 });
+  assert.deepEqual(pb.cost.capture.tokens, { median: 500, min: 500, max: 500, n: 2 });
+  assert.deepEqual(pb.cost.capture.calls, { median: 10, min: 10, max: 10, n: 2 });
   assert.deepEqual(pb.login, { success: 1, n: 2 });
   assert.deepEqual(pb.logins, { median: 3, min: 2, max: 4, n: 2 });
   assert.deepEqual(pb.capture, { valid: 1, n: 2 });
@@ -119,4 +121,41 @@ test('renderScoreboard: alphabetisch, Menschenzeile, offene Funde ausgewiesen, k
 test('Menschen-Sitzung ohne Kosten bricht die Tafel nicht (cost null)', () => {
   const md = renderScoreboard(aggregate([human('anna', 1, ['B1'])]));
   assert.match(md, /Human/);
+});
+
+const graded = (r, model, sha = 'p1') => ({ ...r, grading: { model, prompt_sha256: sha, usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0 }, matches: [] } });
+
+test('aggregate: verschiedene Pruefer-Modelle oder Pruefer-Prompts werfen mit Wert und Datei; n/a-Eintraege zaehlen nicht', () => {
+  assert.throws(() => aggregate([graded(explore('pb', 1), 'sonnet-a'), graded(explore('aa', 2), 'sonnet-b')]), (/** @type {any} */ e) => {
+    assert.match(e.message, /grader model/);
+    assert.match(e.message, /sonnet-a: pb-explore-seed1\.json/);
+    assert.match(e.message, /sonnet-b: aa-explore-seed2\.json/);
+    return true;
+  });
+  assert.throws(() => aggregate([graded(explore('pb', 1), 'sonnet-a', 'p1'), graded(explore('aa', 2), 'sonnet-a', 'p2')]), /grader prompt checksum/);
+  const ok = aggregate([graded(explore('pb', 1), 'sonnet-a'), graded(explore('aa', 2), 'sonnet-a'), graded(capture('pb', 1, true), 'n/a (capture session)', 'other'), explore('aa', 3)]);
+  assert.deepEqual(ok.grader, { model: 'sonnet-a', prompt_sha256: 'p1' });
+  assert.match(renderScoreboard(ok), /Grader model: sonnet-a/);
+});
+
+test('aggregate: zwei Versionen desselben Teilnehmers werfen, verschiedene Teilnehmer mit eigener Version nicht', () => {
+  const v = (r, version) => ({ ...r, participant: { ...r.participant, version } });
+  assert.throws(() => aggregate([v(explore('pb', 1), '3.0.0'), v(explore('pb', 2), '3.0.1')]), (/** @type {any} */ e) => {
+    assert.match(e.message, /participant pb/);
+    assert.match(e.message, /3\.0\.0: pb-explore-seed1\.json/);
+    assert.match(e.message, /3\.0\.1: pb-explore-seed2\.json/);
+    return true;
+  });
+  const ok = aggregate([v(explore('pb', 1), '3.0.0'), v(explore('pb', 2), '3.0.0'), v(explore('aa', 1), '1.0.0')]);
+  assert.equal(ok.participants.pb.version, '3.0.0');
+  assert.equal(ok.participants.aa.version, '1.0.0');
+});
+
+test('renderScoreboard: Kosten getrennt nach explore und capture, ohne gemeinsamen Median', () => {
+  const md = renderScoreboard(aggregate([explore('pb', 1, { tokens: 1000 }), explore('pb', 2, { tokens: 3000 }), capture('pb', 1, true)]));
+  const ex = md.split('## Cost, explore sessions')[1].split('##')[0];
+  const cp = md.split('## Cost, capture sessions')[1].split('##')[0];
+  assert.match(ex, /2000 \(1000.3000, n=2\)/);
+  assert.match(cp, /500 \(500.500, n=1\)/);
+  assert.ok(!md.includes('1000 (500'));
 });

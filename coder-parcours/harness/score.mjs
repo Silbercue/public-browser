@@ -49,6 +49,48 @@ function checkModels(graded) {
 }
 
 /**
+ * Pruefer-Modell und Pruefer-Prompt-Pruefsumme muessen ueber alle echt bewerteten Sitzungen gleich sein
+ * (Eintraege "n/a ..." und Sitzungen ohne grading zaehlen nicht).
+ * @param {any[]} graded
+ */
+function checkGrader(graded) {
+  const real = graded.filter((r) => r.grading && typeof r.grading.model === 'string' && !r.grading.model.startsWith('n/a'));
+  /** @type {Record<string, string|null>} */
+  const out = {};
+  for (const [field, label] of [['model', 'grader model'], ['prompt_sha256', 'grader prompt checksum']]) {
+    /** @type {Map<string,string[]>} */
+    const by = new Map();
+    for (const r of real) by.set(String(r.grading[field] ?? 'unknown'), [...(by.get(String(r.grading[field] ?? 'unknown')) ?? []), sessionFileOf(r)]);
+    if (by.size > 1) {
+      const lines = [...by].map(([v, files]) => `${v}: ${files.join(', ')}`);
+      throw new Error(`score: more than one ${label} among graded sessions (round not comparable):\n${lines.join('\n')}`);
+    }
+    out[field] = [...by.keys()][0] ?? null;
+  }
+  return { model: out.model, prompt_sha256: out.prompt_sha256 };
+}
+
+/** Teilnehmer-Version je slug muss ueber alle Agenten-Sitzungen gleich sein. @param {any[]} agents */
+function checkVersions(agents) {
+  /** @type {Record<string,string>} */
+  const out = {};
+  for (const slug of [...new Set(agents.map((r) => r.participant.slug))].sort()) {
+    /** @type {Map<string,string[]>} */
+    const by = new Map();
+    for (const r of agents.filter((a) => a.participant.slug === slug)) {
+      const v = String(r.participant.version ?? 'unknown');
+      by.set(v, [...(by.get(v) ?? []), sessionFileOf(r)]);
+    }
+    if (by.size > 1) {
+      const lines = [...by].map(([v, files]) => `${v}: ${files.join(', ')}`);
+      throw new Error(`score: more than one version of participant ${slug} (round not comparable):\n${lines.join('\n')}`);
+    }
+    out[slug] = [...by.keys()][0];
+  }
+  return out;
+}
+
+/**
  * @param {any[]} sessions explore sessions of one group
  */
 function groupStats(sessions) {
@@ -80,7 +122,9 @@ function groupStats(sessions) {
  */
 export function aggregate(gradedResults) {
   const models = checkModels(gradedResults);
+  const grader = checkGrader(gradedResults);
   const agents = gradedResults.filter((r) => r.participant?.kind !== 'human');
+  const versions = checkVersions(agents);
   const humans = gradedResults.filter((r) => r.participant?.kind === 'human');
 
   /** Menschen-Treffer je Seed (Vereinigung ueber alle Menschen-Sitzungen des Seeds). */
@@ -99,7 +143,15 @@ export function aggregate(gradedResults) {
     const explore = mine.filter((r) => r.session.type === 'explore');
     const captures = mine.filter((r) => r.session.type === 'capture');
     const caps = captures.map((r) => r.metrics?.capture).filter(Boolean);
-    const costs = mine.map((r) => r.metrics?.cost).filter(Boolean);
+    const costOf2 = (list) => {
+      const c = list.map((r) => r.metrics?.cost).filter(Boolean);
+      return {
+        tokens: medianRange(c.map((x) => x.tokens)),
+        calls: medianRange(c.map((x) => x.calls)),
+        wall_s: medianRange(c.map((x) => x.wall_s)),
+        cost_usd: medianRange(c.map((x) => costOf(x.cost_usd_list))),
+      };
+    };
     const ratios = [];
     const overlaps = [];
     for (const r of explore) {
@@ -113,10 +165,8 @@ export function aggregate(gradedResults) {
       display: mine[0].participant.display ?? slug,
       ...groupStats(explore),
       capture: { valid: caps.filter((c) => c.valid).length, n: caps.length },
-      tokens: medianRange(costs.map((c) => c.tokens)),
-      calls: medianRange(costs.map((c) => c.calls)),
-      wall_s: medianRange(costs.map((c) => c.wall_s)),
-      cost_usd: medianRange(costs.map((c) => costOf(c.cost_usd_list))),
+      version: versions[slug],
+      cost: { explore: costOf2(explore), capture: costOf2(captures) },
       integrity: {
         read_bug_script: mine.filter((r) => r.harness?.integrity?.read_bug_script).length,
         capture_outside_access: mine.filter((r) => r.harness?.integrity?.capture_outside_access).length,
@@ -133,6 +183,7 @@ export function aggregate(gradedResults) {
 
   return {
     models,
+    grader,
     participants,
     humans: humanRow,
     unreviewed: sum(Object.values(participants).map((p) => p.unreviewed)) + (humanRow?.unreviewed ?? 0),
@@ -156,6 +207,7 @@ export function renderScoreboard(sb) {
   const out = [];
   out.push('# Scoreboard', '');
   out.push(`Agent model (exact id): ${sb.models.length ? sb.models.join(', ') : '—'}. Participants in alphabetical order; no ranking.`, '');
+  if (sb.grader?.model) out.push(`Grader model: ${sb.grader.model}; grader prompt checksum: ${sb.grader.prompt_sha256 ?? '—'}.`, '');
   out.push(`Unreviewed findings (open until decided): ${sb.unreviewed}.`, '');
 
   const row = (label, cells) => `| ${label} | ${cells.join(' | ')} |`;
@@ -179,11 +231,13 @@ export function renderScoreboard(sb) {
   for (const s of slugs) out.push(row(P(s).display, [xn(P(s).capture, 'valid'), P(s).integrity.read_bug_script, P(s).integrity.capture_outside_access]));
   out.push('');
 
-  out.push('## Cost (agents; median, range)', '');
-  out.push(...header('Participant', ['Tokens', 'Calls', 'Wall clock (s)', 'List price (USD)']));
-  for (const s of slugs) out.push(row(P(s).display, [mr(P(s).tokens, 0), mr(P(s).calls, 0), mr(P(s).wall_s, 0), mr(P(s).cost_usd)]));
-  if (sb.humans) out.push(row('Human testers', ['—', '—', '—', '—']));
-  out.push('');
+  for (const [type, title] of [['explore', 'Cost, explore sessions'], ['capture', 'Cost, capture sessions']]) {
+    out.push(`## ${title} (agents; median, range)`, '');
+    out.push(...header('Participant', ['Tokens', 'Calls', 'Wall clock (s)', 'List price (USD)']));
+    for (const s of slugs) { const c = P(s).cost[type]; out.push(row(P(s).display, [mr(c.tokens, 0), mr(c.calls, 0), mr(c.wall_s, 0), mr(c.cost_usd)])); }
+    if (type === 'explore' && sb.humans) out.push(row('Human testers', ['—', '—', '—', '—']));
+    out.push('');
+  }
 
   const keys = (sel) => [...new Set(slugs.flatMap((s) => Object.keys(P(s)[sel])).concat(Object.keys(sb.humans?.[sel] ?? {})))].sort();
   for (const [title, sel] of [['Hits by category (hits/active, summed over sessions)', 'by_category'], ['Hits by width (hits/active, summed over sessions)', 'by_width']]) {

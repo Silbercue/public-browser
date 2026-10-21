@@ -1,5 +1,6 @@
 // Runden: Plan, Lauf (nacheinander, mit Fingerabdruck und Modell-Pruefung) und Token-Bericht.
 // CLI: node harness/round.mjs run --round <r> [--probe] [--participants a,b] [--types explore,capture] [--resume] [--secret-dir <dir>]
+//        [--overwrite-fingerprint] (ohne --resume trotz vorhandener fingerprint.json) [--accept-drift] (bei --resume trotz Abweichung)
 //      node harness/round.mjs report --round <r>
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -48,12 +49,12 @@ function gitHead() {
 
 /**
  * @param {{ round: string, probe?: boolean, resume?: boolean, participants?: string[], types?: string[], seeds?: number[],
- *   secretDir?: string|null, resultsRoot?: string }} opts
+ *   secretDir?: string|null, resultsRoot?: string, overwriteFingerprint?: boolean, acceptDrift?: boolean }} opts
  * @param {{ runSession?: Function, sessionDeps?: any, fingerprint?: () => any, commit?: () => string|null, now?: () => string,
  *   log?: (l: string) => void, stderr?: (l: string) => void }} [deps]
  */
 export async function runRound(opts, deps = {}) {
-  const { round, probe = false, resume = false, secretDir = null, resultsRoot = RESULTS_ROOT } = opts;
+  const { round, probe = false, resume = false, secretDir = null, resultsRoot = RESULTS_ROOT, overwriteFingerprint = false, acceptDrift = false } = opts;
   const log = deps.log ?? ((l) => process.stdout.write(`${l}\n`));
   const warn = deps.stderr ?? ((l) => process.stderr.write(`${l}\n`));
   const allSeeds = opts.seeds ?? loadSeeds();
@@ -62,15 +63,22 @@ export async function runRound(opts, deps = {}) {
 
   const roundDir = join(resultsRoot, round);
   const sessionsDir = join(roundDir, 'sessions');
-  mkdirSync(roundDir, { recursive: true });
-
   const fp = (deps.fingerprint ?? computeFingerprint)();
   const fpFile = join(roundDir, 'fingerprint.json');
-  if (resume && existsSync(fpFile)) {
+  const fpExists = existsSync(fpFile);
+  if (fpExists && !resume && !overwriteFingerprint) {
+    throw new Error(`round: ${fpFile} already exists (the measurement setup fixed for this round); use --resume to continue the round, or --overwrite-fingerprint to replace it on purpose`);
+  }
+  if (resume && fpExists) {
     const { fields } = compareFingerprints(readJson(fpFile), fp);
     const changed = Object.entries(fields).filter(([, v]) => v === 'changed').map(([k]) => k);
-    if (changed.length) warn(`round: fingerprint differs from the one written at the start of this round: ${changed.join(', ')}`);
+    if (changed.length) {
+      const msg = `round: fingerprint differs from the one written at the start of this round: ${changed.join(', ')}`;
+      if (!acceptDrift) throw new Error(`${msg}; aborted (use --accept-drift if the change is intended)`);
+      warn(msg);
+    }
   } else {
+    mkdirSync(roundDir, { recursive: true });
     writeFileSync(fpFile, `${JSON.stringify({ ...fp, commit: (deps.commit ?? gitHead)(), time: (deps.now ?? (() => new Date().toISOString()))() }, null, 2)}\n`);
   }
 
@@ -104,6 +112,10 @@ const total = (xs) => xs.reduce((a, b) => a + (b ?? 0), 0);
 const int = (x) => (x === null ? '—' : String(Math.round(x)));
 const usd = (x) => (x === null ? '—' : x.toFixed(2));
 const hours = (s) => (s === null ? '—' : (s / 3600).toFixed(1));
+
+function readJsonOr(file, fallback) {
+  return existsSync(file) ? readJson(file) : fallback;
+}
 
 function readDir(dir) {
   if (!existsSync(dir)) return [];
@@ -145,16 +157,23 @@ export function buildTokenReport({ round, resultsRoot = RESULTS_ROOT }) {
     pt += (t ?? 0) * SEEDS_PER_ROUND; pc += (c ?? 0) * SEEDS_PER_ROUND; pw += (w ?? 0) * SEEDS_PER_ROUND;
     out.push(`| ${slug} | ${type} | ${g.length} | ${int(t === null ? null : t * SEEDS_PER_ROUND)} | ${usd(c === null ? null : c * SEEDS_PER_ROUND)} | ${hours(w === null ? null : w * SEEDS_PER_ROUND)} |`);
   }
-  out.push(`| Total (40 sessions) | | ${agents.length} | ${int(pt)} | ${usd(pc)} | ${hours(pw)} |`, '');
+  out.push(`| Total (${agents.length} sessions) | | ${agents.length} | ${int(pt)} | ${usd(pc)} | ${hours(pw)} |`, '');
 
-  const graded = readDir(join(roundDir, 'graded')).filter((r) => r.grading?.usage && !String(r.grading.model ?? '').startsWith('n/a'));
-  if (graded.length) {
-    const toks = graded.map((r) => (num(r.grading.usage.input_tokens) ?? 0) + (num(r.grading.usage.output_tokens) ?? 0));
-    const costs = graded.map((r) => num(r.grading.usage.cost_usd) ?? 0);
-    const t = total(toks); const c = total(costs);
+  // Pruefer: echter Verbrauch (Ruling K9). grading.usage ist die kumulative Summe aller Pruefer-Aufrufe einer Sitzung,
+  // auch bei "n/a ..."-Eintraegen, die frueheren Verbrauch erhalten; fehlgeschlagene Aufrufe liegen in grading-spent.json.
+  const tokOf = (u) => (num(u?.input_tokens) ?? 0) + (num(u?.output_tokens) ?? 0);
+  const spentUsage = Object.values(readJsonOr(join(roundDir, 'grading-spent.json'), {}));
+  const graded = readDir(join(roundDir, 'graded')).filter((r) => r.grading?.usage && (tokOf(r.grading.usage) > 0 || (num(r.grading.usage.cost_usd) ?? 0) > 0 || !String(r.grading.model ?? '').startsWith('n/a')));
+  if (graded.length || spentUsage.length) {
+    const gt = total(graded.map((r) => tokOf(r.grading.usage))); const gc = total(graded.map((r) => num(r.grading.usage.cost_usd) ?? 0));
+    const st = total(spentUsage.map(tokOf)); const sc = total(spentUsage.map((u) => num(u?.cost_usd) ?? 0));
     out.push('## Grader', '', `Graded sessions: ${graded.length}`, '', '| | Tokens | Cost (USD) |', '|---|---|---|');
-    out.push(`| Sum | ${int(t)} | ${usd(c)} |`, `| Mean per graded session | ${int(t / graded.length)} | ${usd(c / graded.length)} |`,
-      `| Projection, ${EXPLORE_PER_ROUND} explore sessions | ${int((t / graded.length) * EXPLORE_PER_ROUND)} | ${usd((c / graded.length) * EXPLORE_PER_ROUND)} |`, '');
+    out.push(`| Sum, graded sessions | ${int(gt)} | ${usd(gc)} |`, `| Failed grader calls (not yet graded sessions) | ${int(st)} | ${usd(sc)} |`, `| Sum, grader | ${int(gt + st)} | ${usd(gc + sc)} |`);
+    if (graded.length) {
+      out.push(`| Mean per graded session | ${int(gt / graded.length)} | ${usd(gc / graded.length)} |`,
+        `| Projection, ${EXPLORE_PER_ROUND} explore sessions | ${int((gt / graded.length) * EXPLORE_PER_ROUND)} | ${usd((gc / graded.length) * EXPLORE_PER_ROUND)} |`);
+    }
+    out.push(`| Sum, agents + grader | ${int(total(agents.map((r) => r.tokens)) + gt + st)} | ${usd(total(agents.map((r) => r.cost)) + gc + sc)} |`, '');
   }
   return `${out.join('\n')}\n`;
 }
@@ -187,6 +206,7 @@ async function main() {
   const list = (v) => (typeof v === 'string' ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined);
   const out = await runRound({
     round: args.round, probe: args.probe === true, resume: args.resume === true, resultsRoot,
+    overwriteFingerprint: args['overwrite-fingerprint'] === true, acceptDrift: args['accept-drift'] === true,
     participants: list(args.participants), types: list(args.types),
     secretDir: typeof args['secret-dir'] === 'string' ? resolve(args['secret-dir']) : null,
   });

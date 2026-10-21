@@ -90,7 +90,7 @@ test('--resume ueberspringt vorhandene Ergebnisse, ohne --resume nicht', async (
     assert.ok(second.every((c) => c.type === 'capture'));
     assert.equal(out.skipped, 4);
     const third = [];
-    await runRound({ round: 'r3', participants: ['a'], types: ['explore'], seeds: [1], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot, { log: third }) });
+    await runRound({ round: 'r3', overwriteFingerprint: true, participants: ['a'], types: ['explore'], seeds: [1], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot, { log: third }) });
     assert.equal(third.length, 1);
   } finally { done(); }
 });
@@ -142,7 +142,7 @@ test('--resume: Basis-ID kommt aus vorhandenen Sitzungen der Runde', async () =>
   } finally { done(); }
 });
 
-test('fingerprint.json liegt vor der ersten Sitzung, mit commit und Zeit; --resume ueberschreibt nicht und meldet Abweichung', async () => {
+test('fingerprint.json liegt vor der ersten Sitzung, mit commit und Zeit; --resume ueberschreibt nicht, bricht bei Abweichung ab (ausser --accept-drift)', async () => {
   const { resultsRoot, done } = setup();
   try {
     const fpFile = join(resultsRoot, 'r8', 'fingerprint.json');
@@ -157,10 +157,16 @@ test('fingerprint.json liegt vor der ersten Sitzung, mit commit und Zeit; --resu
     assert.equal(content.commit, 'abc123');
     assert.equal(content.time, '2026-10-21T10:00:00.000Z');
 
+    const drifted = { ...quiet, fingerprint: () => ({ grader_prompt_sha256: 'CHANGED', budgets: {} }) };
+    const calls = [];
+    await assert.rejects(
+      runRound({ round: 'r8', resume: true, participants: ['a'], types: ['explore', 'capture'], seeds: [1], resultsRoot }, { ...drifted, runSession: fakeRun(resultsRoot, { log: calls }) }),
+      /grader_prompt_sha256[^]*--accept-drift/,
+    );
+    assert.equal(calls.length, 0);
     const warnings = [];
-    await runRound({ round: 'r8', resume: true, participants: ['a'], types: ['explore', 'capture'], seeds: [1], resultsRoot }, {
-      ...quiet, stderr: (l) => warnings.push(l), fingerprint: () => ({ grader_prompt_sha256: 'CHANGED', budgets: {} }),
-      runSession: fakeRun(resultsRoot),
+    await runRound({ round: 'r8', resume: true, acceptDrift: true, participants: ['a'], types: ['explore', 'capture'], seeds: [1], resultsRoot }, {
+      ...drifted, stderr: (l) => warnings.push(l), runSession: fakeRun(resultsRoot),
     });
     assert.equal(JSON.parse(readFileSync(fpFile, 'utf8')).grader_prompt_sha256, 'g');
     assert.ok(warnings.some((w) => w.includes('grader_prompt_sha256')));
@@ -202,7 +208,7 @@ test('Token-Bericht: Hochrechnung = Mittelwert x 5 je (Teilnehmer, Typ), Gesamt 
     const md = buildTokenReport({ round: 'rt', resultsRoot });
     assert.match(md, /\| pb \| explore \| 2 \| 10000 \| 10\.00 \| 7\.5 \|/);
     assert.match(md, /\| pb \| capture \| 1 \| 2000 \| 2\.50 \| 2\.5 \|/);
-    assert.match(md, /\| Total \(40 sessions\)[^\n]*\| 12000 \| 12\.50 \| 10\.0 \|/);
+    assert.match(md, /\| Total \(3 sessions\)[^\n]*\| 12000 \| 12\.50 \| 10\.0 \|/);
     assert.match(md, /\| Sum \| 4400 \|/);
     assert.ok(!md.includes('Abo-Stand'));
     assert.ok(!/Grader/.test(md));
@@ -222,7 +228,7 @@ test('Token-Bericht: Pruefer-Abschnitt aus graded/, Hochrechnung auf 20 explore-
     const md = buildTokenReport({ round: 'rg', resultsRoot });
     assert.match(md, /## Grader/);
     assert.match(md, /Graded sessions: 2\b/);
-    assert.match(md, /\| Sum \| 3000 \| 0\.40 \|/);
+    assert.match(md, /\| Sum, graded sessions \| 3000 \| 0\.40 \|/);
     assert.match(md, /\| Mean per graded session \| 1500 \| 0\.20 \|/);
     assert.match(md, /\| Projection, 20 explore sessions \| 30000 \| 4\.00 \|/);
     assert.ok(!md.includes('SECRET-ID-77'));
@@ -262,5 +268,74 @@ test('writeTokenReport schreibt results/<r>/token-report.md', () => {
     const p = writeTokenReport({ round: 'rw', resultsRoot });
     assert.equal(p, join(resultsRoot, 'rw', 'token-report.md'));
     assert.ok(existsSync(p));
+  } finally { done(); }
+});
+
+test('ohne --resume ueberschreibt run eine vorhandene fingerprint.json nicht: Abbruch vor der ersten Sitzung, mit --overwrite-fingerprint erlaubt', async () => {
+  const { resultsRoot, done } = setup();
+  try {
+    const fpFile = join(resultsRoot, 'r9', 'fingerprint.json');
+    mkdirSync(join(resultsRoot, 'r9'), { recursive: true });
+    writeFileSync(fpFile, '{"grader_prompt_sha256":"alt","commit":"alt"}\n');
+    const calls = [];
+    await assert.rejects(
+      runRound({ round: 'r9', participants: ['a'], types: ['explore'], seeds: [1], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot, { log: calls }) }),
+      /fingerprint\.json already exists[^]*--overwrite-fingerprint/,
+    );
+    assert.equal(calls.length, 0);
+    assert.equal(JSON.parse(readFileSync(fpFile, 'utf8')).commit, 'alt');
+    await runRound({ round: 'r9', overwriteFingerprint: true, participants: ['a'], types: ['explore'], seeds: [1], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot, { log: calls }) });
+    assert.equal(calls.length, 1);
+    assert.equal(JSON.parse(readFileSync(fpFile, 'utf8')).commit, 'abc123');
+  } finally { done(); }
+});
+
+test('--resume ohne vorhandene fingerprint.json schreibt sie neu', async () => {
+  const { resultsRoot, done } = setup();
+  try {
+    await runRound({ round: 'r10', resume: true, participants: ['a'], types: ['explore'], seeds: [1], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot) });
+    assert.equal(JSON.parse(readFileSync(join(resultsRoot, 'r10', 'fingerprint.json'), 'utf8')).commit, 'abc123');
+  } finally { done(); }
+});
+
+test('Token-Bericht: Pruefer-Sitzung "n/a" mit Verbrauch (frueherer Lauf) zaehlt, fehlgeschlagene Aufrufe aus grading-spent.json auch; Gesamtzeile Agenten + Pruefer', () => {
+  const { resultsRoot, done } = setup();
+  try {
+    const sess = [agentSession('pb', 'explore', 1, { delta: 1000, cost: 1, wall: 60 }), agentSession('pb', 'explore', 2, { delta: 2000, cost: 2, wall: 60 }), agentSession('pb', 'explore', 3, { delta: 500, cost: 0.5, wall: 60 })];
+    const graded = [
+      { ...sess[0], grading: { model: 'sonnet-x', usage: { input_tokens: 80, output_tokens: 20, cost_usd: 0.1 }, matches: [] } },
+      { ...sess[1], grading: { model: 'n/a (no findings)', usage: { input_tokens: 300, output_tokens: 100, cost_usd: 0.4 }, matches: [] } },
+      { ...sess[2], grading: { model: 'n/a (no findings)', usage: { input_tokens: 0, output_tokens: 0, cost_usd: 0 }, matches: [] } },
+    ];
+    reportRound(resultsRoot, 'rs', sess, graded);
+    writeFileSync(join(resultsRoot, 'rs', 'grading-spent.json'), JSON.stringify({ 'x.json': { input_tokens: 40, output_tokens: 10, cost_usd: 0.25 } }));
+    const md = buildTokenReport({ round: 'rs', resultsRoot });
+    assert.match(md, /Graded sessions: 2\b/);
+    assert.match(md, /\| Sum, graded sessions \| 500 \| 0\.50 \|/);
+    assert.match(md, /\| Failed grader calls[^|]*\| 50 \| 0\.25 \|/);
+    assert.match(md, /\| Sum, grader \| 550 \| 0\.75 \|/);
+    assert.match(md, /\| Sum, agents \+ grader \| 4050 \| 4\.25 \|/);
+  } finally { done(); }
+});
+
+test('Token-Bericht: nur grading-spent.json (noch nichts bewertet) erzeugt den Pruefer-Abschnitt; ohne beides keiner', () => {
+  const { resultsRoot, done } = setup();
+  try {
+    reportRound(resultsRoot, 'ro', [agentSession('pb', 'explore', 1, { delta: 100, cost: 1, wall: 60 })]);
+    assert.ok(!/## Grader/.test(buildTokenReport({ round: 'ro', resultsRoot })));
+    writeFileSync(join(resultsRoot, 'ro', 'grading-spent.json'), JSON.stringify({ 'x.json': { input_tokens: 5, output_tokens: 5, cost_usd: 0.1 } }));
+    const md = buildTokenReport({ round: 'ro', resultsRoot });
+    assert.match(md, /Graded sessions: 0/);
+    assert.match(md, /\| Sum, agents \+ grader \| 110 \| 1\.10 \|/);
+  } finally { done(); }
+});
+
+test('Token-Bericht: Total-Zeile traegt die echte Sitzungszahl', () => {
+  const { resultsRoot, done } = setup();
+  try {
+    reportRound(resultsRoot, 'rc', [agentSession('pb', 'explore', 1, { delta: 1, cost: 1, wall: 1 }), agentSession('pb', 'capture', 1, { delta: 1, cost: 1, wall: 1 })]);
+    const md = buildTokenReport({ round: 'rc', resultsRoot });
+    assert.match(md, /\| Total \(2 sessions\) \| \| 2 \|/);
+    assert.ok(!md.includes('40 sessions'));
   } finally { done(); }
 });
