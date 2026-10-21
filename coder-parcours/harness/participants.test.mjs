@@ -2,13 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 import {
   CP_PARTICIPANTS, cpDeps, participantSkillText, registerCpParticipant, resolveChrome, resolveClaude, scrubSessionEnv, toolchainDir,
 } from './participants.mjs';
 
 /** @type {any} */
 const FAKE_DEPS = { chromeBin: '/x/chrome' };
+const NO_CHROME = /** @type {any} */ ({ chromeBin: null });
 const MAC = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 test('CP_PARTICIPANTS: vier Teilnehmer mit Pflichtfeldern', () => {
@@ -64,11 +65,65 @@ test('agent-browser: dogfood-Skill, Zusatzbefehle, Env mit Chrome aus deps', () 
   assert.deepEqual(p.cleanupArgs, ['close']);
 });
 
-test('playwright-cli: setup schreibt .playwright/cli.config.json (chrome, headed, isoliert)', () => {
+test('playwright-cli: setup schreibt .playwright/cli.config.json (Chrome-Pfad, headed, isoliert)', () => {
   const rundir = mkdtempSync(join(tmpdir(), 'cp-part-'));
-  CP_PARTICIPANTS['playwright-cli'].setup(rundir);
+  CP_PARTICIPANTS['playwright-cli'].setup(rundir, FAKE_DEPS);
   const cfg = JSON.parse(readFileSync(join(rundir, '.playwright', 'cli.config.json'), 'utf8'));
-  assert.deepEqual(cfg.browser, { browserName: 'chromium', isolated: true, launchOptions: { channel: 'chrome', headless: false } });
+  assert.deepEqual(cfg.browser, { browserName: 'chromium', isolated: true, launchOptions: { executablePath: '/x/chrome', headless: false } });
+});
+
+test('playwright-cli: setup nimmt den aufgeloesten Chrome-Pfad statt Systemkanal', () => {
+  const rundir = mkdtempSync(join(tmpdir(), 'cp-part-'));
+  CP_PARTICIPANTS['playwright-cli'].setup(rundir, FAKE_DEPS);
+  const lo = JSON.parse(readFileSync(join(rundir, '.playwright', 'cli.config.json'), 'utf8')).browser.launchOptions;
+  assert.equal(lo.executablePath, '/x/chrome');
+  assert.equal('channel' in lo, false);
+  // Gegenprobe: ohne aufloesbaren Pfad bleibt nur der Systemkanal als Notnagel
+  const rundir2 = mkdtempSync(join(tmpdir(), 'cp-part-'));
+  CP_PARTICIPANTS['playwright-cli'].setup(rundir2, NO_CHROME);
+  const lo2 = JSON.parse(readFileSync(join(rundir2, '.playwright', 'cli.config.json'), 'utf8')).browser.launchOptions;
+  assert.equal(lo2.channel, 'chrome');
+  assert.equal('executablePath' in lo2, false);
+});
+
+test('chrome-devtools-mcp: --executable-path mit dem aufgeloesten Chrome, --isolated bleibt, kein --channel', () => {
+  const p = CP_PARTICIPANTS['chrome-devtools-mcp'];
+  const extra = p.extraArgs(FAKE_DEPS);
+  assert.deepEqual(extra, ['--executable-path', '/x/chrome']);
+  assert.ok(p.args.includes('--isolated'));
+  assert.equal([...p.args, ...extra].some((a) => a.startsWith('--channel')), false);
+  assert.deepEqual(p.extraArgs(NO_CHROME), []);
+});
+
+/** Verlinkte lokale .md der SKILL.md-Dateien, die in files nicht enthalten sind. */
+function unlinkedRefs(p, files) {
+  const base = join(toolchainDir(), 'node_modules', ...p.package.split('/'));
+  const missing = [];
+  let checked = 0;
+  for (const rel of p.skillFiles.filter((f) => f.endsWith('SKILL.md'))) {
+    const text = readFileSync(join(base, rel), 'utf8');
+    for (const m of text.matchAll(/(?:\]\(|`)((?:references|templates)\/[\w./-]+\.md)/g)) {
+      checked++;
+      const target = normalize(join(dirname(rel), m[1]));
+      if (!files.includes(target)) missing.push(`${rel} -> ${target}`);
+    }
+  }
+  return { missing, checked };
+}
+
+test('Skill-Dateien: jede verlinkte lokale .md eines mitgegebenen Skills ist ebenfalls mitgegeben', () => {
+  for (const slug of ['playwright-cli', 'agent-browser']) {
+    const p = CP_PARTICIPANTS[slug];
+    const { missing, checked } = unlinkedRefs(p, p.skillFiles);
+    assert.ok(checked >= 3, `${slug}: es wurden Verweise gefunden (${checked})`);
+    assert.deepEqual(missing, [], `${slug}: nicht mitgegebene Verweisdateien`);
+  }
+});
+
+test('Skill-Dateien: die Pruefung bisst, wenn eine Verweisdatei fehlt (Gegenprobe)', () => {
+  const p = CP_PARTICIPANTS['playwright-cli'];
+  const { missing } = unlinkedRefs(p, p.skillFiles.filter((f) => !f.endsWith('running-code.md')));
+  assert.deepEqual(missing, ['skills/playwright-cli/SKILL.md -> skills/playwright-cli/references/running-code.md']);
 });
 
 test('registerCpParticipant fuegt einen Test-Teilnehmer hinzu', () => {

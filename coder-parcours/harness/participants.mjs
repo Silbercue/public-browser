@@ -86,15 +86,29 @@ export const CP_PARTICIPANTS = {
   'chrome-devtools-mcp': {
     kind: 'mcp', name: 'chrome-devtools', display: 'Chrome DevTools MCP', package: 'chrome-devtools-mcp', version: '1.11.0',
     command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.11.0', '--isolated'],
+    // Gleicher Browser wie bei den anderen: --executable-path mit dem aufgeloesten Chrome (vertraeglich mit
+    // --isolated; in 1.11.0 stehen nur channel/browserUrl/wsEndpoint/autoConnect im Konflikt, und der
+    // Standard-Kanal wird bei gesetztem Pfad nicht mehr gesetzt). Aufrufer haengen extraArgs(deps) an args.
+    extraArgs: (deps = cpDeps()) => (deps.chromeBin ? ['--executable-path', deps.chromeBin] : []),
     env: (_rundir) => ({ CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: '1' }),
     skillFiles: [], extraCommands: [],
-    profile_isolation: '--isolated (temp user-data-dir), stable Chrome channel, usage statistics off',
+    profile_isolation: '--isolated (temp user-data-dir), Chrome via --executable-path (same binary as the others), usage statistics off',
   },
   'agent-browser': {
     kind: 'cli', name: 'agent-browser', cli: 'agent-browser', display: 'agent-browser (dogfood skill)', package: 'agent-browser', version: '0.39.1',
     // Kern-Skill plus dogfood-Skill mit Fehlerkatalog und Berichtsvorlage, alle aus dem npm-Paket derselben Version.
     skillFiles: [
       'skill-data/core/SKILL.md',
+      'skill-data/core/references/authentication.md',
+      'skill-data/core/references/commands.md',
+      'skill-data/core/references/profiling.md',
+      'skill-data/core/references/proxy-support.md',
+      'skill-data/core/references/session-management.md',
+      'skill-data/core/references/snapshot-refs.md',
+      'skill-data/core/references/streaming.md',
+      'skill-data/core/references/trust-boundaries.md',
+      'skill-data/core/references/video-recording.md',
+      'skill-data/core/references/webgpu.md',
       'skill-data/dogfood/SKILL.md',
       'skill-data/dogfood/references/issue-taxonomy.md',
       'skill-data/dogfood/templates/dogfood-report-template.md',
@@ -111,18 +125,32 @@ export const CP_PARTICIPANTS = {
   },
   'playwright-cli': {
     kind: 'cli', name: 'playwright-cli', cli: 'playwright-cli', display: 'Playwright CLI', package: '@playwright/cli', version: '0.1.22',
-    skillFiles: ['skills/playwright-cli/SKILL.md'],
+    // SKILL.md plus alle davon verlinkten references/*.md, so wie das Paket sie ausliefert.
+    skillFiles: [
+      'skills/playwright-cli/SKILL.md',
+      'skills/playwright-cli/references/element-attributes.md',
+      'skills/playwright-cli/references/playwright-tests.md',
+      'skills/playwright-cli/references/pr-attachments.md',
+      'skills/playwright-cli/references/request-mocking.md',
+      'skills/playwright-cli/references/running-code.md',
+      'skills/playwright-cli/references/session-management.md',
+      'skills/playwright-cli/references/storage-state.md',
+      'skills/playwright-cli/references/test-generation.md',
+      'skills/playwright-cli/references/tracing.md',
+      'skills/playwright-cli/references/video-recording.md',
+    ],
     extraCommands: [],
     env: (rundir) => ({ PLAYWRIGHT_CLI_SESSION: basename(rundir) }),
-    // Die CLI liest .playwright/cli.config.json aus dem cwd (= Rundir): Chrome-Kanal, sichtbar, In-Memory-Profil.
-    setup: (rundir) => {
+    // Die CLI liest .playwright/cli.config.json aus dem cwd (= Rundir): aufgeloester Chrome-Pfad, sichtbar,
+    // In-Memory-Profil. Nur ohne aufloesbaren Pfad bleibt der Systemkanal als Notnagel.
+    setup: (rundir, deps = cpDeps()) => {
       mkdirSync(join(rundir, '.playwright'), { recursive: true });
       writeFileSync(join(rundir, '.playwright', 'cli.config.json'), `${JSON.stringify({
-        browser: { browserName: 'chromium', isolated: true, launchOptions: { channel: 'chrome', headless: false } },
+        browser: { browserName: 'chromium', isolated: true, launchOptions: { ...(deps.chromeBin ? { executablePath: deps.chromeBin } : { channel: 'chrome' }), headless: false } },
       }, null, 2)}\n`);
     },
     cleanupArgs: ['close'],
-    profile_isolation: 'isolated in-memory profile, channel chrome, headed (.playwright/cli.config.json in the run dir)',
+    profile_isolation: 'isolated in-memory profile, Chrome via executablePath (same binary as the others), headed (.playwright/cli.config.json in the run dir)',
   },
 };
 

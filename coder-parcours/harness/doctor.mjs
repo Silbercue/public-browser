@@ -45,16 +45,39 @@ function cliVersionCheck(p) {
   }
 }
 
+/** engines.node eines Teilnehmerpakets gegen die laufende Node-Version ('>=a.b.c', mit '||' als Alternative). */
+export function enginesNodeCheck(p, nodeVersion = process.versions.node) {
+  const range = readJson(join(toolchainDir(), 'node_modules', ...p.package.split('/'), 'package.json'))?.engines?.node;
+  if (!range) return { ok: true, detail: `${p.package}: no engines.node declared` };
+  const have = String(nodeVersion).split('.').map(Number);
+  const atLeast = (want) => {
+    const w = want.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+      const a = have[i] ?? 0;
+      const b = w[i] ?? 0;
+      if (a !== b) return a > b;
+    }
+    return true;
+  };
+  const ok = String(range).split('||').some((alt) => {
+    const m = /^\s*>=\s*(\d+(?:\.\d+){0,2})\s*$/.exec(alt);
+    return m ? atLeast(m[1]) : true;
+  });
+  return ok
+    ? { ok: true, detail: `${p.package} needs node ${range}, running v${nodeVersion}` }
+    : { ok: false, detail: `${p.package} needs node ${range}, but this is v${nodeVersion}` };
+}
+
 /**
- * @param {{ platform?: string, env?: Record<string, string | undefined> }} [opts]
+ * @param {{ platform?: string, env?: Record<string, string | undefined>, nodeVersion?: string }} [opts]
  * @returns {Promise<{ ok: boolean, checks: { name: string, ok: boolean, detail: string, warn?: boolean }[] }>}
  */
-export async function doctor({ platform = process.platform, env = process.env } = {}) {
+export async function doctor({ platform = process.platform, env = process.env, nodeVersion = process.versions.node } = {}) {
   const checks = [];
   const add = (name, ok, detail, extra = {}) => checks.push({ name, ok, detail, ...extra });
 
-  const major = Number(process.versions.node.split('.')[0]);
-  add('node', major >= 22, `v${process.versions.node}${major >= 22 ? '' : ' (need >= 22)'}`);
+  const major = Number(nodeVersion.split('.')[0]);
+  add('node', major >= 22, `v${nodeVersion}${major >= 22 ? '' : ' (need >= 22)'}`);
 
   const claude = resolveClaude(env);
   add('claude', isExecutable(claude), isExecutable(claude) ? claude : `${claude} not found (set CODER_PARCOURS_CLAUDE_BIN)`);
@@ -75,6 +98,8 @@ export async function doctor({ platform = process.platform, env = process.env } 
   for (const p of Object.values(CP_PARTICIPANTS).filter((x) => x.kind === 'cli')) {
     const r = cliVersionCheck(p);
     add(p.cli, r.ok, r.detail);
+    const e = enginesNodeCheck(p, nodeVersion);
+    add(`${p.cli} node`, e.ok, e.detail);
   }
 
   if (platform === 'linux') {

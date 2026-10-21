@@ -18,7 +18,7 @@ test('commandAllowedAny: jedes Segment darf mit einem beliebigen Kopf beginnen',
   assert.equal(commandAllowedAny('run-my-test; rm -rf x', ['run-my-test']), false);
   assert.equal(commandAllowedAny('run-my-test', ['run-my-test']), true);
   assert.equal(commandAllowedAny('run-my-test --verbose', ['run-my-test']), true);
-  assert.equal(commandAllowedAny('mkdir -p out/screenshots', ['agent-browser', 'mkdir']), true);
+  assert.equal(commandAllowedAny('mkdir -p out/screenshots', ['agent-browser', 'mkdir'], makeRundir()), true);
   assert.equal(commandAllowedAny('agent-browser open x', []), false);
   assert.equal(commandAllowedAny('agent-browser open x', undefined), false);
 });
@@ -138,6 +138,54 @@ test('toolLockMulti: ohne readRoot ist jedes Read fremd (wie blind-run), Ablehnu
   assert.deepEqual(toolLockMulti(ran, { mcpPrefix: 'mcp__pb__', heads: [] }).non_mcp_executed, ['Read']);
 });
 
+// --- mkdir/cp nur im Sitzungsordner ---
+
+test('commandAllowedAny: mkdir/cp nur mit Pfaden im Sitzungsordner', () => {
+  const rundir = makeRundir();
+  const outside = mkdtempSync(join(tmpdir(), 'cp-guard-out-'));
+  writeFileSync(join(outside, 'a.txt'), 'x');
+  writeFileSync(join(rundir, 'tpl.md'), 'x');
+  symlinkSync(outside, join(rundir, 'linkdir'));
+  const heads = ['agent-browser', 'mkdir', 'cp'];
+  const ok = (c) => assert.equal(commandAllowedAny(c, heads, rundir), true, `sollte erlaubt sein: ${c}`);
+  const bad = (c) => assert.equal(commandAllowedAny(c, heads, rundir), false, `sollte gesperrt sein: ${c}`);
+  // innen: erlaubt
+  ok('mkdir -p out/screenshots');
+  ok(`mkdir -p ${join(rundir, 'out')}`);
+  ok('cp tpl.md out/report.md');
+  ok('cp -R tpl.md copy.md');
+  ok('agent-browser open x && mkdir -p out');
+  // aussen / Ausbruch / Symlink: gesperrt
+  bad(`mkdir -p ${outside}/x`);
+  bad('mkdir -p /tmp/cp-guard-abs');
+  bad(`cp ${outside}/a.txt .`);
+  bad('cp tpl.md /etc/x');
+  bad('mkdir -p ../ausbruch');
+  bad('mkdir -p out/../../ausbruch');
+  bad('mkdir -p linkdir/neu');
+  bad('cp tpl.md linkdir/stolen.md');
+  bad('cp linkdir/a.txt got.txt');
+  bad('mkdir');
+  bad('mkdir -p $HOME/x');
+  bad('mkdir -p ~/x');
+  bad('mkdir -p out/*');
+  bad('cp --target-directory=/etc tpl.md');
+  bad('cp -t /etc tpl.md');
+  bad('mkdir -p out && mkdir -p /tmp/cp-guard-abs');
+  // ohne Wurzel sind mkdir/cp gesperrt, andere Koepfe nicht
+  assert.equal(commandAllowedAny('mkdir -p out', heads), false);
+  assert.equal(commandAllowedAny('agent-browser open x', heads), true);
+});
+
+test('toolLockMulti: mkdir ausserhalb des Sitzungsordners zaehlt als fremd, innerhalb als eigen', () => {
+  const rundir = makeRundir();
+  const mk = (cmd) => [A('2026-10-21T10:00:01Z', 'b1', 'Bash', { command: cmd })].join('\n');
+  const inside = toolLockMulti(mk('mkdir -p out'), { heads: ['mkdir'], readRoot: rundir });
+  assert.equal(inside.bash_attempted, 0);
+  const outside = toolLockMulti(mk('mkdir -p /tmp/cp-guard-abs'), { heads: ['mkdir'], readRoot: rundir });
+  assert.equal(outside.bash_attempted, 1);
+});
+
 // --- readAllowed ---
 
 test('readAllowed: nur Bilder innerhalb des Sitzungsordners', () => {
@@ -159,6 +207,17 @@ test('readAllowed: nur Bilder innerhalb des Sitzungsordners', () => {
   assert.equal(readAllowed(join(rundir, 'missing.png'), rundir), false);
   assert.equal(readAllowed(undefined, rundir), false);
   assert.equal(readAllowed(join(rundir, 'shot.png'), undefined), false);
+});
+
+test('readAllowed: Verzeichnis namens x.png, relativer Pfad, Symlink auf Datei innen', () => {
+  const rundir = makeRundir();
+  mkdirSync(join(rundir, 'x.png'));
+  writeFileSync(join(rundir, 'real.png'), 'png');
+  symlinkSync(join(rundir, 'real.png'), join(rundir, 'inner.png'));
+  assert.equal(readAllowed(join(rundir, 'x.png'), rundir), false);
+  assert.equal(readAllowed('real.png', rundir), true);
+  assert.equal(readAllowed('../real.png', rundir), false);
+  assert.equal(readAllowed(join(rundir, 'inner.png'), rundir), true);
 });
 
 test('readAllowed: Symlink im Sitzungsordner auf ein Bild ausserhalb wird verweigert', () => {
@@ -194,4 +253,24 @@ test('guard-hook: Bash nach Kopfliste, kaputte Eingabe verweigert', () => {
   assert.match(denied.permissionDecisionReason, /blocked by benchmark harness/);
   const r = spawnSync(process.execPath, [join(HERE, 'guard-hook.mjs'), 'agent-browser', rundir], { input: 'not json', encoding: 'utf8' });
   assert.equal(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision, 'deny');
+});
+
+test('guard-hook: Read ohne Sitzungsordner, Read ohne file_path, leere Kopfliste, Fremdwerkzeug', () => {
+  const rundir = makeRundir();
+  writeFileSync(join(rundir, 'shot.png'), 'png');
+  // Read ohne Wurzel (argv[3] leer): verweigert, obwohl die Datei ein Bild ist; mit Wurzel erlaubt (Gegenprobe)
+  assert.equal(hook({ tool_name: 'Read', tool_input: { file_path: join(rundir, 'shot.png') } }, 'agent-browser', '').permissionDecision, 'deny');
+  assert.equal(hook({ tool_name: 'Read', tool_input: { file_path: join(rundir, 'shot.png') } }, 'agent-browser', rundir), null);
+  // Read ohne file_path
+  assert.equal(hook({ tool_name: 'Read', tool_input: {} }, 'agent-browser', rundir).permissionDecision, 'deny');
+  // leere Kopfliste: jede Bash-Zeile verweigert
+  assert.equal(hook({ tool_name: 'Bash', tool_input: { command: 'agent-browser open x' } }, '', rundir).permissionDecision, 'deny');
+  // Fremdwerkzeug wird vom Hook nicht angefasst
+  assert.equal(hook({ tool_name: 'Grep', tool_input: { pattern: 'x' } }, 'agent-browser', rundir), null);
+});
+
+test('guard-hook: mkdir/cp mit Pfad ausserhalb verweigert, innerhalb erlaubt', () => {
+  const rundir = makeRundir();
+  assert.equal(hook({ tool_name: 'Bash', tool_input: { command: 'mkdir -p out' } }, 'agent-browser,mkdir,cp', rundir), null);
+  assert.equal(hook({ tool_name: 'Bash', tool_input: { command: 'cp /etc/hosts out' } }, 'agent-browser,mkdir,cp', rundir).permissionDecision, 'deny');
 });

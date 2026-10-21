@@ -20,6 +20,6 @@ process.stdin.on('end', () => {
   const bashReason = `blocked by benchmark harness: only ${heads.join(', ')} commands are allowed (no other programs, pipes into other programs or file redirects)`;
   if (!input || typeof input !== 'object') deny(bashReason);
   else if (input.tool_name === 'Read') { if (!readAllowed(input.tool_input?.file_path, readRoot)) deny(READ_DENY_REASON); }
-  else if (input.tool_name === 'Bash') { if (!commandAllowedAny(input.tool_input?.command ?? '', heads)) deny(bashReason); }
+  else if (input.tool_name === 'Bash') { if (!commandAllowedAny(input.tool_input?.command ?? '', heads, readRoot)) deny(bashReason); }
   process.exit(0);
 });

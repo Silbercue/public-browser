@@ -2,8 +2,8 @@
 // Gleiche Zerlegungsregeln wie cliCommandAllowed in test-hardest/blind-run.mjs, aber mit mehreren erlaubten
 // Befehlskoepfen (z. B. agent-browser plus mkdir/cp/sleep fuer den dogfood-Ablauf, run-my-test in capture).
 // blind-run.mjs exportiert seine Zerleger- und Parser-Helfer nicht und wird nicht geaendert, daher hier eigen.
-import { realpathSync } from 'node:fs';
-import { extname, isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 
 export const READ_DENY_REASON = 'Read is limited to screenshots inside the session folder.';
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp']);
@@ -40,18 +40,60 @@ function splitSegments(command) {
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Befehle, die Dateien anlegen oder kopieren: erlaubt nur mit Pfaden im Sitzungsordner (pathRoot).
+const PATH_HEADS = new Set(['mkdir', 'cp']);
+
+const unquote = (t) => (/^(["']).*\1$/.test(t) && t.length >= 2 ? t.slice(1, -1) : t);
+
+/** Liegt der Pfad (relativ zu root) nach Aufloesung von Symlinks im realen root? */
+function pathInside(tok, root) {
+  let realRoot;
+  try { realRoot = realpathSync(root); } catch { return false; }
+  const abs = resolve(root, tok);
+  let existing = abs;
+  while (!existsSync(existing)) {
+    const up = dirname(existing);
+    if (up === existing) return false;
+    existing = up;
+  }
+  let real;
+  try { real = join(realpathSync(existing), relative(existing, abs)); } catch { return false; }
+  const rel = relative(realRoot, real);
+  return !rel.startsWith('..') && !isAbsolute(rel);
+}
+
+/** mkdir/cp-Segment: nur kurze Schalter (-p, -R ...) und Pfade, die im Sitzungsordner liegen. */
+function pathSegmentAllowed(segment, pathRoot) {
+  if (typeof pathRoot !== 'string' || !pathRoot) return false;
+  const tokens = segment.trim().split(/\s+/).slice(1).map(unquote);
+  if (tokens.length === 0) return false;
+  for (const tok of tokens) {
+    if (/^-[A-Za-z]+$/.test(tok)) continue;
+    if (!tok || tok.startsWith('-') || /[$~*?[\]{}\\!]/.test(tok)) return false;
+    if (!pathInside(tok, pathRoot)) return false;
+  }
+  return true;
+}
+
 /**
- * true, wenn jedes Segment der Zeile mit einem der Koepfe beginnt.
+ * true, wenn jedes Segment der Zeile mit einem der Koepfe beginnt. mkdir und cp zusaetzlich nur, wenn alle
+ * Pfadargumente im Sitzungsordner pathRoot liegen (ohne pathRoot sind beide gesperrt).
  * @param {unknown} command
  * @param {string[]} heads
+ * @param {string} [pathRoot]
  */
-export function commandAllowedAny(command, heads) {
+export function commandAllowedAny(command, heads, pathRoot) {
   const list = (heads || []).filter(Boolean);
   if (list.length === 0) return false;
   const segments = splitSegments(command);
   if (!segments) return false;
   const head = new RegExp(`^(?:${list.map(escapeRe).join('|')})(\\s|$)`);
-  return segments.every((s) => head.test(s.trim()));
+  return segments.every((s) => {
+    const t = s.trim();
+    if (!head.test(t)) return false;
+    const first = t.split(/\s+/)[0];
+    return PATH_HEADS.has(first) ? pathSegmentAllowed(t, pathRoot) : true;
+  });
 }
 
 /**
@@ -67,6 +109,7 @@ export function readAllowed(filePath, readRoot) {
   try {
     root = realpathSync(readRoot);
     file = realpathSync(resolve(readRoot, filePath));
+    if (!statSync(file).isFile()) return false;
   } catch {
     return false;
   }
@@ -120,7 +163,7 @@ export function toolLockMulti(jsonlText, { mcpPrefix, heads = [], readRoot } = {
   const calls = parseCalls(jsonlText);
   const own = (c) => c.name === 'Write'
     || (Boolean(mcpPrefix) && c.name.startsWith(mcpPrefix))
-    || (c.name === 'Bash' && commandAllowedAny(c.input?.command, heads));
+    || (c.name === 'Bash' && commandAllowedAny(c.input?.command, heads, readRoot));
   const isRead = (c) => Boolean(readRoot) && c.name === 'Read';
   const reads = calls.filter((c) => isRead(c) && !readAllowed(c.input?.file_path, readRoot));
   const outside = calls.filter((c) => !isRead(c) && !own(c));
