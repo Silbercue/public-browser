@@ -411,3 +411,141 @@ test('layout rules on all booking pages and dialogs at 390, 768 and 1440 px', as
   }
   expectClean(noise);
 });
+
+test('day tabs: arrow keys, Home and End move the selection and the focus; Left wraps from the first to the last day', async ({ page, app, noise }) => {
+  await go(page, `${app.url}/schedule`);
+  const tabs = page.getByRole('tablist').getByRole('tab');
+  const selected = () => page.getByRole('tablist').getByRole('tab', { selected: true });
+  await expect(selected()).toHaveText('Wed');
+  await selected().focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(selected()).toHaveText('Thu');
+  await expect(tabs.filter({ hasText: 'Thu' })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(selected()).toHaveText('Sun');
+  await page.keyboard.press('ArrowRight');
+  await expect(selected(), 'Right wraps from the last day to the first').toHaveText('Mon');
+  await page.keyboard.press('ArrowLeft');
+  await expect(selected(), 'Left wraps from the first day to the last').toHaveText('Sun');
+  await page.keyboard.press('Home');
+  await expect(selected()).toHaveText('Mon');
+  await expect(tabs.filter({ hasText: 'Mon' })).toBeFocused();
+  await page.keyboard.press('a');
+  await expect(selected(), 'other keys change nothing').toHaveText('Mon');
+  expectClean(noise);
+});
+
+test('class page: a refused booking shows the server message as alert and the button works again', async ({ page, app, noise }) => {
+  await go(page, `${app.url}/classes/c12`);
+  await page.route('**/api/cart/items', (route) => route.fulfill({ status: 400, json: { error: 'spots_range', message: 'Pick between 1 and 5 spots.' } }));
+  await page.getByRole('button', { name: 'Book this class' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Pick between 1 and 5 spots.' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Added to cart' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Book this class' })).toBeEnabled();
+  await page.unroute('**/api/cart/items');
+  await page.getByRole('button', { name: 'Book this class' }).click();
+  await expect(page.getByRole('dialog', { name: 'Added to cart' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expectClean(noise, [{ status: 400, path: '/api/cart/items' }]);
+});
+
+test('cart: a refused change shows its message at the line and brings back the server value', async ({ page, app, noise }) => {
+  await addToCart(page, app.url, 'c12');
+  await go(page, `${app.url}/cart`);
+  let patched = '';
+  await page.route('**/api/cart/items/*', (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    patched = new URL(route.request().url()).pathname;
+    return route.fulfill({ status: 400, json: { error: 'spots_range', message: 'Pick between 1 and 5 spots.' } });
+  });
+  await page.getByRole('button', { name: 'Increase spots' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Pick between 1 and 5 spots.' })).toBeVisible();
+  await expect(page.getByTestId('spots-value'), 'the value of the server, not the optimistic one').toHaveText('1');
+  await page.unroute('**/api/cart/items/*');
+  await page.getByRole('button', { name: 'Increase spots' }).click();
+  await expect(page.getByTestId('spots-value')).toHaveText('2');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expectClean(noise, [{ status: 400, path: patched }]);
+});
+
+test('remove dialog: Escape closes it and keeps the class', async ({ page, app, noise }) => {
+  await addToCart(page, app.url, 'c12');
+  await go(page, `${app.url}/cart`);
+  await page.getByRole('button', { name: 'Remove' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Remove this class?' });
+  await expect(confirm).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(confirm).toHaveCount(0);
+  await expect(page.getByTestId('spots-value')).toHaveText('1');
+  await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible();
+  expectClean(noise);
+});
+
+test.describe('checkout: login and error branches', () => {
+  async function toCheckout(page: Page, url: string) {
+    await addToCart(page, url, 'c12');
+    await go(page, `${url}/login?next=%2Fcheckout`);
+    await login(page);
+    await expect(page).toHaveURL(/\/checkout$/);
+    await expect(page.getByRole('button', { name: 'Place booking' })).toBeVisible();
+  }
+
+  test('a refused booking shows the message, keeps the visitor on the page and re-enables the button', async ({ page, app, noise }) => {
+    await toCheckout(page, app.url);
+    await page.getByLabel('I accept the studio terms').check();
+    await page.route('**/api/checkout', (route) => route.fulfill({ status: 409, json: { error: 'already_booked', message: 'You already booked this class.' } }));
+    await page.getByRole('button', { name: 'Place booking' }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'You already booked this class.' })).toBeVisible();
+    await expect(page).toHaveURL(/\/checkout$/);
+    await expect(page.getByRole('button', { name: 'Place booking' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Booking…' })).toHaveCount(0);
+    await page.unroute('**/api/checkout');
+    await page.getByRole('button', { name: 'Place booking' }).click();
+    await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
+    expectClean(noise, [{ status: 409, path: '/api/checkout' }]);
+  });
+
+  test('login_required while placing the booking sends the visitor to the login page with the booking hint', async ({ page, app, noise }) => {
+    await toCheckout(page, app.url);
+    await page.getByLabel('I accept the studio terms').check();
+    await page.route('**/api/checkout', (route) => route.fulfill({ status: 401, json: { error: 'login_required', message: 'Please log in to continue.' } }));
+    await page.getByRole('button', { name: 'Place booking' }).click();
+    await expect(page).toHaveURL(/\/login\?next=%2Fcheckout$/);
+    await expect(page.getByText('Please log in to book.')).toBeVisible();
+    expectClean(noise, [{ status: 401, path: '/api/checkout' }]);
+  });
+
+  test('session_expired while placing the booking shows the expiry notice on the login page', async ({ page, app, noise }) => {
+    await toCheckout(page, app.url);
+    await page.getByLabel('I accept the studio terms').check();
+    await page.route('**/api/checkout', (route) => route.fulfill({ status: 401, json: { error: 'session_expired', message: 'Your session expired. Please log in again.' } }));
+    await page.getByRole('button', { name: 'Place booking' }).click();
+    await expect(page.getByText('Your session expired. Please log in again.')).toBeVisible();
+    await expect(page.locator('[data-section="login"]')).toBeVisible();
+    expectClean(noise, [{ status: 401, path: '/api/checkout' }]);
+  });
+
+  test('login_required while the checkout loads sends the visitor to the login page', async ({ page, app, noise }) => {
+    await addToCart(page, app.url, 'c12');
+    await go(page, `${app.url}/login?next=%2Fcheckout`);
+    await login(page);
+    await expect(page).toHaveURL(/\/checkout$/);
+    await page.route('**/api/profile', (route) => route.fulfill({ status: 401, json: { error: 'login_required', message: 'Please log in to continue.' } }));
+    await page.reload();
+    await expect(page).toHaveURL(/\/login\?next=%2Fcheckout$/);
+    await expect(page.getByText('Please log in to book.')).toBeVisible();
+    expectClean(noise, [{ status: 401, path: '/api/profile' }]);
+  });
+
+  test('a server error while the checkout loads shows an alert instead of the form', async ({ page, app, noise }) => {
+    await addToCart(page, app.url, 'c12');
+    await go(page, `${app.url}/login?next=%2Fcheckout`);
+    await login(page);
+    await expect(page).toHaveURL(/\/checkout$/);
+    await page.route('**/api/profile', (route) => route.fulfill({ status: 500, json: { error: 'boom', message: 'Something went wrong. Please try again.' } }));
+    await page.reload();
+    await expect(page.getByRole('alert').filter({ hasText: 'Something went wrong. Please try again.' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Place booking' })).toHaveCount(0);
+    expectClean(noise, [{ status: 500, path: '/api/profile' }]);
+  });
+});
