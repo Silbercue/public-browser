@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router';
+import { Route, Routes, useSearchParams } from 'react-router';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import Login from './pages/Login';
@@ -6,14 +6,20 @@ import Register from './pages/Register';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import Bookings from './pages/Bookings';
+import Schedule from './pages/Schedule';
+import ClassDetail from './pages/ClassDetail';
+import Cart from './pages/Cart';
+import Checkout from './pages/Checkout';
+import Confirmation from './pages/Confirmation';
 
-/** Placeholder until the booking pages exist (heading plus station section). */
-function Placeholder({ title, section }: { title: string; section?: string }) {
+/** Login page; guests sent here from the checkout also see why. */
+function LoginPage() {
+  const [params] = useSearchParams();
   return (
-    <section className="page" data-section={section}>
-      <h1>{title}</h1>
-      <p className="muted">This page is being set up.</p>
-    </section>
+    <>
+      {params.get('next') === '/checkout' && <p className="notice notice-warning page narrow" role="status">Please log in to book.</p>}
+      <Login />
+    </>
   );
 }
 
@@ -31,12 +37,12 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Home />} />
-        <Route path="schedule" element={<Placeholder title="Schedule" section="schedule" />} />
-        <Route path="classes/:id" element={<Placeholder title="Class" section="class-detail" />} />
-        <Route path="cart" element={<Placeholder title="Your cart" section="cart" />} />
-        <Route path="checkout" element={<Placeholder title="Checkout" section="checkout" />} />
-        <Route path="confirmation/:reference" element={<Placeholder title="Booking confirmed" />} />
-        <Route path="login" element={<Login />} />
+        <Route path="schedule" element={<Schedule />} />
+        <Route path="classes/:id" element={<ClassDetail />} />
+        <Route path="cart" element={<Cart />} />
+        <Route path="checkout" element={<Checkout />} />
+        <Route path="confirmation/:reference" element={<Confirmation />} />
+        <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<Register />} />
         <Route path="profile" element={<Profile />} />
         <Route path="settings" element={<Settings />} />
