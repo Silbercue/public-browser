@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
-import { captureOutsideAccess, runSession } from './run-session.mjs';
+import { captureOutsideAccess, readsBugScript, readsLocalFiles, runSession } from './run-session.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { toolchainDir } from './participants.mjs';
 import { symlinkSync } from 'node:fs';
@@ -64,6 +64,8 @@ function fakeDeps(mode, extra = {}) {
     portBusy: async () => false,
     listProcesses: () => [],
     chromeVersion: () => 'test-chrome',
+    allowPublicDir: true,
+    secretFiles: [],
     runMyTestCmd: [process.execPath, FAKE],
     captureDeps: { portBusy: async () => false, ports: PORTS },
     ...extra,
@@ -277,6 +279,71 @@ test('F12: Rest aus run-my-test (eingetragen) wird am Sitzungsende beendet, ein 
   } finally {
     if (pids) for (const pid of [pids.mine, pids.other]) { try { process.kill(-pid, 'SIGKILL'); } catch { /* weg */ } }
   }
+});
+
+test('F11: mit gesetztem CODER_PARCOURS_PUBLIC_DIR startet keine Sitzung (Gegenprobe: mit allowPublicDir laeuft sie)', async () => {
+  assert.ok(process.env.CODER_PARCOURS_PUBLIC_DIR, 'der Test setzt die Variable fuer die Fixtures');
+  await assert.rejects(run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok', { allowPublicDir: false })), /CODER_PARCOURS_PUBLIC_DIR is set/);
+  const ok = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok'));
+  track(ok.result);
+  assert.equal(ok.result.status, 'ok');
+});
+
+test('F4: Public Browser mit aktivem Dev-Modus im npx-Cache: aborted mit Hinweis, Claude lief nicht', async () => {
+  const deps = fakeDeps('ok', { devModeLinks: () => ['/x/.npm/_npx/abc/node_modules/public-browser/build'] });
+  const { result } = await run({ slug: 'public-browser', type: 'explore' }, deps);
+  track(result);
+  assert.equal(result.status, 'aborted');
+  assert.ok(result.notes.some((n) => /dev mode is active/.test(n) && /npm run dev:off/.test(n)), result.notes.join(' | '));
+  assert.equal(result.harness.session_jsonl_sha256, null, 'Claude lief nicht');
+});
+
+test('F9: Werte aus den Schluesseldateien werden in Sitzungsdatei ersetzt, mit Vermerk ohne den Wert', async () => {
+  const dir = tmp('cp-rs-sec-');
+  writeFileSync(join(dir, '.env'), 'SOME_KEY=Fake MCP\n');
+  const { result, outPath } = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok', { secretFiles: [join(dir, '.env')] }));
+  track(result);
+  assert.equal(result.status, 'ok', result.notes.join(' | '));
+  const text = readFileSync(outPath, 'utf8');
+  assert.ok(!text.includes('Fake MCP'), 'Wert ersetzt');
+  assert.ok(text.includes('[redacted-secret]'));
+  assert.ok(result.notes.some((n) => /secrets: \d+ value/.test(n)));
+  assert.ok(!result.notes.join(' ').includes('Fake MCP'));
+});
+
+const toolUse = (name, input) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } });
+
+test('F9: readsLocalFiles - file:-Adresse in Browser-/Bash-Eingabe zaehlt, Write und normale Adressen nicht', () => {
+  assert.equal(readsLocalFiles(toolUse('mcp__x__navigate', { url: 'file:///Users/someone/' })), true);
+  assert.equal(readsLocalFiles(toolUse('Bash', { command: 'agent-browser open FILE:/etc/hosts' })), true);
+  assert.equal(readsLocalFiles(toolUse('mcp__x__navigate', { url: 'http://127.0.0.1:3000/schedule' })), false, 'Gegenprobe: App-Adresse');
+  assert.equal(readsLocalFiles(toolUse('Write', { file_path: '/r/report.json', content: 'opened file:///x' })), false, 'Gegenprobe: Write');
+  assert.equal(readsLocalFiles(toolUse('mcp__x__navigate', { url: 'http://127.0.0.1:3000/?profile=1' })), false);
+});
+
+test('F15: readsBugScript - Write-Eingabe mit runtime.js zaehlt nicht, Browser-/Bash-Eingabe schon', () => {
+  assert.equal(readsBugScript(toolUse('Write', { file_path: '/r/report.json', content: 'the page loads /assets/runtime.js' })), false);
+  assert.equal(readsBugScript(toolUse('mcp__x__navigate', { url: 'http://127.0.0.1:3000/assets/runtime.js' })), true, 'Gegenprobe');
+  assert.equal(readsBugScript(toolUse('Bash', { command: 'curl http://x/assets/runtime.js' })), true);
+});
+
+test('F15: ps nur als Befehlsanfang in RUN/*.sh, eine Python-Variable ps oder ein Wort zaehlt nicht', () => {
+  const resultsRoot = tmp('cp-rs-res-');
+  const check = (name, text) => {
+    const dir = tmp('cp-rs-ps-');
+    const testDir = join(dir, 'test');
+    mkdirSync(testDir);
+    writeFileSync(join(testDir, 'RUN'), 'exit 0\n');
+    writeFileSync(join(testDir, name), text);
+    writeFileSync(join(dir, 'log'), '');
+    return captureOutsideAccess({ testDir, logFile: join(dir, 'log'), resultsRoot });
+  };
+  assert.equal(check('check.py', 'ps = 3\nprint(ps)\n'), false, 'Python-Variable');
+  assert.equal(check('notes.md', 'ps -ef shows processes\n'), false, 'Text in einer Markdown-Datei');
+  assert.equal(check('step.sh', 'echo start\nps -ef | grep x\n'), true, 'Aufruf in einer Shell-Datei');
+  assert.equal(check('step.sh', 'echo start && ps aux\n'), true, 'nach &&');
+  assert.equal(check('step.sh', 'echo "maps and ps are words"\n'), false, 'Wort im Echo');
+  assert.equal(check('step.sh', 'ps=3\n'), false, 'Zuweisung');
 });
 
 test('CLI-Teilnehmer: --tools Bash,Read,Write, Hook Bash|Read mit Sitzungsordner, Skill-Dateien im Sitzungsordner', async () => {

@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CP_PARTICIPANTS, resolveChrome, resolveClaude, toolchainBinDir, toolchainDir } from './participants.mjs';
+import { CP_PARTICIPANTS, devModeLinks, resolveChrome, resolveClaude, toolchainBinDir, toolchainDir } from './participants.mjs';
 import { portBusy } from './proc.mjs';
 
 const isExecutable = (p) => {
@@ -69,10 +69,10 @@ export function enginesNodeCheck(p, nodeVersion = process.versions.node) {
 }
 
 /**
- * @param {{ platform?: string, env?: Record<string, string | undefined>, nodeVersion?: string }} [opts]
+ * @param {{ platform?: string, env?: Record<string, string | undefined>, nodeVersion?: string, npxDir?: string }} [opts]
  * @returns {Promise<{ ok: boolean, checks: { name: string, ok: boolean, detail: string, warn?: boolean }[] }>}
  */
-export async function doctor({ platform = process.platform, env = process.env, nodeVersion = process.versions.node } = {}) {
+export async function doctor({ platform = process.platform, env = process.env, nodeVersion = process.versions.node, npxDir = undefined } = {}) {
   const checks = [];
   const add = (name, ok, detail, extra = {}) => checks.push({ name, ok, detail, ...extra });
 
@@ -91,6 +91,10 @@ export async function doctor({ platform = process.platform, env = process.env, n
     const p = which(tool, env);
     add(tool, Boolean(p), p ?? `not found in PATH (needed for ${why[tool]})`);
   }
+
+  const dev = devModeLinks(npxDir);
+  add('public-browser dev mode', dev.length === 0, dev.length === 0 ? 'off (no linked build in the npx cache)'
+    : `active: ${dev.length} npx cache folder(s) link build/ to a local build, so "public-browser 3.0.0" would be unpublished code; run: npm run dev:off in the Public Browser repository`);
 
   const tc = toolchainCheck();
   add('toolchain', tc.ok, tc.detail);

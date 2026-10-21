@@ -3,7 +3,7 @@
 // Werkzeugkette) und extraCommands (zusaetzlich erlaubte Befehlskoepfe neben dem CLI).
 // Versionen gepinnt am 21.10.2026 per `npm view` (aktuelle Version je Paket).
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,22 @@ export function toolchainDir() {
 /** node_modules/.bin der Werkzeugkette (dort liegen agent-browser und playwright-cli). */
 export function toolchainBinDir() {
   return join(toolchainDir(), 'node_modules', '.bin');
+}
+
+/**
+ * Public Browser im Entwicklungsmodus: `npm run dev` ersetzt build/ im npx-Cache von public-browser durch einen
+ * Symlink auf den lokalen Build. Dann wuerde `npx public-browser@3.0.0` unveroeffentlichten Code starten.
+ * @param {string} [npxDir] Standard ~/.npm/_npx
+ * @returns {string[]} Pfade der build-Symlinks
+ */
+export function devModeLinks(npxDir = join(homedir(), '.npm', '_npx')) {
+  if (!existsSync(npxDir)) return [];
+  const out = [];
+  for (const d of readdirSync(npxDir)) {
+    const p = join(npxDir, d, 'node_modules', 'public-browser', 'build');
+    try { if (lstatSync(p).isSymbolicLink()) out.push(p); } catch { /* kein build-Ordner */ }
+  }
+  return out;
 }
 
 const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';

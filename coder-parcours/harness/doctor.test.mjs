@@ -72,3 +72,23 @@ test('enginesNodeCheck: Grenzfaelle der Versionsvergleiche', () => {
   assert.equal(enginesNodeCheck(p, '23.99.99').ok, false);
   assert.equal(enginesNodeCheck(p, '25.0.0').ok, true);
 });
+
+test('doctor: Dev-Modus von Public Browser im npx-Cache ist ein FAIL, ohne Symlink OK (F4)', async () => {
+  const { mkdtempSync, mkdirSync, symlinkSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const npx = mkdtempSync(join(tmpdir(), 'cp-npx-'));
+  try {
+    const pkg = join(npx, 'abc', 'node_modules', 'public-browser');
+    mkdirSync(pkg, { recursive: true });
+    mkdirSync(join(npx, 'real-build'));
+    mkdirSync(join(pkg, 'build'));
+    const clean = await doctor({ env: { PATH: process.env.PATH }, npxDir: npx });
+    assert.equal(byName(clean, 'public-browser dev mode').ok, true, 'echter build-Ordner ist kein Dev-Modus');
+    rmSync(join(pkg, 'build'), { recursive: true });
+    symlinkSync(join(npx, 'real-build'), join(pkg, 'build'));
+    const dev = await doctor({ env: { PATH: process.env.PATH }, npxDir: npx });
+    assert.equal(byName(dev, 'public-browser dev mode').ok, false);
+    assert.match(byName(dev, 'public-browser dev mode').detail, /dev:off/);
+    assert.equal(dev.ok, false);
+  } finally { rmSync(npx, { recursive: true, force: true }); }
+});

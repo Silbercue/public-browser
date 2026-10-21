@@ -68,7 +68,7 @@ test('aggregate: Kennzahlen je Teilnehmer mit medianRange und x/n', () => {
   assert.deepEqual(pb.logins, { median: 3, min: 2, max: 4, n: 2 });
   assert.deepEqual(pb.capture, { valid: 1, n: 2 });
   assert.equal(pb.unreviewed, 2);
-  assert.deepEqual(pb.integrity, { read_bug_script: 1, capture_outside_access: 1 });
+  assert.deepEqual(pb.integrity, { read_bug_script: 1, capture_outside_access: 1, local_file_access: 0 });
   assert.deepEqual(pb.silent_bypass, { silently_bypassed: 2, reached: 4, share: 0.5 });
   assert.deepEqual(pb.by_category.a, { active: 2, hits: 1 });
   assert.equal(pb.false_alarms.median, 1);
@@ -267,4 +267,13 @@ test('F8: score.mjs liest aborted/ der Runde mit', () => {
     const sb = JSON.parse(readFileSync(join(root, 'r1', 'scoreboard.json'), 'utf8'));
     assert.deepEqual(sb.aborted.pb, { n: 1, reasons: { 'session JSONL missing': 1 } });
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('F9: Sitzungen mit local_file_access werden je Teilnehmer gezaehlt und stehen in der Tafel', () => {
+  const a = explore('pb', 1);
+  a.harness.integrity.local_file_access = true;
+  const sb = aggregate([a, explore('pb', 2), explore('aa', 1)]);
+  assert.equal(sb.participants.pb.integrity.local_file_access, 1);
+  assert.equal(sb.participants.aa.integrity.local_file_access, 0, 'Gegenprobe');
+  assert.match(renderScoreboard(sb), /Sessions that opened local files/);
 });

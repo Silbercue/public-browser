@@ -377,3 +377,27 @@ test('golden values: the capture and change targets of 20 fixed seeds are pinned
   assert.equal(first.map((seed) => buildRunConfig({ seed, sessionType: 'explore', catalog: both }).change.bugId).join(','),
     'P17,P11,P17,P11,P12,P11,P12,P17,P17,P17,P12,P11,P11,P11,P17,P12,P17,P17,P12,P17');
 });
+
+test('F7: the five seeds of seeds.json spread over the real public catalog (broken/healthy, change targets, capture targets, every bug active at least once)', async () => {
+  const catalog = await loadCatalog({ publicDir: 'bugs/public' });
+  const seeds = loadSeeds();
+  const explore = seeds.map((s) => buildRunConfig({ seed: s, sessionType: 'explore', catalog }));
+  const capture = seeds.map((s) => buildRunConfig({ seed: s, sessionType: 'capture', catalog, variant: 'healthy' }));
+  const ids = (role) => catalog.bugs.filter((b) => b.roles?.[role]).map((b) => b.id).sort();
+  const broken = seeds.filter((s) => changeBrokenFor(s)).length;
+  assert.ok(broken >= 2 && seeds.length - broken >= 2, `broken ${broken}/${seeds.length}`);
+  // every change target and every capture target occurs, none carries all seeds
+  for (const id of ids('change')) assert.ok(explore.some((c) => c.change.bugId === id), `change target ${id} is used`);
+  for (const id of ids('capture')) {
+    const n = capture.filter((c) => c.capture.bugId === id).length;
+    assert.ok(n >= 2, `capture target ${id} used ${n}x (need at least 2)`);
+  }
+  assert.ok(new Set(explore.map((c) => c.change.bugId)).size >= 3, 'all three change targets');
+  assert.ok(explore.filter((c) => c.change.bugId === ids('change')[1]).length <= 2, 'no change target dominates');
+  // every public bug is active in at least one explore session (as a normal bug or as a broken change target)
+  const active = new Set(explore.flatMap((c) => c.active.map((a) => a.id)));
+  for (const b of catalog.bugs) assert.ok(active.has(b.id), `${b.id} is active in at least one seed`);
+  // Gegenprobe: the check bites; a single seed does not cover the catalog
+  const one = new Set(explore.slice(0, 1).flatMap((c) => c.active.map((a) => a.id)));
+  assert.ok(catalog.bugs.some((b) => !one.has(b.id)), 'one seed alone leaves bugs inactive');
+});

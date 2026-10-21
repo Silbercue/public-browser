@@ -13,12 +13,13 @@ import { randomUUID, createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync,
   rmSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { MODEL_PIN, cliCallsFromJsonl, isAlive, jsonlSlugFor, killGroup, mcpCallsFromJsonl, probeServerInfo,
   readModelFromJsonl, sh, spawnWithTimeout, usageTotal } from './blind-run-lib.mjs';
-import { CP_PARTICIPANTS, cpDeps, participantSkillText, scrubSessionEnv, toolchainBinDir, toolchainDir } from './participants.mjs';
+import { CP_PARTICIPANTS, cpDeps, devModeLinks, participantSkillText, scrubSessionEnv, toolchainBinDir, toolchainDir } from './participants.mjs';
+import { defaultSecretFiles, needlesFromFiles, scrubSecrets } from './secrets.mjs';
 import { toolLockMulti } from './guard.mjs';
 import { browserBinaries, chromeProcessesOnPort, killPids, listProcesses, portBusy } from './proc.mjs';
 import { OWN_PROCESSES_FILE, TEST_PORTS, checkCapture, isRunProcess, killOwnProcesses, snapshotPids } from './capture-check.mjs';
@@ -37,7 +38,10 @@ const GUARD_HOOK = join(HERE, 'guard-hook.mjs');
 const PB_PORT = 9333;
 const SMOKE = { maxTurns: 15, wallMin: 8 };
 
-/** Tool-Eingaben mit runtime.js oder Tool-Ergebnisse mit RUNTIME_MARKER (volle Inhalte, nicht gekuerzt). */
+/**
+ * Tool-Eingaben mit runtime.js oder Tool-Ergebnisse mit RUNTIME_MARKER (volle Inhalte, nicht gekuerzt).
+ * Write-Eingaben zaehlen nicht: ein Bericht darf die Datei nennen, ohne sie gelesen zu haben.
+ */
 export function readsBugScript(jsonlText) {
   for (const line of String(jsonlText || '').split('\n')) {
     if (!line.trim()) continue;
@@ -46,8 +50,26 @@ export function readsBugScript(jsonlText) {
     const content = obj?.message?.content;
     if (!Array.isArray(content)) continue;
     for (const c of content) {
-      if (obj.type === 'assistant' && c?.type === 'tool_use' && JSON.stringify(c.input ?? null).includes('runtime.js')) return true;
+      if (obj.type === 'assistant' && c?.type === 'tool_use' && c.name !== 'Write' && JSON.stringify(c.input ?? null).includes('runtime.js')) return true;
       if (obj.type === 'user' && c?.type === 'tool_result' && JSON.stringify(c.content ?? null).includes(RUNTIME_MARKER)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Werkzeug-Eingaben (ausser Write) mit einer file:-Adresse: Browser aller Teilnehmer koennen damit lokale Dateien
+ * oeffnen (Verzeichnislisten, Ereignisdatei, Schluessel), vorbei an Lese- und Befehlssperre.
+ */
+export function readsLocalFiles(jsonlText) {
+  for (const line of String(jsonlText || '').split('\n')) {
+    if (!line.trim()) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const content = obj?.message?.content;
+    if (obj?.type !== 'assistant' || !Array.isArray(content)) continue;
+    for (const c of content) {
+      if (c?.type === 'tool_use' && c.name !== 'Write' && /\bfile:\//i.test(JSON.stringify(c.input ?? null))) return true;
     }
   }
   return false;
@@ -92,10 +114,13 @@ export function captureOutsideAccess({ testDir, logFile, secretDir = null, resul
   // Protokoll von run-my-test: der Werkzeugkette-Ordner insgesamt.
   const readLog = (f) => { let text = normalize(readFileSync(f, 'utf8')); for (const t of tc) text = text.split(t).join(''); return text; };
   const hitIn = (list) => (text) => list.some((n) => n && text.includes(n));
-  const PS = /(^|[\s;&|(`'"])ps(\s|$)/m;
+  // `ps` nur als Befehlsanfang einer Shell-Zeile (Zeilenanfang oder nach ; & | ( ), und nur in RUN und *.sh: eine
+  // Python-Variable `ps = ...` oder ein Wort im Text ist kein Aufruf.
+  const PS = /(^|[;&|(])[ \t]*ps(?![\w=.-])(?![ \t]*=)/m;
+  const isShellFile = (f) => basename(f) === 'RUN' || f.endsWith('.sh');
   for (const f of filesUnder(testDir)) {
     const text = readAgent(f);
-    if (hitIn(agentNeedles)(text) || (home && home.length > 1 && text.includes(home)) || PS.test(text)) return true;
+    if (hitIn(agentNeedles)(text) || (home && home.length > 1 && text.includes(home)) || (isShellFile(f) && PS.test(text))) return true;
   }
   return existsSync(logFile) ? hitIn(needles)(readLog(logFile)) : false;
 }
@@ -170,6 +195,7 @@ const readEvents = (file) => {
  * @param {{ cp?: object, envOverrides?: Record<string, string>, resultsRoot?: string, wallMs?: number,
  *   portBusy?: (port: number) => Promise<boolean>, listProcesses?: () => Array<{ pid: number, command: string }>,
  *   chromeVersion?: () => string|null, runMyTestCmd?: string[], captureDeps?: any, spawnApp?: typeof spawnAppServer,
+ *   allowPublicDir?: boolean, devModeLinks?: () => string[],
  *   onAppStarted?: (app: { url: string, port: number }) => any, inspectCtl?: (ctl: string, rundir: string) => any,
  *   log?: (line: string) => void }} [deps]
  * @returns {Promise<{ result: any, outPath: string }>}
@@ -180,6 +206,11 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   if (type !== 'explore' && type !== 'capture') throw new Error(`unknown session type ${type}`);
   if (!Number.isInteger(seed)) throw new Error(`seed must be an integer (got ${seed})`);
   if (typeof round !== 'string' || !/^[A-Za-z0-9._-]+$/.test(round) || round.startsWith('.')) throw new Error(`invalid round name ${round}`);
+
+  // Ein umgeleiteter Katalog (nur fuer Tests) wuerde still den falschen Katalog messen; der Fingerabdruck sieht ihn nicht.
+  if (process.env.CODER_PARCOURS_PUBLIC_DIR && !deps.allowPublicDir) {
+    throw new Error('CODER_PARCOURS_PUBLIC_DIR is set: this session would measure another catalog than bugs/public; unset it');
+  }
 
   const base = { ...cpDeps(), ...(deps.cp || {}) };
   const roundDir = join(deps.resultsRoot ?? RESULTS_ROOT, round);
@@ -238,7 +269,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   let model = null;
   let calls = [];
   let toolLock = { bash_attempted: 0, bash_denied: false, read_attempted: 0, read_denied: false, non_mcp_executed: [] };
-  const integrity = { read_bug_script: false, capture_outside_access: false };
+  const integrity = { read_bug_script: false, capture_outside_access: false, local_file_access: false };
   let wallClockS = 0;
   let report = null;
   let capture = null;
@@ -267,6 +298,8 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
         if (taken.length) throw new Error('ports 9222/9223 busy');
       }
       if (slug === 'public-browser') {
+        const dev = (deps.devModeLinks ?? devModeLinks)();
+        if (dev.length) throw new Error('Public Browser dev mode is active (an npx cache links build/ to a local build); run npm run dev:off in the Public Browser repository, then start again');
         if (await busy(PB_PORT)) throw new Error(`port ${PB_PORT} already in use; close that program first`);
         pbStarted = true;
       }
@@ -353,6 +386,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
       const nonChrome = [...browsersSeen].filter((b) => b !== base.chromeBin);
       if (nonChrome.length) abort(`non-Google-Chrome browser process seen: ${nonChrome.join(', ')}`);
       integrity.read_bug_script = readsBugScript(jsonlText);
+      integrity.local_file_access = readsLocalFiles(jsonlText);
       if (type === 'capture') integrity.capture_outside_access = captureOutsideAccess({ testDir, logFile, secretDir, ctl, resultsRoot: deps.resultsRoot ?? RESULTS_ROOT });
 
       // Schritt 7 (Teil): Token aus dem Mess-Skript, Kosten aus total_cost_usd.
@@ -442,7 +476,10 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
     events,
     notes,
   };
-  const finalObj = JSON.parse(scrubHome(JSON.stringify(obj)));
+  const needles = needlesFromFiles(deps.secretFiles ?? defaultSecretFiles(CP_ROOT));
+  const scrubbed = scrubSecrets(scrubHome(JSON.stringify(obj)), { needles });
+  const finalObj = JSON.parse(scrubbed.text);
+  if (scrubbed.count) finalObj.notes.push(`secrets: ${scrubbed.count} value(s) that look like keys were replaced in this file`);
   const problems = validateSessionResult(finalObj);
   if (problems.length) throw new Error(`session result invalid: ${problems.join('; ')}`);
   const content = `${JSON.stringify(finalObj, null, 2)}\n`;
@@ -460,7 +497,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   }
   if (jsonlText) {
     mkdirSync(dirname(rawPath), { recursive: true });
-    writeFileSync(rawPath, scrubHome(jsonlText));
+    writeFileSync(rawPath, scrubSecrets(scrubHome(jsonlText), { needles }).text);
   }
   return { result: finalObj, outPath };
 }

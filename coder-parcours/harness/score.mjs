@@ -194,6 +194,7 @@ export function aggregate(gradedResults, abortedResults = []) {
       integrity: {
         read_bug_script: mine.filter((r) => r.harness?.integrity?.read_bug_script).length,
         capture_outside_access: mine.filter((r) => r.harness?.integrity?.capture_outside_access).length,
+        local_file_access: mine.filter((r) => r.harness?.integrity?.local_file_access).length,
       },
       human_ratio: medianRange(ratios).median,
       human_overlap: medianRange(overlaps).median,
@@ -266,8 +267,8 @@ export function renderScoreboard(sb) {
   }
 
   out.push('## Capture and integrity', '');
-  out.push(...header('Participant', ['Capture valid', 'Sessions that read the bug script', 'Capture outside access']));
-  for (const s of slugs) out.push(row(P(s).display, [xn(P(s).capture, 'valid'), P(s).integrity.read_bug_script, P(s).integrity.capture_outside_access]));
+  out.push(...header('Participant', ['Capture valid', 'Sessions that read the bug script', 'Capture outside access', 'Sessions that opened local files']));
+  for (const s of slugs) out.push(row(P(s).display, [xn(P(s).capture, 'valid'), P(s).integrity.read_bug_script, P(s).integrity.capture_outside_access, P(s).integrity.local_file_access]));
   out.push('');
 
   for (const [type, title] of [['explore', 'Cost, explore sessions'], ['capture', 'Cost, capture sessions']]) {

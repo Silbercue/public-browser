@@ -89,6 +89,9 @@ function validateBase(obj, expectedSchema) {
       if ('integrity' in h && (!isObj(h.integrity) || typeof h.integrity.read_bug_script !== 'boolean' || typeof h.integrity.capture_outside_access !== 'boolean')) {
         p.push('harness.integrity {read_bug_script, capture_outside_access} must be booleans');
       }
+      if ('integrity' in h && isObj(h.integrity) && 'local_file_access' in h.integrity && typeof h.integrity.local_file_access !== 'boolean') {
+        p.push('harness.integrity.local_file_access must be a boolean');
+      }
     }
     const t = obj.tokens;
     if (!isObj(t)) p.push('tokens missing');
