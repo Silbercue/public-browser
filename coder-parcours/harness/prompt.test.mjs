@@ -85,3 +85,59 @@ test('uebrig gebliebenes {{ wirft', () => {
   const runConfig = buildRunConfig({ seed: 11, sessionType: 'explore', catalog });
   assert.throws(() => renderSessionPrompt({ ...base, type: 'explore', runConfig, reportPath: '/r{{X}}', testDir: '/t' }), /\{\{/);
 });
+
+test('der Auftragstext ist fuer gesunde und kaputte Variante Zeichen fuer Zeichen gleich, und fuer alle Teilnehmer bis auf den Werkzeugnamen', () => {
+  for (const type of /** @type {const} */ (['explore', 'capture'])) {
+    // capture: the variant of the run config; explore: the "broken" flag of the change (same seed, same target, flag flipped)
+    const render = (variant, toolName) => {
+      const cfg = buildRunConfig({ seed: 11, sessionType: type, catalog, variant: type === 'capture' ? variant : null });
+      const runConfig = type === 'explore' && variant ? { ...cfg, change: { ...cfg.change, broken: variant === 'broken' } } : cfg;
+      return renderSessionPrompt({ ...base, toolName, type, runConfig, reportPath: '/x/report.json', testDir: '/x/test' });
+    };
+    const healthy = render('healthy', 'Tool Alpha');
+    const broken = render('broken', 'Tool Alpha');
+    assert.equal(healthy, broken, `${type}: the text does not tell whether the change is broken`);
+    assert.equal(render(null, 'Tool Alpha'), healthy, `${type}: nor does the missing variant`);
+    const other = render('healthy', 'Tool Omega');
+    assert.notEqual(other, healthy, 'Gegenprobe: the tool name does change the text');
+    assert.equal(other.split('Tool Omega').join('Tool Alpha'), healthy, `${type}: only the tool name differs between participants`);
+    assert.ok(healthy.includes('Tool Alpha'));
+  }
+});
+
+test('capture nennt Werkzeugnamen und Konten und verraet weder run_plan noch einen Fehlertitel', () => {
+  const runConfig = buildRunConfig({ seed: 11, sessionType: 'capture', catalog });
+  const text = renderSessionPrompt({ ...base, type: 'capture', runConfig, reportPath: '/x/report.json', testDir: '/x/test' });
+  assert.ok(text.includes('Some Browser Tool'), 'tool name');
+  assert.ok(text.includes('http://127.0.0.1:4555'), 'app url');
+  for (const a of TEST_ACCOUNTS) assert.ok(text.includes(`${a.email} / ${a.password}`), a.email);
+  assert.ok(!text.includes('run_plan'));
+  for (const b of catalog.bugs) assert.ok(!text.includes(b.title), `title ${b.id}`);
+  for (const d of catalog.decoys ?? []) assert.ok(!text.includes(d.title), `decoy title ${d.id}`);
+});
+
+test('Ziel nicht im Katalog und Ziel ohne Rollentext werfen mit der Fehler-ID', () => {
+  for (const type of /** @type {const} */ (['explore', 'capture'])) {
+    const runConfig = buildRunConfig({ seed: 11, sessionType: type, catalog });
+    const key = type === 'explore' ? 'change' : 'capture';
+    const targetId = runConfig[key].bugId;
+    const without = { ...catalog, bugs: catalog.bugs.filter((b) => b.id !== targetId) };
+    assert.throws(() => renderSessionPrompt({ ...base, catalog: without, type, runConfig, reportPath: '/r', testDir: '/t' }), new RegExp(`${targetId} has no ${key} role text`));
+    const noRole = { ...catalog, bugs: catalog.bugs.map((b) => (b.id === targetId ? { ...b, roles: {} } : b)) };
+    assert.throws(() => renderSessionPrompt({ ...base, catalog: noRole, type, runConfig, reportPath: '/r', testDir: '/t' }), new RegExp(`${targetId} has no ${key} role text`));
+    // Gegenprobe: the unchanged catalog renders
+    assert.doesNotThrow(() => renderSessionPrompt({ ...base, type, runConfig, reportPath: '/r', testDir: '/t' }));
+  }
+});
+
+test('der Smoke-Zusatz steht am Ende des Textes und nur im Smoke-Fall', () => {
+  for (const type of /** @type {const} */ (['explore', 'capture'])) {
+    const runConfig = buildRunConfig({ seed: 11, sessionType: type, catalog });
+    const args = { ...base, type, runConfig, reportPath: '/r', testDir: '/t' };
+    const plain = renderSessionPrompt(args);
+    const smoke = renderSessionPrompt({ ...args, smoke: true });
+    assert.ok(smoke.startsWith(plain.trimEnd()), 'the normal text comes first, unchanged');
+    assert.match(smoke.trimEnd().split('\n').pop(), /^SMOKE MODE \(harness self-test\)/, 'the add-on is the last line');
+    assert.ok(!plain.includes('SMOKE MODE'));
+  }
+});
