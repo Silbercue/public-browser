@@ -969,6 +969,20 @@ test('files carry a derived sandbox id, never the sw_sb cookie value; events, re
   } finally { await s.handle.close(); }
 });
 
+test('hosted: every visitor gets an engine of his own, so bug counters (P14) never mix between visitors (K-T8-K2)', async () => {
+  const ids = [];
+  const engines = [];
+  const s = await startHosted({ makeEngine: (cfg, { sandboxId }) => { ids.push(sandboxId); const e = { ...nullEngine }; engines.push(e); return e; } });
+  try {
+    await client(s.base).get('/');
+    assert.equal(ids.length, 1, 'positive: one visitor, one engine');
+    await client(s.base).get('/');
+    assert.equal(ids.length, 2);
+    assert.notEqual(ids[0], ids[1]);
+    assert.notEqual(engines[0], engines[1]);
+  } finally { await s.handle.close(); }
+});
+
 test('cookies: Secure only in hosted mode; a broken percent code is ignored, not a 500', async () => {
   const h = await startHosted();
   const l = await start();
