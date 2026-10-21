@@ -24,7 +24,7 @@ const test = base.extend<Fixtures>({
   },
   consoleErrors: async ({ page }, use) => {
     const errors: string[] = [];
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.text()); });
     page.on('pageerror', (e) => errors.push(String(e)));
     await use(errors);
   },
@@ -313,6 +313,21 @@ test.describe('login redirects', () => {
   });
 });
 
+test('console watcher: a warning, an error and a page error all land in consoleErrors', async ({ page, app, consoleErrors }) => {
+  await page.goto(`${app.url}/`);
+  await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
+  expect(consoleErrors, 'positive: a clean start records nothing').toEqual([]);
+  await page.evaluate(() => { console.warn('watcher-warning'); });
+  await expect.poll(() => consoleErrors.filter((e) => e.includes('watcher-warning')).length).toBe(1);
+  await page.evaluate(() => { console.error('watcher-error'); });
+  await expect.poll(() => consoleErrors.filter((e) => e.includes('watcher-error')).length).toBe(1);
+  await page.evaluate(() => { setTimeout(() => { throw new Error('watcher-pageerror'); }, 0); });
+  await expect.poll(() => consoleErrors.filter((e) => e.includes('watcher-pageerror')).length).toBe(1);
+  await page.evaluate(() => { console.log('watcher-info'); });
+  await page.waitForTimeout(100);
+  expect(consoleErrors.filter((e) => e.includes('watcher-info')), 'plain log lines are no findings').toEqual([]);
+});
+
 test.describe('login state on start', () => {
   /** Console, page errors, failed requests and any HTTP status >= 400 of the current page. */
   function watch(page: Page, consoleErrors: string[]) {
@@ -387,6 +402,31 @@ test.describe('login state on start', () => {
     await page.goBack();
     await expect(page).toHaveURL(`${app.url}/`);
     await expect(page.locator('[data-section="login"]')).toHaveCount(0);
+  });
+  test('/api/me answers 500: the header falls back to Log in instead of staying blank', async ({ page, app }) => {
+    await page.route('**/api/me', (route) => route.fulfill({ status: 500, json: { error: 'boom', message: 'Something went wrong.' } }));
+    await page.goto(`${app.url}/`);
+    await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Log out' })).toHaveCount(0);
+    // Positive counterpart: with the real server the same page shows a logged-in header after a login.
+    await page.unroute('**/api/me');
+    await login(page, app.url);
+    await expect(page.getByRole('link', { name: 'Log in' })).toHaveCount(0);
+  });
+
+  test('/api/me fails on the network: the header falls back to Log in', async ({ page, app }) => {
+    await page.route('**/api/me', (route) => route.abort('connectionrefused'));
+    await page.goto(`${app.url}/`);
+    await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Log out' })).toHaveCount(0);
+  });
+
+  // Befund Code falsch (testgaps.md G03): Layout.tsx `'user' in r` throws a TypeError when /api/me answers 200 with an empty body
+  // (apiGet returns null), the rejection is not handled and the header stays blank. Un-skip when the code reads `r && 'user' in r`.
+  test.skip('/api/me answers 200 with an empty body: the header falls back to Log in', async ({ page, app }) => {
+    await page.route('**/api/me', (route) => route.fulfill({ status: 200, body: '' }));
+    await page.goto(`${app.url}/`);
+    await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
   });
 });
 
