@@ -15,9 +15,10 @@
 //   writeoutside  — wie ok, plus ein Write ausserhalb des Sitzungsordners (Eingabe-Pfad aus FAKE_CP_WRITE_TO)
 //   exitcode      — wie ok (JSONL und Erfolgs-Ergebnis vorhanden), aber Exit 3
 //   tamper        — wie capture, das Shim-Ziel aendert session.json im Steuerordner
+//   delsession    — wie tamper, loescht session.json im Steuerordner
 //   lockviolation — JSONL mit einem ausgefuehrten Bash-Befehl ausserhalb der erlaubten Koepfe
 // Mit `--ctl <dir>` (ohne -p) spielt die Datei das Ziel des Shims: haengt eine Zeile an <dir>/run-my-test.log.
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +32,7 @@ if (argv.includes('--version')) { console.log('9.9.9 (Fake Claude)'); process.ex
 if (arg('--ctl') && !argv.includes('-p')) {
   appendFileSync(join(arg('--ctl'), 'run-my-test.log'), `fake run-my-test --ctl ${arg('--ctl')}\n`);
   if (process.env.FAKE_CP_MODE === 'tamper') appendFileSync(join(arg('--ctl'), 'session.json'), ' \n');
+  if (process.env.FAKE_CP_MODE === 'delsession') rmSync(join(arg('--ctl'), 'session.json'));
   console.log('exit code: 0');
   process.exit(0);
 }
@@ -77,10 +79,10 @@ if (mode === 'readruntime') browse({ url: `${appUrl}assets/runtime.js` }, 'ok');
 else if (mode === 'resultruntime') browse({ url: appUrl }, [{ type: 'text', text: `network: ${RUNTIME_MARKER}) {...}` }]);
 else browse({ url: appUrl }, 'page loaded');
 
-if (mode === 'writeoutside') call('Write', { file_path: process.env.FAKE_CP_WRITE_TO, content: 'x' }, 'File created');
+if (mode === 'writeoutside') call('Write', { file_path: process.env.FAKE_CP_WRITE_TO, content: 'x' }, `File created successfully at: ${process.env.FAKE_CP_WRITE_TO}`);
 if (mode === 'lockviolation') call('Bash', { command: 'cat /etc/hosts' }, '127.0.0.1 localhost');
 
-if (mode === 'capture' || mode === 'capturepeek' || mode === 'tamper') {
+if (mode === 'capture' || mode === 'capturepeek' || mode === 'tamper' || mode === 'delsession') {
   const testDir = join(rundir, 'test');
   mkdirSync(testDir, { recursive: true });
   // Der Test fragt die App einmal ab (die Nachpruefung zaehlt Anfragen) und endet mit exit 0.

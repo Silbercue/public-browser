@@ -38,6 +38,7 @@ export function renderSessionPrompt({ type, toolName, appUrl, runConfig, catalog
     BUDGET: String(BUDGETS[type].calls),
     REPORT_PATH: reportPath,
     TEST_DIR: testDir,
+    SESSION_DIR: path.dirname(reportPath),
   };
   let text = readFileSync(path.join(dir, `${type}.md`), 'utf8').trimEnd();
   text = text.replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));

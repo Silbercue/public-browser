@@ -8,5 +8,6 @@ Part 2 — explore. Use the app the way real visitors would, at three screen wid
 
 Budget: about {{BUDGET}} tool calls. Write the report early and overwrite it after every new finding, so nothing is lost if you run out of budget.
 Only the report file below counts. You may keep screenshots or notes of your own, but they are not read.
+Only create or edit files inside the session folder {{SESSION_DIR}}; writing anywhere else ends the session.
 Report file: {{REPORT_PATH}} (JSON, exactly this shape):
 {"change_check":{"verdict":"works|broken","evidence":"..."},"findings":[{"title":"...","where":"page or area","viewport":"phone|tablet|desktop|all","steps":"...","expected":"...","actual":"...","severity":"low|medium|high"}]}

@@ -53,6 +53,17 @@ test('capture enthaelt Ablauf, Quellcode-Verbot, Testordner und Budget', () => {
   assert.ok(!text.includes('SMOKE MODE'));
 });
 
+test('beide Typen nennen den Sitzungsordner und dass Schreiben ausserhalb die Sitzung beendet, gleich formuliert', () => {
+  const sentence = (type) => {
+    const runConfig = buildRunConfig({ seed: 11, sessionType: type, catalog });
+    const text = renderSessionPrompt({ ...base, type, runConfig, reportPath: '/x/session/report.json', testDir: '/x/session/test' });
+    return text.split('\n').find((l) => l.startsWith('Only create or edit files'));
+  };
+  const expected = 'Only create or edit files inside the session folder /x/session; writing anywhere else ends the session.';
+  assert.equal(sentence('explore'), expected);
+  assert.equal(sentence('capture'), expected);
+});
+
 test('Smoke-Zusatz je Typ', () => {
   const e = buildRunConfig({ seed: 11, sessionType: 'explore', catalog });
   const c = buildRunConfig({ seed: 11, sessionType: 'capture', catalog });

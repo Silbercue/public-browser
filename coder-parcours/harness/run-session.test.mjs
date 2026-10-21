@@ -300,6 +300,12 @@ test('Write ausserhalb des Sitzungsordners: aborted (MCP und CLI), Write innen b
     assert.equal(result.status, 'aborted', slug);
     assert.deepEqual(result.harness.tool_lock.non_mcp_executed, ['Write'], slug);
   }
+  // Pfadname mit "permission"/"denied": der Erfolgstext nennt das Wort, das ist keine Ablehnung -> weiter aborted
+  const sneaky = join(outside, 'permission-denied.txt');
+  const s2 = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('writeoutside', { envOverrides: { ...fakeDeps('x').envOverrides, FAKE_CP_MODE: 'writeoutside', FAKE_CP_WRITE_TO: sneaky } }));
+  track(s2.result);
+  assert.equal(s2.result.status, 'aborted', 'permission im Pfad');
+  assert.deepEqual(s2.result.harness.tool_lock.non_mcp_executed, ['Write'], 'permission im Pfad');
   // Gegenprobe: der normale Lauf schreibt report.json im Sitzungsordner und bleibt ok
   const ok = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok'));
   track(ok.result);
@@ -316,6 +322,13 @@ test('session.json im Steuerordner veraendert: aborted', async () => {
   const clean = await run({ slug: 'fake-mcp', type: 'capture' }, fakeDeps('capture'));
   track(clean.result);
   assert.equal(clean.result.notes.some((n) => n.includes('session.json')), false);
+});
+
+test('session.json im Steuerordner geloescht: aborted', async () => {
+  const { result } = await run({ slug: 'fake-mcp', type: 'capture' }, fakeDeps('delsession'));
+  track(result);
+  assert.equal(result.status, 'aborted');
+  assert.ok(result.notes.some((n) => n.includes('session.json')), result.notes.join(' | '));
 });
 
 test('Exit != 0 mit vorhandener JSONL und Erfolgs-Ergebnis: aborted mit Exit-Notiz', async () => {

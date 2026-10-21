@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commandAllowedAny, readAllowed, toolLockMulti } from './guard.mjs';
+import { commandAllowedAny, readAllowed, toolLockMulti, writeAllowed } from './guard.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -277,7 +277,7 @@ test('guard-hook: mkdir/cp mit Pfad ausserhalb verweigert, innerhalb erlaubt', (
 
 // --- Write nur im Sitzungsordner ---
 
-const writeJsonl = (path, result = 'File created') => [A('2026-10-21T10:00:00Z', 'w', 'Write', { file_path: path }), U('2026-10-21T10:00:01Z', 'w', result)].join('\n');
+const writeJsonl = (path, result = 'File created', isError) => [A('2026-10-21T10:00:00Z', 'w', 'Write', { file_path: path }), U('2026-10-21T10:00:01Z', 'w', result, isError)].join('\n');
 
 test('toolLockMulti mit writeRoot: Write ausserhalb ist Verstoss, Write innen (absolut und relativ) nicht', () => {
   const rundir = makeRundir();
@@ -288,9 +288,50 @@ test('toolLockMulti mit writeRoot: Write ausserhalb ist Verstoss, Write innen (a
   assert.deepEqual(lock('report.json').non_mcp_executed, [], 'innen relativ (Gegenprobe)');
   assert.deepEqual(lock(join(rundir, 'sub', 'deep', 'a.txt')).non_mcp_executed, [], 'neue Unterordner innen (Gegenprobe)');
   // abgelehntes Write ausserhalb zaehlt als Versuch, nicht als Ausfuehrung
-  const denied = toolLockMulti(writeJsonl(join(outside, 'x.txt'), 'Permission denied'), { mcpPrefix: 'mcp__pb__', writeRoot: rundir });
+  const denied = toolLockMulti(writeJsonl(join(outside, 'x.txt'), `Claude requested permissions to write to ${join(outside, 'x.txt')}, but you haven't granted it yet.`, true), { mcpPrefix: 'mcp__pb__', writeRoot: rundir });
   assert.deepEqual(denied.non_mcp_executed, []);
   assert.equal(denied.bash_attempted, 1);
+});
+
+test('toolLockMulti: Ablehnung nur mit is_error und Ablehnungstext am Anfang, nie per Freitext (Umgehung ueber Dateinamen)', () => {
+  const rundir = makeRundir();
+  const outside = mkdtempSync(join(tmpdir(), 'cp-guard-out-'));
+  const lock = (path, result, isError) => toolLockMulti(writeJsonl(path, result, isError), { mcpPrefix: 'mcp__pb__', writeRoot: rundir });
+  // Erfolgreicher Write ausserhalb, Pfadname enthaelt die alten Stichwoerter: bleibt Verstoss
+  for (const word of ['permission', 'denied', 'blocked', 'not allowed']) {
+    const p = join(outside, `${word}.txt`);
+    assert.deepEqual(lock(p, `File created successfully at: ${p}`).non_mcp_executed, ['Write'], `Erfolgstext mit ${word}`);
+    assert.deepEqual(lock(p, `File created successfully at: ${p}`, false).non_mcp_executed, ['Write'], `is_error false, ${word}`);
+  }
+  // Auch ein Fehlerergebnis, das nur im Freitext "permission denied" nennt, ist keine Ablehnung der Sperre
+  const p = join(outside, 'x.txt');
+  assert.deepEqual(lock(p, `EACCES: permission denied, open '${p}'`, true).non_mcp_executed, ['Write'], 'Freitext-Fehler');
+  // is_error ohne Ablehnungstext am Anfang: keine Ablehnung, auch wenn der Text ihn weiter hinten enthaelt
+  assert.deepEqual(lock(p, `File created. blocked by benchmark harness: ${p}`, true).non_mcp_executed, ['Write'], 'Text nicht am Anfang');
+  // Gegenproben: echte Ablehnungen (Claude Code, Hook, gesperrtes Werkzeug) zaehlen als abgelehnt
+  assert.deepEqual(lock(p, `Claude requested permissions to write to ${p}, but you haven't granted it yet.`, true).non_mcp_executed, []);
+  assert.deepEqual(lock(p, 'Permission to use Write has been denied.', true).non_mcp_executed, []);
+  assert.deepEqual(lock(p, 'PreToolUse:Write hook error: blocked by benchmark harness: no', true).non_mcp_executed, []);
+  assert.deepEqual(lock(p, '<tool_use_error>Error: No such tool available: Write. Available: x</tool_use_error>', true).non_mcp_executed, []);
+  // dieselbe Ablehnung ohne is_error zaehlt nicht
+  assert.deepEqual(lock(p, `Claude requested permissions to write to ${p}, but you haven't granted it yet.`).non_mcp_executed, ['Write']);
+});
+
+test('writeAllowed: Datei "..x" im Ordner ist innen, nach innen zeigender haengender Symlink ist innen', () => {
+  const rundir = makeRundir();
+  const outside = mkdtempSync(join(tmpdir(), 'cp-guard-out-'));
+  symlinkSync(join(rundir, 'later.txt'), join(rundir, 'to-inside'));
+  symlinkSync(join(rundir, 'to-inside'), join(rundir, 'chain-inside'));
+  symlinkSync(join(outside, 'nothing'), join(rundir, 'to-outside'));
+  symlinkSync(join(rundir, 'to-outside'), join(rundir, 'chain-outside'));
+  assert.equal(writeAllowed('..x', rundir), true, '..x');
+  assert.equal(writeAllowed(join(rundir, '..x', 'a.txt'), rundir), true, '..x/ als Ordner');
+  assert.equal(writeAllowed('..', rundir), false, '.. selbst (Gegenprobe)');
+  assert.equal(writeAllowed(join('..', 'x'), rundir), false, '../x (Gegenprobe)');
+  assert.equal(writeAllowed('to-inside', rundir), true, 'haengender Symlink nach innen');
+  assert.equal(writeAllowed('chain-inside', rundir), true, 'Kette nach innen');
+  assert.equal(writeAllowed('to-outside', rundir), false, 'haengender Symlink nach aussen (Gegenprobe)');
+  assert.equal(writeAllowed('chain-outside', rundir), false, 'Kette nach aussen (Gegenprobe)');
 });
 
 test('toolLockMulti mit writeRoot: ../-Ausbruch und Symlinks nach aussen sind Verstoesse', () => {

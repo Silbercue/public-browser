@@ -2,8 +2,8 @@
 // Gleiche Zerlegungsregeln wie cliCommandAllowed in test-hardest/blind-run.mjs, aber mit mehreren erlaubten
 // Befehlskoepfen (z. B. agent-browser plus mkdir/cp/sleep fuer den dogfood-Ablauf, run-my-test in capture).
 // blind-run.mjs exportiert seine Zerleger- und Parser-Helfer nicht und wird nicht geaendert, daher hier eigen.
-import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
-import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { existsSync, lstatSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export const READ_DENY_REASON = 'Read is limited to screenshots inside the session folder.';
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp']);
@@ -45,6 +45,9 @@ const PATH_HEADS = new Set(['mkdir', 'cp']);
 
 const unquote = (t) => (/^(["']).*\1$/.test(t) && t.length >= 2 ? t.slice(1, -1) : t);
 
+/** rel (von path.relative) fuehrt aus dem Ordner hinaus? Eine Datei "..x" im Ordner tut das nicht. */
+const isEscape = (rel) => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+
 /** Liegt der Pfad (relativ zu root) nach Aufloesung von Symlinks im realen root? */
 function pathInside(tok, root) {
   let realRoot;
@@ -59,7 +62,7 @@ function pathInside(tok, root) {
   let real;
   try { real = join(realpathSync(existing), relative(existing, abs)); } catch { return false; }
   const rel = relative(realRoot, real);
-  return !rel.startsWith('..') && !isAbsolute(rel);
+  return !isEscape(rel);
 }
 
 /** mkdir/cp-Segment: nur kurze Schalter (-p, -R ...) und Pfade, die im Sitzungsordner liegen. */
@@ -115,7 +118,7 @@ export function readAllowed(filePath, readRoot) {
   }
   if (!IMAGE_EXT.has(extname(file).toLowerCase())) return false;
   const rel = relative(root, file);
-  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  return rel !== '' && !isEscape(rel);
 }
 
 /**
@@ -124,11 +127,15 @@ export function readAllowed(filePath, readRoot) {
  * @param {unknown} filePath
  * @param {string | undefined} writeRoot
  */
-export function writeAllowed(filePath, writeRoot) {
+export function writeAllowed(filePath, writeRoot, depth = 0) {
   if (typeof filePath !== 'string' || !filePath || typeof writeRoot !== 'string' || !writeRoot) return false;
   try {
     const abs = resolve(writeRoot, filePath);
-    if (lstatSync(abs).isSymbolicLink() && !existsSync(abs)) return false;
+    // Haengender Symlink: nur wenn sein Ziel ausserhalb liegt (nach innen zeigend ist er harmlos).
+    if (lstatSync(abs).isSymbolicLink() && !existsSync(abs)) {
+      const target = resolve(dirname(abs), readlinkSync(abs));
+      return depth < 8 && writeAllowed(target, writeRoot, depth + 1);
+    }
   } catch { /* Ziel existiert noch nicht: pathInside prueft die Elternkette */ }
   return pathInside(filePath, writeRoot);
 }
@@ -163,10 +170,18 @@ function parseCalls(jsonlText) {
   });
 }
 
-// Wie toolLockFromJsonl: Claude Code weist ein per --tools gesperrtes Werkzeug mit diesem Wortlaut ab.
-const unavailable = (c) => c.is_error === true
-  && c.result_text.startsWith(`<tool_use_error>Error: No such tool available: ${c.name}. `);
-const denied = (c) => /denied|not allowed|permission|blocked/i.test(c.result_text) || c.result_text.includes(READ_DENY_REASON) || unavailable(c);
+// Als abgelehnt gilt nur ein strukturiertes Signal: is_error === true UND ein Ablehnungstext am Anfang der Antwort
+// (Hook des Parcours, Claude-Code-Ablehnung, gesperrtes Werkzeug). Freitext irgendwo im Ergebnis zaehlt nicht,
+// denn der Agent steuert Teile davon (z. B. den Dateinamen im Erfolgstext von Write).
+const HOOK_PREFIX = '(?:PreToolUse:\\w+ hook error: )?';
+const DENIAL_START = [
+  new RegExp(`^${HOOK_PREFIX}blocked by benchmark harness: `),
+  new RegExp(`^${HOOK_PREFIX}${escapeRe(READ_DENY_REASON)}`),
+  /^Claude requested permissions to /,
+  /^Permission to use \S+ has been denied/,
+];
+const unavailable = (c) => c.result_text.startsWith(`<tool_use_error>Error: No such tool available: ${c.name}. `);
+const denied = (c) => c.is_error === true && (DENIAL_START.some((re) => re.test(c.result_text)) || unavailable(c));
 
 /**
  * Sperr-Nachweis einer Sitzung. Eigen sind Write, MCP-Aufrufe mit mcpPrefix, Bash-Zeilen nach commandAllowedAny
