@@ -42,3 +42,22 @@ test('Werte aus .npmrc und .env sind Nadeln; kurze Werte, URLs und Wahrheitswert
     assert.equal(r.text, `has ${REDACTED} and ${REDACTED} but not true or abc`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Geheimnis mit Anfuehrungszeichen und Backslash: roh und in JSON.stringify-Ausgabe ersetzt, lange sk--Schluessel mit - und _', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cp-sec2-'));
+  try {
+    const secret = 'pa"ss\\word-12345';
+    writeFileSync(join(dir, '.env'), `HARD=${secret}\n`);
+    const needles = needlesFromFiles([join(dir, '.env')]);
+    assert.deepEqual(needles, [secret], 'der Wert wird nicht uebersprungen');
+    const raw = scrubSecrets(`value ${secret} end`, { needles });
+    assert.equal(raw.text, `value ${REDACTED} end`);
+    const json = JSON.stringify({ out: `value ${secret} end` });
+    assert.ok(json.includes('pa\\"ss\\\\word'), 'Gegenprobe: in JSON steht die escapte Form');
+    const viaJson = scrubSecrets(json, { needles });
+    assert.ok(!viaJson.text.includes('word-12345'));
+    assert.equal(JSON.parse(viaJson.text).out, `value ${REDACTED} end`);
+    const key = 'sk-' + 'abc_def-ghi_jkl-mno_pqr-stu_vwx-yz012345';
+    assert.equal(scrubSecrets(`k ${key}`).text, `k ${REDACTED}`);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

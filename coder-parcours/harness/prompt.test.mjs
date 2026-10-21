@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderSessionPrompt, BUDGETS } from './prompt.mjs';
-import { buildRunConfig } from './seed.mjs';
+import { buildRunConfig, changeBrokenFor } from './seed.mjs';
 import { loadCatalog } from '../catalog/load.mjs';
 import { TEST_ACCOUNTS } from '../shared/accounts.mjs';
 
@@ -38,6 +38,24 @@ test('explore enthaelt Aenderung, Konten, Budget, Berichtsregel; kein Platzhalte
     assert.ok(!text.includes('run_plan'));
     for (const b of catalog.bugs) assert.ok(!text.includes(b.title), 'Titel ' + b.id);
     assert.ok(!text.includes('SMOKE MODE'));
+  }
+});
+
+test('F13: capture nennt eine frische Kopie des Testordners als Arbeitsverzeichnis, nicht den Testordner selbst', () => {
+  const runConfig = buildRunConfig({ seed: 11, sessionType: 'capture', catalog });
+  const text = renderSessionPrompt({ ...base, type: 'capture', runConfig, reportPath: '/x/report.json', testDir: '/x/test' });
+  assert.match(text, /in a fresh copy of \/x\/test as its working directory/);
+  assert.ok(!text.includes('runs with /x/test as working directory'), 'Gegenprobe: der alte Wortlaut ist weg');
+  assert.ok(text.includes('/x/test/RUN'), 'RUN liegt weiter im Testordner');
+});
+
+test('K-T10-1: explore - der Auftrag ist fuer heile und kaputte Aenderung Zeichen fuer Zeichen gleich (Seeds mit beiden Urteilen)', () => {
+  const seeds = [11, 12, 13, 14, 15, 16, 17, 18].map((s) => ({ s, broken: changeBrokenFor(s) }));
+  assert.ok(seeds.some((x) => x.broken) && seeds.some((x) => !x.broken), 'Gegenprobe: beide Faelle kommen vor');
+  for (const { s } of seeds) {
+    const cfg = buildRunConfig({ seed: s, sessionType: 'explore', catalog });
+    const render = (broken) => renderSessionPrompt({ ...base, type: 'explore', runConfig: { ...cfg, change: { ...cfg.change, broken } }, reportPath: '/x/report.json', testDir: '/x/test' });
+    assert.equal(render(true), render(false), `seed ${s}`);
   }
 });
 

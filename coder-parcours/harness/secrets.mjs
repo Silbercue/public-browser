@@ -13,7 +13,7 @@ const PATTERNS = [
   /gh[pousr]_[A-Za-z0-9]{20,}/g,
   /github_pat_[A-Za-z0-9_]{20,}/g,
   /sk-ant-[A-Za-z0-9_-]{16,}/g,
-  /sk-[A-Za-z0-9]{32,}/g,
+  /sk-[A-Za-z0-9_-]{32,}/g,
   /AKIA[0-9A-Z]{16}/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|(?=["]))/g,
 ];
@@ -33,7 +33,7 @@ export function needlesFromFiles(files) {
       const m = /^\s*(?:export\s+)?[^#=\s][^=]*=(.*)$/.exec(line);
       if (!m) continue;
       const v = m[1].trim().replace(/^["']|["']$/g, '');
-      if (v.length >= 8 && !/^(true|false|https?:\/\/\S*)$/i.test(v) && !/[\\"]/.test(v)) out.add(v);
+      if (v.length >= 8 && !/^(true|false|https?:\/\/\S*)$/i.test(v)) out.add(v);
     }
   }
   return [...out];
@@ -53,7 +53,14 @@ export function scrubSecrets(text, { needles = [] } = {}) {
   let count = 0;
   let out = String(text);
   for (const re of PATTERNS) out = out.replace(re, () => { count++; return REDACTED; });
-  for (const n of [...needles].sort((a, b) => b.length - a.length)) {
+  // Jeder Wert auch in der Form, in der er in serialisiertem JSON steht (Anfuehrungszeichen, Backslash, Umbrueche escapet).
+  const all = new Set();
+  for (const n of needles) {
+    if (!n || n.length < 8) continue;
+    all.add(n);
+    all.add(JSON.stringify(n).slice(1, -1));
+  }
+  for (const n of [...all].sort((a, b) => b.length - a.length)) {
     if (!n || n.length < 8 || !out.includes(n)) continue;
     const parts = out.split(n);
     count += parts.length - 1;
