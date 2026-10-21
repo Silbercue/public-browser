@@ -136,10 +136,13 @@ the event itself.
 The engine (`createBugEngine` in `server/bug-engine.mjs`) serves the browser part as `/assets/runtime.js`.
 It contains the runtime (`server/client-runtime.js`, identified by `RUNTIME_MARKER`) and one start call
 per active client bug; bug IDs, titles, symptoms and grader texts never appear in it. Each bug gets a key
-`sha256(salt + id)[0..8]`; per session, bug and event a random 8-hex code is generated.
+`sha256(salt + id)[0..8]`; per session, bug and event a random 8-hex secret is generated.
 
-- Trap events leave the browser as `POST /api/metrics` with `{"b": key, "e": code}`, both 8 hex characters.
-  The words `reached`/`passed` never travel. The server resolves them with `decodeBeacon(b, e)`.
+- Trap events leave the browser as `POST /api/metrics` with `{"b": random, "e": mac}`, both 8 hex characters.
+  `b` is fresh random for every beacon (also for traps), `e` is a short keyed check value over key, secret
+  and `b` (`__swMac` in `server/client-runtime.js`; the server runs that same function). Over any number of
+  clicks a trap beacon looks like a neutral one. The words `reached`/`passed` never travel. The server
+  resolves them with `decodeBeacon(b, e)`, which recomputes the check value; a forged or swapped `e` gives `null`.
 - **Neutral beacons** of the same form with random values go out on every click and every `pushState`/`popstate`;
   `decodeBeacon` answers `null`, no event is written. A click that already sends a trap beacon sends no extra
   neutral one, so a request alone does not tell where a trap sits.

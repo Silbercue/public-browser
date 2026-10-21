@@ -1,6 +1,20 @@
 // Browser runtime of the bug engine. Shipped as /assets/runtime.js, followed by one start call per active bug.
 // Plain ES5-style script, no imports: the server reads this file as text and appends the per-run part.
 // The words for the two trap events are assembled from pieces so a text search over the shipped file finds nothing.
+/** Short keyed check value (32 bit, 8 hex). The server loads this same function, so both sides always agree. */
+function __swMac(text) {
+  var h1 = 0xdeadbeef;
+  var h2 = 0x41c6ce57;
+  for (var i = 0; i < text.length; i++) {
+    var c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return ('00000000' + ((h1 ^ h2) >>> 0).toString(16)).slice(-8);
+}
+
 function __swBoot(cfg) {
   var EVENTS = ['reach', 'pass'].map(function (s) { return s + 'ed'; });
   var origFetch = window.fetch ? window.fetch.bind(window) : null;
@@ -143,7 +157,8 @@ function __swBoot(cfg) {
       var codes = cfg.codes[key];
       if (!codes) return;
       clickBeaconSent = true;
-      post(key, codes[idx]);
+      var b = hex8();
+      post(b, __swMac(key + '|' + codes[idx] + '|' + b));
     };
     bug.api = {
       css: function (text) { addCss(text); },

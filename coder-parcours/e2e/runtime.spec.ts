@@ -91,6 +91,19 @@ test.describe('css and clicks with the fixture catalog', () => {
       expect(p).not.toMatch(/reached|passed/);
     }
   });
+
+  test('the two trap beacons of two clicks carry different b, no constant', async ({ page }) => {
+    const posts: Array<{ b: string; e: string }> = [];
+    page.on('request', (r) => { if (r.url().endsWith('/api/metrics')) posts.push(JSON.parse(r.postData() ?? '{}')); });
+    await page.goto(app.url);
+    await page.click('.s'); // reached
+    await page.click('.s'); // passed
+    await expect.poll(() => posts.length).toBe(2);
+    expect(posts[0].b).not.toBe(posts[1].b);
+    expect(posts[0].e).not.toBe(posts[1].e);
+    const lines = await waitForBugLines(app.eventsFile, 2);
+    expect(lines.slice(-2).map((l) => l.event)).toEqual(['reached', 'passed']);
+  });
 });
 
 test.describe('client api on a throwaway bug', () => {
@@ -136,6 +149,43 @@ test.describe('client api on a throwaway bug', () => {
     expect(fake.status).toBe(503);
     expect(JSON.parse(fake.text)).toEqual({ error: 'x' });
     expect((await timed('/api/settings')).ms).toBeLessThan(1000);
+  });
+
+  test('pushState and popstate each send one neutral beacon', async ({ page }) => {
+    const posts: string[] = [];
+    page.on('request', (r) => { if (r.url().endsWith('/api/metrics')) posts.push(r.postData() ?? ''); });
+    await page.goto(app.url);
+    await page.evaluate(() => history.pushState({}, '', '#a'));
+    await expect.poll(() => posts.length).toBe(1);
+    await page.evaluate(() => history.back());
+    await expect.poll(() => posts.length).toBe(2);
+    await page.waitForTimeout(300);
+    expect(posts).toHaveLength(2);
+    for (const p of posts) expect(p).toMatch(/^\{"b":"[0-9a-f]{8}","e":"[0-9a-f]{8}"\}$/);
+  });
+
+  test('swallowFirstClick only acts inside its width', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(app.url);
+    await runTest(page, '(max-width: 600px)', `api.swallowFirstClick('.s');`);
+    await page.click('.s');
+    await expect(page.locator('#out')).toHaveText('booked 1');
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.click('#regen');
+    await page.click('.s');
+    await expect(page.locator('#out')).toHaveText('booked 1');
+    await page.click('.s');
+    await expect(page.locator('#out')).toHaveText('booked 2');
+  });
+
+  test('fetch hook only acts inside its width', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(app.url);
+    await runTest(page, '(max-width: 600px)', `api.fetch(function () { return { status: 503, body: {} }; });`);
+    const status = () => page.evaluate(async () => (await fetch('/api/classes')).status);
+    expect(await status()).toBe(200);
+    await page.setViewportSize({ width: 390, height: 800 });
+    expect(await status()).toBe(503);
   });
 
   test('beacon accepts only the two events', async ({ page }) => {

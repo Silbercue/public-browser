@@ -12,6 +12,10 @@ export const RUNTIME_MARKER = 'function __swBoot(';
 const RUNTIME_FILE = join(dirname(fileURLToPath(import.meta.url)), 'client-runtime.js');
 const HEX8 = /^[0-9a-f]{8}$/;
 const BEACON_URL = '/api/metrics';
+const EVENTS = /** @type {const} */ (['reached', 'passed']);
+
+/** The check function lives in the runtime file only; the server runs that same text. */
+const swMac = new Function(`${readFileSync(RUNTIME_FILE, 'utf8')}\nreturn __swMac;`)();
 
 /**
  * Source text of a function as a standalone expression (method shorthand `setup(api) {}` becomes `function setup(api) {}`).
@@ -30,6 +34,7 @@ function expressionSource(fn) {
  *   salt?: string, logEvent?: (entry: object) => void }} opts
  * @returns {{ hooks: ReturnType<typeof createHookSet>, runtimeScript: () => string,
  *   decodeBeacon: (b: any, e: any) => ({ bug: string, event: 'reached'|'passed' }) | null,
+ *   makeBeacon: (id: string, event: 'reached'|'passed', b?: string) => { b: string, e: string },
  *   activeIds: string[], codesFor: (id: string) => { key: string, reached: string, passed: string } }}
  */
 export function createBugEngine({ catalog, runConfig, salt = randomBytes(8).toString('hex'), logEvent = () => {} }) {
@@ -39,8 +44,6 @@ export function createBugEngine({ catalog, runConfig, salt = randomBytes(8).toSt
 
   /** @type {Map<string, { key: string, reached: string, passed: string }>} */
   const codes = new Map();
-  /** @type {Map<string, { bug: string, event: 'reached'|'passed' }>} */
-  const table = new Map();
   /** @type {string[]} */
   const activeIds = [];
   const parts = [];
@@ -52,8 +55,6 @@ export function createBugEngine({ catalog, runConfig, salt = randomBytes(8).toSt
     const key = keyOf(act.id);
     const c = { key, reached: randomBytes(4).toString('hex'), passed: randomBytes(4).toString('hex') };
     codes.set(act.id, c);
-    table.set(`${c.key}:${c.reached}`, { bug: act.id, event: 'reached' });
-    table.set(`${c.key}:${c.passed}`, { bug: act.id, event: 'passed' });
     activeIds.push(act.id);
 
     const width = act.width;
@@ -100,7 +101,18 @@ export function createBugEngine({ catalog, runConfig, salt = randomBytes(8).toSt
     },
     decodeBeacon(b, e) {
       if (typeof b !== 'string' || typeof e !== 'string' || !HEX8.test(b) || !HEX8.test(e)) return null;
-      return table.get(`${b}:${e}`) ?? null;
+      for (const [id, c] of codes) {
+        for (const event of EVENTS) {
+          if (swMac(`${c.key}|${c[event]}|${b}`) === e) return { bug: id, event };
+        }
+      }
+      return null;
+    },
+    /** A valid trap beacon (what the browser would send) for tests. */
+    makeBeacon(id, event, b = randomBytes(4).toString('hex')) {
+      const c = codes.get(id);
+      if (!c || !EVENTS.includes(event)) throw new Error(`bug engine: no beacon for ${id}/${event}`);
+      return { b, e: swMac(`${c.key}|${c[event]}|${b}`) };
     },
     codesFor(id) {
       const c = codes.get(id);

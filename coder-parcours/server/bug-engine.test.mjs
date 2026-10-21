@@ -78,17 +78,55 @@ test('F02 before hook answers the coupon request', async () => {
   assert.equal(await engine('F01@cart:phone').e.hooks.runBefore('POST /api/cart/coupon', { respond() {} }), false);
 });
 
-test('beacon decoding: known code resolves, strangers do not', () => {
+test('beacon decoding: valid beacons resolve, strangers and forgeries do not', () => {
   const { e } = engine('F03@schedule:all');
   const c = e.codesFor('F03');
   for (const v of [c.key, c.reached, c.passed]) assert.match(v, /^[0-9a-f]{8}$/);
-  assert.deepEqual(e.decodeBeacon(c.key, c.reached), { bug: 'F03', event: 'reached' });
-  assert.deepEqual(e.decodeBeacon(c.key, c.passed), { bug: 'F03', event: 'passed' });
-  assert.equal(e.decodeBeacon('deadbeef', c.reached), null, 'foreign key');
-  assert.equal(e.decodeBeacon(c.key, 'deadbeef'), null, 'random code');
-  assert.equal(e.decodeBeacon(c.key, 'zz'), null);
-  assert.equal(e.decodeBeacon(undefined, undefined), null);
   assert.notEqual(c.reached, c.passed);
+  const r = e.makeBeacon('F03', 'reached');
+  const p = e.makeBeacon('F03', 'passed');
+  assert.deepEqual(e.decodeBeacon(r.b, r.e), { bug: 'F03', event: 'reached' });
+  assert.deepEqual(e.decodeBeacon(p.b, p.e), { bug: 'F03', event: 'passed' });
+  assert.equal(e.decodeBeacon('deadbeef', 'cafebabe'), null, 'random pair');
+  assert.equal(e.decodeBeacon(r.b, 'cafebabe'), null, 'right b, random e');
+  assert.equal(e.decodeBeacon(r.b, 'zz'), null);
+  assert.equal(e.decodeBeacon(undefined, undefined), null);
+});
+
+test('beacon forgery: e of another beacon, swapped b/e, key as b are all rejected', () => {
+  const { e } = engine('F03@schedule:all,F01@cart:phone');
+  const r1 = e.makeBeacon('F03', 'reached', '11111111');
+  const r2 = e.makeBeacon('F03', 'reached', '22222222');
+  assert.notEqual(r1.e, r2.e, 'e is bound to b');
+  assert.deepEqual(e.decodeBeacon(r2.b, r2.e), { bug: 'F03', event: 'reached' }, 'positive: r2 itself is valid');
+  assert.equal(e.decodeBeacon(r2.b, r1.e), null, 'e of another beacon');
+  assert.equal(e.decodeBeacon(r1.e, r1.b), null, 'b and e swapped');
+  assert.equal(e.decodeBeacon(e.codesFor('F03').key, r1.e), null, 'the old constant key is no longer a b');
+});
+
+test('beacon event and bug are bound into e', () => {
+  const { e } = engine('F03@schedule:all,F01@cart:phone');
+  const b = '0a0b0c0d';
+  const seen = [
+    e.decodeBeacon(b, e.makeBeacon('F03', 'reached', b).e),
+    e.decodeBeacon(b, e.makeBeacon('F03', 'passed', b).e),
+    e.decodeBeacon(b, e.makeBeacon('F01', 'reached', b).e),
+  ];
+  assert.deepEqual(seen, [
+    { bug: 'F03', event: 'reached' }, { bug: 'F03', event: 'passed' }, { bug: 'F01', event: 'reached' },
+  ]);
+});
+
+test('trap beacons of repeated clicks use different b and look like neutral ones', () => {
+  const { e } = engine('F03@schedule:all');
+  const beacons = Array.from({ length: 12 }, () => e.makeBeacon('F03', 'reached'));
+  assert.ok(new Set(beacons.map((x) => x.b)).size > 1, 'b varies');
+  assert.ok(new Set(beacons.map((x) => x.e)).size > 1, 'e varies');
+  for (const x of beacons) {
+    assert.match(x.b, /^[0-9a-f]{8}$/);
+    assert.match(x.e, /^[0-9a-f]{8}$/);
+    assert.deepEqual(e.decodeBeacon(x.b, x.e), { bug: 'F03', event: 'reached' }, 'each one still decodes');
+  }
 });
 
 test('codes differ per salt and per engine', () => {
@@ -133,9 +171,9 @@ test('through the server: metrics beacon with a trap code writes a bug line, a s
     const base = `http://127.0.0.1:${h.port}`;
     const js = await (await fetch(`${base}/assets/runtime.js`)).text();
     assert.ok(js.includes(RUNTIME_MARKER));
-    const c = eng.codesFor('F03');
+    const c = eng.makeBeacon('F03', 'reached');
     const post = (b, e) => fetch(`${base}/api/metrics`, { method: 'POST', body: JSON.stringify({ b, e }) });
-    assert.equal((await post(c.key, c.reached)).status, 204);
+    assert.equal((await post(c.b, c.e)).status, 204);
     assert.equal((await post('deadbeef', 'cafebabe')).status, 204);
     const lines = readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     const bugLines = lines.filter((l) => l.type === 'bug');
