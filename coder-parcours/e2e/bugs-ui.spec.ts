@@ -88,7 +88,7 @@ type Case = {
   id: string;
   station: string;
   width: Width;
-  other?: Width; // only for the main case of each bug
+  other?: Width; // a width where the same station must stay clean
   prepare: (page: Page, url: string) => Promise<void>;
   /** true = the bug's criterion is met (the user sees the bug) */
   criterion: (page: Page) => Promise<boolean>;
@@ -135,34 +135,34 @@ const CASES: Case[] = [
     prepare: openCart, criterion: stepTiny },
   { id: 'P02', station: 'class-detail', width: 'phone', other: 'tablet', name: 'dialog close button below 24 px',
     prepare: async (p, u) => { await openClass(p, u); await dialogFrom(p, 'Book this class'); }, criterion: closeTiny },
-  { id: 'P02', station: 'cart', width: 'phone', name: 'dialog close button below 24 px',
+  { id: 'P02', station: 'cart', width: 'phone', other: 'tablet', name: 'dialog close button below 24 px',
     prepare: async (p, u) => { await openCart(p, u); await dialogFrom(p, 'Remove'); }, criterion: closeTiny },
-  { id: 'P02', station: 'settings', width: 'phone', name: 'dialog close button below 24 px',
+  { id: 'P02', station: 'settings', width: 'phone', other: 'tablet', name: 'dialog close button below 24 px',
     prepare: async (p, u) => { await openSettings(p, u); await dialogFrom(p, 'Reset to defaults'); }, criterion: closeTiny },
   { id: 'P03', station: 'schedule', width: 'tablet', other: 'phone', name: 'day tabs below 24 px and under 4 px apart',
     prepare: async (p, u) => { await p.goto(`${u}/schedule`); await expect(p.getByRole('tab', { name: 'Mon' })).toBeVisible(); },
     criterion: tabsCramped },
   { id: 'P04', station: 'bookings', width: 'phone', other: 'tablet', name: 'Reschedule and Cancel under 4 px apart',
     prepare: openBookings, criterion: touching('.booking >> button:has-text("Reschedule")', '.booking >> button:has-text("Cancel")') },
-  { id: 'P04', station: 'cart', width: 'phone', name: 'Increase spots and Remove under 4 px apart',
+  { id: 'P04', station: 'cart', width: 'phone', other: 'tablet', name: 'Increase spots and Remove under 4 px apart',
     prepare: openCart, criterion: touching('button[aria-label="Increase spots"]', '.cart-item button:has-text("Remove")') },
   { id: 'P05', station: 'checkout', width: 'desktop', other: 'phone', name: 'disabled Place booking without visible explanation',
     prepare: openCheckout, criterion: unexplained('#terms-hint', 'Place booking') },
-  { id: 'P05', station: 'class-detail', width: 'desktop', name: 'disabled Book this class without visible explanation',
+  { id: 'P05', station: 'class-detail', width: 'desktop', other: 'phone', name: 'disabled Book this class without visible explanation',
     prepare: async (p, u) => { await p.goto(`${u}/classes/${FULL}`); await expect(p.getByRole('button', { name: 'Book this class' })).toBeVisible(); },
     criterion: unexplained('#book-blocked', 'Book this class') },
   { id: 'P06', station: 'class-detail', width: 'phone', other: 'desktop', name: 'Book this class after the reviews and below the visible area',
     prepare: (p, u) => openClass(p, u), criterion: bookAfterReviews, whenActive: bookBelowFold },
   { id: 'P07', station: 'settings', width: 'tablet', other: 'phone', name: 'Save changes and Reset to defaults look the same',
     prepare: openSettings, criterion: sameLook('button:has-text("Save changes")', 'button:has-text("Reset to defaults")') },
-  { id: 'P07', station: 'settings', width: 'desktop', name: 'Save changes and Reset to defaults look the same',
+  { id: 'P07', station: 'settings', width: 'desktop', other: 'phone', name: 'Save changes and Reset to defaults look the same',
     prepare: openSettings, criterion: sameLook('button:has-text("Save changes")', 'button:has-text("Reset to defaults")') },
-  { id: 'P07', station: 'bookings', width: 'desktop', name: 'Reschedule and Cancel look the same',
+  { id: 'P07', station: 'bookings', width: 'desktop', other: 'phone', name: 'Reschedule and Cancel look the same',
     prepare: openBookings, criterion: sameLook('.booking >> button:has-text("Reschedule")', '.booking >> button:has-text("Cancel")') },
   { id: 'P08', station: 'register', width: 'phone', other: 'desktop', name: 'name error more than 48 px from its field',
     prepare: async (p, u) => { await p.goto(`${u}/register`); await p.getByRole('button', { name: 'Create account' }).click(); await expect(p.locator('#register-name-error')).toBeVisible(); },
     criterion: farFromField('#register-name', '#register-name-error') },
-  { id: 'P08', station: 'login', width: 'phone', name: 'login error more than 48 px from the password field',
+  { id: 'P08', station: 'login', width: 'phone', other: 'desktop', name: 'login error more than 48 px from the password field',
     prepare: async (p, u) => { await p.goto(`${u}/login`); await p.getByRole('button', { name: 'Log in', exact: true }).first().click(); await expect(p.locator('#login-error')).toBeVisible(); },
     criterion: farFromField('#login-password', '#login-error') },
 ];
@@ -215,6 +215,60 @@ test.describe('healthy app (--no-bugs)', () => {
   }
 });
 
+test.describe('station isolation: a bug switched on for one station leaves the other stations of the same bug clean', () => {
+  const ids = [...new Set(CASES.map((c) => c.id))].filter((id) => new Set(CASES.filter((c) => c.id === id).map((c) => c.station)).size > 1);
+  test('the catalog has multi-station bugs to isolate', () => {
+    expect(ids).toEqual(['P02', 'P04', 'P05', 'P07', 'P08']);
+  });
+  for (const id of ids) {
+    const mine = CASES.filter((c) => c.id === id);
+    const main = mine[0];
+    test.describe(`${id} active only at ${main.station}`, () => {
+      let app: App;
+      test.beforeAll(async () => { app = await startApp({ activate: `${id}@${main.station}:${main.width}` }); });
+      test.afterAll(async () => { await app?.stop(); });
+      test(`positive: ${id} acts at ${main.station}`, async ({ page }) => {
+        await page.setViewportSize(VIEW[main.width]);
+        await main.prepare(page, app.url);
+        expect(await main.criterion(page)).toBe(true);
+      });
+      for (const side of mine.filter((c) => c.station !== main.station)) {
+        test(`${id} stays off at ${side.station} (${side.width})`, async ({ page }) => {
+          await page.setViewportSize(VIEW[side.width]);
+          await side.prepare(page, app.url);
+          expect(await side.criterion(page)).toBe(false);
+        });
+      }
+    });
+  }
+});
+
+test.describe('no trace without activation', () => {
+  const styleCount = (page: Page) => page.evaluate(() => document.querySelectorAll('style').length);
+  test('--no-bugs: the shipped script has no css or setup calls and the page gets no style element; a bug adds one', async ({ page, request }) => {
+    const healthy = await startApp({ noBugs: true });
+    try {
+      const js = await (await request.get(`${healthy.url}/assets/runtime.js`)).text();
+      expect(js).not.toContain('__sw.css(');
+      expect(js).not.toContain('__sw.run(');
+      await page.setViewportSize(VIEW.phone);
+      await page.goto(`${healthy.url}/cart`);
+      await expect(page.locator('body')).toBeVisible();
+      await page.waitForTimeout(300);
+      expect(await styleCount(page), 'no style element injected without an active bug').toBe(0);
+    } finally { await healthy.stop(); }
+    const active = await startApp({ activate: 'P01@cart:phone' });
+    try {
+      const js = await (await request.get(`${active.url}/assets/runtime.js`)).text();
+      expect(js, 'positive: with a bug the script carries the css call').toContain('__sw.css(');
+      await page.setViewportSize(VIEW.phone);
+      await page.goto(`${active.url}/cart`);
+      await page.waitForTimeout(300);
+      expect(await styleCount(page)).toBe(1);
+    } finally { await active.stop(); }
+  });
+});
+
 test.describe('catalog and shipped script', () => {
   test('loadCatalog() holds P01–P08 without validation errors, 4 fiddly and 4 next-step, width rules', async () => {
     process.env.CODER_PARCOURS_PUBLIC_DIR = 'bugs/public';
@@ -242,7 +296,7 @@ test.describe('catalog and shipped script', () => {
     process.env.CODER_PARCOURS_PUBLIC_DIR = 'bugs/public';
     const { loadCatalog } = await import(pathToFileURL(join(ROOT, 'catalog/load.mjs')).href);
     const mine = (await loadCatalog()).bugs.filter((b: { id: string }) => IDS.includes(b.id));
-    const all = mine.map((b: { id: string; stations: string[]; widths: string[] }) => `${b.id}@${b.stations[0]}:${b.widths[0]}`).join(',');
+    const all = [...new Set(CASES.map((c) => `${c.id}@${c.station}:${c.width}`))].join(',');
     const app = await startApp({ activate: all });
     try {
       const js = await (await request.get(`${app.url}/assets/runtime.js`)).text();
