@@ -82,10 +82,9 @@ export function apiSend<T = any>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', pa
   return request<T>(method, path, body ?? {});
 }
 
-/** 2200 -> "$22", 1950 -> "$19.50". */
+/** 2200 -> "$22.00", 1950 -> "$19.50". */
 export function formatUsd(cents: number): string {
-  const v = cents / 100;
-  return '$' + (Number.isInteger(v) ? String(v) : v.toFixed(2));
+  return '$' + (cents / 100).toFixed(2);
 }
 
 const DAY_NAMES: Record<string, string> = {

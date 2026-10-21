@@ -179,18 +179,18 @@ test.describe('P11', () => {
 async function totalCountsSpots(page: Page, app: App): Promise<boolean> {
   await addToCart(page, app.url, 'c12', 3);
   await go(page, `${app.url}/cart`);
-  await expect(page.locator('.line-total')).toHaveText('$69');
-  return (await page.getByTestId('total').textContent()) === '$69';
+  await expect(page.locator('.line-total')).toHaveText('$69.00');
+  return (await page.getByTestId('total').textContent()) === '$69.00';
 }
 
 test.describe('P12', () => {
   test('active: line shows $69 but subtotal and total show $23, also at checkout', async ({ page }) => {
     await withApp({ activate: 'P12@cart:all' }, async (app) => {
       expect(await totalCountsSpots(page, app)).toBe(false);
-      await expect(page.getByTestId('subtotal')).toHaveText('$23');
+      await expect(page.getByTestId('subtotal')).toHaveText('$23.00');
       await apiLogin(page, app.url);
       await go(page, `${app.url}/checkout`);
-      await expect(page.getByTestId('total')).toHaveText('$23');
+      await expect(page.getByTestId('total')).toHaveText('$23.00');
     });
   });
   test('active with coupon: the discount is taken from the wrong subtotal', async ({ page }) => {
