@@ -77,7 +77,7 @@ test('whole booking: schedule, class, cart, YOGA10, checkout with login detour, 
   const weekend = card(page, 'Weekend Vinyasa');
   await expect(weekend).toContainText('09:30');
   await expect(weekend).toContainText('Lena Park');
-  await expect(weekend).toContainText('$23');
+  await expect(weekend).toContainText('$23.00');
   await expect(weekend).toContainText('6 spots left');
   await weekend.getByRole('link', { name: /View class/ }).click();
 
@@ -86,7 +86,7 @@ test('whole booking: schedule, class, cart, YOGA10, checkout with login detour, 
   await expect(detail.getByRole('heading', { level: 1 })).toHaveText('Weekend Vinyasa');
   await expect(detail).toContainText('A playful, longer flow to start the weekend.');
   await expect(detail).toContainText('Lena Park');
-  await expect(detail).toContainText('$23');
+  await expect(detail).toContainText('$23.00');
   await expect(detail.getByRole('heading', { name: 'Reviews' })).toBeVisible();
   await expect(detail.locator('.review')).toHaveCount(3);
   await page.getByRole('button', { name: 'Book this class' }).click();
@@ -101,8 +101,8 @@ test('whole booking: schedule, class, cart, YOGA10, checkout with login detour, 
   await page.getByRole('button', { name: 'Increase spots' }).click();
   await expect(cart.getByTestId('spots-value')).toHaveText('2');
   await expect(page.getByRole('link', { name: 'Cart (2)' })).toBeVisible();
-  await expect(cart.getByTestId('subtotal')).toHaveText('$46');
-  await expect(cart.getByTestId('total')).toHaveText('$46');
+  await expect(cart.getByTestId('subtotal')).toHaveText('$46.00');
+  await expect(cart.getByTestId('total')).toHaveText('$46.00');
   await page.getByLabel('Coupon code').fill('yoga10');
   await page.getByRole('button', { name: 'Apply' }).click();
   await expect(cart.getByTestId('coupon-message')).toHaveText('YOGA10 applied: 10% off.');
@@ -155,6 +155,22 @@ test('whole booking: schedule, class, cart, YOGA10, checkout with login detour, 
   expectClean(noise);
 });
 
+test('confirmation: an unknown reference shows a not-found page without console errors, a real one still confirms (K-T6-2)', async ({ page, app, noise }) => {
+  await go(page, `${app.url}/login`);
+  await login(page);
+  await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
+  await go(page, `${app.url}/confirmation/SW-ZZZZ`);
+  await expect(page.getByRole('heading', { name: 'Booking not found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toHaveCount(0);
+  await expect(page.getByTestId('reference')).toHaveCount(0);
+  await go(page, `${app.url}/bookings`);
+  const ref = ((await page.locator('[data-section="bookings"] li').first().textContent()) ?? '').match(/SW-[A-Z0-9]{4}/)![0];
+  await go(page, `${app.url}/confirmation/${ref}`);
+  await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
+  await expect(page.getByTestId('reference')).toHaveText(ref);
+  expectClean(noise);
+});
+
 test('login page shows the booking hint only when it comes from checkout', async ({ page, app, noise }) => {
   await go(page, `${app.url}/login`);
   await expect(page.locator('[data-section="login"]')).toBeVisible();
@@ -177,7 +193,7 @@ test('expired coupon shows its server message directly under the field, total un
   expect(m!.y).toBeGreaterThanOrEqual(Math.max(field!.y + field!.height, apply!.y + apply!.height) - 1);
   expect(m!.y - (field!.y + field!.height)).toBeLessThan(40);
   await expect(page.getByTestId('discount')).toHaveCount(0);
-  await expect(page.getByTestId('total')).toHaveText('$23');
+  await expect(page.getByTestId('total')).toHaveText('$23.00');
   expectClean(noise, [{ status: 400, path: '/api/cart/coupon' }]);
 });
 
@@ -197,7 +213,7 @@ test('spots stepper stops at 1 and 5, remove asks first', async ({ page, app, no
   await expect(plus).toBeDisabled();
   await expect(minus).toBeEnabled();
   await expect(page.getByRole('link', { name: 'Cart (5)' })).toBeVisible();
-  await expect(page.getByTestId('subtotal')).toHaveText('$115');
+  await expect(page.getByTestId('subtotal')).toHaveText('$115.00');
   await minus.click();
   await expect(value).toHaveText('4');
   await expect(plus).toBeEnabled();

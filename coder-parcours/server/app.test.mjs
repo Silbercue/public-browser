@@ -114,6 +114,19 @@ test('data: 14 classes Mon-Sun, styles, levels, prices, capacities, two full, en
   } finally { await s.handle.close(); }
 });
 
+test('confirmations: a reference of the own bookings is found, a foreign or invented one is not, login is required (K-T6-2)', async () => {
+  const s = await start();
+  try {
+    const c = client(s.base);
+    assert.equal((await c.get('/api/confirmations/SW-AAAA')).status, 401);
+    await c.login();
+    const ref = (await c.get('/api/bookings')).json.bookings[0].reference;
+    assert.match(ref, /^SW-/);
+    assert.deepEqual((await c.get(`/api/confirmations/${ref}`)).json, { found: true });
+    assert.deepEqual((await c.get('/api/confirmations/SW-ZZZZ')).json, { found: false });
+  } finally { await s.handle.close(); }
+});
+
 test('coupon: YOGA10 once, SPRING25 expired, empty, unknown', async () => {
   const s = await start();
   try {

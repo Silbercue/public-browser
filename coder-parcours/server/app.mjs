@@ -555,6 +555,10 @@ export function createServer({
   route('GET', '/api/bookings', { auth: true }, (ctx, res, account) =>
     ok({ bookings: activeBookings(res.locals.sb, account).map((b) => bookingView(res.locals.sb, b)) }));
 
+  // The confirmation page asks whether this reference is one of the visitor's own bookings (cancelled ones count: they existed).
+  route('GET', '/api/confirmations/:reference', { auth: true }, (ctx, res, account) =>
+    ok({ found: res.locals.sb.bookings.some((b) => b.accountId === account.id && b.reference === ctx.req.params.reference) }));
+
   const findBooking = (sb, account, id) => activeBookings(sb, account).find((b) => b.id === id);
   route('POST', '/api/bookings/:id/cancel', { auth: true }, (ctx, res, account) => {
     const sb = res.locals.sb;
