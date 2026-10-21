@@ -545,3 +545,101 @@ test('decisions flow into the graded file; a decision whose finding changed is s
   rmSync(root, { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
 });
+
+// Befund Code falsch (testgaps.md G12): grade.mjs gradeRound writes grading-spent.json only on the grader-failure path
+// and at the very end. When a later session throws for another reason (here: a file whose name does not match its content),
+// the settled posting of the first session stays in the file on disk although graded/ already carries its cost: the next
+// round report counts it twice. Un-skip when saveSpent() runs in a finally block.
+test.skip('a paid posting is settled on disk even when a later session throws for another reason', async () => {
+  const explore = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title: 'x' }] });
+  const root = roundDir([explore]);
+  let mode = 'broken';
+  const spawn = async () => claudeCost(mode === 'ok' ? claudeAnswer([m(0, 'B01')]) : JSON.stringify({ type: 'result', result: 'no json here',
+    usage: { input_tokens: 130, output_tokens: 5 }, total_cost_usd: 0.012, modelUsage: { 'claude-sonnet-5-5': { outputTokens: 5 } } }));
+  const deps = { env: { PATH: process.env.PATH }, claudeBin: '/x/claude', spawn, catalog, log: () => {} };
+  const spentFile = join(root, 'r1', 'grading-spent.json');
+  await assert.rejects(gradeRound({ round: 'r1', resultsRoot: root }, deps), /no valid JSON/);
+  assert.ok(existsSync(spentFile), 'the failed call parked its cost');
+  // A second file whose name does not match its content: sorted after the first, it throws after the first was regraded.
+  writeFileSync(join(root, 'r1', 'sessions', 'zzz-wrong-name.json'), JSON.stringify(explore));
+  mode = 'ok';
+  await assert.rejects(gradeRound({ round: 'r1', resultsRoot: root, recall: true }, deps), /does not match its content/);
+  const g = JSON.parse(readFileSync(join(root, 'r1', 'graded', fileOf(explore)), 'utf8')).grading;
+  assert.ok(g.usage.input_tokens > 130, 'positive: the first session carries the parked cost in graded/');
+  assert.ok(!existsSync(spentFile), 'the posting that graded/ already carries is gone from grading-spent.json');
+  rmSync(root, { recursive: true, force: true });
+});
+
+// Befund Code falsch (testgaps.md G12): REF_PATTERNS ('@e\d+', 'uid=...') have no word boundary, so harmless finding text
+// loses detail for the grader ("foo@e2e.com" -> "foo[tool]e.com", "guid=abc" -> "g[tool]"). Un-skip when the patterns
+// only match whole references.
+test.skip('scrubber: tool refs are replaced, mail addresses and url parameters that merely contain them are not', async () => {
+  const { makeScrubber } = await import('./grade.mjs');
+  const scrub = makeScrubber([]);
+  assert.equal(scrub('click @e12 then uid=1_4'), 'click [tool] then [tool]', 'positive: real refs vanish');
+  assert.equal(scrub('mail foo@e2e.com failed'), 'mail foo@e2e.com failed');
+  assert.equal(scrub('url ?guid=abc'), 'url ?guid=abc');
+  assert.equal(scrub('url ?uid=5'), 'url ?uid=5');
+});
+
+// ---------- grader cost over a retry, model choice, reuse after changed findings, hit rate without active bugs ----------
+
+test('runGrader adds the usage of a broken first attempt to the retry (both are paid)', async () => {
+  let n = 0;
+  const spawn = async () => {
+    n++;
+    const stdout = n === 1
+      ? JSON.stringify({ type: 'result', result: 'no json here', usage: { input_tokens: 130, output_tokens: 5 }, total_cost_usd: 0.012, modelUsage: { 'claude-sonnet-5-5': { outputTokens: 5 } } })
+      : claudeAnswer([m(0, 'B01'), m(1, 'none')]);
+    return { code: 0, stdout, stderr: '' };
+  };
+  const out = await runGrader(smallInput, { spawn, env: {}, claudeBin: '/x/claude' });
+  assert.equal(n, 2);
+  assert.equal(out.usage.input_tokens, 260);
+  assert.equal(out.usage.output_tokens, 10);
+  assert.ok(Math.abs(out.usage.cost_usd - 0.024) < 1e-9);
+});
+
+test('runGrader names the model with the most output tokens, then outer.model, then the alias', async () => {
+  const answer = (outer) => async () => ({
+    code: 0, stderr: '',
+    stdout: JSON.stringify({ type: 'result', result: JSON.stringify({ matches: [m(0, 'none'), m(1, 'none')] }), usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0, ...outer }),
+  });
+  const model = async (outer) => (await runGrader(smallInput, { spawn: answer(outer), env: {}, claudeBin: '/x/claude' })).model;
+  assert.equal(await model({ modelUsage: { 'claude-haiku-4-5': { outputTokens: 2 }, 'claude-sonnet-5-5': { outputTokens: 9 } } }), 'claude-sonnet-5-5');
+  assert.equal(await model({ modelUsage: { 'claude-sonnet-5-5': { outputTokens: 2 }, 'claude-haiku-4-5': { outputTokens: 9 } } }), 'claude-haiku-4-5', 'not just the first or the last');
+  assert.equal(await model({ model: 'claude-custom-1' }), 'claude-custom-1');
+  assert.equal(await model({}), GRADER_MODEL);
+});
+
+test('gradeRound regrades without --recall when the findings or the run configuration of a session changed', async () => {
+  const explore = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title: 'match=B01' }] });
+  const root = roundDir([explore]);
+  const { dir, env } = cmdEnv();
+  const deps = { env, catalog, log: () => {} };
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  assert.equal(calls(dir), 1, 'unchanged findings: reused');
+  const changed = JSON.parse(readFileSync(join(root, 'r1', 'sessions', fileOf(explore)), 'utf8'));
+  changed.report.normalized.findings[0].title = 'match=B01 and something else';
+  writeFileSync(join(root, 'r1', 'sessions', fileOf(explore)), JSON.stringify(changed));
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  assert.equal(calls(dir), 2, 'changed finding text: graded again');
+  const other = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone'), act('B03', 'schedule', 'all')], findings: [{ title: 'match=B01 and something else' }] });
+  assert.equal(fileOf(other), fileOf(explore), 'same session file, other run configuration');
+  assert.notEqual(other.session.run_config_sha256, explore.session.run_config_sha256);
+  writeFileSync(join(root, 'r1', 'sessions', fileOf(explore)), JSON.stringify(other));
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  assert.equal(calls(dir), 3, 'changed run configuration: graded again');
+  rmSync(root, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('scoreSession: without counted active bugs the hit rate is null, not 0 and not NaN', () => {
+  const none = makeSession({ catalog, seed: SEED, activate: [], findings: [{ title: 'a' }] });
+  const met = scoreSession({ result: none, catalog, grading: { matches: [m(0, 'none')] }, decisions: {} });
+  assert.equal(met.bugs.active, 0);
+  assert.equal(met.bugs.hit_rate, null);
+  const some = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title: 'a' }] });
+  assert.equal(scoreSession({ result: some, catalog, grading: { matches: [m(0, 'none')] }, decisions: {} }).bugs.hit_rate, 0, 'Gegenprobe: with an active bug and no hit it is 0');
+});
