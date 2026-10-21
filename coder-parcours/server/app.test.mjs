@@ -712,6 +712,36 @@ test('admin token: wrong tokens of any length answer 401; after 5 wrong tries th
   } finally { await s.handle.close(); }
 });
 
+test('admin lockout with a running clock: tries during the lock do not extend it, old failures age out one by one, locked answers are identical for right and wrong tokens', async () => {
+  const MIN = 60 * 1000;
+  let t = 5_000_000;
+  const s = await start({ adminToken: 'tok-123', clock: () => t });
+  try {
+    const c = client(s.base);
+    const wrong = () => c.get('/api/admin/reports', { authorization: 'Bearer nope' });
+    const right = () => c.get('/api/admin/reports', { authorization: 'Bearer tok-123' });
+    // Three failures at t0, two more six minutes later: five inside one window, so the IP is locked.
+    for (let i = 0; i < 3; i++) assert.equal((await wrong()).status, 401);
+    t += 6 * MIN;
+    for (let i = 0; i < 2; i++) assert.equal((await wrong()).status, 401, 'failure 4 and 5 are still plain 401');
+    const w = await wrong();
+    const r = await right();
+    assert.deepEqual([w.status, r.status], [429, 429]);
+    assert.equal(w.text, r.text, 'locked answers carry the same body for a wrong and the right token');
+    assert.equal(w.headers.get('content-type'), r.headers.get('content-type'));
+    // Hammering during the lock adds no failures: at t0 + 10 min the first three have aged out, only two remain.
+    t += 3 * MIN;
+    for (let i = 0; i < 5; i++) assert.equal((await wrong()).status, 429, 'still locked at t0 + 9 min');
+    t += 1 * MIN;
+    assert.equal((await right()).status, 200, 'at t0 + 10 min the lock is gone although wrong tries kept coming during it');
+    // Positive counterpart: the two failures of t0 + 6 min are still counted, so three more lock again, two do not.
+    assert.equal((await wrong()).status, 401, 'a 3rd live failure');
+    assert.equal((await wrong()).status, 401, 'a 4th live failure');
+    assert.equal((await wrong()).status, 401, 'a 5th live failure');
+    assert.equal((await wrong()).status, 429, 'locked again by exactly five live failures, not earlier');
+  } finally { await s.handle.close(); }
+});
+
 test('hosted needs a strong admin token (32+ chars, not a repetition); single mode takes any token or none', () => {
   const configForSeed = (seed) => ({ seed });
   const hosted = (adminToken) => () => createServer({ mode: 'hosted', configForSeed, trustProxy: 0, adminToken });
