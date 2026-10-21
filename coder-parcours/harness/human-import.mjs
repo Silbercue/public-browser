@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadCatalog } from '../catalog/load.mjs';
 import { widthClassForPx } from '../catalog/schema.mjs';
-import { buildRunConfig, runConfigSha } from './seed.mjs';
+import { buildRunConfig, loadSeeds, runConfigSha } from './seed.mjs';
 import { normalizeTester } from './report-schema.mjs';
 import { SESSION_SCHEMA, sessionFileName, validateSessionResult } from './result-schema.mjs';
 import { CP_ROOT, RESULTS_ROOT, parseArgs } from './grade.mjs';
@@ -25,13 +25,14 @@ async function defaultGit(args) {
 
 /**
  * @param {{ reportsJsonl: string, round: string, resultsRoot?: string }} opts
- * @param {{ resultsRoot?: string, git?: (args: string[]) => Promise<{ code: number }>, loadCatalog?: () => Promise<any>, stderr?: (l: string) => void }} [deps]
+ * @param {{ resultsRoot?: string, git?: (args: string[]) => Promise<{ code: number }>, loadCatalog?: () => Promise<any>, seeds?: number[], stderr?: (l: string) => void }} [deps]
  * @returns {Promise<string[]>} written session files
  */
 export async function importHumanReports({ reportsJsonl, round, resultsRoot }, deps = {}) {
   const root = resultsRoot ?? deps.resultsRoot ?? RESULTS_ROOT;
   const git = deps.git ?? defaultGit;
   const warn = deps.stderr ?? ((l) => process.stderr.write(`${l}\n`));
+  const knownSeeds = deps.seeds ?? loadSeeds();
   const catalog = await (deps.loadCatalog ?? (() => loadCatalog()))();
 
   /** @type {Map<string, { tester: string, seed: number, rows: any[] }>} */
@@ -41,6 +42,7 @@ export async function importHumanReports({ reportsJsonl, round, resultsRoot }, d
     let row;
     try { row = JSON.parse(line); } catch { warn(`human-import: line ${n + 1} is not JSON, skipped`); return; }
     if (!Number.isInteger(row?.seed)) { warn(`human-import: line ${n + 1} has no integer seed, skipped`); return; }
+    if (!knownSeeds.includes(row.seed)) throw new Error(`human-import: line ${n + 1} has seed ${row.seed}, which is not one of the seeds of this parcours (${knownSeeds.join(', ')}); nothing imported`);
     if (typeof row.text !== 'string' || !row.text.trim()) { warn(`human-import: line ${n + 1} has no text, skipped`); return; }
     const tester = normalizeTester(row.tester);
     const key = `${tester}\0${row.seed}`;

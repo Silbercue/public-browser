@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { MODEL_PIN, scrubProviderKeys } from './blind-run-lib.mjs';
-import { resolveClaude } from './participants.mjs';
+import { CP_PARTICIPANTS, resolveClaude } from './participants.mjs';
 import { prng } from './seed.mjs';
 import { GRADED_SCHEMA, sessionFileName, validateGradedResult } from './result-schema.mjs';
 import { loadCatalog } from '../catalog/load.mjs';
@@ -45,6 +45,23 @@ const GRADER_TIMEOUT_MS = 10 * 60_000;
 // ---------- blinding ----------
 
 /**
+ * Words that give a participant away beyond its slug/display/package: brand words on their own and tool
+ * names without the mcp__ prefix. Kept here (participants.mjs stays untouched); keyed by slug.
+ */
+const TELLTALE = {
+  'public-browser': ['public browser', 'public_browser', 'publicbrowser', 'silbercue', 'cortex', 'virtual_desk', 'view_page', 'run_plan',
+    'fill_form', 'capture_image', 'dom_snapshot', 'batch_evaluate', 'set_page_data', 'configure_session', 'network_monitor',
+    'tab_status', 'switch_tab', 'press_key', 'handle_dialog', 'file_upload', 'console_logs', 'wait_for'],
+  'chrome-devtools-mcp': ['chrome devtools', 'chrome-devtools', 'chromedevtools', 'devtools', 'take_snapshot', 'take_screenshot',
+    'evaluate_script', 'list_pages', 'new_page', 'select_page', 'navigate_page', 'list_console_messages', 'list_network_requests',
+    'get_console_message', 'get_network_request', 'resize_page', 'performance_start_trace', 'wait_for', 'fill_form', 'press_key', 'handle_dialog'],
+  'agent-browser': ['agent browser', 'agent-browser', 'agentbrowser', 'dogfood'],
+  'playwright-cli': ['playwright', 'playwright-cli', 'playwright cli', 'pwcli', '@playwright/cli'],
+};
+/** Reference styles of the tools: `@e3` (CLI snapshots) and `uid=1_4` (DevTools snapshots). */
+const REF_PATTERNS = ['@e\\d+', 'uid=[\\w.:-]+'];
+
+/**
  * Names under which a participant could appear in its own texts.
  * @param {any} p participant
  * @returns {string[]}
@@ -64,35 +81,61 @@ export function participantTerms(p) {
     const bare = p.package.split('/').pop();
     if (bare.length >= 4) add(bare);
   }
+  const def = /** @type {any} */ (CP_PARTICIPANTS)[p.slug];
+  if (def) { add(def.name); add(def.cli); add(def.package); }
+  for (const t of TELLTALE[p.slug] ?? []) add(t);
   return out;
 }
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * Replaces every mcp__ tool name and every given term (case-insensitive, not inside a longer word) by [tool].
+ * Replaces every mcp__ tool name, tool reference (`@e3`, `uid=...`) and every given term (case-insensitive, not
+ * inside a longer word) by [tool].
  * @param {string[]} terms
  * @returns {(text: any) => string}
  */
 export function makeScrubber(terms) {
   const uniq = [...new Set(terms.map((t) => t.toLowerCase()))].sort((a, b) => b.length - a.length);
   const re = uniq.length ? new RegExp(`(?<![a-z0-9])(?:${uniq.map(escapeRe).join('|')})(?![a-z0-9])`, 'gi') : null;
+  const refs = new RegExp(REF_PATTERNS.join('|'), 'gi');
   return (text) => {
     let s = typeof text === 'string' ? text : text === null || text === undefined ? '' : String(text);
-    s = s.replace(/mcp__[a-z0-9_.-]*/gi, '[tool]');
+    s = s.replace(/mcp__[a-z0-9_.-]*/gi, '[tool]').replace(refs, '[tool]');
     return re ? s.replace(re, '[tool]') : s;
   };
 }
 
 // ---------- session helpers ----------
 
+const KEY_FIELDS = ['title', 'where', 'viewport', 'steps', 'expected', 'actual'];
+const sha12 = (text) => createHash('sha256').update(text).digest('hex');
+
 /**
+ * Key of a finding: 6 hex characters for its place (session file + index) and 6 for its content, so a decision
+ * does not silently move to another finding when a session is replaced or an import is rewritten.
  * @param {string} sessionFile session file name (no folder)
  * @param {number} i finding index
+ * @param {any} finding
  * @returns {string} 12 hex characters
  */
-export function findingKey(sessionFile, i) {
-  return createHash('sha256').update(`${sessionFile}:${i}`).digest('hex').slice(0, 12);
+export function findingKey(sessionFile, i, finding) {
+  const content = JSON.stringify(KEY_FIELDS.map((k) => finding?.[k] ?? ''));
+  return sha12(`${sessionFile}:${i}`).slice(0, 6) + sha12(content).slice(0, 6);
+}
+
+/**
+ * Decision keys that point at a finding's place but not at its content (the finding was replaced).
+ * @param {any} result
+ * @param {Record<string, any>} decisions
+ * @returns {string[]}
+ */
+export function staleDecisionKeys(result, decisions) {
+  const file = sessionFileOf(result);
+  const findings = result.report?.normalized?.findings ?? [];
+  const current = new Set(findings.map((f, i) => findingKey(file, i, f)));
+  const places = new Set(findings.map((_, i) => findingKey(file, i, {}).slice(0, 6)));
+  return Object.keys(decisions).filter((k) => !current.has(k) && places.has(k.slice(0, 6)));
 }
 
 /** @param {any} result */
@@ -117,6 +160,16 @@ function sessionBugs(result, catalog) {
     .filter((u) => !Array.isArray(u.seeds) || u.seeds.includes(rc.seed))
     .map((u) => ({ id: u.id, station: u.station, width: 'all', category: 'unplanned', bug: null, entry: u }));
   return { rc, changeId: rc.change?.bugId ?? null, active, unplanned, byId };
+}
+
+/**
+ * Ids a Julian decision of kind `bug` may name for this session: active bugs and applicable unplanned bugs.
+ * @param {any} result
+ * @param {Catalog} catalog
+ */
+export function sessionBugIds(result, catalog) {
+  const { active, unplanned, changeId } = sessionBugs(result, catalog);
+  return { active: active.map((a) => a.id), unplanned: unplanned.map((u) => u.id), changeId };
 }
 
 const pick = (list, r) => list[Math.floor(r() * list.length)];
@@ -250,7 +303,7 @@ export function buildGraderPrompt(promptText, input) {
  * Runs the grader. Default: claude -p --model sonnet --output-format json with GRADER_FLAGS in an empty temp cwd.
  * With CODER_PARCOURS_GRADER_CMD: that shell command gets the prompt on stdin and writes JSON
  * ({ model?, matches }) to stdout; usage is then zero. Invalid JSON: one retry, then an error.
- * A model starting with MODEL_PIN (the agents' model) is an error.
+ * A model starting with MODEL_PIN (the agents' model) is an error. Errors carry the usage already spent (`err.usage`).
  * @param {{ bugs: any[], decoys: any[], findings: Array<{ i: number }> }} input
  * @param {{ env?: Record<string,string|undefined>, spawn?: typeof spawnCollect, claudeBin?: string, promptText?: string, timeoutMs?: number }} [deps]
  * @returns {Promise<{ matches: Match[], model: string, flags: string[], usage: { input_tokens: number, output_tokens: number, cost_usd: number }, raw: string }>}
@@ -299,7 +352,7 @@ export async function runGrader(input, deps = {}) {
         model = modelOf(outer);
       }
       if (model.startsWith(MODEL_PIN)) {
-        throw new Error(`grade: grader model ${model} is the agents' model (${MODEL_PIN}); the grader must be a different model`);
+        throw Object.assign(new Error(`grade: grader model ${model} is the agents' model (${MODEL_PIN}); the grader must be a different model`), { usage });
       }
       if (answer && Array.isArray(answer.matches)) {
         return { matches: normalizeMatches(input.findings, answer.matches), model, flags: [...GRADER_FLAGS], usage, raw: res.stdout };
@@ -310,7 +363,7 @@ export async function runGrader(input, deps = {}) {
       rmSync(cwd, { recursive: true, force: true });
     }
   }
-  throw new Error(`grade: grader gave no valid JSON after a retry. ${problems.join(' | ')}`);
+  throw Object.assign(new Error(`grade: grader gave no valid JSON after a retry. ${problems.join(' | ')}`), { usage });
 }
 
 // ---------- scoring ----------
@@ -319,6 +372,8 @@ export async function runGrader(input, deps = {}) {
  * Classifies every finding of an explore session.
  * kind: 'hit' | 'duplicate' | 'decoy' | 'change' | 'decided' (false alarm by Julian) | 'open'.
  * target: the catalog id the finding counts for (bug, unplanned bug, decoy or change target), else null.
+ * A decision { verdict: 'bug', id } from Julian overrides the grader's match when id is a bug active in this
+ * session (or the change target); `byDecision` is then true. Other ids are ignored.
  * @param {{ result: any, catalog: Catalog, grading: { matches: Match[] } | null, decisions?: Record<string, any> }} p
  */
 export function classifyFindings({ result, catalog, grading, decisions = {} }) {
@@ -338,18 +393,23 @@ export function classifyFindings({ result, catalog, grading, decisions = {} }) {
   return findings.map((finding, i) => {
     const m = byI.get(i);
     const match = m?.match ?? 'none';
-    const key = findingKey(file, i);
+    const key = findingKey(file, i, finding);
     let kind = 'open';
     let target = null;
-    if (changeId && match === changeId) { kind = 'change'; target = changeId; }
+    let byDecision = false;
+    const dec = decisions[key];
+    if (dec?.verdict === 'bug' && (bugIds.has(dec.id) || (changeId && dec.id === changeId))) {
+      byDecision = true;
+      if (dec.id === changeId) { kind = 'change'; target = changeId; } else { kind = once(dec.id, 'hit'); target = dec.id; }
+    } else if (changeId && match === changeId) { kind = 'change'; target = changeId; }
     else if (bugIds.has(match)) { kind = once(match, 'hit'); target = match; }
     else if (decoyIds.has(match)) { kind = once(match, 'decoy'); target = match; }
     else {
-      const d = decisions[key];
-      if (d?.verdict === 'false-alarm') kind = 'decided';
-      else if (d?.verdict === 'new-bug' && unplannedIds.has(d.id)) { kind = once(d.id, 'hit'); target = d.id; }
+      const d = dec;
+      if (d?.verdict === 'false-alarm') { kind = 'decided'; byDecision = true; }
+      else if (d?.verdict === 'new-bug' && unplannedIds.has(d.id)) { kind = once(d.id, 'hit'); target = d.id; byDecision = true; }
     }
-    return { i, key, kind, target, match, confidence: m?.confidence ?? 'low', finding };
+    return { i, key, kind, target, match, confidence: m?.confidence ?? 'low', finding, byDecision };
   });
 }
 
@@ -487,11 +547,23 @@ export async function catalogFor({ secretDir = null } = {}, deps = {}) {
 }
 
 const ZERO_USAGE = () => ({ input_tokens: 0, output_tokens: 0, cost_usd: 0 });
+const addUsage = (a, b) => ({
+  input_tokens: (a?.input_tokens ?? 0) + (b?.input_tokens ?? 0),
+  output_tokens: (a?.output_tokens ?? 0) + (b?.output_tokens ?? 0),
+  cost_usd: (a?.cost_usd ?? 0) + (b?.cost_usd ?? 0),
+});
+const isZeroUsage = (u) => !u || (!u.input_tokens && !u.output_tokens && !u.cost_usd);
 
 /**
  * Grades every session file in results/<round>/sessions/ into results/<round>/graded/<same name>.
  * Explore sessions (agents and humans) go through the grader; existing matches are reused unless recall is set
  * or the session changed. Capture sessions get no grader call, only metrics.
+ *
+ * Grader cost is cumulative (what was really spent): grading.usage is the sum of ALL grader calls ever made for
+ * this session file (earlier runs, --recall, apply, failed attempts included); grading.calls lists them one by
+ * one ({ model, prompt_sha256, usage }); usage of a failed grader call is parked in <round>/grading-spent.json
+ * and added to the next successful grading of that file. grading.decisions records which of Julian's
+ * decisions flowed in ({ applied: [{ key, verdict, id? }], stale: [key] }).
  * @param {{ round: string, resultsRoot?: string, recall?: boolean, secretDir?: string|null }} opts
  * @param {object} [deps] runGrader deps plus catalog / loadCatalog / unplannedFile / log
  * @returns {Promise<string[]>} written paths
@@ -508,6 +580,13 @@ export async function gradeRound({ round, resultsRoot = RESULTS_ROOT, recall = f
   const promptText = d.promptText ?? readFileSync(GRADER_PROMPT_FILE, 'utf8');
   const promptSha = createHash('sha256').update(promptText).digest('hex');
   mkdirSync(gradedDir, { recursive: true });
+  const spentFile = join(roundDir, 'grading-spent.json');
+  /** @type {Record<string, any>} */
+  const spent = readJson(spentFile, {});
+  const saveSpent = () => {
+    if (Object.keys(spent).length) writeFileSync(spentFile, `${JSON.stringify(spent, null, 2)}\n`);
+    else rmSync(spentFile, { force: true });
+  };
 
   const written = [];
   let calls = 0;
@@ -515,12 +594,16 @@ export async function gradeRound({ round, resultsRoot = RESULTS_ROOT, recall = f
     const result = JSON.parse(readFileSync(join(sessionsDir, name), 'utf8'));
     if (sessionFileOf(result) !== name) throw new Error(`grade: ${name} does not match its content (expected ${sessionFileOf(result)})`);
     const outPath = join(gradedDir, name);
+    const prev = readJson(outPath, null);
+    // earlier spending on this file, whatever happens to the matches now
+    const prevCalls = Array.isArray(prev?.grading?.calls) ? prev.grading.calls
+      : !isZeroUsage(prev?.grading?.usage) ? [{ model: prev.grading.model, prompt_sha256: prev.grading.prompt_sha256, usage: prev.grading.usage }] : [];
+    const prevUsage = prev?.grading?.usage ?? ZERO_USAGE();
     let grading;
     if (result.session.type === 'capture') {
       grading = { model: 'n/a (capture session)', flags: [], prompt_sha256: promptSha, usage: ZERO_USAGE(), matches: [] };
     } else {
-      const prev = !recall ? readJson(outPath, null) : null;
-      const same = prev && prev.session?.run_config_sha256 === result.session.run_config_sha256
+      const same = !recall && prev && prev.session?.run_config_sha256 === result.session.run_config_sha256
         && JSON.stringify(prev.report?.normalized?.findings) === JSON.stringify(result.report?.normalized?.findings);
       if (same && prev.grading) grading = prev.grading;
       else {
@@ -528,19 +611,42 @@ export async function gradeRound({ round, resultsRoot = RESULTS_ROOT, recall = f
         if (!input.findings.length) {
           grading = { model: 'n/a (no findings)', flags: [], prompt_sha256: promptSha, usage: ZERO_USAGE(), matches: [] };
         } else {
-          const g = await runGrader(input, { ...d, promptText });
+          let g;
+          try {
+            g = await runGrader(input, { ...d, promptText });
+          } catch (err) {
+            const lost = /** @type {any} */ (err)?.usage;
+            if (!isZeroUsage(lost)) { spent[name] = addUsage(spent[name], lost); saveSpent(); }
+            throw err;
+          }
           calls++;
-          grading = { model: g.model, flags: g.flags, prompt_sha256: promptSha, usage: g.usage, matches: g.matches };
+          const owed = spent[name];
+          delete spent[name];
+          const entry = { model: g.model, prompt_sha256: promptSha, usage: addUsage(g.usage, owed) };
+          grading = { model: g.model, flags: g.flags, prompt_sha256: promptSha, usage: entry.usage, matches: g.matches, calls: [entry] };
         }
       }
     }
+    if (grading !== prev?.grading) {
+      // not reused: keep everything spent before
+      grading = { ...grading, usage: addUsage(prevUsage, grading.usage), ...(prevCalls.length || grading.calls ? { calls: [...prevCalls, ...(grading.calls ?? [])] } : {}) };
+    }
+    const graded0 = { ...result, schema: GRADED_SCHEMA, grading };
+    const stale = staleDecisionKeys(result, decisions);
+    for (const k of stale) log(`grade: ${name}: decision ${k} is stale (the finding changed since); not applied`);
+    const classes = result.session.type === 'capture' ? [] : classifyFindings({ result, catalog, grading, decisions });
+    grading = { ...grading, decisions: {
+      applied: classes.filter((c) => c.byDecision).map((c) => ({ key: c.key, verdict: decisions[c.key].verdict, ...(decisions[c.key].id ? { id: decisions[c.key].id } : {}) })),
+      stale,
+    } };
     const metrics = scoreSession({ result, catalog, grading, decisions });
-    const graded = { ...result, schema: GRADED_SCHEMA, grading, metrics };
+    const graded = { ...graded0, grading, metrics };
     const problems = validateGradedResult(graded);
     if (problems.length) throw new Error(`grade: ${name}: ${problems.join('; ')}`);
     writeFileSync(outPath, `${JSON.stringify(graded, null, 2)}\n`);
     written.push(outPath);
   }
+  saveSpent();
   log(`grade: ${written.length} sessions graded, ${calls} grader calls -> ${gradedDir}`);
   return written;
 }

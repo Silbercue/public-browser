@@ -80,3 +80,16 @@ test('missing commit gives a warning and hosted_commit null', async () => {
   assert.equal(gitCalls.length, 0);
   cleanup();
 });
+
+test('a seed outside seeds.json is refused clearly and nothing is written; a known seed passes', async () => {
+  const { root, deps, cleanup } = setup(0);
+  const file = join(root, 'reports.jsonl');
+  const row = (seed) => JSON.stringify({ t: '2026-10-21T10:00:00.000Z', sb: 's', seed, commit: null, text: 'something', path: '/', viewportPx: 390, tester: 'bo' });
+  writeFileSync(file, `${row(2602)}\n${row(4242)}\n`);
+  await assert.rejects(importHumanReports({ reportsJsonl: file, round: 'r1' }, deps), /line 2.*4242.*not one of the seeds/);
+  assert.throws(() => readdirSync(join(root, 'r1', 'sessions')), 'nothing written before the check');
+  writeFileSync(file, `${row(2602)}\n`);
+  const written = await importHumanReports({ reportsJsonl: file, round: 'r1' }, deps);
+  assert.equal(written.length, 1);
+  cleanup();
+});

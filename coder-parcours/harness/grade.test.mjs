@@ -23,6 +23,7 @@ const act = (id, station, width) => ({ id, station, width });
 /** @returns {any} */
 const m = (i, match, confidence = 'high') => ({ i, match, confidence, reason: '' });
 const fileOf = (s) => sessionFileName({ slug: s.participant.slug, type: s.session.type, seed: s.session.seed });
+const keyOf = (s, i) => findingKey(fileOf(s), i, s.report.normalized.findings[i]);
 
 // ---------- scoreSession: hits, duplicates, false alarms ----------
 
@@ -61,7 +62,7 @@ test('none without decision is unreviewed, with false-alarm decision it is decid
   const grading = { matches: [m(0, 'none')] };
   const open = scoreSession({ result, catalog, grading, decisions: {} });
   assert.deepEqual(open.false_alarms, { decoy: 0, decided: 0, unreviewed: 1, total: 0 });
-  const key = findingKey(fileOf(result), 0);
+  const key = keyOf(result, 0);
   assert.match(key, /^[0-9a-f]{12}$/);
   const decided = scoreSession({ result, catalog, grading, decisions: { [key]: { verdict: 'false-alarm' } } });
   assert.deepEqual(decided.false_alarms, { decoy: 0, decided: 1, unreviewed: 0, total: 1 });
@@ -446,4 +447,101 @@ test('CLI grade.mjs --round grades the round folder', () => {
   assert.equal(r.status, 0, r.stderr);
   assert.ok(existsSync(join(root, 'r1', 'graded', fileOf(s))));
   for (const d of [root, dir, empty]) rmSync(d, { recursive: true, force: true });
+});
+
+// ---------- Fix round 1: bug decisions, cumulative grader cost, decision keys ----------
+
+test('decision "bug": overrides none and a decoy match for an active bug; ignored for an inactive bug', () => {
+  const result = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title: 'a' }, { title: 'b' }] });
+  const grading = { matches: [m(0, 'none'), m(1, 'D01')] };
+  const k0 = keyOf(result, 0);
+  const k1 = keyOf(result, 1);
+  const base = scoreSession({ result, catalog, grading, decisions: {} });
+  assert.deepEqual([base.bugs.hits, base.false_alarms.decoy, base.false_alarms.unreviewed], [0, 1, 1]);
+  const on = scoreSession({ result, catalog, grading, decisions: { [k0]: { verdict: 'bug', id: 'B01' } } });
+  assert.deepEqual([on.bugs.hits, on.false_alarms.unreviewed, on.hit_ids], [1, 0, ['B01']]);
+  const over = scoreSession({ result, catalog, grading, decisions: { [k1]: { verdict: 'bug', id: 'B01' } } });
+  assert.deepEqual([over.bugs.hits, over.false_alarms.decoy], [1, 0], 'a decoy match is corrected too');
+  const dup = scoreSession({ result, catalog, grading, decisions: { [k0]: { verdict: 'bug', id: 'B01' }, [k1]: { verdict: 'bug', id: 'B01' } } });
+  assert.deepEqual([dup.bugs.hits, dup.duplicates], [1, 1]);
+  const off = scoreSession({ result, catalog, grading, decisions: { [k0]: { verdict: 'bug', id: 'B07' } } });
+  assert.deepEqual([off.bugs.hits, off.false_alarms.unreviewed], [0, 1], 'B07 is not active in this session');
+});
+
+test('findingKey: same place + same text is stable, other text changes the key but keeps the place part', () => {
+  const f = { title: 't', where: '/cart', viewport: 'all', steps: '', expected: '', actual: 'x' };
+  const a = findingKey('s.json', 0, f);
+  assert.equal(a, findingKey('s.json', 0, { ...f }));
+  const b = findingKey('s.json', 0, { ...f, actual: 'y' });
+  assert.notEqual(a, b);
+  assert.equal(a.slice(0, 6), b.slice(0, 6));
+  assert.notEqual(a.slice(0, 6), findingKey('s.json', 1, f).slice(0, 6));
+});
+
+const claudeCost = (stdout) => ({ code: 0, stdout, stderr: '' });
+const ONE = { input_tokens: 130, output_tokens: 5, cost_usd: 0.012 };
+const times = (n) => ({ input_tokens: ONE.input_tokens * n, output_tokens: ONE.output_tokens * n, cost_usd: +(ONE.cost_usd * n).toFixed(6) });
+const roundOf = (r) => (s) => JSON.parse(readFileSync(join(r, 'r1', 'graded', fileOf(s)), 'utf8'));
+
+test('grader cost is cumulative: recall adds, reuse keeps, a failed recall parks its cost, no findings keeps it', async () => {
+  const explore = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title: 'x' }] });
+  const root = roundDir([explore]);
+  const readG = roundOf(root);
+  let mode = 'ok';
+  const spawn = async () => claudeCost(mode === 'ok' ? claudeAnswer([m(0, 'B01')]) : JSON.stringify({ type: 'result', result: 'no json here',
+    usage: { input_tokens: 130, output_tokens: 5 }, total_cost_usd: 0.012, modelUsage: { 'claude-sonnet-5-5': { outputTokens: 5 } } }));
+  const deps = { env: { PATH: process.env.PATH }, claudeBin: '/x/claude', spawn, catalog, log: () => {} };
+  const approx = (u, n) => { assert.equal(u.input_tokens, times(n).input_tokens); assert.equal(u.output_tokens, times(n).output_tokens); assert.ok(Math.abs(u.cost_usd - times(n).cost_usd) < 1e-9); };
+
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  approx(readG(explore).grading.usage, 1);
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  approx(readG(explore).grading.usage, 1); // reuse: nothing new was spent
+  await gradeRound({ round: 'r1', resultsRoot: root, recall: true }, deps);
+  approx(readG(explore).grading.usage, 2); // --recall adds to the first call
+  assert.equal(readG(explore).grading.calls.length, 2);
+
+  mode = 'broken'; // both attempts of the grader call are paid for, then the call fails
+  await assert.rejects(gradeRound({ round: 'r1', resultsRoot: root, recall: true }, deps), /no valid JSON/);
+  approx(readG(explore).grading.usage, 2); // graded file untouched by the failure
+  mode = 'ok';
+  await gradeRound({ round: 'r1', resultsRoot: root, recall: true }, deps);
+  const g = readG(explore).grading;
+  approx(g.usage, 5); // 2 before + 2 failed attempts + 1
+  assert.ok(!existsSync(join(root, 'r1', 'grading-spent.json')), 'parked cost is settled');
+  const sum = g.calls.reduce((a, c) => ({ input_tokens: a.input_tokens + c.usage.input_tokens, output_tokens: a.output_tokens + c.usage.output_tokens }), { input_tokens: 0, output_tokens: 0 });
+  assert.deepEqual(sum, { input_tokens: g.usage.input_tokens, output_tokens: g.usage.output_tokens }, 'calls add up to usage');
+
+  // the same session now without findings (replaced file): the grader is not called, the earlier cost stays
+  const empty = { ...explore, report: { ...explore.report, normalized: { ...explore.report.normalized, findings: [] } } };
+  writeFileSync(join(root, 'r1', 'sessions', fileOf(explore)), JSON.stringify(empty));
+  await gradeRound({ round: 'r1', resultsRoot: root, recall: true }, deps);
+  approx(readG(explore).grading.usage, 5);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('decisions flow into the graded file; a decision whose finding changed is stale and not applied', async () => {
+  const mk = (title) => makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title }] });
+  const first = mk('old text');
+  const root = roundDir([first]);
+  const { dir, env } = cmdEnv();
+  const logs = [];
+  const deps = { env, catalog, log: (l) => logs.push(l) };
+  mkdirSync(join(root, 'r1', 'review'), { recursive: true });
+  const key = keyOf(first, 0);
+  writeFileSync(join(root, 'r1', 'review', 'decisions.json'), JSON.stringify({ [key]: { verdict: 'false-alarm' } }));
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  const readG = roundOf(root);
+  assert.deepEqual(readG(first).grading.decisions, { applied: [{ key, verdict: 'false-alarm' }], stale: [] });
+  assert.equal(readG(first).metrics.false_alarms.decided, 1);
+
+  const second = mk('a different finding at the same place');
+  writeFileSync(join(root, 'r1', 'sessions', fileOf(second)), JSON.stringify(second));
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  const g = readG(second);
+  assert.deepEqual(g.grading.decisions, { applied: [], stale: [key] });
+  assert.deepEqual([g.metrics.false_alarms.decided, g.metrics.false_alarms.unreviewed], [0, 1], 'old decision does not hang on the new finding');
+  assert.ok(logs.some((l) => l.includes(key) && /stale/.test(l)));
+  rmSync(root, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
 });

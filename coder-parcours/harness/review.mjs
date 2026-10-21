@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CP_ROOT, RESULTS_ROOT, catalogFor, classifyFindings, gradeRound, makeScrubber, parseArgs, participantTerms, readDecisions, readJson } from './grade.mjs';
+import { CP_ROOT, RESULTS_ROOT, catalogFor, classifyFindings, gradeRound, makeScrubber, parseArgs, participantTerms, readDecisions, readJson, sessionBugIds as sessionBugsOf, staleDecisionKeys } from './grade.mjs';
 import { prng } from './seed.mjs';
 import { STATIONS } from '../catalog/schema.mjs';
 
@@ -95,10 +95,15 @@ export async function applyReview({ round, resultsRoot = RESULTS_ROOT, secretDir
   const decisions = readDecisions(roundDir);
   const catalog = await catalogFor({ secretDir }, { ...d, catalog: undefined });
   const { explore } = loadRound(roundDir);
-  /** @type {Map<string, { seed: number }>} */
+  /** @type {Map<string, { seed: number, ids: Set<string> }>} */
   const keys = new Map();
+  /** @type {Set<string>} */
+  const stale = new Set();
   for (const { g } of explore) {
-    for (const c of classifyFindings({ result: g, catalog, grading: g.grading, decisions: {} })) keys.set(c.key, { seed: g.session.seed });
+    const { active, unplanned, changeId } = sessionBugsOf(g, catalog);
+    const ids = new Set([...active, ...unplanned, ...(changeId ? [changeId] : [])]);
+    for (const c of classifyFindings({ result: g, catalog, grading: g.grading, decisions: {} })) keys.set(c.key, { seed: g.session.seed, ids });
+    for (const k of staleDecisionKeys(g, decisions)) stale.add(k);
   }
 
   const taken = new Set([...catalog.bugs.map((b) => b.id), ...catalog.decoys.map((x) => x.id)]);
@@ -106,11 +111,17 @@ export async function applyReview({ round, resultsRoot = RESULTS_ROOT, secretDir
   /** @type {Map<string, any>} */
   const unplanned = new Map(readJson(unplannedFile, []).map((u) => [u.id, u]));
   const problems = [];
+  const warn = d.log ?? ((l) => process.stderr.write(`${l}\n`));
   for (const [key, dec] of Object.entries(decisions)) {
     const where = keys.get(key);
+    if (!where && stale.has(key)) { warn(`review apply: decision ${key} is stale (the finding changed since); skipped`); continue; }
     if (!where) { problems.push(`${key}: no finding of round ${round} has this key`); continue; }
     if (dec?.verdict === 'false-alarm') continue;
-    if (dec?.verdict !== 'new-bug') { problems.push(`${key}: verdict must be false-alarm or new-bug`); continue; }
+    if (dec?.verdict === 'bug') {
+      if (typeof dec.id !== 'string' || !where.ids.has(dec.id)) problems.push(`${key}: id ${JSON.stringify(dec.id)} is not a bug of this session (use new-bug for bugs that are not in the catalog)`);
+      continue;
+    }
+    if (dec?.verdict !== 'new-bug') { problems.push(`${key}: verdict must be false-alarm, bug or new-bug`); continue; }
     if (typeof dec.id !== 'string' || !/^[A-Z]\d{2}$/.test(dec.id)) { problems.push(`${key}: id must look like N01`); continue; }
     if (taken.has(dec.id)) { problems.push(`${key}: id ${dec.id} is already a catalog bug or decoy`); continue; }
     if (!nonEmpty(dec.title) || !nonEmpty(dec.grader)) { problems.push(`${key}: title and grader must not be empty`); continue; }
@@ -135,7 +146,7 @@ export async function applyReview({ round, resultsRoot = RESULTS_ROOT, secretDir
 const oneLine = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
 
 /**
- * Writes review/sample.md: n random grader matches (bug, decoy or change target), low confidence first,
+ * Writes review/sample.md: n random grader answers: matches (bug, decoy or change target; low confidence first) plus a quarter of "none" answers,
  * blinded like pending.json, each with the finding and the catalog entry it was matched to.
  * @param {{ round: string, resultsRoot?: string, n?: number, secretDir?: string|null }} opts
  * @param {object} [deps]
@@ -147,13 +158,19 @@ export async function sampleReview({ round, resultsRoot = RESULTS_ROOT, n = 20, 
   const decisions = readDecisions(roundDir);
   const { explore, scrub } = loadRound(roundDir);
   const pool = [];
+  const nonePool = [];
   for (const { g } of explore) {
     for (const c of classifyFindings({ result: g, catalog, grading: g.grading, decisions })) {
       if (c.target && c.target === c.match) pool.push({ c, seed: g.session.seed });
+      else if (c.kind === 'open' && c.match === 'none') nonePool.push({ c, seed: g.session.seed });
     }
   }
   const r = prng(`${round}:sample`);
-  const chosen = ['low', 'medium', 'high'].flatMap((conf) => shuffle(pool.filter((x) => x.c.confidence === conf), r)).slice(0, n);
+  // a quarter of the sample (rounded up) checks the grader's "none" answers: a missed hit is as wrong as a false one
+  const noneN = Math.min(nonePool.length, Math.ceil(n / 4));
+  const chosenNone = shuffle(nonePool, r).slice(0, noneN);
+  const chosenMatch = ['low', 'medium', 'high'].flatMap((conf) => shuffle(pool.filter((x) => x.c.confidence === conf), r)).slice(0, n - noneN);
+  const chosen = [...chosenMatch, ...chosenNone];
 
   const bugs = new Map(catalog.bugs.map((b) => [b.id, b]));
   const unplanned = new Map((catalog.unplanned ?? []).map((u) => [u.id, u]));
@@ -167,6 +184,10 @@ export async function sampleReview({ round, resultsRoot = RESULTS_ROOT, n = 20, 
     const kind = c.kind === 'change' ? 'change target' : decoys.has(c.target) ? 'decoy' : unplanned.has(c.target) ? 'unplanned bug' : 'bug';
     lines.push(`## ${c.key}`, '', `**Finding** (seed ${seed}, viewport ${c.finding.viewport})`, '');
     for (const k of FIELDS) lines.push(`- ${k}: ${oneLine(f[k])}`);
+    if (!c.target) {
+      lines.push('', `**Matched to** none (confidence ${c.confidence}); if it is a known catalog bug, decide { "verdict": "bug", "id": "<id>" } in review/decisions.json`, '');
+      continue;
+    }
     lines.push('', `**Matched to** ${c.target} (${kind}, confidence ${c.confidence})`, '');
     lines.push(`- title: ${oneLine(entry?.title)}`);
     if (entry?.symptom) lines.push(`- symptom: ${oneLine(entry.symptom)}`);
