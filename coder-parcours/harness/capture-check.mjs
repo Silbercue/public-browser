@@ -10,9 +10,10 @@
 // Der Test-Befehl laeuft in einer frischen Kopie des testDir, mit Env-Whitelist und eigenem HOME/TMPDIR.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readCaptureCommand } from './report-schema.mjs';
 import { chromeProcessesOnPort, killPids, listeningPids, listProcesses, portBusy } from './proc.mjs';
 import { toolchainDir } from './participants.mjs';
@@ -25,6 +26,68 @@ const OUTPUT_LIMIT = 4000;
 const GROUP_GRACE_MS = 2000;
 export const REFUSED_TEXT = 'Refused: port 9222 or 9223 was already in use before this session started. '
   + 'Python tests with publicbrowser would connect to that browser. Close it and start a new session.';
+
+/** Namensanfang des Arbeitsordners jedes Test-Laufs (darunter liegen work, HOME und TMPDIR des Laufs). */
+export const RUN_ROOT_PREFIX = 'cp-run-';
+
+/**
+ * true, wenn die Befehlszeile auf einen Arbeitsordner eines Test-Laufs zeigt (<tmpdir>/cp-run-...), z. B. ein
+ * Browser, den der Test mit --user-data-dir unter seinem TMPDIR startet. Solche Prozesse gehoeren dem Test, nicht
+ * dem Browser-Werkzeug des Teilnehmers.
+ * @param {string} command
+ */
+export function isRunProcess(command) {
+  const bases = new Set([tmpdir()]);
+  try { bases.add(realpathSync(tmpdir())); } catch { /* ohne realen Pfad */ }
+  return [...bases].some((b) => String(command).includes(join(b, RUN_ROOT_PREFIX)));
+}
+
+/** Datei im Steuerordner: run-my-test traegt dort die Prozesse ein, die es selbst gestartet hat (App, Lauf). */
+export const OWN_PROCESSES_FILE = 'own-processes.jsonl';
+const APP_START_SUFFIX = join('server', 'start.mjs');
+
+/** @param {number} pid @param {NodeJS.Signals} sig */
+const signalGroup = (pid, sig) => { try { process.kill(-pid, sig); } catch { /* Gruppe leer */ } };
+
+/**
+ * Beendet die Reste, die run-my-test in den Steuerordner eingetragen hat (App-Server, Prozessgruppe und
+ * Arbeitsordner eines Test-Laufs), z. B. nach einem Wanduhr-Abbruch mitten im Lauf. Beendet wird nur, was
+ * noch lebt und nicht in der Baseline steht (App zusaetzlich: Befehlszeile mit server/start.mjs; Lauf: Gruppenfuehrer
+ * bzw. Prozesse mit dem Arbeitsordner in der Befehlszeile). run-my-test loescht seine Eintraege, sobald sein Lauf
+ * regulaer endet; es bleiben nur die eines Abbruchs mitten im Lauf. Nie nach Port oder Namen allein.
+ * @param {string} file
+ * @param {{ baselinePids?: number[], listProcs?: typeof listProcesses }} [opts]
+ * @returns {Promise<number[]>} PIDs, denen ein Signal zugestellt wurde
+ */
+export async function killOwnProcesses(file, { baselinePids = [], listProcs = listProcesses } = {}) {
+  if (!existsSync(file)) return [];
+  const baseline = new Set(baselinePids);
+  /** @type {any[]} */
+  const recs = [];
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    try { const r = JSON.parse(line); if (r && typeof r === 'object') recs.push(r); } catch { /* halbe oder fremde Zeile */ }
+  }
+  const procs = listProcs();
+  const byPid = new Map(procs.map((p) => [p.pid, p.command]));
+  const ok = (pid) => Number.isInteger(pid) && pid > 1 && pid !== process.pid && !baseline.has(pid);
+  const groups = new Set();
+  const pids = new Set();
+  for (const r of recs) {
+    if (r.kind === 'run') {
+      if (ok(r.pgid) && byPid.has(r.pgid)) groups.add(r.pgid);
+      if (typeof r.root === 'string' && r.root.includes(RUN_ROOT_PREFIX)) {
+        for (const p of procs) if (ok(p.pid) && p.command.includes(r.root)) pids.add(p.pid);
+      }
+    } else if (r.kind === 'app' && ok(r.pid) && String(byPid.get(r.pid) ?? '').includes(APP_START_SUFFIX)) {
+      groups.add(r.pid);
+    }
+  }
+  for (const g of groups) signalGroup(g, 'SIGTERM');
+  const signaled = await killPids([...pids]);
+  await new Promise((r) => { setTimeout(r, 100); });
+  for (const g of groups) signalGroup(g, 'SIGKILL');
+  return [...groups, ...signaled];
+}
 
 /** @returns {Promise<number[]>} alle PIDs, die gerade laufen */
 export async function snapshotPids() {
@@ -80,9 +143,6 @@ function runEnv(appUrl, home, tmpDir) {
   return env;
 }
 
-/** @param {number} pid @param {NodeJS.Signals} sig */
-const signalGroup = (pid, sig) => { try { process.kill(-pid, sig); } catch { /* Gruppe leer */ } };
-
 /** Lauscher auf den Testports und Chrome-Hauptprozesse mit diesem Debug-Port (ohne den eigenen Prozess). */
 async function portHolders(ports, deps = {}) {
   const d = { listeningPids, listProcesses, ...deps };
@@ -101,7 +161,8 @@ async function portHolders(ports, deps = {}) {
  * mit Env-Whitelist und eigenem HOME/TMPDIR je Lauf. Davor wird nie etwas beendet: belegter Testport = refused.
  * Danach: Reste der eigenen Gruppe und neue Lauscher auf den Testports beenden.
  * @param {{ testDir: string, command: string, appUrl: string, baselinePids: number[], timeoutMs?: number }} opts
- * @param {{ portBusy?: (port: number) => Promise<boolean>, ports?: number[], cleanup?: object }} [deps]
+ * @param {{ portBusy?: (port: number) => Promise<boolean>, ports?: number[], cleanup?: object, track?: (rec: object) => void }} [deps]
+ * track (optional): bekommt {kind:'run', pgid, root} des gestarteten Laufs (fuer killOwnProcesses).
  * @returns {Promise<{ exit: number|null, ms: number, timedOut: boolean, refused: boolean, killed: number[], output: string }>}
  */
 export async function runTestCommand({ testDir, command, appUrl, baselinePids, timeoutMs = 180_000 }, deps = {}) {
@@ -115,7 +176,7 @@ export async function runTestCommand({ testDir, command, appUrl, baselinePids, t
   for (const port of ports) if (await busy(port)) return refusedRun;
 
   // (2) Frische Kopie, eigenes HOME/TMPDIR.
-  const runRoot = mkdtempSync(join(tmpdir(), 'cp-run-'));
+  const runRoot = mkdtempSync(join(tmpdir(), RUN_ROOT_PREFIX));
   const work = join(runRoot, 'work');
   const home = join(runRoot, 'home');
   const tmpDir = join(runRoot, 'tmp');
@@ -128,6 +189,7 @@ export async function runTestCommand({ testDir, command, appUrl, baselinePids, t
   let output = '';
   const add = (chunk) => { output = (output + chunk).slice(-OUTPUT_LIMIT); };
   const child = spawn('sh', ['-c', command], { cwd: work, env: runEnv(appUrl, home, tmpDir), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  deps.track?.({ kind: 'run', pgid: child.pid, root: runRoot });
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   child.stdout.on('data', add);
@@ -164,10 +226,14 @@ export async function runTestCommand({ testDir, command, appUrl, baselinePids, t
  * keine Assets/Favicon/unbekannte Pfade).
  * @param {{ testDir: string, command: string, seed: number, variant: 'healthy'|'broken', secretDir?: string|null,
  *   baselinePids: number[], timeoutMs?: number }} opts
- * @param {{ spawnApp?: typeof spawnAppServer }} [deps]
+ * @param {{ spawnApp?: typeof spawnAppServer, track?: (rec: object) => void }} [deps]
  */
 export async function runOnFreshApp({ testDir, command, seed, variant, secretDir = null, baselinePids, timeoutMs }, deps = {}) {
   const app = await (deps.spawnApp ?? spawnAppServer)({ seed, session: 'capture', variant, secretDir, countRequests: true });
+  if (deps.track) {
+    // Der App-Server ist Gruppenfuehrer und der einzige Lauscher auf seinem Port: seine PID aus dem Port lesen.
+    try { for (const pid of await listeningPids(app.port)) if (pid !== process.pid) deps.track({ kind: 'app', pid }); } catch { /* ohne lsof: kein Eintrag */ }
+  }
   let r;
   try {
     r = await runTestCommand({ testDir, command, appUrl: app.url, baselinePids, timeoutMs }, /** @type {any} */ (deps));

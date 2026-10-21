@@ -16,10 +16,12 @@
 //   exitcode      — wie ok (JSONL und Erfolgs-Ergebnis vorhanden), aber Exit 3
 //   tamper        — wie capture, das Shim-Ziel aendert session.json im Steuerordner
 //   delsession    — wie tamper, loescht session.json im Steuerordner
+//   orphan        — wie capture; das Shim-Ziel startet zwei Reste (`sh -c sleep`), traegt nur einen in <ctl>/own-processes.jsonl
+//                   ein und schreibt beide PIDs nach $FAKE_CP_PIDS_FILE (eingetragen, nicht eingetragen)
 //   lockviolation — JSONL mit einem ausgefuehrten Bash-Befehl ausserhalb der erlaubten Koepfe
 // Mit `--ctl <dir>` (ohne -p) spielt die Datei das Ziel des Shims: haengt eine Zeile an <dir>/run-my-test.log.
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RUNTIME_MARKER } from '../server/bug-engine.mjs';
@@ -33,6 +35,13 @@ if (arg('--ctl') && !argv.includes('-p')) {
   appendFileSync(join(arg('--ctl'), 'run-my-test.log'), `fake run-my-test --ctl ${arg('--ctl')}\n`);
   if (process.env.FAKE_CP_MODE === 'tamper') appendFileSync(join(arg('--ctl'), 'session.json'), ' \n');
   if (process.env.FAKE_CP_MODE === 'delsession') rmSync(join(arg('--ctl'), 'session.json'));
+  if (process.env.FAKE_CP_MODE === 'orphan') {
+    const rest = () => { const c = spawn('sh', ['-c', 'sleep 300; true'], { detached: true, stdio: 'ignore' }); c.unref(); return c.pid; };
+    const mine = rest();
+    const other = rest();
+    appendFileSync(join(arg('--ctl'), 'own-processes.jsonl'), `${JSON.stringify({ kind: 'run', pgid: mine, root: '/nonexistent/cp-run-orphan' })}\n`);
+    writeFileSync(process.env.FAKE_CP_PIDS_FILE, JSON.stringify({ mine, other }));
+  }
   console.log('exit code: 0');
   process.exit(0);
 }
@@ -82,7 +91,7 @@ else browse({ url: appUrl }, 'page loaded');
 if (mode === 'writeoutside') call('Write', { file_path: process.env.FAKE_CP_WRITE_TO, content: 'x' }, `File created successfully at: ${process.env.FAKE_CP_WRITE_TO}`);
 if (mode === 'lockviolation') call('Bash', { command: 'cat /etc/hosts' }, '127.0.0.1 localhost');
 
-if (mode === 'capture' || mode === 'capturepeek' || mode === 'tamper' || mode === 'delsession') {
+if (mode === 'capture' || mode === 'capturepeek' || mode === 'tamper' || mode === 'delsession' || mode === 'orphan') {
   const testDir = join(rundir, 'test');
   mkdirSync(testDir, { recursive: true });
   // Der Test fragt die App einmal ab (die Nachpruefung zaehlt Anfragen) und endet mit exit 0.

@@ -7,7 +7,8 @@
 // Ordner: Rundir (Arbeitsordner des Agenten, cwd der Sitzung) und getrennt davon ein Steuerordner (session.json,
 // Ereignisdatei, Shim run-my-test, run-my-test.log). Der Steuerordner wird am Ende geloescht, der Rundir bleibt.
 // Beendet werden nur selbst gestartete Prozesse: App, Claude-Prozessgruppe, bei Public Browser neue Chrome-
-// Prozesse auf 9333, bei capture neue Prozesse auf 9222/9223 (cleanupTestPorts mit dem Schnappschuss).
+// Prozesse auf 9333, bei capture die von run-my-test eingetragenen Reste (App, Test-Lauf). Auf 9222/9223 beendet
+// die Sitzung nichts: das tut nur der Lauf eines Tests selbst, und nur waehrend er laeuft.
 import { randomUUID, createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync,
   rmSync, writeFileSync } from 'node:fs';
@@ -20,7 +21,7 @@ import { MODEL_PIN, cliCallsFromJsonl, isAlive, jsonlSlugFor, killGroup, mcpCall
 import { CP_PARTICIPANTS, cpDeps, participantSkillText, scrubSessionEnv, toolchainBinDir, toolchainDir } from './participants.mjs';
 import { toolLockMulti } from './guard.mjs';
 import { browserBinaries, chromeProcessesOnPort, killPids, listProcesses, portBusy } from './proc.mjs';
-import { TEST_PORTS, checkCapture, cleanupTestPorts, snapshotPids } from './capture-check.mjs';
+import { OWN_PROCESSES_FILE, TEST_PORTS, checkCapture, isRunProcess, killOwnProcesses, snapshotPids } from './capture-check.mjs';
 import { BUDGETS, renderSessionPrompt } from './prompt.mjs';
 import { normalizeExploreReport } from './report-schema.mjs';
 import { SESSION_SCHEMA, sessionFileName, validateSessionResult } from './result-schema.mjs';
@@ -192,7 +193,6 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   const listProcs = deps.listProcesses ?? (() => listProcesses());
   const log = deps.log ?? (() => {});
   const capDeps = deps.captureDeps ?? {};
-  const testPorts = capDeps.ports ?? TEST_PORTS;
 
   // Schritt 1: Konfiguration, Ordner, Schnappschuss vor App- und Claude-Start.
   const baselinePids = await snapshotPids();
@@ -250,7 +250,11 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
 
   const sampleBrowsers = () => {
     try {
-      for (const b of browserBinaries(listProcs())) if (!baselineSet.has(b.pid)) browsersSeen.add(b.binary);
+      // Browser, die der Test des Agenten unter seinem Arbeitsordner (cp-run-...) startet, gehoeren dem Test,
+      // nicht dem Browser-Werkzeug des Teilnehmers.
+      const procs = listProcs();
+      const testOwned = new Set(procs.filter((x) => isRunProcess(x.command)).map((x) => x.pid));
+      for (const b of browserBinaries(procs)) if (!baselineSet.has(b.pid) && !testOwned.has(b.pid)) browsersSeen.add(b.binary);
     } catch { /* ps nicht verfuegbar: Beleg fehlt, Sitzung geht weiter */ }
   };
 
@@ -393,8 +397,9 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
       }
     }
     if (type === 'capture') {
-      try { await cleanupTestPorts({ baselinePids, ports: testPorts }, capDeps.cleanup); } catch (e) {
-        notes.push(`test port cleanup failed: ${String(e.message).slice(0, 120)}`);
+      // Nach einem Abbruch mitten in run-my-test: genau dessen App und Test-Lauf beenden, sonst nichts.
+      try { await killOwnProcesses(join(ctl, OWN_PROCESSES_FILE), { baselinePids, listProcs: listProcesses }); } catch (e) {
+        notes.push(`cleanup of own processes failed: ${String(e.message).slice(0, 120)}`);
       }
     }
     events = readEvents(eventsFile);

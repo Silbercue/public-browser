@@ -3,7 +3,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,7 @@ import { spawnAppServer } from '../server/spawn.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
-import { TEST_PORTS, RUN_ENV_KEYS, captureOrder, cleanupTestPorts, checkCapture, runTestCommand, snapshotPids } from './capture-check.mjs';
+import { TEST_PORTS, RUN_ENV_KEYS, OWN_PROCESSES_FILE, captureOrder, cleanupTestPorts, checkCapture, killOwnProcesses, runTestCommand, snapshotPids } from './capture-check.mjs';
 import { runMyTest } from './run-my-test.mjs';
 import { listeningPids, portBusy } from './proc.mjs';
 
@@ -501,4 +501,67 @@ test('runMyTest: Kopfzeile exit code: refused bzw. timeout', { timeout: 60_000 }
 test('runMyTest: secretDir kommt nicht in die argv (run-my-test hat keine --secret-dir-Option mehr)', () => {
   const r = spawnSyncNode([join(ROOT, 'harness', 'run-my-test.mjs'), '--ctl', tmp(), '--secret-dir', '/x']);
   assert.notEqual(r.status, 0);
+});
+
+test('F12: runTestCommand meldet Prozessgruppe und Arbeitsordner des Laufs an track', { timeout: 60_000 }, async () => {
+  const seen = [];
+  await runTestCommand({ testDir: withRun('exit 0'), command: 'exit 0', appUrl: 'http://127.0.0.1:1/', baselinePids: await snapshotPids() },
+    { ...noBusy(), track: (rec) => seen.push(rec) });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].kind, 'run');
+  assert.ok(Number.isInteger(seen[0].pgid) && seen[0].pgid > 1);
+  assert.match(seen[0].root, /cp-run-/);
+});
+
+test('F12: run-my-test traegt App und Lauf waehrend des Laufs ein und entfernt die Eintraege nach regulaerem Ende', { timeout: 60_000 }, async () => {
+  const ctl = tmp();
+  const seen = join(ctl, 'seen.txt');
+  // Der Test selbst liest die Datei des Steuerordners, solange er laeuft (Pfad ueber die Umgebung ist nicht noetig: CTL im RUN).
+  const testDir = withRun(`node -e "fetch(process.env.APP_URL+'api/classes').then(()=>{require('node:fs').copyFileSync('${join(ctl, OWN_PROCESSES_FILE)}','${seen}');process.exit(0)})"`);
+  writeFileSync(join(ctl, 'session.json'), JSON.stringify({ seed: SEED, testDir, baselinePids: await snapshotPids() }));
+  const r = await runMyTest({ ctl }, noBusy());
+  assert.equal(r.code, 0, r.text);
+  const recs = readFileSync(seen, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(recs.map((x) => x.kind).sort(), ['app', 'run'], 'waehrend des Laufs eingetragen');
+  assert.ok(recs.every((x) => Number.isInteger(x.pgid ?? x.pid)));
+  assert.equal(existsSync(join(ctl, OWN_PROCESSES_FILE)), false, 'nach regulaerem Ende entfernt');
+});
+
+/** Eigener Rest: `sh -c "sleep 300"` als Gruppenführer, unabhaengig vom Testprozess. */
+const orphan = () => {
+  const c = spawn('sh', ['-c', 'sleep 300; true'], { detached: true, stdio: 'ignore' });
+  c.unref();
+  return c.pid;
+};
+
+test('F12: killOwnProcesses beendet genau die eingetragenen Reste, nicht Unbeteiligte, nicht Baseline, nicht Verfaelschtes', async () => {
+  const mine = orphan();
+  const decoy = orphan();
+  const inBaseline = orphan();
+  const bystanderChild = await bystander();
+  try {
+    const file = join(tmp(), OWN_PROCESSES_FILE);
+    appendFileSync(file, `${JSON.stringify({ kind: 'run', pgid: mine, root: '/nonexistent/cp-run-x' })}\n`);
+    appendFileSync(file, `${JSON.stringify({ kind: 'run', pgid: inBaseline, root: '/nonexistent/cp-run-y' })}\n`);
+    // Verfaelschter App-Eintrag: lebender Prozess, aber kein server/start.mjs -> ignoriert.
+    appendFileSync(file, `${JSON.stringify({ kind: 'app', pid: bystanderChild.pid })}\n`);
+    appendFileSync(file, 'kein json\n');
+    const killed = await killOwnProcesses(file, { baselinePids: [inBaseline] });
+    await new Promise((r) => { setTimeout(r, 200); });
+    assert.ok(killed.includes(mine));
+    assert.equal(alive(mine), false, 'eingetragener Rest beendet');
+    assert.equal(alive(decoy), true, 'nicht eingetragener Rest lebt');
+    assert.equal(alive(inBaseline), true, 'Baseline lebt');
+    assert.equal(alive(bystanderChild.pid), true, 'App-Eintrag ohne start.mjs trifft den Unbeteiligten nicht');
+  } finally {
+    for (const pid of [mine, decoy, inBaseline]) { try { process.kill(-pid, 'SIGKILL'); } catch { /* weg */ } }
+    bystanderChild.kill('SIGKILL');
+  }
+});
+
+test('F12: killOwnProcesses ohne Datei oder mit schon beendeten Eintraegen tut nichts', async () => {
+  assert.deepEqual(await killOwnProcesses(join(tmp(), 'gibt-es-nicht.jsonl'), { baselinePids: [] }), []);
+  const file = join(tmp(), OWN_PROCESSES_FILE);
+  appendFileSync(file, `${JSON.stringify({ kind: 'run', pgid: 2_999_999, root: '/x' })}\n`);
+  assert.deepEqual(await killOwnProcesses(file, { baselinePids: [] }), []);
 });

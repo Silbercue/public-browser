@@ -9,6 +9,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
+import { spawn } from 'node:child_process';
 import { captureOutsideAccess, runSession } from './run-session.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { toolchainDir } from './participants.mjs';
@@ -229,6 +230,53 @@ test('Browser ausser Google Chrome: aborted', async () => {
   track(result);
   assert.equal(result.status, 'aborted');
   assert.ok(result.notes.some((n) => n.includes('/usr/bin/chromium')));
+});
+
+test('F1: Browser des Tests unter dem Arbeitsordner eines Laufs (cp-run-) zaehlt nicht, derselbe Browser ausserhalb schon', async () => {
+  const inRun = `/opt/pw/chrome-headless-shell --remote-debugging-pipe --user-data-dir=${join(tmpdir(), 'cp-run-abc123', 'tmp', 'pw-profile')}`;
+  const outside = '/opt/pw/chrome-headless-shell --remote-debugging-pipe --user-data-dir=/var/tmp/other-profile';
+  const ok = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok', { listProcesses: () => [{ pid: 999_998, command: inRun }] }));
+  track(ok.result);
+  assert.equal(ok.result.status, 'ok', ok.result.notes.join(' | '));
+  assert.deepEqual(ok.result.harness.browser_binaries, [], 'Test-Browser steht nicht unter den Browsern des Teilnehmers');
+  const bad = await run({ slug: 'fake-mcp', type: 'explore', replace: true }, fakeDeps('ok', { listProcesses: () => [{ pid: 999_998, command: outside }] }));
+  track(bad.result);
+  assert.equal(bad.result.status, 'aborted', 'Gegenprobe: ohne cp-run- bleibt es ein fremder Browser');
+  assert.ok(bad.result.notes.some((n) => n.includes('chrome-headless-shell')));
+});
+
+test('F2: Sitzungsende beendet keinen Lauscher auf den Testports, der nicht zu eigenen Prozessen gehoert', async () => {
+  let stranger = null;
+  const deps = fakeDeps('capture', {
+    // Nach dem Schnappschuss, waehrend der Sitzung: ein fremder Prozess belegt einen Testport (wie Julians Chrome).
+    onAppStarted: async () => {
+      stranger = spawn(process.execPath, ['-e', `require('node:net').createServer(s=>s.end()).listen(${PORTS[0]},'127.0.0.1',()=>console.log('up'))`], { stdio: ['ignore', 'pipe', 'ignore'] });
+      await once(stranger.stdout, 'data');
+    },
+  });
+  try {
+    const { result } = await run({ slug: 'fake-mcp', type: 'capture' }, deps);
+    track(result);
+    assert.equal(result.capture.reason, 'ports busy', 'Gegenprobe: der Fremde war auf dem Testport (Nachpruefung verweigert)');
+    assert.equal(isAlive(stranger.pid), true, 'Fremder Prozess lebt nach der Sitzung');
+  } finally { stranger?.kill('SIGKILL'); }
+});
+
+test('F12: Rest aus run-my-test (eingetragen) wird am Sitzungsende beendet, ein nicht eingetragener bleibt', async () => {
+  const pidsFile = join(tmp('cp-rs-pids-'), 'pids.json');
+  const base = fakeDeps('orphan');
+  const deps = { ...base, envOverrides: { ...base.envOverrides, FAKE_CP_PIDS_FILE: pidsFile } };
+  let pids = null;
+  try {
+    const { result } = await run({ slug: 'fake-mcp', type: 'capture' }, deps);
+    track(result);
+    pids = JSON.parse(readFileSync(pidsFile, 'utf8'));
+    await new Promise((r) => { setTimeout(r, 300); });
+    assert.equal(isAlive(pids.other), true, 'nicht eingetragener Rest lebt (Gegenprobe: es gab ihn)');
+    assert.equal(isAlive(pids.mine), false, 'eingetragener Rest beendet');
+  } finally {
+    if (pids) for (const pid of [pids.mine, pids.other]) { try { process.kill(-pid, 'SIGKILL'); } catch { /* weg */ } }
+  }
 });
 
 test('CLI-Teilnehmer: --tools Bash,Read,Write, Hook Bash|Read mit Sitzungsordner, Skill-Dateien im Sitzungsordner', async () => {
