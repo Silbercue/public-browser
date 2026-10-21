@@ -414,6 +414,21 @@ test.describe('login state on start', () => {
     await expect(page.getByRole('link', { name: 'Log in' })).toHaveCount(0);
   });
 
+  test('a late { user: null } from the start check does not log a fresh login out again (K-T5-7)', async ({ page, app }) => {
+    let held: import('@playwright/test').Route | null = null;
+    await page.route('**/api/me', (route) => { held = route; });
+    await page.goto(`${app.url}/login`);
+    await page.getByLabel('Email').fill(MAYA.email);
+    await page.getByLabel('Password').fill(MAYA.password);
+    await page.getByRole('button', { name: 'Log in' }).click();
+    await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
+    await expect.poll(() => held !== null).toBe(true);
+    await (held as unknown as import('@playwright/test').Route).fulfill({ status: 200, json: { user: null } });
+    await page.waitForTimeout(400);
+    await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Log in' })).toHaveCount(0);
+  });
+
   test('/api/me fails on the network: the header falls back to Log in', async ({ page, app }) => {
     await page.route('**/api/me', (route) => route.abort('connectionrefused'));
     await page.goto(`${app.url}/`);
@@ -421,9 +436,7 @@ test.describe('login state on start', () => {
     await expect(page.getByRole('button', { name: 'Log out' })).toHaveCount(0);
   });
 
-  // Befund Code falsch (testgaps.md G03): Layout.tsx `'user' in r` throws a TypeError when /api/me answers 200 with an empty body
-  // (apiGet returns null), the rejection is not handled and the header stays blank. Un-skip when the code reads `r && 'user' in r`.
-  test.skip('/api/me answers 200 with an empty body: the header falls back to Log in', async ({ page, app }) => {
+  test('/api/me answers 200 with an empty body: the header falls back to Log in', async ({ page, app }) => {
     await page.route('**/api/me', (route) => route.fulfill({ status: 200, body: '' }));
     await page.goto(`${app.url}/`);
     await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();

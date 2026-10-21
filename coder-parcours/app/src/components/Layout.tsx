@@ -64,15 +64,14 @@ export default function Layout() {
   }), [navigate, signedOut]);
 
   // The login state is asked once on start: guests get { user: null } (200), a known but expired session 401.
+  // A late "nobody" answer must not overwrite a login that happened while the request was on its way.
   useEffect(() => {
-    apiGet<User | { user: null }>('/api/me').then(
-      (r) => { if ('user' in r) signedOut(); else signedIn(r); },
-      (err) => {
-        if (err instanceof ApiError && err.status === 401) signedOut();
-        else setUser(null);
-      },
+    const startupGuest = () => setUser((prev) => (prev === undefined ? null : prev));
+    apiGet<User | { user: null } | null>('/api/me').then(
+      (r) => { if (r && !('user' in r)) signedIn(r); else startupGuest(); },
+      () => startupGuest(),
     );
-  }, [signedIn, signedOut]);
+  }, [signedIn]);
 
   const refreshCart = useCallback(() => {
     apiGet<Cart>('/api/cart').then((c) => setCartCount(c.count), () => { /* keep the last count */ });
