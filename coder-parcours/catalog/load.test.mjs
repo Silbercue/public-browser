@@ -149,3 +149,34 @@ test('decoys from public file and secret file are merged and validated', async (
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('duplicate decoy id (public file and secret file) throws', async () => {
+  const dir = tmp();
+  const sec = tmp();
+  try {
+    const decoysFile = join(dir, 'decoys.json');
+    const decoy = { id: 'D01', station: 'cart', title: 't', grader: 'g' };
+    writeFileSync(decoysFile, JSON.stringify([decoy]));
+    mkdirSync(join(sec, 'bugs'));
+    writeFileSync(join(sec, 'decoys.json'), JSON.stringify([decoy]));
+    await assert.rejects(loadCatalog({ publicDir: 'fixtures/bugs', secretDir: sec, decoysFile }), /decoys: duplicate id D01/);
+    writeFileSync(join(sec, 'decoys.json'), JSON.stringify([{ ...decoy, id: 'D02' }]));
+    const c = await loadCatalog({ publicDir: 'fixtures/bugs', secretDir: sec, decoysFile });
+    assert.deepEqual(c.decoys.map((d) => d.id), ['D01', 'D02'], 'Gegenprobe: different ids merge');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(sec, { recursive: true, force: true });
+  }
+});
+
+test('duplicate decoy id inside one file throws', async () => {
+  const dir = tmp();
+  try {
+    const decoysFile = join(dir, 'decoys.json');
+    const decoy = { id: 'D01', station: 'cart', title: 't', grader: 'g' };
+    writeFileSync(decoysFile, JSON.stringify([decoy, decoy]));
+    await assert.rejects(loadCatalog({ publicDir: 'fixtures/bugs', decoysFile }), /decoys: duplicate id D01/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

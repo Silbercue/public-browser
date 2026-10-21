@@ -99,3 +99,20 @@ test('widthClassForPx follows the media queries', () => {
   assert.equal(widthClassForPx(1101), 'desktop');
   assert.equal(widthClassForPx(1440), 'desktop');
 });
+
+test("validateBug: width 'all' must stand alone", () => {
+  assert.ok(has(validateBug(bug({ widths: ['all', 'phone'] })), /'all' must stand alone/));
+  assert.ok(has(validateBug(bug({ widths: ['phone', 'all'] })), /'all' must stand alone/));
+  assert.deepEqual(validateBug(bug({ widths: ['all'] })), [], 'Gegenprobe: all alone is fine');
+  assert.deepEqual(validateBug(bug({ widths: ['phone', 'tablet'] })), [], 'Gegenprobe: several concrete widths are fine');
+});
+
+test('validateBug: a client part needs css or setup, and both must be functions', () => {
+  assert.ok(has(validateBug(bug({ client: {} })), /client needs css or setup/));
+  assert.ok(has(validateBug(bug({ client: { css: 'a { }' } })), /client\.css must be a function/));
+  assert.ok(has(validateBug(bug({ client: { setup: 'x' } })), /client\.setup must be a function/));
+  assert.ok(has(validateBug(bug({ client: 'css' })), /client must be an object/));
+  assert.deepEqual(validateBug(bug({ client: { css: () => '' } })), []);
+  assert.deepEqual(validateBug(bug({ client: { setup: () => {} } })), [], 'setup alone is enough');
+  assert.deepEqual(validateBug(bug({ client: { css: () => '', setup: () => {} } })), []);
+});

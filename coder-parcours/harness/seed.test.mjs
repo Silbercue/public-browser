@@ -300,3 +300,80 @@ test('loadSeeds: five integers, changeBrokenFor at least 2x true and 2x false', 
   const t = seeds.filter((s) => changeBrokenFor(s)).length;
   assert.ok(t >= 2 && 5 - t >= 2, `broken ${t}/5`);
 });
+
+test('golden values: fixed seeds give fixed run configurations (the draw keys :change, :active, :secret, :capture are pinned)', () => {
+  const both = catalogOf([...publicPool17(), ...secretPool8()]);
+  const pub = catalogOf(publicPool17());
+  const GOLD = {
+    2601: {
+      sha: '6038cf4b6a1d46328cf129a7dbcc717259b29681bd53c77537970cba7e342b86', shaPub: '6915a10ace881a7e9a1028233aa39dd3d7d702f29d7fd176dd625418c98104d2',
+      active: ['P14@bookings:all', 'P05@checkout:phone', 'P03@schedule:tablet', 'P10@schedule:desktop', 'P09@home:phone', 'P02@schedule:phone', 'S05@home:tablet', 'S02@cart:tablet', 'S01@home:phone'],
+      change: 'P12', capture: 'P13',
+    },
+    2602: {
+      sha: '0d39b2de8813aac15a48a5b22285ca85272fe4a7f5212ea12ce87d2ad2941f6c', shaPub: 'd85db37bd784a0473df1f0dfb7cf44050f013963ee1a9637be4190d5322f4932',
+      active: ['P12@profile:all', 'P16@class-detail:all', 'P06@login:phone', 'P03@schedule:tablet', 'P10@schedule:desktop', 'P07@bookings:desktop', 'P14@bookings:all', 'S02@cart:tablet', 'S08@home:phone', 'S03@home:desktop'],
+      change: 'P12', capture: 'P13',
+    },
+    2611: {
+      sha: '2eef7b504c719c71439bbbae6a3189aaaeea46ca17a40336712cfc898177178c', shaPub: '1ea6bb92061472bda31f7a7ece2543e4c56ffd4b939a2ca67ae2eb2152281ba7',
+      active: ['P12@profile:all', 'P14@bookings:all', 'P02@schedule:phone', 'P03@class-detail:tablet', 'P15@checkout:desktop', 'P08@profile:all', 'P10@schedule:desktop', 'P04@login:all', 'P17@schedule:all', 'S04@cart:all', 'S03@cart:desktop'],
+      change: 'P12', capture: 'P13',
+    },
+  };
+  for (const [seed, g] of Object.entries(GOLD)) {
+    const e = buildRunConfig({ seed: Number(seed), sessionType: 'explore', catalog: both });
+    assert.deepEqual(e.active.map(key), g.active, `seed ${seed}: active list`);
+    assert.equal(e.change?.bugId, g.change, `seed ${seed}: change target`);
+    assert.equal(runConfigSha(e), g.sha, `seed ${seed}: checksum with the secret pool`);
+    assert.equal(runConfigSha(buildRunConfig({ seed: Number(seed), sessionType: 'explore', catalog: pub })), g.shaPub, `seed ${seed}: checksum without the secret pool`);
+    assert.equal(buildRunConfig({ seed: Number(seed), sessionType: 'capture', catalog: both }).capture?.bugId, g.capture, `seed ${seed}: capture target`);
+  }
+});
+
+test('stratifiedPublic keeps the required picks complete even when the drawn count is smaller', () => {
+  const one = (id, widths, over = {}) => ({ id, category: 'layout', title: id, stations: ['cart'], widths, severity: 'low', symptom: 's', grader: 'g', client: { css: () => '' }, source: 'public', ...over });
+  const cat = catalogOf([
+    one('P01', ['phone'], { category: 'timing', roles: { trap: { reached: 'r', passed: 'p' } } }),
+    one('P02', ['tablet']), one('P03', ['desktop']), one('P04', ['all']), one('P05', ['all']),
+  ]);
+  let small = 0;
+  for (const seed of SEEDS) {
+    const count = activeCountFor(5, prng(`${seed}:active`));
+    if (count < 3) small++;
+    const cfg = buildRunConfig({ seed, sessionType: 'explore', catalog: cat });
+    const widths = new Set(cfg.active.map((a) => a.width));
+    assert.ok(cfg.active.some((a) => a.id === 'P01'), `seed ${seed}: the trap is there`);
+    for (const w of ['phone', 'tablet', 'desktop']) assert.ok(widths.has(w), `seed ${seed}: ${w} covered although the count was ${count}`);
+    assert.ok(cfg.active.length >= 3);
+  }
+  assert.ok(small > 0, 'Gegenprobe: some seeds really draw fewer than the 3 required picks');
+});
+
+test('a healthy change target removes no decoy, a broken one removes its decoys', () => {
+  const pool = publicPool17();
+  for (const b of pool) if (b.id !== 'P12' && b.roles?.change) delete b.roles.change; // P12 is the only change target
+  const target = (c) => pool.find((b) => b.roles?.change && b.id === c);
+  const p12 = pool.find((b) => b.id === 'P12');
+  p12.removesDecoys = ['D01'];
+  const cat = catalogOf(pool, [{ id: 'D01', station: 'cart', title: 't', grader: 'g' }, { id: 'D02', station: 'home', title: 't', grader: 'g' }]);
+  assert.ok(target('P12'));
+  let healthy = 0;
+  let broken = 0;
+  for (const seed of SEEDS) {
+    const cfg = buildRunConfig({ seed, sessionType: 'explore', catalog: cat });
+    assert.equal(cfg.change.bugId, 'P12');
+    if (cfg.change.broken) { broken++; assert.deepEqual(cfg.decoys, ['D02'], `seed ${seed}: broken target is active and removes D01`); }
+    else { healthy++; assert.deepEqual(cfg.decoys, ['D01', 'D02'], `seed ${seed}: healthy target is not active, D01 stays`); }
+  }
+  assert.ok(healthy > 5 && broken > 5, `both cases occurred (${healthy}/${broken})`);
+});
+
+test('golden values: the capture and change targets of 20 fixed seeds are pinned (draw keys :capture and :change are independent)', () => {
+  const both = catalogOf([...publicPool17(), ...secretPool8()]);
+  const first = SEEDS.slice(0, 20);
+  assert.equal(first.map((seed) => buildRunConfig({ seed, sessionType: 'capture', catalog: both }).capture.bugId).join(','),
+    'P13,P13,P13,P13,P13,P13,P13,P13,P12,P12,P13,P12,P13,P12,P13,P12,P13,P13,P12,P13');
+  assert.equal(first.map((seed) => buildRunConfig({ seed, sessionType: 'explore', catalog: both }).change.bugId).join(','),
+    'P17,P11,P17,P11,P12,P11,P12,P17,P17,P17,P12,P11,P11,P11,P17,P12,P17,P17,P12,P17');
+});
