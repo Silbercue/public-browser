@@ -360,6 +360,35 @@ test.describe('no trace in the page', () => {
       expect(script).not.toContain('/api/bookings');
     });
   });
+  test('P14 inactive (only a far away bug active): the walk keeps the bookings; no 401, no console noise, no bug or expiry line', async ({ page }) => {
+    await withApp({ activate: 'P09@schedule:phone' }, async (app) => {
+      const noise: string[] = [];
+      const denied: string[] = [];
+      page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') noise.push(`${m.type()}: ${m.text()}`); });
+      page.on('pageerror', (e) => noise.push(`pageerror: ${e}`));
+      page.on('response', (r) => { if (r.status() === 401) denied.push(r.url()); });
+      expect(await walkUntilEmpty(page, app)).toBe(false);
+      await expect(page.getByText('Your session expired')).toHaveCount(0);
+      expect(denied).toEqual([]);
+      expect(noise).toEqual([]);
+      const types = lines(app.eventsFile).map((l) => l.type);
+      expect(types, 'positive: the walk really logged in and called the API').toEqual(expect.arrayContaining(['login', 'api']));
+      expect(types).not.toContain('session_expired');
+      expect(types).not.toContain('bug');
+    });
+  });
+  test('P16 inactive at the other station: the coupon answer is quick and no P16 line is written', async ({ page }) => {
+    await withApp({ activate: 'P16@class-detail:all' }, async (app) => {
+      await addToCart(page, app.url, 'c12');
+      await go(page, `${app.url}/cart`);
+      await page.getByLabel('Coupon code').fill('YOGA10');
+      const t0 = Date.now();
+      await page.getByRole('button', { name: 'Apply' }).click();
+      await expect(page.getByTestId('coupon-message')).toBeVisible();
+      expect(Date.now() - t0).toBeLessThan(1500);
+      expect(trapEvents(app.eventsFile, 'P16')).toEqual([]);
+    });
+  });
   test('P14 active shows the wrapper markers the inactive page lacks (control for the checks above)', async ({ page }) => {
     await withApp({ activate: 'P14@bookings:all' }, async (app) => {
       await go(page, `${app.url}/`);
@@ -425,9 +454,10 @@ test.describe('P16', () => {
         const t0 = Date.now();
         await page.getByRole('button', { name: c.button }).click();
         await page.waitForTimeout(1500);
-        await expect(c.done(page)).toHaveCount(0);
-        await expect(page.locator('[aria-busy="true"], .spinner')).toHaveCount(0);
-        await expect(page.getByRole('status').filter({ hasText: /\S/ })).toHaveCount(0);
+        // Immediate counts: a retrying toHaveCount(0) would wait until a marker vanishes and so pass vacuously.
+        expect(await c.done(page).count(), 'result is not there yet').toBe(0);
+        expect(await page.locator('[aria-busy="true"], .spinner').count(), 'no spinner or busy marker while waiting').toBe(0);
+        expect(await page.getByRole('status').filter({ hasText: /\S/ }).count(), 'no status text while waiting').toBe(0);
         await expect(c.done(page)).toBeVisible({ timeout: 8000 });
         expect(Date.now() - t0).toBeGreaterThanOrEqual(3800);
         await expect.poll(() => trapEvents(app.eventsFile, 'P16'), { timeout: 3000 }).toEqual(['reached', 'passed']);
