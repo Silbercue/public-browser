@@ -314,6 +314,34 @@ test('unseal: --expect-sha256 falsch → Abbruch ohne Schreiben; richtig geht; o
   assert.deepEqual(readdirSync(target), ['a.txt']);
 });
 
+test('unseal: --no-verify schaltet eine ausdruecklich gegebene --expect-sha256 nicht ab', () => {
+  const k = sealedPackage({ 'a.txt': 'a' });
+  const target = tmp('noverify-wrong');
+  const r = unsealCli(k, target, ['--no-verify', '--expect-sha256', '0'.repeat(64)]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /does not match/);
+  assert.deepEqual(readdirSync(target), []);
+  const ok = unsealCli(k, target, ['--no-verify', '--expect-sha256', sum(k.sealed)]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.deepEqual(readdirSync(target), ['a.txt']);
+});
+
+test('unseal: die Pruefsumme wird vor der Passphrase und der Entschluesselung verglichen', () => {
+  const k = sealedPackage({ 'a.txt': 'a' });
+  const target = tmp('sha-first');
+  // Wrong checksum AND wrong passphrase: only a comparison that comes first can name the checksum.
+  const r = unsealCli(k, target, ['--expect-sha256', '0'.repeat(64)], 'definitely-the-wrong-passphrase');
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /does not match/, 'the checksum is compared before the passphrase is used');
+  assert.deepEqual(readdirSync(target), []);
+  // Positive counterpart: right checksum + wrong passphrase gets past the comparison and fails on the passphrase.
+  const r2 = unsealCli(k, target, ['--expect-sha256', sum(k.sealed)], 'definitely-the-wrong-passphrase');
+  assert.notEqual(r2.status, 0);
+  assert.doesNotMatch(r2.stderr, /does not match/);
+  assert.ok(r2.stderr.trim().length > 0, 'it still fails, with a different message');
+  assert.deepEqual(readdirSync(target), []);
+});
+
 test('Ziel innerhalb eines .git-Ordners wird verweigert (keygen und unseal)', () => {
   const repo = tmp('dotgit');
   gitInit(repo);
