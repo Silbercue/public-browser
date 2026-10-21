@@ -1,0 +1,163 @@
+// participants.mjs — Teilnehmer des Coder-Parcours, jeder nach seiner offiziellen Anleitung eingestellt.
+// Felder wie PARTICIPANTS in test-hardest/blind-run.mjs, dazu skillFiles (relativ zum npm-Paket in der
+// Werkzeugkette) und extraCommands (zusaetzlich erlaubte Befehlskoepfe neben dem CLI).
+// Versionen gepinnt am 21.10.2026 per `npm view` (aktuelle Version je Paket).
+import { createHash } from 'node:crypto';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, delimiter, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defaultDeps, scrubProviderKeys } from './blind-run-lib.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+/** Ordner der Werkzeugkette (npm-Pakete der CLI-Teilnehmer, Playwright Test, Python-venv mit publicbrowser). */
+export function toolchainDir() {
+  return join(HERE, 'toolchain');
+}
+
+/** node_modules/.bin der Werkzeugkette (dort liegen agent-browser und playwright-cli). */
+export function toolchainBinDir() {
+  return join(toolchainDir(), 'node_modules', '.bin');
+}
+
+const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const LINUX_CHROME = ['/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/opt/google/chrome/chrome'];
+
+/**
+ * @param {NodeJS.ProcessEnv | Record<string, string>} [env]
+ * @param {string} [platform]
+ * @param {{ exists?: (p: string) => boolean }} [opts]
+ * @returns {string | null}
+ */
+export function resolveChrome(env = process.env, platform = process.platform, { exists = existsSync } = {}) {
+  if (env.CODER_PARCOURS_CHROME) return env.CODER_PARCOURS_CHROME;
+  if (platform === 'darwin') return MAC_CHROME;
+  if (platform === 'linux') return LINUX_CHROME.find((p) => exists(p)) ?? null;
+  return null;
+}
+
+const isExecutable = (p) => {
+  try { accessSync(p, constants.X_OK); return true; } catch { return false; }
+};
+
+/**
+ * @param {NodeJS.ProcessEnv | Record<string, string>} [env]
+ * @param {{ exists?: (p: string) => boolean }} [opts]
+ * @returns {string}
+ */
+export function resolveClaude(env = process.env, { exists = isExecutable } = {}) {
+  if (env.CODER_PARCOURS_CLAUDE_BIN) return env.CODER_PARCOURS_CLAUDE_BIN;
+  for (const dir of String(env.PATH || '').split(delimiter).filter(Boolean)) {
+    const p = join(dir, 'claude');
+    if (exists(p)) return p;
+  }
+  return join(homedir(), '.local', 'bin', 'claude');
+}
+
+/**
+ * deps-Objekt fuer blind-run-Funktionen, mit Chrome und Claude aus resolveChrome/resolveClaude.
+ * @param {NodeJS.ProcessEnv | Record<string, string>} [env]
+ */
+export function cpDeps(env = process.env) {
+  return { ...defaultDeps(), claude: { file: resolveClaude(env), argsPrefix: [] }, chromeBin: resolveChrome(env) };
+}
+
+export const CP_PARTICIPANTS = {
+  'public-browser': {
+    kind: 'mcp', name: 'public-browser', display: 'Public Browser', package: 'public-browser', version: '3.0.0',
+    command: 'npx', args: ['-y', 'public-browser@3.0.0'],
+    // Eigener Chrome auf Port 9333 mit sichtbarem Fenster (headless ist in PB nur per Schalter an), frischer
+    // Cortex-Ordner im Rundir. PB 3.0.0 sendet keine Telemetrie ins Netz; die einzige Aufzeichnung ist das
+    // lokale Friction-Log (opt-in), es bleibt ausdruecklich aus. CHROME_PATH ist PBs offizieller Override.
+    env: (rundir, deps = cpDeps()) => {
+      const cortex = join(rundir, 'cortex');
+      mkdirSync(cortex, { recursive: true });
+      return {
+        PUBLIC_BROWSER_CORTEX_DIR: cortex,
+        PUBLIC_BROWSER_CHROME_PORT: '9333',
+        SILBERCUE_CHROME_FRICTION_LOG: '0',
+        ...(deps.chromeBin ? { CHROME_PATH: deps.chromeBin } : {}),
+      };
+    },
+    skillFiles: [], extraCommands: [],
+    profile_isolation: 'auto-launched Chrome, fresh temp user-data-dir, CDP port 9333, visible window, fresh cortex dir per session',
+  },
+  'chrome-devtools-mcp': {
+    kind: 'mcp', name: 'chrome-devtools', display: 'Chrome DevTools MCP', package: 'chrome-devtools-mcp', version: '1.11.0',
+    command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.11.0', '--isolated'],
+    env: (_rundir) => ({ CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: '1' }),
+    skillFiles: [], extraCommands: [],
+    profile_isolation: '--isolated (temp user-data-dir), stable Chrome channel, usage statistics off',
+  },
+  'agent-browser': {
+    kind: 'cli', name: 'agent-browser', cli: 'agent-browser', display: 'agent-browser (dogfood skill)', package: 'agent-browser', version: '0.39.1',
+    // Kern-Skill plus dogfood-Skill mit Fehlerkatalog und Berichtsvorlage, alle aus dem npm-Paket derselben Version.
+    skillFiles: [
+      'skill-data/core/SKILL.md',
+      'skill-data/dogfood/SKILL.md',
+      'skill-data/dogfood/references/issue-taxonomy.md',
+      'skill-data/dogfood/templates/dogfood-report-template.md',
+    ],
+    // Der dogfood-Ablauf legt Ausgabeordner an, kopiert die Berichtsvorlage und wartet zwischen Schritten.
+    extraCommands: ['mkdir', 'cp', 'sleep'],
+    env: (rundir, deps = cpDeps()) => ({
+      AGENT_BROWSER_EXECUTABLE_PATH: deps.chromeBin,
+      AGENT_BROWSER_HEADED: '1',
+      AGENT_BROWSER_SESSION: basename(rundir),
+    }),
+    cleanupArgs: ['close'],
+    profile_isolation: 'agent-browser default: fresh temp user-data-dir per launch, own session, headed, Chrome via AGENT_BROWSER_EXECUTABLE_PATH',
+  },
+  'playwright-cli': {
+    kind: 'cli', name: 'playwright-cli', cli: 'playwright-cli', display: 'Playwright CLI', package: '@playwright/cli', version: '0.1.22',
+    skillFiles: ['skills/playwright-cli/SKILL.md'],
+    extraCommands: [],
+    env: (rundir) => ({ PLAYWRIGHT_CLI_SESSION: basename(rundir) }),
+    // Die CLI liest .playwright/cli.config.json aus dem cwd (= Rundir): Chrome-Kanal, sichtbar, In-Memory-Profil.
+    setup: (rundir) => {
+      mkdirSync(join(rundir, '.playwright'), { recursive: true });
+      writeFileSync(join(rundir, '.playwright', 'cli.config.json'), `${JSON.stringify({
+        browser: { browserName: 'chromium', isolated: true, launchOptions: { channel: 'chrome', headless: false } },
+      }, null, 2)}\n`);
+    },
+    cleanupArgs: ['close'],
+    profile_isolation: 'isolated in-memory profile, channel chrome, headed (.playwright/cli.config.json in the run dir)',
+  },
+};
+
+/** Nur fuer Tests: einen zusaetzlichen Teilnehmer registrieren. */
+export function registerCpParticipant(slug, def) {
+  CP_PARTICIPANTS[slug] = def;
+  return CP_PARTICIPANTS[slug];
+}
+
+/**
+ * Skill-Text eines Teilnehmers: alle skillFiles mit Kopfzeile `# <Datei>` aneinander, dazu sha256 je Datei.
+ * @param {string} slug
+ * @returns {{ text: string, files: { path: string, sha256: string }[] }}
+ */
+export function participantSkillText(slug) {
+  const p = CP_PARTICIPANTS[slug];
+  if (!p) throw new Error(`unknown participant: ${slug}`);
+  const base = p.vendoredDir || join(toolchainDir(), 'node_modules', ...p.package.split('/'));
+  const parts = [];
+  const files = [];
+  for (const rel of p.skillFiles || []) {
+    const abs = join(base, rel);
+    if (!existsSync(abs)) throw new Error(`skill file missing for ${slug}: ${rel} (run node harness/setup.mjs)`);
+    const content = readFileSync(abs, 'utf8');
+    files.push({ path: rel, sha256: createHash('sha256').update(content).digest('hex') });
+    parts.push(`# ${rel}\n\n${content.trimEnd()}\n`);
+  }
+  return { text: parts.join('\n'), files };
+}
+
+const INHERITED = /^(PUBLIC_BROWSER_|SILBERCUE_)/;
+/**
+ * Provider-Keys (wie blind-run) und geerbte PUBLIC_BROWSER_* / SILBERCUE_* entfernen.
+ * @param {Record<string, string | undefined>} env
+ */
+export function scrubSessionEnv(env) {
+  return Object.fromEntries(Object.entries(scrubProviderKeys(env)).filter(([k]) => !INHERITED.test(k)));
+}

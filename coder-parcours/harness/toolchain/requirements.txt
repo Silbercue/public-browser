@@ -1,0 +1,2 @@
+publicbrowser==2.0.0
+websockets==16.1.1
