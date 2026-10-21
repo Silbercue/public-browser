@@ -79,3 +79,24 @@ test('spawnAppServer ohne countRequests: requests() ist 0; start.mjs mit kaputte
   assert.equal(bad.status, 1);
   assert.doesNotMatch(bad.stderr, /secret-xyz/);
 });
+
+test('spawnAppServer countRequests: ein Server, der vor der ersten Anfrage stirbt, zaehlt 0 (fail closed), stop() kehrt trotzdem zurueck; Gegenprobe: bediente Anfrage zaehlt', async () => {
+  const { staticDir } = fixtureStatic();
+  const dead = await spawnAppServer({ seed: 2601, session: 'capture', noBugs: true, staticDir, countRequests: true });
+  process.kill(-(await pidOfGroup(dead)), 'SIGKILL');
+  await new Promise((r) => { setTimeout(r, 300); });
+  await assert.rejects(fetch(`${dead.url}api/classes`), 'the server is gone');
+  await dead.stop();
+  assert.equal(dead.requests(), 0, 'nothing served, nothing counted');
+  const live = await spawnAppServer({ seed: 2601, session: 'capture', noBugs: true, staticDir, countRequests: true });
+  try { await fetch(`${live.url}api/classes`); } finally { await live.stop(); }
+  assert.equal(live.requests(), 1);
+});
+
+/** The server's process group id: the child is detached, so group id == pid; found via the listening port. */
+async function pidOfGroup(app) {
+  const { listeningPids } = await import('../harness/proc.mjs');
+  const pids = await listeningPids(app.port);
+  assert.equal(pids.length, 1, 'one listener on the port');
+  return pids[0];
+}
