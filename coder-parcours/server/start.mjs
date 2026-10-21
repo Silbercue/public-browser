@@ -1,8 +1,10 @@
 // CLI: starts the Stillwater Yoga app server and prints `READY <port>` once it listens.
 //   node server/start.mjs --seed <n> --session explore|capture [--variant healthy|broken] [--port <n>]
 //     [--events <file>] [--reports <file>] [--secret-dir <dir>] [--static <dir>]
-//     [--activate P01@schedule:phone,...] [--no-bugs] [--hosted] [--admin-token-env <VAR>] [--stdin-config]
+//     [--activate P01@schedule:phone,...] [--no-bugs] [--hosted] [--admin-token-env <VAR>] [--stdin-config] [--count-fd <n>]
+//   --count-fd: schreibt je bedienter App-Anfrage ein Byte auf diesen Dateideskriptor (nur der Elternprozess haelt das andere Ende).
 //   --stdin-config: liest eine JSON-Zeile { variant, secretDir } von stdin (so stehen sie nicht in der argv).
+import { writeSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -58,17 +60,24 @@ export async function main(argv) {
       activate: { type: 'string' },
       'no-bugs': { type: 'boolean', default: false },
       'stdin-config': { type: 'boolean', default: false },
+      'count-fd': { type: 'string' },
       hosted: { type: 'boolean', default: false },
       'admin-token-env': { type: 'string' },
     },
   });
-  if (values['stdin-config']) {
-    const cfg = JSON.parse(await new Promise((done) => {
-      let text = '';
-      process.stdin.setEncoding('utf8');
-      process.stdin.on('data', (d) => { text += d; });
-      process.stdin.on('end', () => done(text || '{}'));
-    }));
+  // Fehler auf dem stdin-Weg tragen keine Pfade aus secretDir: feste Meldungen.
+  const quiet = values['stdin-config'];
+  if (quiet) {
+    let cfg;
+    try {
+      cfg = JSON.parse(await new Promise((done) => {
+        let text = '';
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', (d) => { text += d; });
+        process.stdin.on('end', () => done(text || '{}'));
+      }));
+    } catch { throw new Error('the stdin configuration is not valid JSON'); }
+    if (!cfg || typeof cfg !== 'object') throw new Error('the stdin configuration is not valid JSON');
     if (cfg.variant && values.variant === undefined) values.variant = cfg.variant;
     if (cfg.secretDir && values['secret-dir'] === undefined) values['secret-dir'] = cfg.secretDir;
   }
@@ -76,14 +85,24 @@ export async function main(argv) {
     process.stderr.write('start: --hosted with --secret-dir is refused: the secret part must never be served publicly.\n');
     return 2;
   }
-  const catalog = await loadCatalog({ secretDir: values['secret-dir'] ?? null });
+  /** @type {any} */
+  let catalog;
+  try {
+    catalog = await loadCatalog({ secretDir: values['secret-dir'] ?? null });
+  } catch (e) {
+    if (quiet) throw new Error('the catalog could not be loaded');
+    throw e;
+  }
   const noBugs = values['no-bugs'];
   const fromRoot = (p) => (p ? resolve(process.cwd(), p) : null);
+  const countFd = values['count-fd'] === undefined ? null : Number(values['count-fd']);
+  if (countFd !== null && !Number.isInteger(countFd)) throw new Error('--count-fd must be an integer');
   const common = {
     eventsFile: fromRoot(values.events),
     reportsFile: fromRoot(values.reports),
     staticDir: values.static === 'app/dist' ? resolve(ROOT, 'app/dist') : resolve(process.cwd(), values.static),
     adminToken: values['admin-token-env'] ? process.env[values['admin-token-env']] || null : null,
+    onAppRequest: countFd === null ? null : () => { try { writeSync(countFd, '1'); } catch { /* Leitung weg: Zaehlung faellt aus, der Elternprozess sieht dann 0 */ } },
     makeEngine: (cfg, { logEvent }) => createBugEngine({ catalog, runConfig: cfg, logEvent }),
   };
 

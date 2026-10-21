@@ -9,10 +9,12 @@ const READY_TIMEOUT_MS = 20_000;
 /**
  * @param {{ seed: number, session?: 'explore'|'capture', variant?: 'healthy'|'broken'|null, secretDir?: string|null,
  *   eventsFile?: string|null, reportsFile?: string|null, staticDir?: string|null,
- *   activate?: Array<{ id: string, station: string, width: string }>|string|null, noBugs?: boolean }} opts
- * @returns {Promise<{ url: string, port: number, stop: () => Promise<void> }>}
+ *   activate?: Array<{ id: string, station: string, width: string }>|string|null, noBugs?: boolean, countRequests?: boolean }} opts
+ * countRequests (optional): the server counts requests it really served in memory and reports them over a private pipe
+ * (fd 3) that only this process holds; `requests()` returns the count (final after stop()). Without it requests() is 0.
+ * @returns {Promise<{ url: string, port: number, stop: () => Promise<void>, requests: () => number }>}
  */
-export function spawnAppServer({ seed, session = 'explore', variant = null, secretDir = null, eventsFile = null, reportsFile = null, staticDir = null, activate = null, noBugs = false }) {
+export function spawnAppServer({ seed, session = 'explore', variant = null, secretDir = null, eventsFile = null, reportsFile = null, staticDir = null, activate = null, noBugs = false, countRequests = false }) {
   const args = [START, '--seed', String(seed), '--session', session, '--port', '0'];
   // Variante und secretDir gehen per stdin an start.mjs, nicht in die argv (ps zeigt sie sonst jedem Prozess).
   const viaStdin = Boolean(variant || secretDir);
@@ -24,8 +26,18 @@ export function spawnAppServer({ seed, session = 'explore', variant = null, secr
     args.push('--activate', typeof activate === 'string' ? activate : activate.map((a) => `${a.id}@${a.station}:${a.width}`).join(','));
   }
   if (noBugs) args.push('--no-bugs');
+  if (countRequests) args.push('--count-fd', '3');
 
-  const child = spawn(process.execPath, args, { detached: true, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { detached: true, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', ...(countRequests ? ['pipe'] : [])] });
+  let counted = 0;
+  /** @type {Promise<void>} */
+  let countClosed = Promise.resolve();
+  if (countRequests) {
+    const pipe = child.stdio[3];
+    pipe.on('data', (d) => { counted += d.length; });
+    pipe.on('error', () => { /* Leitung weg */ });
+    countClosed = new Promise((r) => { pipe.once('close', () => r()); });
+  }
   if (viaStdin) {
     child.stdin.on('error', () => { /* Kind schon weg: der exit-Handler meldet es */ });
     child.stdin.end(`${JSON.stringify({ variant: variant || null, secretDir: secretDir || null })}\n`);
@@ -44,6 +56,7 @@ export function spawnAppServer({ seed, session = 'explore', variant = null, secr
     const timer = setTimeout(() => killGroup('SIGKILL'), 5000);
     await exited;
     clearTimeout(timer);
+    await Promise.race([countClosed, new Promise((r) => { setTimeout(r, 1000); })]);
   };
 
   return new Promise((resolve, reject) => {
@@ -63,7 +76,7 @@ export function spawnAppServer({ seed, session = 'explore', variant = null, secr
       const m = /^READY (\d+)$/m.exec(out);
       if (m) {
         const port = Number(m[1]);
-        finish(() => resolve({ url: `http://127.0.0.1:${port}/`, port, stop }));
+        finish(() => resolve({ url: `http://127.0.0.1:${port}/`, port, stop, requests: () => counted }));
       }
     });
     child.once('exit', (code, signal) => finish(() => {

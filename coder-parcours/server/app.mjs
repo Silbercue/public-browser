@@ -103,7 +103,10 @@ const MSG = {
  * @param {{ mode: 'single'|'hosted', runConfig?: any, configForSeed?: (seed: number) => any,
  *   makeEngine?: (runConfig: any, opts: { sandboxId: string, logEvent: (entry: object) => void }) => any,
  *   eventsFile?: string|null, reportsFile?: string|null, staticDir?: string, adminToken?: string|null,
- *   trustProxy?: number|false, secureCookies?: boolean, limits?: Partial<typeof SERVER_LIMITS>, clock?: () => number }} opts
+ *   trustProxy?: number|false, secureCookies?: boolean, limits?: Partial<typeof SERVER_LIMITS>, clock?: () => number,
+ *   onAppRequest?: () => void }} opts
+ *   onAppRequest runs once per request the app really served: a matched API route (not 404, not admin) or the HTML page.
+ *   Metrics beacons, assets, unknown routes and 404s do not count. Memory only, no file.
  *   makeEngine is called once per sandbox; logEvent writes an event line with that sandbox's public `sb`.
  *   trustProxy (hop count; 0/false = direct, default env CODER_PARCOURS_TRUST_PROXY) decides where req.ip comes from.
  *   Hosted mode refuses to start unless it is set explicitly (option or env, "0" for direct operation).
@@ -114,7 +117,7 @@ const MSG = {
 export function createServer({
   mode, runConfig, configForSeed, makeEngine = () => nullEngine, eventsFile = null, reportsFile = null, staticDir, adminToken = null,
   trustProxy = /^\d+$/.test(process.env.CODER_PARCOURS_TRUST_PROXY ?? '') ? Number(process.env.CODER_PARCOURS_TRUST_PROXY) : undefined,
-  secureCookies = mode === 'hosted', limits = {}, clock = Date.now,
+  secureCookies = mode === 'hosted', limits = {}, clock = Date.now, onAppRequest = null,
 }) {
   if (mode === 'hosted' && trustProxy === undefined) {
     throw new Error('createServer: hosted mode needs an explicit trust-proxy setting: set CODER_PARCOURS_TRUST_PROXY to the number of reverse proxies in front (or 0 for direct operation).');
@@ -269,6 +272,7 @@ export function createServer({
   // --- api line for every other /api request ---------------------------------------------------
   app.use('/api', (req, res, next) => {
     res.on('finish', () => {
+      if (onAppRequest && res.locals.routeKey && res.statusCode !== 404 && res.locals.routeKey !== 'GET /api/admin/reports') onAppRequest();
       event(res, {
         type: 'api', route: res.locals.routeKey ?? `${req.method} ${req.baseUrl}${req.path}`, status: res.statusCode,
         authed: Boolean(res.locals.sb) && Boolean(authState(res).account),
@@ -621,6 +625,7 @@ export function createServer({
     const html = readFileSync(file, 'utf8');
     const m = /<head[^>]*>/i.exec(html);
     const out = m ? html.slice(0, m.index + m[0].length) + RUNTIME_TAG + html.slice(m.index + m[0].length) : RUNTIME_TAG + html;
+    if (onAppRequest) onAppRequest();
     res.set('Cache-Control', 'no-store').type('html').send(out);
   });
   // --- unknown /api, broken JSON -----------------------------------------------------------------
