@@ -65,7 +65,7 @@ export default function Register() {
           aria-describedby={describedBy || undefined}
         />
         {hint && <p id={`${id}-hint`} className="field-hint">{hint}</p>}
-        {errors[field] && <p id={`${id}-error`} className="field-error">{errors[field]}</p>}
+        {errors[field] && <p id={`${id}-error`} className="field-error" role="alert">{errors[field]}</p>}
       </div>
     );
   };

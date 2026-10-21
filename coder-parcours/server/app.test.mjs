@@ -240,7 +240,8 @@ test('auth: login failure, register rules, logout clears cookie and cart', async
     assert.equal((await withOld()).items.length, 0, 'logout drops the cart of that sw_sid');
     assert.equal(r.status, 200);
     assert.equal(c.jar.has('sw_sid'), false);
-    assert.equal((await c.get('/api/me')).json.error, 'login_required');
+    const guestMe = await c.get('/api/me');
+    assert.deepEqual([guestMe.status, guestMe.json], [200, { user: null }]);
     assert.equal((await c.get('/api/cart')).json.items.length, 0);
     const kinds = lines(s.eventsFile).map((e) => e.type);
     for (const t of ['login_failed', 'register', 'logout']) assert.ok(kinds.includes(t), t);
@@ -581,7 +582,8 @@ test('hosted: a sw_sid of sandbox A is anonymous in sandbox B and shows no forei
     assert.notEqual(b.jar.get('sw_sb'), a.jar.get('sw_sb'));
     b.jar.set('sw_sid', a.jar.get('sw_sid'));
     const me = await b.get('/api/me');
-    assert.deepEqual([me.status, me.json.error], [401, 'login_required']);
+    assert.deepEqual([me.status, me.json], [200, { user: null }]);
+    assert.equal((await b.get('/api/settings')).json.error, 'login_required');
     assert.equal((await b.get('/api/cart')).json.items.length, 0);
     assert.equal((await a.get('/api/me')).status, 200, 'counter-check: A itself is still logged in');
   } finally { await s.handle.close(); }

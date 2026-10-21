@@ -313,6 +313,110 @@ test.describe('login redirects', () => {
   });
 });
 
+test.describe('login state on start', () => {
+  /** Console, page errors, failed requests and any HTTP status >= 400 of the current page. */
+  function watch(page: Page, consoleErrors: string[]) {
+    const bad: string[] = [];
+    page.on('requestfailed', (r) => bad.push(`failed ${r.url()}`));
+    page.on('response', (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${r.url()}`); });
+    return () => { expect(bad).toEqual([]); expect(consoleErrors).toEqual([]); };
+  }
+
+  test('first visit as a guest: no console error, no failed request, header offers Log in', async ({ page, app, consoleErrors }) => {
+    const done = watch(page, consoleErrors);
+    await page.goto(`${app.url}/`);
+    await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Log out' })).toHaveCount(0);
+    await page.goto(`${app.url}/login`);
+    await expect(page.locator('[data-section="login"]')).toBeVisible();
+    done();
+  });
+
+  test('guest after log out and reload: still no error, header says Log in', async ({ page, app, consoleErrors }) => {
+    await login(page, app.url);
+    await page.getByRole('button', { name: 'Log out' }).click();
+    await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
+    consoleErrors.length = 0;
+    const done = watch(page, consoleErrors);
+    await page.reload();
+    await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Log out' })).toHaveCount(0);
+    done();
+  });
+
+  test('reload after login: header stays logged in', async ({ page, app, consoleErrors }) => {
+    await login(page, app.url);
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Log in' })).toHaveCount(0);
+    expectNoConsoleErrors(consoleErrors);
+  });
+
+  test('header shows neither Log in nor Log out while the check runs', async ({ page, app }) => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    await page.route('**/api/me', async (route) => { await gate; await route.continue(); });
+    await page.goto(`${app.url}/`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('link', { name: 'Stillwater Yoga' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Log in' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Log out' })).toHaveCount(0);
+    release();
+    await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
+  });
+
+  test('login_required while the page is open: header logs out and the visitor lands on login', async ({ page, app }) => {
+    await login(page, app.url);
+    await page.route('**/api/profile', (route) => route.fulfill({
+      status: 401, json: { error: 'login_required', message: 'Please log in to continue.' },
+    }));
+    await page.getByRole('link', { name: 'Profile' }).first().click();
+    await expect(page.locator('[data-section="login"]')).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('next')).toBe('/profile');
+    await expect(page.getByRole('button', { name: 'Log out' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Log in' }).first()).toBeVisible();
+  });
+
+  test('after session_expired the Back button does not return to the protected page', async ({ page, app }) => {
+    await page.goto(`${app.url}/schedule`);
+    await login(page, app.url);
+    await page.route('**/api/profile', (route) => route.fulfill({
+      status: 401, json: { error: 'session_expired', message: 'Your session expired. Please log in again.' },
+    }));
+    await page.getByRole('link', { name: 'Profile' }).first().click();
+    await expect(page.locator('[data-section="login"]')).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(`${app.url}/`);
+    await expect(page.locator('[data-section="login"]')).toHaveCount(0);
+  });
+});
+
+test('dialog: Tab stays inside, a click on the backdrop closes it, the page behind is inert', async ({ page, app }) => {
+  await login(page, app.url);
+  await page.goto(`${app.url}/settings`);
+  const resetBtn = page.getByRole('button', { name: 'Reset to defaults' });
+  await resetBtn.click();
+  const dialog = page.getByRole('dialog', { name: 'Reset all settings?' });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('#root')).toHaveAttribute('inert', '');
+  const n = await dialog.locator('a[href], button:not([disabled]), input, textarea, select').count();
+  expect(n).toBeGreaterThan(1);
+  for (let i = 0; i < n + 2; i++) {
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
+  }
+  for (let i = 0; i < n + 2; i++) {
+    await page.keyboard.press('Shift+Tab');
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
+  }
+  await page.mouse.click(5, 5);
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('#root')).not.toHaveAttribute('inert', '');
+  // counter-check: a click inside the dialog does not close it
+  await resetBtn.click();
+  await dialog.getByRole('heading').click();
+  await expect(dialog).toBeVisible();
+});
+
 /** Overflow, control size, spacing and text contrast of the current page; returns readable problems. */
 async function layoutProblems(page: Page): Promise<string[]> {
   return page.evaluate(() => {

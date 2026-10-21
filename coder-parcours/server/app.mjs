@@ -423,7 +423,17 @@ export function createServer({
     return ok({ user: userView(account) }, 201);
   });
 
-  route('GET', '/api/me', { auth: true }, (ctx, res, account) => ok(userView(account)));
+  // Status check, not a protected page: guests and unknown sessions get 200 { user: null } so the first
+  // page load never logs a failed request. Only a known, expired session answers 401 session_expired.
+  route('GET', '/api/me', {}, (ctx, res) => {
+    const st = authState(res);
+    if (st.account) return ok(userView(st.account));
+    if (st.reason === 'session_expired') {
+      event(res, { type: 'session_expired', route: 'GET /api/me' });
+      return fail(401, 'session_expired', MSG.session_expired);
+    }
+    return ok({ user: null });
+  });
 
   // --- profile and settings ----------------------------------------------------------------------
   const profileView = (a) => ({ name: a.name, email: a.email, phone: a.phone });

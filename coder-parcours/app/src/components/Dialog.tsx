@@ -32,7 +32,12 @@ export default function Dialog({ title, onClose, children }: Props) {
     };
     document.addEventListener('keydown', onKey);
     document.body.classList.add('has-dialog');
+    // Everything behind the dialog is inert (no focus, not in the accessibility tree) while it is open.
+    const behind = [...document.body.children].filter((el): el is HTMLElement => el instanceof HTMLElement && !el.contains(box));
+    const was = behind.map((el) => el.hasAttribute('inert'));
+    behind.forEach((el) => el.setAttribute('inert', ''));
     return () => {
+      behind.forEach((el, i) => { if (!was[i]) el.removeAttribute('inert'); });
       document.removeEventListener('keydown', onKey);
       document.body.classList.remove('has-dialog');
       if (opener && opener.isConnected) opener.focus();

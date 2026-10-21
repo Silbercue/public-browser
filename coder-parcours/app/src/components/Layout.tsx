@@ -3,26 +3,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { ApiError, apiGet, apiSend, onCartChanged, onSessionExpired, type Cart, type User } from '../api';
 import ReportButton from './ReportButton';
 
-const USER_KEY = 'sw_user';
-
-function readHint(): User | null {
-  try {
-    const raw = localStorage.getItem(USER_KEY);
-    const u = raw ? JSON.parse(raw) : null;
-    return u && typeof u.name === 'string' && typeof u.email === 'string' ? u : null;
-  } catch {
-    return null;
-  }
-}
-function writeHint(u: User | null) {
-  try {
-    if (u) localStorage.setItem(USER_KEY, JSON.stringify(u));
-    else localStorage.removeItem(USER_KEY);
-  } catch { /* storage blocked: the header falls back to "Log in" after a reload */ }
-}
-
 type Session = {
-  /** undefined while the stored login is being checked */
+  /** undefined while the login state is being checked on start */
   user: User | null | undefined;
   signedIn: (u: User) => void;
   /** Handles 401s of a page request; true when the error was a login problem and is taken care of. */
@@ -57,8 +39,7 @@ export default function Layout() {
   const locRef = useRef(location);
   locRef.current = location;
 
-  const [hint] = useState(readHint);
-  const [user, setUser] = useState<User | null | undefined>(hint ? undefined : null);
+  const [user, setUser] = useState<User | null | undefined>(undefined);
   const [expired, setExpired] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -68,30 +49,30 @@ export default function Layout() {
   }, [navigate]);
 
   const signedIn = useCallback((u: User) => {
-    writeHint(u);
     setUser(u);
     setExpired(false);
   }, []);
 
   const signedOut = useCallback(() => {
-    writeHint(null);
     setUser(null);
   }, []);
 
   useEffect(() => onSessionExpired(() => {
     signedOut();
     setExpired(true);
-    if (locRef.current.pathname !== '/login') navigate(loginPath(locRef.current));
+    if (locRef.current.pathname !== '/login') navigate(loginPath(locRef.current), { replace: true });
   }), [navigate, signedOut]);
 
-  // A stored login is checked once on start; a login that is gone server side just logs the header out.
+  // The login state is asked once on start: guests get { user: null } (200), a known but expired session 401.
   useEffect(() => {
-    if (!hint) return;
-    apiGet<User>('/api/me').then(signedIn, (err) => {
-      if (err instanceof ApiError && err.status === 401) signedOut();
-      else setUser(hint);
-    });
-  }, [hint, signedIn, signedOut]);
+    apiGet<User | { user: null }>('/api/me').then(
+      (r) => { if ('user' in r) signedOut(); else signedIn(r); },
+      (err) => {
+        if (err instanceof ApiError && err.status === 401) signedOut();
+        else setUser(null);
+      },
+    );
+  }, [signedIn, signedOut]);
 
   const refreshCart = useCallback(() => {
     apiGet<Cart>('/api/cart').then((c) => setCartCount(c.count), () => { /* keep the last count */ });
@@ -144,7 +125,7 @@ export default function Layout() {
             <NavLink to="/cart" className={navClass}>{`Cart (${cartCount})`}</NavLink>
           </nav>
           <div className="auth">
-            {user ? (
+            {user === undefined ? null : user ? (
               <button type="button" className="button secondary" onClick={logout}>Log out</button>
             ) : (
               <Link
