@@ -259,10 +259,9 @@ test('beacon: a mac made from the key of one bug and the code of another bug res
 
 test('F10: a server-only bug leaves the runtime script byte-identical to the healthy one', async () => {
   const publicCat = await loadCatalog({ publicDir: 'bugs/public' });
-  const serverOnly = [...catalog.bugs, ...publicCat.bugs].filter((b) => b.server?.setup && !b.client);
-  assert.ok(serverOnly.length >= 2, 'several server-only bugs are covered');
-  for (const [cat, bug] of [...catalog.bugs.filter((b) => b.server?.setup && !b.client).map((b) => [catalog, b]),
-    ...publicCat.bugs.filter((b) => b.server?.setup && !b.client).map((b) => [publicCat, b])]) {
+  const pairs = [catalog, publicCat].flatMap((cat) => cat.bugs.filter((b) => b.server?.setup && !b.client).map((bug) => ({ cat, bug })));
+  assert.ok(pairs.length >= 2, 'several server-only bugs are covered');
+  for (const { cat, bug } of pairs) {
     const station = bug.stations[0];
     const width = bug.widths[0];
     const mk = (activate) => createBugEngine({ catalog: cat, runConfig: buildRunConfig({ seed: 7, sessionType: 'explore', catalog: cat, activate }) });
