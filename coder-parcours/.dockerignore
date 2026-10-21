@@ -1,14 +1,17 @@
 # Nothing from the sealed secret part, results, keys, env files or local state goes into the image.
-results/
-secret/
-harness/toolchain/
-node_modules/
-data/
-.env
-.env.*
-*.key
-*.pem
-test-results/
-playwright-report/
+# Patterns use **/ so they hold at any depth (e.g. fixtures/secret/ is test-only and stays out too).
+.git
+**/.git
+**/results/
+**/secret/
+**/harness/toolchain/
+**/node_modules/
+**/data/
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/test-results/
+**/playwright-report/
 app/dist/
 e2e/secret-bugs.spec.ts

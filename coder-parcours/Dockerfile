@@ -3,7 +3,7 @@
 #   CODER_PARCOURS_ADMIN_TOKEN   strong token, at least 32 characters (e.g. openssl rand -base64 32)
 # Both are passed with `docker run -e`; nothing is generated or stored in the image.
 # Mount a volume on /app/data, or the human reports are lost on every restart.
-FROM node:22-slim
+FROM node:22.14.0-slim
 WORKDIR /app
 ARG CODER_PARCOURS_COMMIT
 ENV CODER_PARCOURS_COMMIT=${CODER_PARCOURS_COMMIT}
