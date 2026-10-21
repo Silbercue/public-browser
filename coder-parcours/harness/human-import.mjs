@@ -1,8 +1,10 @@
 // Turns human report lines (reports.jsonl or the admin export, same format) into one session file per
-// tester and seed: results/<round>/sessions/human-<tester>-explore-seed<seed>.json.
+// tester and seed: results/<round>/sessions/human-<nn>-explore-seed<seed>.json. Testers appear under a
+// pseudonym (human-01, human-02, ...); the mapping name -> pseudonym stays local (results/<round>/human-tester-map.json,
+// gitignored), so no name reaches the published result files.
 // CLI: node harness/human-import.mjs --reports <file> --round <r> [--results <dir>]
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadCatalog } from '../catalog/load.mjs';
@@ -50,12 +52,21 @@ export async function importHumanReports({ reportsJsonl, round, resultsRoot }, d
     groups.get(key).rows.push(row);
   });
 
+  // Pseudonyms: stable over repeated imports (mapping file), new testers get the next free number in name order.
+  const mapFile = join(root, round, 'human-tester-map.json');
+  /** @type {Record<string, string>} */
+  const aliases = existsSync(mapFile) ? JSON.parse(readFileSync(mapFile, 'utf8')) : {};
+  const names = [...new Set([...groups.values()].map((g) => g.tester))].sort();
+  for (const name of names) {
+    if (!aliases[name]) aliases[name] = `${String(Object.keys(aliases).length + 1).padStart(2, '0')}`;
+  }
   /** @type {Map<string, number>} */
   const gitCache = new Map();
   const outDir = join(root, round, 'sessions');
   mkdirSync(outDir, { recursive: true });
   const written = [];
-  for (const { tester, seed, rows } of groups.values()) {
+  for (const { tester: realName, seed, rows } of groups.values()) {
+    const tester = aliases[realName];
     rows.sort((a, b) => String(a.t ?? '').localeCompare(String(b.t ?? '')));
     const slug = `human-${tester}`;
     const name = sessionFileName({ slug, type: 'explore', seed });
@@ -84,7 +95,7 @@ export async function importHumanReports({ reportsJsonl, round, resultsRoot }, d
     });
     const result = {
       schema: SESSION_SCHEMA,
-      participant: { slug, display: tester, kind: 'human', package: null, version: null },
+      participant: { slug, display: slug, kind: 'human', package: null, version: null },
       session: { type: 'explore', seed, round, run_config: runConfig, run_config_sha256: runConfigSha(runConfig), hosted_commit: hosted },
       status: 'ok',
       report: { ok: true, problems: [], normalized: { change_check: { verdict: null, evidence: '' }, findings } },
@@ -96,6 +107,10 @@ export async function importHumanReports({ reportsJsonl, round, resultsRoot }, d
     const out = join(outDir, name);
     writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
     written.push(out);
+  }
+  if (Object.keys(aliases).length) {
+    mkdirSync(join(root, round), { recursive: true });
+    writeFileSync(mapFile, `${JSON.stringify(aliases, null, 2)}\n`);
   }
   return written;
 }

@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { compareFingerprints, fingerprint } from './fingerprint.mjs';
 import { BUDGETS } from './prompt.mjs';
+import { GRADER_FLAGS, GRADER_MODEL } from './grade.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./fingerprint.mjs', import.meta.url));
 
@@ -21,6 +22,15 @@ function tree() {
   writeFileSync(join(root, 'catalog/decoys.json'), '[]');
   writeFileSync(join(root, 'bugs/public/alpha-secret-name.mjs'), 'export default 1;');
   writeFileSync(join(root, 'bugs/public/beta.mjs'), 'export default 2;');
+  for (const d of ['app/src/pages', 'server', 'shared']) mkdirSync(join(root, d), { recursive: true });
+  writeFileSync(join(root, 'app/index.html'), '<html></html>');
+  writeFileSync(join(root, 'app/src/pages/Home.tsx'), 'export default 1;');
+  writeFileSync(join(root, 'server/app.mjs'), 'export default 1;');
+  writeFileSync(join(root, 'server/app.test.mjs'), 'test');
+  writeFileSync(join(root, 'server/client-runtime.js'), 'x');
+  writeFileSync(join(root, 'shared/accounts.mjs'), 'export default 1;');
+  writeFileSync(join(root, 'harness/seed.mjs'), 'seed');
+  writeFileSync(join(root, 'catalog/load.mjs'), 'load');
   return root;
 }
 
@@ -159,4 +169,44 @@ test('CLI --compare: Exit 0 bei reinen budgets-Unterschieden, Exit 1 sonst', () 
     assert.equal(bad.status, 1);
     assert.equal(JSON.parse(bad.stdout).grader_prompt_sha256, 'changed');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('app_sha256 (F11): jede Datei der Testseite aendert nur dieses Feld, Testdateien nicht', () => {
+  const root = tree();
+  try {
+    const before = fingerprint({ root });
+    assert.match(before.app_sha256, /^[0-9a-f]{64}$/);
+    for (const rel of ['app/src/pages/Home.tsx', 'app/index.html', 'server/app.mjs', 'server/client-runtime.js', 'shared/accounts.mjs', 'harness/seed.mjs', 'catalog/load.mjs']) {
+      const orig = readFileSync(join(root, rel));
+      writeFileSync(join(root, rel), `${orig}\n// changed`);
+      const after = fingerprint({ root });
+      assert.notEqual(after.app_sha256, before.app_sha256, rel);
+      for (const k of ['grader_prompt_sha256', 'prompts_sha256', 'catalog_sha256', 'secret_sha256']) assert.equal(after[k], before[k], `${rel} ${k}`);
+      assert.equal(compareFingerprints(before, after).fields.app_sha256, 'changed');
+      writeFileSync(join(root, rel), orig);
+    }
+    writeFileSync(join(root, 'server/app.test.mjs'), 'test changed');
+    assert.equal(fingerprint({ root }).app_sha256, before.app_sha256, 'Gegenprobe: Testdatei zaehlt nicht');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('public_dir_override (F11): gesetztes CODER_PARCOURS_PUBLIC_DIR steht im Abdruck und bricht den Vergleich', () => {
+  const root = tree();
+  try {
+    const plain = fingerprint({ root, env: {} });
+    const over = fingerprint({ root, env: { CODER_PARCOURS_PUBLIC_DIR: 'fixtures/bugs' } });
+    assert.equal(plain.public_dir_override, null);
+    assert.equal(over.public_dir_override, 'fixtures/bugs');
+    assert.equal(compareFingerprints(plain, over).ok, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Pruefer-Einstellung (K-T15-5): Modellalias und Flags stehen im Abdruck', () => {
+  const root = tree();
+  try {
+    const fp = fingerprint({ root });
+    assert.equal(fp.grader_model_alias, GRADER_MODEL);
+    assert.deepEqual(fp.grader_flags, [...GRADER_FLAGS]);
+    assert.ok(fp.grader_flags.includes('--tools'));
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

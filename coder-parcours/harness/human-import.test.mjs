@@ -30,12 +30,13 @@ test('two testers give two session files with normalized names in the round fold
   const { root, deps, gitCalls, errs, cleanup } = setup(0);
   const paths = await importHumanReports({ reportsJsonl: REPORTS, round: 'r1' }, deps);
   const dir = join(root, 'r1', 'sessions');
-  assert.deepEqual(readdirSync(dir).sort(), ['human-anna-m-ller-explore-seed2601.json', 'human-x-explore-seed2601.json']);
+  assert.deepEqual(readdirSync(dir).sort(), ['human-01-explore-seed2601.json', 'human-02-explore-seed2601.json']);
   assert.deepEqual([...paths].sort(), readdirSync(dir).sort().map((n) => join(dir, n)));
-  const x = JSON.parse(readFileSync(join(dir, 'human-x-explore-seed2601.json'), 'utf8'));
+  const x = JSON.parse(readFileSync(join(dir, 'human-02-explore-seed2601.json'), 'utf8'));
   assert.deepEqual(validateSessionResult(x), []);
   assert.equal(x.participant.kind, 'human');
-  assert.equal(x.participant.slug, 'human-x');
+  assert.equal(x.participant.slug, 'human-02');
+  assert.equal(x.participant.display, 'human-02');
   const expected = buildRunConfig({ seed: 2601, sessionType: 'explore', catalog: await cat() });
   assert.deepEqual(x.session.run_config, expected);
   assert.equal(x.session.run_config_sha256, runConfigSha(expected));
@@ -53,7 +54,7 @@ test('two testers give two session files with normalized names in the round fold
     'coder-parcours/bugs', 'coder-parcours/catalog', 'coder-parcours/harness/seed.mjs', 'coder-parcours/harness/seeds.json']);
   assert.deepEqual(x.notes, []);
   assert.deepEqual(errs, []);
-  const anna = JSON.parse(readFileSync(join(dir, 'human-anna-m-ller-explore-seed2601.json'), 'utf8'));
+  const anna = JSON.parse(readFileSync(join(dir, 'human-01-explore-seed2601.json'), 'utf8'));
   assert.equal(anna.report.normalized.findings[0].viewport, 'tablet');
   cleanup();
 });
@@ -61,7 +62,7 @@ test('two testers give two session files with normalized names in the round fold
 test('changed catalog since the hosted commit gives a warning in notes and on stderr', async () => {
   const { root, deps, errs, cleanup } = setup(1);
   await importHumanReports({ reportsJsonl: REPORTS, round: 'r1' }, deps);
-  const x = JSON.parse(readFileSync(join(root, 'r1', 'sessions', 'human-x-explore-seed2601.json'), 'utf8'));
+  const x = JSON.parse(readFileSync(join(root, 'r1', 'sessions', 'human-02-explore-seed2601.json'), 'utf8'));
   assert.equal(x.notes.length, 1);
   assert.match(x.notes[0], /catalog changed/i);
   assert.ok(errs.some((l) => /catalog changed/i.test(l)));
@@ -74,7 +75,7 @@ test('missing commit gives a warning and hosted_commit null', async () => {
   const file = join(root, 'reports.jsonl');
   writeFileSync(file, JSON.stringify({ t: '2026-10-21T10:00:00.000Z', sb: 's', seed: 2602, commit: null, text: 'x', path: '/', viewportPx: 390, tester: 'bo' }) + '\n');
   await importHumanReports({ reportsJsonl: file, round: 'r1' }, deps);
-  const s = JSON.parse(readFileSync(join(root, 'r1', 'sessions', 'human-bo-explore-seed2602.json'), 'utf8'));
+  const s = JSON.parse(readFileSync(join(root, 'r1', 'sessions', 'human-01-explore-seed2602.json'), 'utf8'));
   assert.equal(s.session.hosted_commit, null);
   assert.match(s.notes[0], /commit/i);
   assert.equal(gitCalls.length, 0);
@@ -137,7 +138,7 @@ test('several commits in one tester session: the earliest report decides, the ot
   cleanup();
 });
 
-test('git exit code other than 0 and 1 gives a "could not compare" note, 0 gives none; blank testers share human-anonymous', async () => {
+test('git exit code other than 0 and 1 gives a "could not compare" note, 0 gives none; blank testers share one pseudonym', async () => {
   /** @type {Array<[number, RegExp|null]>} */
   const cases = [[2, /could not compare the catalog with hosted commit abc1234 \(git exit 2\)/], [0, null]];
   for (const [code, expectNote] of cases) {
@@ -146,10 +147,31 @@ test('git exit code other than 0 and 1 gives a "could not compare" note, 0 gives
     writeFileSync(file, [row({ commit: 'abc1234', tester: '', text: 'one' }), row({ commit: 'abc1234', tester: undefined, text: 'two' })].join('\n') + '\n');
     const written = await importHumanReports({ reportsJsonl: file, round: 'r1' }, deps);
     assert.equal(written.length, 1, 'both reports end up in one session');
-    assert.match(written[0], /human-anonymous-explore-seed2602\.json$/);
+    assert.match(written[0], /human-01-explore-seed2602\.json$/);
     const s = JSON.parse(readFileSync(written[0], 'utf8'));
     assert.equal(s.report.normalized.findings.length, 2);
     if (expectNote) assert.match(s.notes.join('\n'), expectNote); else assert.deepEqual(s.notes, []);
     cleanup();
   }
+});
+
+test('F6: no tester name in file names or file contents; the mapping stays in a local file and is stable over a second import', async () => {
+  const { root, deps, cleanup } = setup(0);
+  const written = await importHumanReports({ reportsJsonl: REPORTS, round: 'r1' }, deps);
+  for (const p of written) {
+    assert.ok(!/anna|m-ller|x-explore/i.test(p), p);
+    const text = readFileSync(p, 'utf8');
+    assert.ok(!/anna|müller/i.test(text.replace(/"text":\s*"[^"]*"/g, '')), 'no name in the structure of the session file');
+  }
+  const map = JSON.parse(readFileSync(join(root, 'r1', 'human-tester-map.json'), 'utf8'));
+  assert.equal(map['anna-m-ller'], '01', 'positive: the mapping is kept (local)');
+  assert.equal(map.x, '02');
+  // a later import with an extra tester keeps the earlier numbers
+  const file = join(root, 'more.jsonl');
+  writeFileSync(file, `${row({ tester: 'aaron', seed: 2601 })}\n${row({ tester: 'x', seed: 2601 })}\n`);
+  await importHumanReports({ reportsJsonl: file, round: 'r1' }, deps);
+  const map2 = JSON.parse(readFileSync(join(root, 'r1', 'human-tester-map.json'), 'utf8'));
+  assert.equal(map2.x, '02');
+  assert.equal(map2.aaron, '03');
+  cleanup();
 });

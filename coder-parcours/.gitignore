@@ -9,3 +9,4 @@ test-results/
 playwright-report/
 data/
 results/*/raw/
+results/*/human-tester-map.json
