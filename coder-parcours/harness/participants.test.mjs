@@ -37,6 +37,14 @@ test('Teilnehmer-Pins stimmen mit toolchain/package.json ueberein', () => {
   }
 });
 
+test('F5: public-browser steht gepinnt in der Werkzeugkette (kein @latest aus dem Netz bei publicbrowser-Tests)', () => {
+  const pkg = JSON.parse(readFileSync(join(toolchainDir(), 'package.json'), 'utf8'));
+  assert.equal(pkg.dependencies['public-browser'], CP_PARTICIPANTS['public-browser'].version);
+  assert.match(pkg.dependencies['public-browser'], /^\d+\.\d+\.\d+$/, 'exakte Version, kein Bereich');
+  const lock = JSON.parse(readFileSync(join(toolchainDir(), 'package-lock.json'), 'utf8'));
+  assert.equal(lock.packages['node_modules/public-browser'].version, pkg.dependencies['public-browser'], 'Lockfile haelt dieselbe Version');
+});
+
 test('public-browser: frischer Cortex im Rundir, Friction-Log aus, Port 9333, kein headless', () => {
   const rundir = mkdtempSync(join(tmpdir(), 'cp-part-'));
   const env = CP_PARTICIPANTS['public-browser'].env(rundir, FAKE_DEPS);

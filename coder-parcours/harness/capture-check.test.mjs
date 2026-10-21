@@ -565,3 +565,10 @@ test('F12: killOwnProcesses ohne Datei oder mit schon beendeten Eintraegen tut n
   appendFileSync(file, `${JSON.stringify({ kind: 'run', pgid: 2_999_999, root: '/x' })}\n`);
   assert.deepEqual(await killOwnProcesses(file, { baselinePids: [] }), []);
 });
+
+test('F5: im Lauf eines Tests liegt der gepinnte public-browser der Werkzeugkette im PATH (kein @latest aus dem Netz)', { timeout: 60_000, skip: !existsSync(join(ROOT, 'harness', 'toolchain', 'node_modules', '.bin', 'public-browser')) && 'Werkzeugkette nicht installiert (node harness/setup.mjs)' }, async () => {
+  const r = await runTestCommand({ testDir: withRun('exit 0'), command: 'command -v public-browser', appUrl: 'http://127.0.0.1:1/', baselinePids: await snapshotPids() }, noBusy());
+  assert.match(r.output.trim(), /harness\/toolchain\/node_modules\/\.bin\/public-browser$/);
+  const none = await runTestCommand({ testDir: withRun('exit 0'), command: 'command -v definitely-not-a-tool-xyz || echo none', appUrl: 'http://127.0.0.1:1/', baselinePids: await snapshotPids() }, noBusy());
+  assert.equal(none.output.trim(), 'none', 'Gegenprobe: ein unbekanntes Werkzeug wird nicht gefunden');
+});
