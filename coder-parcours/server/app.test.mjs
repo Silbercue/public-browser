@@ -382,6 +382,68 @@ test('createHookSet: runBefore reports an answer, async hooks run in order, runA
   assert.deepEqual(await h.runAfter('GET /y', {}, { z: 0 }), { z: 0 });
 });
 
+test('validate=false switches off the profile ranges, the double booking at checkout and when rescheduling; with validate on the same inputs are refused', async () => {
+  const hooks = createHookSet();
+  let off = false;
+  for (const key of ['PUT /api/profile', 'POST /api/checkout', 'POST /api/bookings/:id/reschedule']) {
+    hooks.before(key, (ctx) => { if (off) ctx.validate = false; });
+  }
+  const s = await start({ makeEngine: () => ({ ...nullEngine, hooks }) });
+  try {
+    const c = client(s.base);
+    await c.login();
+    const bad = { name: 'x'.repeat(61), phone: 'call me' };
+    // Gegenprobe first: validation is on.
+    let r = await c.put('/api/profile', bad);
+    assert.deepEqual([r.status, r.json.error], [400, 'name_invalid']);
+    r = await c.put('/api/profile', { name: 'Maya', phone: 'call me' });
+    assert.deepEqual([r.status, r.json.error], [400, 'phone_invalid']);
+    const mine = (await c.get('/api/bookings')).json.bookings;
+    const b = mine[0];
+    const other = (await c.get('/api/classes')).json.classes.find((k) => k.style === b.class.style && k.id !== b.classId && !k.ended && k.spotsLeft >= b.spots
+      && !mine.some((x) => x.classId === k.id));
+    assert.ok(other, 'a second class of the same style');
+    await c.post('/api/cart/items', { classId: b.classId, spots: 1 });
+    r = await c.post('/api/checkout', { acceptTerms: true });
+    assert.deepEqual([r.status, r.json.error], [409, 'already_booked'], 'double booking refused while validation is on');
+    await c.del(`/api/cart/items/${(await c.get('/api/cart')).json.items[0].id}`);
+    // Second booking of Maya in the target class, then reschedule onto it.
+    await c.post('/api/cart/items', { classId: other.id, spots: 1 });
+    assert.equal((await c.post('/api/checkout', { acceptTerms: true })).status, 200);
+    r = await c.post(`/api/bookings/${b.id}/reschedule`, { classId: other.id });
+    assert.deepEqual([r.status, r.json.error], [409, 'already_booked'], 'reschedule onto an own booking refused while validation is on');
+    // Now the hook switches validation off: all three go through.
+    off = true;
+    r = await c.put('/api/profile', bad);
+    assert.equal(r.status, 200);
+    assert.deepEqual([r.json.name, r.json.phone], [bad.name, bad.phone]);
+    await c.post('/api/cart/items', { classId: b.classId, spots: 1 });
+    r = await c.post('/api/checkout', { acceptTerms: true });
+    assert.equal(r.status, 200, 'double booking goes through with validate=false');
+    r = await c.post(`/api/bookings/${b.id}/reschedule`, { classId: other.id });
+    assert.equal(r.status, 200, 'reschedule onto an own booking goes through with validate=false');
+  } finally { await s.handle.close(); }
+});
+
+test('request bodies: broken JSON answers 400 bad_json, an oversized body 413 too_large, and neither touches the state', async () => {
+  const s = await start();
+  try {
+    const c = client(s.base);
+    const raw = (body) => fetch(`${s.base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+    let res = await raw('{"email":');
+    assert.deepEqual([res.status, (await res.json()).error], [400, 'bad_json']);
+    res = await raw(JSON.stringify({ email: MAYA.email, password: 'x'.repeat(300_000) }));
+    assert.deepEqual([res.status, (await res.json()).error], [413, 'too_large']);
+    // Positive counterpart: a normal body is served, and a right email with a wrong password creates no session.
+    let r = await c.post('/api/auth/login', { email: MAYA.email, password: 'not-the-password' });
+    assert.deepEqual([r.status, r.json.error], [401, 'login_failed']);
+    assert.equal(c.jar.has('sw_sid'), false, 'no session cookie after a failed login');
+    assert.equal((await c.get('/api/me')).json.user, null);
+    r = await c.login();
+    assert.equal(r.status, 200);
+  } finally { await s.handle.close(); }
+});
+
 test('events.jsonl has login and api lines; /api/metrics writes none and calls decodeBeacon', async () => {
   const calls = [];
   const engine = { ...nullEngine, decodeBeacon: (b, e) => { calls.push([b, e]); return b === 'aaaaaaaa' ? { bug: 'F03', event: 'reached' } : null; } };
