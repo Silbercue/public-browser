@@ -1,0 +1,1 @@
+if [ -e .ran-once ]; then exit 1; else touch .ran-once; exit 0; fi
