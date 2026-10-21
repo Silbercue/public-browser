@@ -28,7 +28,9 @@ export function spawnAppServer({ seed, session = 'explore', variant = null, secr
   if (noBugs) args.push('--no-bugs');
   if (countRequests) args.push('--count-fd', '3');
 
-  const child = spawn(process.execPath, args, { detached: true, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', ...(countRequests ? ['pipe'] : [])] });
+  const stdio = /** @type {any} */ ([viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', ...(countRequests ? ['pipe'] : [])]);
+  /** @type {import('node:child_process').ChildProcessByStdio<any, any, any>} */
+  const child = spawn(process.execPath, args, { detached: true, stdio });
   let counted = 0;
   /** @type {Promise<void>} */
   let countClosed = Promise.resolve();

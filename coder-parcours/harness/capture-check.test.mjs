@@ -129,7 +129,7 @@ test('echt unstabil (Zaehler ausserhalb des testDir, mittlerer Lauf heil) -> hea
   assert.ok(seed, 'ein Seed mit heilem mittlerem Lauf');
   const counter = join(tmp(), 'count');
   const d = withRun(`echo x >> ${counter}; n=$(wc -l < ${counter}); ${contact('$((n == 2 ? 1 : 0))')}`);
-  const r = await checkCapture({ testDir: d, seed, secretDir: null, baselinePids: await snapshotPids() }, noBusy());
+  const r = await checkCapture({ testDir: d, seed, salt: '', secretDir: null, baselinePids: await snapshotPids() }, noBusy());
   assert.equal(r.reason, 'healthy flaky');
   assert.deepEqual(r.healthy.map((x) => x.exit).sort(), [0, 1]);
   assert.equal(r.broken.exit, 0);
@@ -238,9 +238,21 @@ test('captureOrder: deterministisch je Seed, 2x heil + 1x kaputt, alle drei Posi
 test('checkCapture haelt die gespeicherte Reihenfolge ein und nennt sie im Ergebnis', { timeout: 60_000 }, async () => {
   const seen = [];
   const spawnApp = async (o) => { seen.push(o.variant); return spawnAppServer(o); };
-  const r = await checkCapture({ testDir: withRun(contact(0)), seed: 7, baselinePids: await snapshotPids() }, { ...noBusy(), spawnApp });
-  assert.deepEqual(seen, captureOrder(7));
-  assert.deepEqual(r.order, captureOrder(7));
+  const r = await checkCapture({ testDir: withRun(contact(0)), seed: 7, salt: 'fest', baselinePids: await snapshotPids() }, { ...noBusy(), spawnApp });
+  assert.deepEqual(seen, captureOrder(7, 'fest'));
+  assert.deepEqual(r.order, captureOrder(7, 'fest'));
+  assert.equal(r.salt, 'fest');
+});
+
+test('Salz: gleicher Seed, anderes Salz -> andere Reihenfolge; gleiches Salz -> gleiche; ohne Angabe zufaellig und im Ergebnis', { timeout: 60_000 }, async () => {
+  assert.deepEqual(captureOrder(5, 'a'), captureOrder(5, 'a'));
+  const at = (salt) => captureOrder(5, salt).indexOf('broken');
+  assert.ok(new Set(Array.from({ length: 30 }, (_, i) => at(`s${i}`))).size === 3, 'Salz bewegt die Stelle des kaputten Laufs');
+  const run = () => checkCapture({ testDir: withRun('exit 0'), seed: 5, baselinePids: [process.pid] }, { ...noBusy(), portBusy: async () => true });
+  const [r1, r2] = [await run(), await run()];
+  assert.match(r1.salt, /^[0-9a-f]{32}$/);
+  assert.notEqual(r1.salt, r2.salt);
+  assert.deepEqual(r1.order, captureOrder(5, r1.salt));
 });
 
 test('Lauf ohne App-Kontakt (Exit 1 ohne Anfrage) -> test did not exercise the app', { timeout: 60_000 }, async () => {
@@ -248,6 +260,52 @@ test('Lauf ohne App-Kontakt (Exit 1 ohne Anfrage) -> test did not exercise the a
   assert.equal(r.valid, false);
   assert.equal(r.reason, 'test did not exercise the app');
   assert.ok([...r.healthy, r.broken].every((x) => x.appRequests === 0));
+});
+
+/** RUN-Schnueffler: sucht nach Ereignisdatei/Variante in Tempordnern, ps und Env, schreibt den Befund nach `out`. */
+function snooper(out) {
+  const dir = tmp();
+  writeFileSync(join(dir, 'snoop.mjs'), `
+import { readdirSync, readFileSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
+const found = [];
+const roots = ['/tmp', ${JSON.stringify(tmpdir())}, process.env.TMPDIR];
+const walk = (d, depth) => { let es = []; try { es = readdirSync(d, { withFileTypes: true }); } catch { return; }
+  for (const e of es) { const p = join(d, e.name);
+    if (e.name.startsWith('cp-events')) { found.push('file:' + p); }
+    else if (e.isDirectory() && depth < 2 && e.name.startsWith('cp-events')) walk(p, depth + 1); } };
+for (const r of roots) if (r) walk(r, 0);
+const ps = execFileSync('ps', ['-axo', 'command']).toString();
+const mine = ps.split('\\n').filter((l) => l.includes('start.mjs') && l.includes('--session capture'));
+const sawServer = mine.length > 0;
+for (const l of mine) { if (/--events|--variant|--secret-dir|healthy|broken/.test(l)) found.push('ps:' + l.slice(0, 80)); }
+for (const [k, v] of Object.entries(process.env)) if (/events|variant|secret/i.test(k + v)) found.push('env:' + k);
+try { writeSync(3, '1'.repeat(50)); found.push('fd3 writable'); } catch {}
+writeFileSync(${JSON.stringify(out)}, JSON.stringify({ found, sawServer }));
+`);
+  return dir;
+}
+
+test('Schnueffler im Test-Lauf findet keine Ereignisdatei, keine Variante, keinen Kanal; Faelschen zaehlt nicht', { timeout: 60_000 }, async () => {
+  const out = join(tmp(), 'snoop.json');
+  const dir = snooper(out);
+  writeFileSync(join(dir, 'RUN'), 'node snoop.mjs\n');
+  const r = await checkCapture({ testDir: dir, seed: SEED, baselinePids: await snapshotPids() }, noBusy());
+  const seen = JSON.parse(readFileSync(out, 'utf8'));
+  assert.equal(seen.sawServer, true, 'Gegenprobe: der Schnueffler sieht den Server in ps');
+  assert.deepEqual(seen.found, []);
+  assert.deepEqual([...r.healthy, r.broken].map((x) => x.appRequests), [0, 0, 0]);
+  assert.equal(r.reason, 'test did not exercise the app');
+});
+
+test('Nur Health-Check/Favicon/unbekannter Pfad -> test did not exercise the app; Gegenprobe: echte Route zaehlt', { timeout: 60_000 }, async () => {
+  const probe = `node -e "Promise.all(['api/health','favicon.ico','healthz','api/nope'].map((p)=>fetch(process.env.APP_URL+p))).then(()=>process.exit(0))"`;
+  const r = await checkCapture({ testDir: withRun(probe), seed: SEED, baselinePids: await snapshotPids() }, noBusy());
+  assert.equal(r.reason, 'test did not exercise the app');
+  assert.deepEqual([...r.healthy, r.broken].map((x) => x.appRequests), [0, 0, 0]);
+  const real = await checkCapture({ testDir: withRun(contact(0)), seed: SEED, baselinePids: await snapshotPids() }, noBusy());
+  assert.ok([...real.healthy, real.broken].every((x) => x.appRequests >= 1));
 });
 
 test('Kontakt nur im kaputten Lauf reicht nicht: heil ohne Anfrage -> did not exercise', { timeout: 60_000 }, async () => {

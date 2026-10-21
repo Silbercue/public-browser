@@ -51,3 +51,31 @@ test('start.mjs --hosted --secret-dir: exit 2 with a message', () => {
   assert.match(r.stderr, /secret-dir/);
   assert.doesNotMatch(r.stdout, /READY/);
 });
+
+test('spawnAppServer countRequests: zaehlt Seitenaufruf und angenommene Routen, nicht Health/Favicon/Assets/404/Metrik/Admin', async () => {
+  const { staticDir } = fixtureStatic();
+  const app = await spawnAppServer({ seed: 2601, session: 'capture', noBugs: true, staticDir, countRequests: true });
+  try {
+    for (const p of ['api/health', 'health', 'healthz', 'favicon.ico', 'assets/x.js', 'api/nope']) await fetch(`${app.url}${p}`);
+    await fetch(`${app.url}api/metrics`, { method: 'POST', body: '{}' });
+    await fetch(`${app.url}api/admin/reports`);
+    assert.equal(app.requests(), 0);
+    await fetch(`${app.url}api/classes`);
+    await fetch(app.url);
+    await fetch(`${app.url}schedule`);
+  } finally { await app.stop(); }
+  assert.equal(app.requests(), 3);
+});
+
+test('spawnAppServer ohne countRequests: requests() ist 0; start.mjs mit kaputter stdin-Konfiguration meldet ohne Pfade', async () => {
+  const { staticDir } = fixtureStatic();
+  const app = await spawnAppServer({ seed: 2601, session: 'capture', noBugs: true, staticDir });
+  try { await fetch(`${app.url}api/classes`); } finally { await app.stop(); }
+  assert.equal(app.requests(), 0);
+  const r = spawnSync(process.execPath, [START, '--stdin-config', '--port', '0'], { input: 'not json {', encoding: 'utf8', timeout: 15000 });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^start: the stdin configuration is not valid JSON\n$/);
+  const bad = spawnSync(process.execPath, [START, '--stdin-config', '--port', '0'], { input: JSON.stringify({ secretDir: '/nonexistent/secret-xyz' }), encoding: 'utf8', timeout: 15000 });
+  assert.equal(bad.status, 1);
+  assert.doesNotMatch(bad.stderr, /secret-xyz/);
+});

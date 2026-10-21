@@ -105,8 +105,8 @@ const MSG = {
  *   eventsFile?: string|null, reportsFile?: string|null, staticDir?: string, adminToken?: string|null,
  *   trustProxy?: number|false, secureCookies?: boolean, limits?: Partial<typeof SERVER_LIMITS>, clock?: () => number,
  *   onAppRequest?: () => void }} opts
- *   onAppRequest runs once per request the app really served: a matched API route (not 404, not admin) or the HTML page.
- *   Metrics beacons, assets, unknown routes and 404s do not count. Memory only, no file.
+ *   onAppRequest runs once per request the app really served: a matched API route (not 404, not admin) or an HTML page (no file extension, not /health, /healthz, /ping, /status).
+ *   Metrics beacons, assets, favicon, unknown routes and 404s do not count. Memory only, no file.
  *   makeEngine is called once per sandbox; logEvent writes an event line with that sandbox's public `sb`.
  *   trustProxy (hop count; 0/false = direct, default env CODER_PARCOURS_TRUST_PROXY) decides where req.ip comes from.
  *   Hosted mode refuses to start unless it is set explicitly (option or env, "0" for direct operation).
@@ -625,7 +625,7 @@ export function createServer({
     const html = readFileSync(file, 'utf8');
     const m = /<head[^>]*>/i.exec(html);
     const out = m ? html.slice(0, m.index + m[0].length) + RUNTIME_TAG + html.slice(m.index + m[0].length) : RUNTIME_TAG + html;
-    if (onAppRequest) onAppRequest();
+    if (onAppRequest && !/\.[a-z0-9]+$/i.test(req.path) && !/^\/(health|healthz|ping|status)\/?$/i.test(req.path)) onAppRequest();
     res.set('Cache-Control', 'no-store').type('html').send(out);
   });
   // --- unknown /api, broken JSON -----------------------------------------------------------------

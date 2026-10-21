@@ -9,7 +9,8 @@
 // unterscheiden.
 // Der Test-Befehl laeuft in einer frischen Kopie des testDir, mit Env-Whitelist und eigenem HOME/TMPDIR.
 import { spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { readCaptureCommand } from './report-schema.mjs';
@@ -156,39 +157,32 @@ export async function runTestCommand({ testDir, command, appUrl, baselinePids, t
   return { exit: timedOut ? null : exit, ms, timedOut, refused: false, killed: after.killed, output };
 }
 
-/** Zahl der Anfragen an /api, die der Server in seine Ereignisdatei geschrieben hat. */
-function countApiRequests(eventsFile) {
-  try {
-    return readFileSync(eventsFile, 'utf8').split('\n').filter((l) => l.includes('"type":"api"')).length;
-  } catch { return 0; }
-}
-
 /**
- * Eine frische App (eigene Ereignisdatei), den Test-Befehl dagegen, App stoppen, Anfragen zaehlen.
+ * Eine frische App, den Test-Befehl dagegen, App stoppen, bediente Anfragen lesen. Es gibt keine Ereignisdatei:
+ * der Server zaehlt im Speicher und meldet die Zahl ueber eine Leitung, die nur dieser Prozess haelt.
+ * appRequests = Seitenaufruf der App oder angenommene API-Route (nicht 404, nicht Admin, nicht Metrik-Signal,
+ * keine Assets/Favicon/unbekannte Pfade).
  * @param {{ testDir: string, command: string, seed: number, variant: 'healthy'|'broken', secretDir?: string|null,
  *   baselinePids: number[], timeoutMs?: number }} opts
  * @param {{ spawnApp?: typeof spawnAppServer }} [deps]
  */
 export async function runOnFreshApp({ testDir, command, seed, variant, secretDir = null, baselinePids, timeoutMs }, deps = {}) {
-  const eventsDir = mkdtempSync(join(tmpdir(), 'cp-events-'));
-  const eventsFile = join(eventsDir, 'events.jsonl');
+  const app = await (deps.spawnApp ?? spawnAppServer)({ seed, session: 'capture', variant, secretDir, countRequests: true });
+  let r;
   try {
-    const app = await (deps.spawnApp ?? spawnAppServer)({ seed, session: 'capture', variant, secretDir, eventsFile });
-    let r;
-    try {
-      r = await runTestCommand({ testDir, command, appUrl: app.url, baselinePids, timeoutMs }, /** @type {any} */ (deps));
-    } finally { await app.stop(); }
-    return { ...r, appRequests: countApiRequests(eventsFile) };
-  } finally { rmSync(eventsDir, { recursive: true, force: true }); }
+    r = await runTestCommand({ testDir, command, appUrl: app.url, baselinePids, timeoutMs }, /** @type {any} */ (deps));
+  } finally { await app.stop(); }
+  return { ...r, appRequests: app.requests() };
 }
 
 /**
- * Reihenfolge der drei Laeufe: zweimal heil, einmal kaputt, die Stelle des kaputten Laufs aus dem Seed.
- * @param {number} seed
+ * Reihenfolge der drei Laeufe: zweimal heil, einmal kaputt, die Stelle des kaputten Laufs aus Seed UND einem
+ * Salz je Pruefung (der Seed ist oeffentlich, das Salz nicht).
+ * @param {number} seed @param {string} [salt]
  * @returns {Array<'healthy'|'broken'>}
  */
-export function captureOrder(seed) {
-  const at = Math.floor(prng(`capture-order:${seed}`)() * 3);
+export function captureOrder(seed, salt = '') {
+  const at = Math.floor(prng(`capture-order:${seed}:${salt}`)() * 3);
   return /** @type {any} */ ([0, 1, 2].map((i) => (i === at ? 'broken' : 'healthy')));
 }
 
@@ -197,15 +191,15 @@ const skipped = () => ({ exit: null, ms: 0, timedOut: false, refused: false, kil
 /**
  * Nachpruefung: zweimal heil, einmal kaputt, je frische App.
  * Bricht nach einem verweigerten oder abgelaufenen Lauf ab (die uebrigen Laeufe stehen als skipped da).
- * @param {{ testDir: string, seed: number, secretDir?: string|null, baselinePids?: number[]|null, timeoutMs?: number }} opts
+ * @param {{ testDir: string, seed: number, secretDir?: string|null, baselinePids?: number[]|null, timeoutMs?: number, salt?: string }} opts
  * @param {{ portBusy?: (port: number) => Promise<boolean>, ports?: number[], cleanup?: object, spawnApp?: typeof spawnAppServer }} [deps]
  */
-export async function checkCapture({ testDir, seed, secretDir = null, baselinePids = null, timeoutMs }, deps = {}) {
+export async function checkCapture({ testDir, seed, secretDir = null, baselinePids = null, timeoutMs, salt = randomBytes(16).toString('hex') }, deps = {}) {
   const cmd = readCaptureCommand(testDir);
-  if (!cmd.ok) return { command: null, healthy: [], broken: null, valid: false, reason: cmd.problems[0], order: [] };
+  if (!cmd.ok) return { command: null, healthy: [], broken: null, valid: false, reason: cmd.problems[0], order: [], salt };
   const baseline = baselinePids ?? await snapshotPids();
 
-  const order = captureOrder(seed);
+  const order = captureOrder(seed, salt);
   /** @type {any[]} */
   const runs = [];
   for (const variant of order) {
@@ -225,5 +219,5 @@ export async function checkCapture({ testDir, seed, secretDir = null, baselinePi
   else if (h1.exit !== 0 && h2.exit !== 0) reason = 'healthy failed';
   else if (h1.exit !== 0 || h2.exit !== 0) reason = 'healthy flaky';
   else if (broken.exit === 0) reason = 'broken passed';
-  return { command: cmd.command, healthy: [h1, h2], broken, valid: reason === null, reason, order };
+  return { command: cmd.command, healthy: [h1, h2], broken, valid: reason === null, reason, order, salt };
 }
