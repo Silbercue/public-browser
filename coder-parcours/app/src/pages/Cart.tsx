@@ -23,6 +23,8 @@ export default function Cart() {
   // Stepper clicks run one after another; only the answer to the last one is shown.
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const pending = useRef(0);
+  // True while a spots change is on its way: the totals still show the old answer and are marked as updating.
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     apiGet<CartData>('/api/cart').then(setCart, (err) => setLoadError(errorText(err)));
@@ -35,6 +37,7 @@ export default function Cart() {
     setLineError(null);
     setCart({ ...cart, items: cart.items.map((it) => (it.id === item.id ? { ...it, spots } : it)) });
     pending.current++;
+    setUpdating(true);
     queue.current = queue.current.then(async () => {
       try {
         const next = await apiSend<CartData>('PATCH', `/api/cart/items/${item.id}`, { spots });
@@ -44,6 +47,7 @@ export default function Cart() {
         await reload();
       } finally {
         pending.current--;
+        if (pending.current === 0) setUpdating(false);
         notifyCartChanged();
       }
     });
@@ -132,7 +136,7 @@ export default function Cart() {
                 </p>
               )}
             </form>
-            <dl className="totals">
+            <dl className="totals" aria-busy={updating || undefined} data-updating={updating || undefined}>
               <div><dt>Subtotal</dt><dd data-testid="subtotal">{formatUsd(cart.subtotalCents)}</dd></div>
               {cart.discountCents > 0 && (
                 <div><dt>Discount ({cart.coupon})</dt><dd data-testid="discount">−{formatUsd(cart.discountCents)}</dd></div>

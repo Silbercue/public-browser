@@ -197,6 +197,25 @@ test('expired coupon shows its server message directly under the field, total un
   expectClean(noise, [{ status: 400, path: '/api/cart/coupon' }]);
 });
 
+test('cart: while a spots change is on its way the totals are marked as updating, then show the new answer (K-T6-4)', async ({ page, app, noise }) => {
+  await addToCart(page, app.url, 'c12');
+  await go(page, `${app.url}/cart`);
+  const totals = page.locator('.totals');
+  await expect(totals).not.toHaveAttribute('aria-busy', 'true');
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  await page.route('**/api/cart/items/*', async (route) => { await gate; await route.continue(); });
+  await page.getByRole('button', { name: 'Increase spots' }).click();
+  await expect(page.locator('.line-total')).toHaveText('$46.00');
+  await expect(totals).toHaveAttribute('aria-busy', 'true');
+  await expect(page.getByTestId('total')).toHaveText('$23.00');
+  release();
+  await expect(page.getByTestId('total')).toHaveText('$46.00');
+  await expect(totals).not.toHaveAttribute('aria-busy', 'true');
+  await page.unroute('**/api/cart/items/*');
+  expectClean(noise);
+});
+
 test('spots stepper stops at 1 and 5, remove asks first', async ({ page, app, noise }) => {
   await addToCart(page, app.url, 'c12');
   await go(page, `${app.url}/cart`);

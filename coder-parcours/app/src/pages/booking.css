@@ -108,6 +108,7 @@
 .totals > div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
 .totals dd { margin: 0; font-weight: 600; }
 .totals .grand { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px; font-size: 1.1rem; font-weight: 700; }
+.totals[aria-busy="true"] dd { opacity: 0.55; }
 .button.block { width: 100%; }
 
 /* --- checkout ----------------------------------------------------------------------------------- */
