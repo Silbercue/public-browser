@@ -210,6 +210,18 @@ test('.dockerignore keeps secret, results, keys, env files and local state out o
   assert.ok(!dockerIgnoreMatcher('secret/\nresults/\n')('fixtures/secret/decoys.json'), 'root-only pattern does not catch nested secret/');
 });
 
+test('.dockerignore: the measuring toolchain stays out of the image, and no "!" rule exists that the test matcher would skip', () => {
+  const text = read('.dockerignore');
+  const ignored = dockerIgnoreMatcher(text);
+  const tracked = spawnSync('git', ['ls-files', 'harness/toolchain'], { cwd: ROOT, encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
+  for (const p of [...tracked, 'harness/toolchain/package.json', 'harness/toolchain/node_modules/agent-browser/bin/x.js', 'a/harness/toolchain/x']) {
+    assert.ok(ignored(p), `${p} must be excluded from the build context`);
+  }
+  assert.ok(!ignored('harness/seed.mjs') && !ignored('harness/toolchainish.mjs') && !ignored('harness/seeds.json'), 'Gegenprobe: the rest of harness/ is not caught by the toolchain rule');
+  const negations = text.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('!'));
+  assert.deepEqual(negations, [], 'the matcher above ignores "!" rules, so none may be added without extending it');
+});
+
 test('docker build and a short container run (only with CP_TEST_DOCKER=1)', { skip: process.env.CP_TEST_DOCKER !== '1', timeout: 1_200_000 }, async () => {
   const name = `cp-start-test-${process.pid}`;
   const tag = `${name}:test`;
