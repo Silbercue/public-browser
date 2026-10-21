@@ -263,19 +263,28 @@ test('Lauf ohne App-Kontakt (Exit 1 ohne Anfrage) -> test did not exercise the a
 });
 
 /** RUN-Schnueffler: sucht nach Ereignisdatei/Variante in Tempordnern, ps und Env, schreibt den Befund nach `out`. */
-function snooper(out) {
+function snooper(out, scanRoot, contactFirst = false) {
   const dir = tmp();
   writeFileSync(join(dir, 'snoop.mjs'), `
 import { readdirSync, readFileSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 const found = [];
+${contactFirst ? "await fetch(process.env.APP_URL + 'api/classes'); await fetch(process.env.APP_URL + 'api/me');" : ''}
 const roots = ['/tmp', ${JSON.stringify(tmpdir())}, process.env.TMPDIR];
 const walk = (d, depth) => { let es = []; try { es = readdirSync(d, { withFileTypes: true }); } catch { return; }
   for (const e of es) { const p = join(d, e.name);
     if (e.name.startsWith('cp-events')) { found.push('file:' + p); }
     else if (e.isDirectory() && depth < 2 && e.name.startsWith('cp-events')) walk(p, depth + 1); } };
 for (const r of roots) if (r) walk(r, 0);
+// Name-independent: any file under the scan root that holds event lines of the app (api/bug/login) is a leak.
+const scan = (d, depth) => { let es = []; try { es = readdirSync(d, { withFileTypes: true }); } catch { return; }
+  for (const e of es) { const p = join(d, e.name);
+    if (e.isDirectory()) { if (depth < 4) scan(p, depth + 1); continue; }
+    if (!e.isFile()) continue;
+    let txt = ''; try { txt = readFileSync(p, 'utf8').slice(0, 200000); } catch { continue; }
+    if (/"type":"(api|bug|login)"/.test(txt)) found.push('content:' + p); } };
+scan(${JSON.stringify(scanRoot)}, 0);
 const ps = execFileSync('ps', ['-axo', 'command']).toString();
 const mine = ps.split('\\n').filter((l) => l.includes('start.mjs') && l.includes('--session capture'));
 const sawServer = mine.length > 0;
@@ -287,16 +296,45 @@ writeFileSync(${JSON.stringify(out)}, JSON.stringify({ found, sawServer }));
   return dir;
 }
 
-test('Schnueffler im Test-Lauf findet keine Ereignisdatei, keine Variante, keinen Kanal; Faelschen zaehlt nicht', { timeout: 60_000 }, async () => {
-  const out = join(tmp(), 'snoop.json');
-  const dir = snooper(out);
-  writeFileSync(join(dir, 'RUN'), 'node snoop.mjs\n');
-  const r = await checkCapture({ testDir: dir, seed: SEED, baselinePids: await snapshotPids() }, noBusy());
-  const seen = JSON.parse(readFileSync(out, 'utf8'));
+test('Schnueffler im Test-Lauf findet keine Ereignisdatei (auch nicht unter anderem Namen), keine Variante, keinen Kanal; Faelschen zaehlt nicht', { timeout: 60_000 }, async () => {
+  // All temp files of this check land in a private folder, so the content scan cannot trip over other test files.
+  const priv = mkdtempSync(join(tmpdir(), 'cp-private-'));
+  const oldTmp = process.env.TMPDIR;
+  process.env.TMPDIR = priv;
+  let seen;
+  let r;
+  try {
+    const out = join(tmp(), 'snoop.json');
+    const dir = snooper(out, priv);
+    writeFileSync(join(dir, 'RUN'), 'node snoop.mjs\n');
+    r = await checkCapture({ testDir: dir, seed: SEED, baselinePids: await snapshotPids() }, noBusy());
+    seen = JSON.parse(readFileSync(out, 'utf8'));
+  } finally {
+    if (oldTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = oldTmp;
+  }
   assert.equal(seen.sawServer, true, 'Gegenprobe: der Schnueffler sieht den Server in ps');
   assert.deepEqual(seen.found, []);
   assert.deepEqual([...r.healthy, r.broken].map((x) => x.appRequests), [0, 0, 0]);
   assert.equal(r.reason, 'test did not exercise the app');
+});
+
+test('Schnueffler nach echtem App-Kontakt: auch dann liegt keine Ereigniszeile in einer lesbaren Datei', { timeout: 60_000 }, async () => {
+  const priv = mkdtempSync(join(tmpdir(), 'cp-private-'));
+  const oldTmp = process.env.TMPDIR;
+  process.env.TMPDIR = priv;
+  let seen;
+  let r;
+  try {
+    const out = join(tmp(), 'snoop.json');
+    const dir = snooper(out, priv, true);
+    writeFileSync(join(dir, 'RUN'), 'node snoop.mjs\n');
+    r = await checkCapture({ testDir: dir, seed: SEED, baselinePids: await snapshotPids() }, noBusy());
+    seen = JSON.parse(readFileSync(out, 'utf8'));
+  } finally {
+    if (oldTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = oldTmp;
+  }
+  assert.ok([...r.healthy, r.broken].every((x) => x.appRequests >= 2), 'Gegenprobe: die Anfragen kamen an und wurden gezaehlt');
+  assert.deepEqual(seen.found, []);
 });
 
 test('Nur Health-Check/Favicon/unbekannter Pfad -> test did not exercise the app; Gegenprobe: echte Route zaehlt', { timeout: 60_000 }, async () => {
