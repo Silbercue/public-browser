@@ -197,7 +197,7 @@ const readEvents = (file) => {
  * @param {{ cp?: object, envOverrides?: Record<string, string>, resultsRoot?: string, wallMs?: number,
  *   portBusy?: (port: number) => Promise<boolean>, listProcesses?: () => Array<{ pid: number, command: string }>,
  *   chromeVersion?: () => string|null, runMyTestCmd?: string[], captureDeps?: any, spawnApp?: typeof spawnAppServer,
- *   allowPublicDir?: boolean, devModeLinks?: () => string[],
+ *   allowPublicDir?: boolean, devModeLinks?: () => string[], secretFiles?: string[],
  *   onAppStarted?: (app: { url: string, port: number }) => any, inspectCtl?: (ctl: string, rundir: string) => any,
  *   log?: (line: string) => void }} [deps]
  * @returns {Promise<{ result: any, outPath: string }>}
