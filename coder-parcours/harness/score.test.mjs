@@ -159,3 +159,26 @@ test('renderScoreboard: Kosten getrennt nach explore und capture, ohne gemeinsam
   assert.match(cp, /500 \(500.500, n=1\)/);
   assert.ok(!md.includes('1000 (500'));
 });
+
+test('renderScoreboard: Reihenfolge folgt dem Namen, nicht den Werten - in jeder Tabelle, bei guten wie bei schlechten Werten des spaeteren Namens', () => {
+  const rowsOf = (md, heading) => md.split(heading)[1].split('\n## ')[0].split('\n').filter((l) => /^\| (ALPHA|ZETA)/.test(l)).map((l) => l.split('|')[1].trim());
+  for (const [alphaWins, label] of [[false, 'zeta has the better numbers'], [true, 'alpha has the better numbers']]) {
+    const good = { hits: ['B1', 'B2', 'B3', 'B4'], bugs: bugs(4, 4), tokens: 100, wall: 60, cost: 0.1, calls: 5 };
+    const poor = { hits: [], bugs: bugs(4, 0), tokens: 9000, wall: 3000, cost: 9, calls: 90, fa: { decoy: 3, decided: 0, unreviewed: 2, total: 3 } };
+    const md = renderScoreboard(aggregate([
+      explore('alpha', 1, alphaWins ? good : poor), explore('zeta', 1, alphaWins ? poor : good),
+      capture('alpha', 1, alphaWins), capture('zeta', 1, !alphaWins),
+    ]));
+    for (const h of ['## Explore', '## Capture and integrity', '## Cost, explore sessions', '## Cost, capture sessions']) {
+      assert.deepEqual(rowsOf(md, h), ['ALPHA', 'ZETA'], `${h}: ${label}`);
+    }
+  }
+});
+
+test('renderScoreboard: kein Sieger-, Platz- oder Bestenwort in der Tafel, aber der Hinweis "no ranking" steht drin', () => {
+  const md = renderScoreboard(aggregate([
+    explore('alpha', 1, { hits: ['B1', 'B2', 'B3', 'B4'], bugs: bugs(4, 4) }), explore('zeta', 1, { hits: [], bugs: bugs(4, 0) }), human('anna', 1, ['B1']),
+  ]));
+  assert.match(md, /no ranking/, 'Gegenprobe: the sentence that rules a ranking out is there');
+  assert.doesNotMatch(md, /\b(winner|best|worst|leader|leaderboard|1st|first place|rank\s*\d|#\s*1)\b/i);
+});
