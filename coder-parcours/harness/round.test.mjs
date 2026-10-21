@@ -357,3 +357,24 @@ test('CLI round.mjs report: schreibt token-report.md und gibt den Pfad aus; ohne
     assert.match(noRound.stderr, /usage: node harness\/round\.mjs run/);
   } finally { done(); }
 });
+
+test('--resume faehrt eine abgebrochene Sitzung (liegt nur in aborted/) neu und ueberspringt die fertigen', async () => {
+  const { resultsRoot, done } = setup();
+  try {
+    const first = [];
+    const out1 = await runRound({ round: 'rab', participants: ['a', 'b'], types: ['explore'], seeds: [1, 2], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot, { log: first, abortAt: [2] }) });
+    assert.equal(first.length, 4);
+    assert.equal(out1.aborted.length, 1);
+    const abortedItem = out1.aborted[0];
+    const second = [];
+    const out2 = await runRound({ round: 'rab', resume: true, participants: ['a', 'b'], types: ['explore'], seeds: [1, 2], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot, { log: second }) });
+    assert.equal(second.length, 1, 'only the aborted session runs again');
+    assert.deepEqual({ slug: second[0].slug, type: second[0].type, seed: second[0].seed }, abortedItem);
+    assert.equal(out2.skipped, 3);
+    assert.deepEqual(out2.aborted, []);
+    // Gegenprobe: a second resume now finds everything done
+    const third = [];
+    await runRound({ round: 'rab', resume: true, participants: ['a', 'b'], types: ['explore'], seeds: [1, 2], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot, { log: third }) });
+    assert.equal(third.length, 0);
+  } finally { done(); }
+});
