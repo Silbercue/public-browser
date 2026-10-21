@@ -7,7 +7,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCatalog } from '../catalog/load.mjs';
 import { buildRunConfig, loadSeeds } from '../harness/seed.mjs';
-import { createServer, nullEngine } from './app.mjs';
+import { createServer } from './app.mjs';
+import { createBugEngine } from './bug-engine.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -71,7 +72,7 @@ export async function main(argv) {
     reportsFile: fromRoot(values.reports),
     staticDir: values.static === 'app/dist' ? resolve(ROOT, 'app/dist') : resolve(process.cwd(), values.static),
     adminToken: values['admin-token-env'] ? process.env[values['admin-token-env']] || null : null,
-    makeEngine: () => nullEngine,
+    makeEngine: (cfg, { logEvent }) => createBugEngine({ catalog, runConfig: cfg, logEvent }),
   };
 
   let srv;

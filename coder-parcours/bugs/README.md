@@ -94,13 +94,18 @@ activated width (empty for `all`).
 - `client.css(ctx) → string` runs **on the server**. For a width other than `all` the engine wraps the
   result in `@media <media> { ... }`.
 - `client.setup(api, ctx)` runs in the browser. `api` is bound to this bug:
-  - `api.css(text)` — add CSS.
-  - `api.onSection(name, fn(el))` — call `fn` for every new element with `data-section=name`.
-  - `api.patch(selector, fn(el))` — call `fn` once per matching element, again after every DOM change
-    for new elements (survives React re-renders).
-  - `api.fetch(fn(url, init) → { delayMs?, status?, body? } | void)` — intercept the app's fetch calls.
-  - `api.swallowFirstClick(selector)` — the first click per element is swallowed and reports
-    `reached`, the second goes through and reports `passed`.
+  - `api.css(text)` — add CSS (raw: no media wrapper; use `api.matches()` or your own `@media`).
+  - `api.onSection(name, fn(el))` — call `fn` once for every element with `data-section=name`, including
+    elements created later (a re-rendered section counts as new). Not gated by the width; check `api.matches()` yourself.
+  - `api.patch(selector, fn(el))` — call `fn` once per matching element, but only while `api.matches()` is true;
+    re-scans after every DOM change and every resize, so new elements (React re-renders) and a live change
+    into the activation width are both caught. Elements patched once are not patched again.
+  - `api.fetch(fn(url, init) → { delayMs?, status?, body? } | void)` — intercept the app's fetch calls
+    (only while `api.matches()` is true; the metrics beacon is never intercepted). `delayMs` delays the call;
+    `status`/`body` (object or string) replace the answer with a synthetic JSON response.
+  - `api.swallowFirstClick(selector)` — the first click per element (checked live, also only while `api.matches()`)
+    is swallowed and reports `reached`, the second goes through and reports `passed`. A re-created element
+    counts as a new element.
   - `api.beacon(event)` — only `'reached'` or `'passed'`; anything else throws.
   - `api.matches()` — whether the current width equals the activation width, checked live via
     `matchMedia` (check it on every event, not once at load).
@@ -113,10 +118,11 @@ activated width (empty for `all`).
 - `api.before(key, fn(hctx))` — runs before the route logic. `key` is `'<METHOD> <path>'`, e.g.
   `'POST /api/cart/coupon'`. If the hook calls `hctx.respond(status, body)`, the route ends there.
 - `api.after(key, fn(hctx, body) → body)` — runs on the response body.
-- `api.event(name)` — report a trap event (`'reached'` / `'passed'`).
+- `api.event(name)` — report a trap event (`'reached'` / `'passed'`) right when `setup` runs. Inside a hook use
+  `hctx.event(name)`; both write a `bug` line with the bug's ID to the event file.
 
 Hook context `hctx`: `{ req, body, sandbox, session, validate, respond(status, body), event(name),
-expireSession(), cart() }`. `validate` is `true` by default; a hook may set it to `false` to skip the
+expireSession(), cart() }` (`event(name)` already knows the bug ID; writing `hctx.validate = false` reaches the route). `validate` is `true` by default; a hook may set it to `false` to skip the
 range and double-booking checks. `cart()` returns the current cart of this client in the shape of
 `GET /api/cart` (await it). Hooks may be `async`.
 
@@ -124,6 +130,21 @@ range and double-booking checks. `cart()` returns the current cart of this clien
 response.** `expireSession()` drops the login of the current client on the server (the cookie and
 the cart stay); from then on the server answers protected routes with `401 session_expired` and logs
 the event itself.
+
+## Beacons and the shipped script
+
+The engine (`createBugEngine` in `server/bug-engine.mjs`) serves the browser part as `/assets/runtime.js`.
+It contains the runtime (`server/client-runtime.js`, identified by `RUNTIME_MARKER`) and one start call
+per active client bug; bug IDs, titles, symptoms and grader texts never appear in it. Each bug gets a key
+`sha256(salt + id)[0..8]`; per session, bug and event a random 8-hex code is generated.
+
+- Trap events leave the browser as `POST /api/metrics` with `{"b": key, "e": code}`, both 8 hex characters.
+  The words `reached`/`passed` never travel. The server resolves them with `decodeBeacon(b, e)`.
+- **Neutral beacons** of the same form with random values go out on every click and every `pushState`/`popstate`;
+  `decodeBeacon` answers `null`, no event is written. A click that already sends a trap beacon sends no extra
+  neutral one, so a request alone does not tell where a trap sits.
+- Because of this, a bug must report trap events only through `api.beacon` / `api.event` / `hctx.event`,
+  never through its own requests.
 
 ## Decoys
 

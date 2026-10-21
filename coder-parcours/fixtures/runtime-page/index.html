@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Runtime fixture</title>
+  <style>
+    button { height: 44px; padding: 0 12px; }
+  </style>
+</head>
+<body>
+  <p id="out">idle</p>
+  <button id="regen" type="button">Rebuild sections</button>
+  <section id="cartHost"></section>
+  <section id="scheduleHost"></section>
+  <script>
+    var booked = 0;
+    function cartHtml() {
+      return '<div data-section="cart"><button class="c" type="button">One</button><button class="c" type="button">Two</button></div>';
+    }
+    function scheduleHtml() {
+      return '<div data-section="schedule"><button class="s" type="button">Book</button></div>';
+    }
+    function build() {
+      document.getElementById('cartHost').innerHTML = cartHtml();
+      document.getElementById('scheduleHost').innerHTML = scheduleHtml();
+    }
+    build();
+    // Like a framework redraw: the whole section is thrown away and created again.
+    document.getElementById('regen').addEventListener('click', build);
+    document.addEventListener('click', function (ev) {
+      if (ev.target && ev.target.className === 's') {
+        booked += 1;
+        document.getElementById('out').textContent = 'booked ' + booked;
+      }
+    });
+  </script>
+</body>
+</html>
