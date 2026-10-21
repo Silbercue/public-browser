@@ -144,6 +144,19 @@ test.describe('client api on a throwaway bug', () => {
     await expect(page.locator('.c').first()).toHaveAttribute('data-p', '1');
   });
 
+  test('patch is undone when the width is left and applied again on return (K-T4-2)', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto(app.url);
+    await runTest(page, '(max-width: 600px)', `api.patch('[data-section="cart"] button', function (el) { el.dataset.p = 'on'; return function () { delete el.dataset.p; }; });`);
+    await expect(page.locator('.c').first()).toHaveAttribute('data-p', 'on');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator('.c').first()).not.toHaveAttribute('data-p', /.*/);
+    await expect(page.locator('.c').nth(1)).not.toHaveAttribute('data-p', /.*/);
+    await page.setViewportSize({ width: 390, height: 800 });
+    await expect(page.locator('.c').first()).toHaveAttribute('data-p', 'on');
+    await expect(page.locator('.c').nth(1)).toHaveAttribute('data-p', 'on');
+  });
+
   test('onSection fires for every new section element', async ({ page }) => {
     await page.goto(app.url);
     await runTest(page, '', `window.__seen = 0; api.onSection('cart', function () { window.__seen += 1; });`);
@@ -191,6 +204,24 @@ test.describe('client api on a throwaway bug', () => {
     await expect(page.locator('#out')).toHaveText('booked 1');
     await page.setViewportSize({ width: 390, height: 800 });
     await page.click('#regen');
+    await page.click('.s');
+    await expect(page.locator('#out')).toHaveText('booked 1');
+    await page.click('.s');
+    await expect(page.locator('#out')).toHaveText('booked 2');
+  });
+
+  test('swallowFirstClick starts again with a first click after the width was left (K-T4-2)', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto(app.url);
+    await runTest(page, '(max-width: 600px)', `api.swallowFirstClick('.s');`);
+    await page.click('.s');
+    await expect(page.locator('#out')).toHaveText('idle');
+    await page.click('.s');
+    await expect(page.locator('#out')).toHaveText('booked 1');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 150)));
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 150)));
     await page.click('.s');
     await expect(page.locator('#out')).toHaveText('booked 1');
     await page.click('.s');

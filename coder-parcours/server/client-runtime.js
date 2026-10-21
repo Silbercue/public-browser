@@ -50,13 +50,24 @@ function __swBoot(cfg) {
     var i;
     for (i = 0; i < patchers.length; i++) {
       var p = patchers[i];
-      if (!p.bug.matches()) continue;
+      if (!p.bug.matches()) {
+        // Width left: undo what the patch did (fn may return an undo function) and allow a fresh patch on return.
+        p.undo.forEach(function (undo) { try { undo(); } catch (err) { /* element gone */ } });
+        p.undo.clear();
+        p.done = new WeakSet();
+        continue;
+      }
       var els = document.querySelectorAll(p.selector);
       for (var j = 0; j < els.length; j++) {
         if (p.done.has(els[j])) continue;
         p.done.add(els[j]);
-        p.fn(els[j]);
+        var undo = p.fn(els[j]);
+        if (typeof undo === 'function') p.undo.set(els[j], undo);
       }
+    }
+    for (i = 0; i < swallowers.length; i++) {
+      // Width left: the next click inside the width counts as a first click again.
+      if (!swallowers[i].bug.matches()) swallowers[i].seen = new WeakMap();
     }
     for (i = 0; i < sectionWatchers.length; i++) {
       var w = sectionWatchers[i];
@@ -163,7 +174,7 @@ function __swBoot(cfg) {
     bug.api = {
       css: function (text) { addCss(text); },
       onSection: function (name, fn) { sectionWatchers.push({ name: name, fn: fn, done: new WeakSet() }); scan(); },
-      patch: function (selector, fn) { patchers.push({ bug: bug, selector: selector, fn: fn, done: new WeakSet() }); scan(); },
+      patch: function (selector, fn) { patchers.push({ bug: bug, selector: selector, fn: fn, done: new WeakSet(), undo: new Map() }); scan(); },
       fetch: function (fn) { fetchHooks.push({ bug: bug, fn: fn }); },
       swallowFirstClick: function (selector) { swallowers.push({ bug: bug, selector: selector, seen: new WeakMap() }); },
       beacon: bug.beacon,
