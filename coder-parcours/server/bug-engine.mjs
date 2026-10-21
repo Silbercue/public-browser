@@ -84,7 +84,10 @@ export function createBugEngine({ catalog, runConfig, salt = randomBytes(8).toSt
     }
   }
 
-  const beaconCodes = Object.fromEntries([...codes.values()].map((c) => [c.key, [c.reached, c.passed]]));
+  // Only bugs with a client.setup send beacons; a code entry for any other bug would show the variant in the script.
+  const beaconCodes = Object.fromEntries(
+    [...codes].filter(([id]) => byId.get(id).client?.setup).map(([, c]) => [c.key, [c.reached, c.passed]]),
+  );
   let script = null;
 
   return {

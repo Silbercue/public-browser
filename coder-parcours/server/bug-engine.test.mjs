@@ -256,3 +256,22 @@ test('beacon: a mac made from the key of one bug and the code of another bug res
   assert.equal(e.decodeBeacon(bb, mac(`${a.key}|${b.reached}|${bb}`)), null, 'key of F03 + code of F01');
   assert.equal(e.decodeBeacon(bb, mac(`${b.key}|${a.passed}|${bb}`)), null, 'key of F01 + code of F03');
 });
+
+test('F10: a server-only bug leaves the runtime script byte-identical to the healthy one', async () => {
+  const publicCat = await loadCatalog({ publicDir: 'bugs/public' });
+  const serverOnly = [...catalog.bugs, ...publicCat.bugs].filter((b) => b.server?.setup && !b.client);
+  assert.ok(serverOnly.length >= 2, 'several server-only bugs are covered');
+  for (const [cat, bug] of [...catalog.bugs.filter((b) => b.server?.setup && !b.client).map((b) => [catalog, b]),
+    ...publicCat.bugs.filter((b) => b.server?.setup && !b.client).map((b) => [publicCat, b])]) {
+    const station = bug.stations[0];
+    const width = bug.widths[0];
+    const mk = (activate) => createBugEngine({ catalog: cat, runConfig: buildRunConfig({ seed: 7, sessionType: 'explore', catalog: cat, activate }) });
+    const broken = mk([{ id: bug.id, station, width }]);
+    assert.deepEqual(broken.activeIds, [bug.id]);
+    assert.equal(broken.runtimeScript(), mk([]).runtimeScript(), `${bug.id} must not change the script`);
+  }
+  // positive: a bug with client.setup does add a beacon code
+  const withSetup = engine('F03@schedule:all').e.runtimeScript();
+  assert.notEqual(withSetup, engine('').e.runtimeScript());
+  assert.ok(withSetup.includes('__sw.run('));
+});
