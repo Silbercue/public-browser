@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { loadCatalog } from '../catalog/load.mjs';
 import { buildRunConfig } from '../harness/seed.mjs';
 import { createServer } from './app.mjs';
+import { TEST_ACCOUNTS } from '../shared/accounts.mjs';
 import { createBugEngine, RUNTIME_MARKER } from './bug-engine.mjs';
 
 const catalog = await loadCatalog({ publicDir: 'fixtures/bugs' });
@@ -181,4 +182,77 @@ test('through the server: metrics beacon with a trap code writes a bug line, a s
     assert.equal(bugLines[0].bug, 'F03');
     assert.equal(bugLines[0].event, 'reached');
   } finally { await h.close(); }
+});
+
+/** Real server with the real engine and the fixture catalog (plus optional extra bugs); returns a cookie-keeping fetch helper. */
+async function serverWithEngine(activate, extraBugs = []) {
+  const dir = mkdtempSync(join(tmpdir(), 'cp-engine-http-'));
+  const staticDir = join(dir, 's');
+  mkdirSync(staticDir);
+  writeFileSync(join(staticDir, 'index.html'), '<!doctype html><html><head></head><body></body></html>');
+  const cat = { ...catalog, bugs: [...catalog.bugs, ...extraBugs] };
+  const cfg = buildRunConfig({ seed: 2601, sessionType: 'explore', catalog: cat, activate });
+  const srv = createServer({
+    mode: 'single', runConfig: cfg, eventsFile: join(dir, 'events.jsonl'), staticDir,
+    makeEngine: (rc, { logEvent }) => createBugEngine({ catalog: cat, runConfig: rc, logEvent }),
+  });
+  const h = await srv.listen(0);
+  const base = `http://127.0.0.1:${h.port}`;
+  let cookie = '';
+  const call = async (method, path, body) => {
+    const res = await fetch(base + path, {
+      method, headers: { ...(cookie ? { cookie } : {}), 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const jar = res.headers.getSetCookie().map((c) => c.split(';')[0]).filter((c) => !/=$/.test(c));
+    if (jar.length) cookie = [...new Set([...cookie.split('; ').filter(Boolean), ...jar])].join('; ');
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  return { call, close: () => h.close() };
+}
+
+test('engine hook proxy over HTTP: cart() and respond() of a before hook run through the proxy (F02), the control without the bug discounts', async () => {
+  for (const [active, expectDiscount] of [[[{ id: 'F02', station: 'cart', width: 'all' }], false], [[], true]]) {
+    const s = await serverWithEngine(active);
+    try {
+      const all = (await s.call('GET', '/api/classes')).json.classes;
+      const k = all.find((c) => !c.ended && c.spotsLeft > 2);
+      await s.call('POST', '/api/cart/items', { classId: k.id, spots: 1 });
+      const r = await s.call('POST', '/api/cart/coupon', { code: 'YOGA10' });
+      assert.equal(r.status, 200);
+      assert.equal(r.json.items.length, 1, 'answer is the cart view');
+      assert.equal(r.json.discountCents > 0, expectDiscount, expectDiscount ? 'control: coupon lowers the total' : 'bug: answer shows the unchanged cart');
+    } finally { await s.close(); }
+  }
+});
+
+test('engine hook proxy over HTTP: expireSession() called by a bug hook expires the session, the control without the bug keeps it', async () => {
+  /** @type {any} */
+  const f09 = {
+    id: 'F09', category: 'timing', title: 't', stations: ['cart'], widths: ['all'], severity: 'low', symptom: 's', grader: 'g',
+    server: { setup(api) { let fired = false; api.before('GET /api/cart', (ctx) => { if (!fired) { fired = true; ctx.expireSession(); } }); } },
+  };
+  for (const [active, expectExpired] of [[[{ id: 'F09', station: 'cart', width: 'all' }], true], [[], false]]) {
+    const s = await serverWithEngine(active, [f09]);
+    try {
+      const [maya] = TEST_ACCOUNTS;
+      assert.equal((await s.call('POST', '/api/auth/login', { email: maya.email, password: maya.password })).status, 200);
+      assert.equal((await s.call('GET', '/api/profile')).status, 200, 'logged in before the hook fires');
+      await s.call('GET', '/api/cart');
+      const r = await s.call('GET', '/api/profile');
+      assert.equal(r.status, expectExpired ? 401 : 200, expectExpired ? 'session expired by the bug hook' : 'control: no hook, session lives');
+      if (expectExpired) assert.equal(r.json.error, 'session_expired');
+    } finally { await s.close(); }
+  }
+});
+
+test('beacon: a mac made from the key of one bug and the code of another bug resolves to nothing', async () => {
+  const { e } = engine('F03@schedule:all,F01@cart:phone');
+  const src = readFileSync(new URL('./client-runtime.js', import.meta.url), 'utf8');
+  const mac = new Function(`${src}\nreturn __swMac;`)();
+  const a = e.codesFor('F03');
+  const b = e.codesFor('F01');
+  const bb = '0badf00d';
+  assert.deepEqual(e.decodeBeacon(bb, mac(`${a.key}|${a.reached}|${bb}`)), { bug: 'F03', event: 'reached' }, 'positive: own key + own code resolves');
+  assert.equal(e.decodeBeacon(bb, mac(`${a.key}|${b.reached}|${bb}`)), null, 'key of F03 + code of F01');
+  assert.equal(e.decodeBeacon(bb, mac(`${b.key}|${a.passed}|${bb}`)), null, 'key of F01 + code of F03');
 });
