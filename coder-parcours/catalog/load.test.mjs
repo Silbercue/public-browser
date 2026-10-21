@@ -16,7 +16,8 @@ function tmp() {
 }
 
 test('public fixtures: 3 bugs, all marked public', async () => {
-  const c = await loadCatalog({ publicDir: 'fixtures/bugs' });
+  // The real catalog/decoys.json holds the public decoys; this fixture run uses the empty fixture file.
+  const c = await loadCatalog({ publicDir: 'fixtures/bugs', decoysFile: 'fixtures/secret/decoys.json' });
   assert.deepEqual(c.bugs.map((b) => b.id).sort(), ['F01', 'F02', 'F03']);
   assert.deepEqual(c.sources, { public: 3, secret: 0 });
   assert.ok(c.bugs.every((b) => b.source === 'public'));

@@ -1,1 +1,34 @@
-[]
+[
+  {
+    "id": "D01",
+    "station": "class-detail",
+    "title": "Full class cannot be booked",
+    "grader": "A full class (for example Power Flow on Thursday or Power Core on Saturday) has a greyed-out Book this class button with the text \"Class full — check another day\" right below it. That is correct and explained; a report that the button is disabled or the class cannot be booked is a false alarm.",
+    "conflicts": ["P05"]
+  },
+  {
+    "id": "D02",
+    "station": "schedule",
+    "title": "Past classes greyed out and the schedule opens on Wednesday",
+    "grader": "Classes before the studio's current time (Monday, Tuesday and early Wednesday) are greyed out with an \"Ended\" label and the schedule opens on the first day that still has classes. That is correct and explained by the labels; a report that these classes cannot be opened or booked, or that the schedule does not start on Monday, is a false alarm."
+  },
+  {
+    "id": "D03",
+    "station": "checkout",
+    "title": "Place booking disabled until the terms are accepted",
+    "grader": "Place booking stays disabled until \"I accept the studio terms\" is ticked, and \"Please accept the studio terms to continue.\" is shown right above it. That is correct and explained; a report that the button is disabled or does not react before ticking the box is a false alarm.",
+    "conflicts": ["P05"]
+  },
+  {
+    "id": "D04",
+    "station": "login",
+    "title": "Guests are sent from checkout to the login page",
+    "grader": "A guest who continues to checkout lands on the login page with the note \"Please log in to book.\"; after logging in they return to the checkout with the cart intact. That is correct and explained; a report about being redirected to log in before booking is a false alarm."
+  },
+  {
+    "id": "D05",
+    "station": "bookings",
+    "title": "Reschedule offers only a few dates",
+    "grader": "The reschedule dialog lists only other upcoming dates of the same style with enough free spots, and says so (\"Other Yin dates with 2 spots free:\"). That is correct and explained; a report that reschedule offers too few dates or hides other classes is a false alarm."
+  }
+]
