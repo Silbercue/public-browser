@@ -123,7 +123,7 @@ test('Menschen-Sitzung ohne Kosten bricht die Tafel nicht (cost null)', () => {
   assert.match(md, /Human/);
 });
 
-const graded = (r, model, sha = 'p1') => ({ ...r, grading: { model, prompt_sha256: sha, usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0 }, matches: [] } });
+const graded = (r, model, sha = 'p1', flags = undefined) => ({ ...r, grading: { model, prompt_sha256: sha, ...(flags ? { flags } : {}), usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0 }, matches: [] } });
 
 test('aggregate: verschiedene Pruefer-Modelle oder Pruefer-Prompts werfen mit Wert und Datei; n/a-Eintraege zaehlen nicht', () => {
   assert.throws(() => aggregate([graded(explore('pb', 1), 'sonnet-a'), graded(explore('aa', 2), 'sonnet-b')]), (/** @type {any} */ e) => {
@@ -134,7 +134,7 @@ test('aggregate: verschiedene Pruefer-Modelle oder Pruefer-Prompts werfen mit We
   });
   assert.throws(() => aggregate([graded(explore('pb', 1), 'sonnet-a', 'p1'), graded(explore('aa', 2), 'sonnet-a', 'p2')]), /grader prompt checksum/);
   const ok = aggregate([graded(explore('pb', 1), 'sonnet-a'), graded(explore('aa', 2), 'sonnet-a'), graded(capture('pb', 1, true), 'n/a (capture session)', 'other'), explore('aa', 3)]);
-  assert.deepEqual(ok.grader, { model: 'sonnet-a', prompt_sha256: 'p1' });
+  assert.deepEqual(ok.grader, { model: 'sonnet-a', prompt_sha256: 'p1', flags: null });
   assert.match(renderScoreboard(ok), /Grader model: sonnet-a/);
 });
 
@@ -218,4 +218,21 @@ test('CLI score.mjs: schreibt scoreboard.json und .md aus graded/, ohne Runde Ex
     assert.match(missing.stderr, /no graded folder.*run node harness\/grade\.mjs first/);
     assert.ok(!existsSync(join(root, 'r9', 'scoreboard.md')), 'nothing written for a round without graded sessions');
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('aggregate: verschiedene Pruefer-Flags werfen, gleiche stehen in Tafel und Daten (K-T15-5)', () => {
+  const f1 = ['--tools', ''];
+  const f2 = ['--tools', 'Bash'];
+  assert.throws(() => aggregate([graded(explore('pb', 1), 'sonnet-a', 'p1', f1), graded(explore('aa', 2), 'sonnet-a', 'p1', f2)]), /grader flags/);
+  const ok = aggregate([graded(explore('pb', 1), 'sonnet-a', 'p1', f1), graded(explore('aa', 2), 'sonnet-a', 'p1', f1)]);
+  assert.deepEqual(ok.grader.flags, f1);
+  assert.match(renderScoreboard(ok), /grader flags: --tools /);
+});
+
+test('aggregate: unbekanntes Agenten-Modell ist ein Fehler, kein Modell "unknown"', () => {
+  assert.throws(() => aggregate([explore('pb', 1, { model: 'unknown' })]), /no exact model id/);
+  const noModel = explore('pb', 1);
+  delete noModel.model;
+  assert.throws(() => aggregate([noModel]), /no exact model id/);
+  assert.deepEqual(aggregate([explore('pb', 1)]).models, ['claude-opus-5-20260101'], 'Gegenprobe: mit Modell laeuft es');
 });

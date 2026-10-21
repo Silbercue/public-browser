@@ -59,7 +59,7 @@ const TELLTALE = {
   'playwright-cli': ['playwright', 'playwright-cli', 'playwright cli', 'pwcli', '@playwright/cli'],
 };
 /** Reference styles of the tools: `@e3` (CLI snapshots) and `uid=1_4` (DevTools snapshots). */
-const REF_PATTERNS = ['@e\\d+', 'uid=[\\w.:-]+'];
+const REF_PATTERNS = ['(?<![\\w.])@e\\d+(?!\\w)', '(?<![\\w.])uid=\\d+_\\d+(?![\\w])'];
 
 /**
  * Names under which a participant could appear in its own texts.
@@ -590,63 +590,67 @@ export async function gradeRound({ round, resultsRoot = RESULTS_ROOT, recall = f
 
   const written = [];
   let calls = 0;
-  for (const name of readdirSync(sessionsDir).filter((n) => n.endsWith('.json')).sort()) {
-    const result = JSON.parse(readFileSync(join(sessionsDir, name), 'utf8'));
-    if (sessionFileOf(result) !== name) throw new Error(`grade: ${name} does not match its content (expected ${sessionFileOf(result)})`);
-    const outPath = join(gradedDir, name);
-    const prev = readJson(outPath, null);
-    // earlier spending on this file, whatever happens to the matches now
-    const prevCalls = Array.isArray(prev?.grading?.calls) ? prev.grading.calls
-      : !isZeroUsage(prev?.grading?.usage) ? [{ model: prev.grading.model, prompt_sha256: prev.grading.prompt_sha256, usage: prev.grading.usage }] : [];
-    const prevUsage = prev?.grading?.usage ?? ZERO_USAGE();
-    let grading;
-    if (result.session.type === 'capture') {
-      grading = { model: 'n/a (capture session)', flags: [], prompt_sha256: promptSha, usage: ZERO_USAGE(), matches: [] };
-    } else {
-      const same = !recall && prev && prev.session?.run_config_sha256 === result.session.run_config_sha256
-        && JSON.stringify(prev.report?.normalized?.findings) === JSON.stringify(result.report?.normalized?.findings);
-      if (same && prev.grading) grading = prev.grading;
-      else {
-        const input = buildGraderInput({ result, catalog });
-        if (!input.findings.length) {
-          grading = { model: 'n/a (no findings)', flags: [], prompt_sha256: promptSha, usage: ZERO_USAGE(), matches: [] };
-        } else {
-          let g;
-          try {
-            g = await runGrader(input, { ...d, promptText });
-          } catch (err) {
-            const lost = /** @type {any} */ (err)?.usage;
-            if (!isZeroUsage(lost)) { spent[name] = addUsage(spent[name], lost); saveSpent(); }
-            throw err;
+  try {
+    for (const name of readdirSync(sessionsDir).filter((n) => n.endsWith('.json')).sort()) {
+      const result = JSON.parse(readFileSync(join(sessionsDir, name), 'utf8'));
+      if (sessionFileOf(result) !== name) throw new Error(`grade: ${name} does not match its content (expected ${sessionFileOf(result)})`);
+      const outPath = join(gradedDir, name);
+      const prev = readJson(outPath, null);
+      // earlier spending on this file, whatever happens to the matches now
+      const prevCalls = Array.isArray(prev?.grading?.calls) ? prev.grading.calls
+        : !isZeroUsage(prev?.grading?.usage) ? [{ model: prev.grading.model, prompt_sha256: prev.grading.prompt_sha256, usage: prev.grading.usage }] : [];
+      const prevUsage = prev?.grading?.usage ?? ZERO_USAGE();
+      let grading;
+      if (result.session.type === 'capture') {
+        grading = { model: 'n/a (capture session)', flags: [], prompt_sha256: promptSha, usage: ZERO_USAGE(), matches: [] };
+      } else {
+        const same = !recall && prev && prev.session?.run_config_sha256 === result.session.run_config_sha256
+          && prev.grading?.prompt_sha256 === promptSha
+          && JSON.stringify(prev.report?.normalized?.findings) === JSON.stringify(result.report?.normalized?.findings);
+        if (same && prev.grading) grading = prev.grading;
+        else {
+          const input = buildGraderInput({ result, catalog });
+          if (!input.findings.length) {
+            grading = { model: 'n/a (no findings)', flags: [], prompt_sha256: promptSha, usage: ZERO_USAGE(), matches: [] };
+          } else {
+            let g;
+            try {
+              g = await runGrader(input, { ...d, promptText });
+            } catch (err) {
+              const lost = /** @type {any} */ (err)?.usage;
+              if (!isZeroUsage(lost)) { spent[name] = addUsage(spent[name], lost); saveSpent(); }
+              throw err;
+            }
+            calls++;
+            const owed = spent[name];
+            delete spent[name];
+            const entry = { model: g.model, prompt_sha256: promptSha, usage: addUsage(g.usage, owed) };
+            grading = { model: g.model, flags: g.flags, prompt_sha256: promptSha, usage: entry.usage, matches: g.matches, calls: [entry] };
           }
-          calls++;
-          const owed = spent[name];
-          delete spent[name];
-          const entry = { model: g.model, prompt_sha256: promptSha, usage: addUsage(g.usage, owed) };
-          grading = { model: g.model, flags: g.flags, prompt_sha256: promptSha, usage: entry.usage, matches: g.matches, calls: [entry] };
         }
       }
+      if (grading !== prev?.grading) {
+        // not reused: keep everything spent before
+        grading = { ...grading, usage: addUsage(prevUsage, grading.usage), ...(prevCalls.length || grading.calls ? { calls: [...prevCalls, ...(grading.calls ?? [])] } : {}) };
+      }
+      const graded0 = { ...result, schema: GRADED_SCHEMA, grading };
+      const stale = staleDecisionKeys(result, decisions);
+      for (const k of stale) log(`grade: ${name}: decision ${k} is stale (the finding changed since); not applied`);
+      const classes = result.session.type === 'capture' ? [] : classifyFindings({ result, catalog, grading, decisions });
+      grading = { ...grading, decisions: {
+        applied: classes.filter((c) => c.byDecision).map((c) => ({ key: c.key, verdict: decisions[c.key].verdict, ...(decisions[c.key].id ? { id: decisions[c.key].id } : {}) })),
+        stale,
+      } };
+      const metrics = scoreSession({ result, catalog, grading, decisions });
+      const graded = { ...graded0, grading, metrics };
+      const problems = validateGradedResult(graded);
+      if (problems.length) throw new Error(`grade: ${name}: ${problems.join('; ')}`);
+      writeFileSync(outPath, `${JSON.stringify(graded, null, 2)}\n`);
+      written.push(outPath);
     }
-    if (grading !== prev?.grading) {
-      // not reused: keep everything spent before
-      grading = { ...grading, usage: addUsage(prevUsage, grading.usage), ...(prevCalls.length || grading.calls ? { calls: [...prevCalls, ...(grading.calls ?? [])] } : {}) };
-    }
-    const graded0 = { ...result, schema: GRADED_SCHEMA, grading };
-    const stale = staleDecisionKeys(result, decisions);
-    for (const k of stale) log(`grade: ${name}: decision ${k} is stale (the finding changed since); not applied`);
-    const classes = result.session.type === 'capture' ? [] : classifyFindings({ result, catalog, grading, decisions });
-    grading = { ...grading, decisions: {
-      applied: classes.filter((c) => c.byDecision).map((c) => ({ key: c.key, verdict: decisions[c.key].verdict, ...(decisions[c.key].id ? { id: decisions[c.key].id } : {}) })),
-      stale,
-    } };
-    const metrics = scoreSession({ result, catalog, grading, decisions });
-    const graded = { ...graded0, grading, metrics };
-    const problems = validateGradedResult(graded);
-    if (problems.length) throw new Error(`grade: ${name}: ${problems.join('; ')}`);
-    writeFileSync(outPath, `${JSON.stringify(graded, null, 2)}\n`);
-    written.push(outPath);
+  } finally {
+    saveSpent(); // also when a later session throws: settled postings must not stay in the file (they would be counted twice)
   }
-  saveSpent();
   log(`grade: ${written.length} sessions graded, ${calls} grader calls -> ${gradedDir}`);
   return written;
 }

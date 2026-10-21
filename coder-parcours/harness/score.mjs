@@ -38,7 +38,8 @@ function checkModels(graded) {
   const byModel = new Map();
   for (const r of graded) {
     if (r.participant?.kind === 'human') continue;
-    const m = r.model ?? 'unknown';
+    const m = r.model;
+    if (typeof m !== 'string' || !m || m === 'unknown') throw new Error(`score: ${sessionFileOf(r)} has no exact model id (found ${JSON.stringify(m ?? null)}); a round with an unknown model is not comparable`);
     byModel.set(m, [...(byModel.get(m) ?? []), sessionFileOf(r)]);
   }
   if (byModel.size > 1) {
@@ -57,17 +58,20 @@ function checkGrader(graded) {
   const real = graded.filter((r) => r.grading && typeof r.grading.model === 'string' && !r.grading.model.startsWith('n/a'));
   /** @type {Record<string, string|null>} */
   const out = {};
-  for (const [field, label] of [['model', 'grader model'], ['prompt_sha256', 'grader prompt checksum']]) {
+  for (const [field, label] of [['model', 'grader model'], ['prompt_sha256', 'grader prompt checksum'], ['flags', 'grader flags']]) {
     /** @type {Map<string,string[]>} */
     const by = new Map();
-    for (const r of real) by.set(String(r.grading[field] ?? 'unknown'), [...(by.get(String(r.grading[field] ?? 'unknown')) ?? []), sessionFileOf(r)]);
+    for (const r of real) {
+      const v = field === 'flags' ? JSON.stringify(r.grading.flags ?? null) : String(r.grading[field] ?? 'unknown');
+      by.set(v, [...(by.get(v) ?? []), sessionFileOf(r)]);
+    }
     if (by.size > 1) {
       const lines = [...by].map(([v, files]) => `${v}: ${files.join(', ')}`);
       throw new Error(`score: more than one ${label} among graded sessions (round not comparable):\n${lines.join('\n')}`);
     }
     out[field] = [...by.keys()][0] ?? null;
   }
-  return { model: out.model, prompt_sha256: out.prompt_sha256 };
+  return { model: out.model, prompt_sha256: out.prompt_sha256, flags: out.flags === null || out.flags === undefined ? null : JSON.parse(out.flags) };
 }
 
 /** Teilnehmer-Version je slug muss ueber alle Agenten-Sitzungen gleich sein. @param {any[]} agents */
@@ -207,7 +211,10 @@ export function renderScoreboard(sb) {
   const out = [];
   out.push('# Scoreboard', '');
   out.push(`Agent model (exact id): ${sb.models.length ? sb.models.join(', ') : '—'}. Participants in alphabetical order; no ranking.`, '');
-  if (sb.grader?.model) out.push(`Grader model: ${sb.grader.model}; grader prompt checksum: ${sb.grader.prompt_sha256 ?? '—'}.`, '');
+  if (sb.grader?.model) {
+    out.push(`Grader model: ${sb.grader.model}; grader prompt checksum: ${sb.grader.prompt_sha256 ?? '—'}; grader flags: ${sb.grader.flags ? sb.grader.flags.join(' ') : '—'}.`, '',
+      'Rounds are only comparable when agent model, grader model, grader prompt checksum and grader flags are identical.', '');
+  }
   out.push(`Unreviewed findings (open until decided): ${sb.unreviewed}.`, '');
 
   const row = (label, cells) => `| ${label} | ${cells.join(' | ')} |`;

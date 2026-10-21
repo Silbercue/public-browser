@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -546,11 +547,11 @@ test('decisions flow into the graded file; a decision whose finding changed is s
   rmSync(dir, { recursive: true, force: true });
 });
 
-// Befund Code falsch (testgaps.md G12): grade.mjs gradeRound writes grading-spent.json only on the grader-failure path
+// (Schritt 6: Code behoben, Test aktiv.) Frueher: grade.mjs gradeRound wrote grading-spent.json only on the grader-failure path
 // and at the very end. When a later session throws for another reason (here: a file whose name does not match its content),
 // the settled posting of the first session stays in the file on disk although graded/ already carries its cost: the next
 // round report counts it twice. Un-skip when saveSpent() runs in a finally block.
-test.skip('a paid posting is settled on disk even when a later session throws for another reason', async () => {
+test('a paid posting is settled on disk even when a later session throws for another reason', async () => {
   const explore = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title: 'x' }] });
   const root = roundDir([explore]);
   let mode = 'broken';
@@ -570,10 +571,10 @@ test.skip('a paid posting is settled on disk even when a later session throws fo
   rmSync(root, { recursive: true, force: true });
 });
 
-// Befund Code falsch (testgaps.md G12): REF_PATTERNS ('@e\d+', 'uid=...') have no word boundary, so harmless finding text
+// (Schritt 6: Code behoben, Test aktiv.) Frueher: REF_PATTERNS ('@e\d+', 'uid=...') have no word boundary, so harmless finding text
 // loses detail for the grader ("foo@e2e.com" -> "foo[tool]e.com", "guid=abc" -> "g[tool]"). Un-skip when the patterns
 // only match whole references.
-test.skip('scrubber: tool refs are replaced, mail addresses and url parameters that merely contain them are not', async () => {
+test('scrubber: tool refs are replaced, mail addresses and url parameters that merely contain them are not', async () => {
   const { makeScrubber } = await import('./grade.mjs');
   const scrub = makeScrubber([]);
   assert.equal(scrub('click @e12 then uid=1_4'), 'click [tool] then [tool]', 'positive: real refs vanish');
@@ -642,4 +643,28 @@ test('scoreSession: without counted active bugs the hit rate is null, not 0 and 
   assert.equal(met.bugs.hit_rate, null);
   const some = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title: 'a' }] });
   assert.equal(scoreSession({ result: some, catalog, grading: { matches: [m(0, 'none')] }, decisions: {} }).bugs.hit_rate, 0, 'Gegenprobe: with an active bug and no hit it is 0');
+});
+
+test('gradeRound regrades without --recall when the grader prompt changed since the stored grading (and reuses with the same prompt)', async () => {
+  const explore = makeSession({ catalog, seed: SEED, activate: [act('B01', 'cart', 'phone')], findings: [{ title: 'match=B01' }] });
+  const root = roundDir([explore]);
+  const { dir, env } = cmdEnv();
+  const deps = { env, catalog, log: () => {}, promptText: 'grader prompt one' };
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  await gradeRound({ round: 'r1', resultsRoot: root }, deps);
+  assert.equal(calls(dir), 1, 'same prompt: reused');
+  await gradeRound({ round: 'r1', resultsRoot: root }, { ...deps, promptText: 'grader prompt two' });
+  assert.equal(calls(dir), 2, 'changed prompt: graded again');
+  const g = JSON.parse(readFileSync(join(root, 'r1', 'graded', fileOf(explore)), 'utf8')).grading;
+  assert.equal(g.prompt_sha256, createHash('sha256').update('grader prompt two').digest('hex'));
+  rmSync(root, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('trap: a replayed beacon (same event many times) counts once', () => {
+  const once = [ev('bug', { bug: 'B03', event: 'reached' }), ev('bug', { bug: 'B03', event: 'passed' })];
+  const replay = [...once, ...once, ...once];
+  const mk = (events) => scoreSession({ result: makeSession({ catalog, seed: SEED, activate: [act('B03', 'schedule', 'all')], events }), catalog, grading: { matches: [] }, decisions: {} }).traps;
+  assert.deepEqual(mk(replay), mk(once));
+  assert.deepEqual(mk(replay), { reached: 1, reported: 0, silently_bypassed: 1, stuck: 0, not_reached: 0 }, 'positive: the replay is not empty');
 });
