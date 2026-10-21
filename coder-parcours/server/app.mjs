@@ -15,6 +15,8 @@ import { loadSeeds } from '../harness/seed.mjs';
 /** Engine without bugs: no hooks, empty runtime, no beacon matches. */
 export const nullEngine = { hooks: createHookSet(), runtimeScript: () => '', decodeBeacon: () => null, activeIds: [] };
 
+/** The pages the app really has (App.tsx routes); any other path only gets the shell and does not count as a served request. */
+const KNOWN_PAGE = /^\/(?:(?:schedule|cart|checkout|login|register|profile|settings|bookings)|classes\/[^/]+|confirmation\/[^/]+)?\/?$/;
 const RUNTIME_TAG = '<script src="/assets/runtime.js"></script>';
 
 /** Safety limits; every value can be overridden through the `limits` option (tests do). */
@@ -625,7 +627,7 @@ export function createServer({
     const html = readFileSync(file, 'utf8');
     const m = /<head[^>]*>/i.exec(html);
     const out = m ? html.slice(0, m.index + m[0].length) + RUNTIME_TAG + html.slice(m.index + m[0].length) : RUNTIME_TAG + html;
-    if (onAppRequest && !/\.[a-z0-9]+$/i.test(req.path) && !/^\/(health|healthz|ping|status)\/?$/i.test(req.path)) onAppRequest();
+    if (onAppRequest && KNOWN_PAGE.test(req.path)) onAppRequest();
     res.set('Cache-Control', 'no-store').type('html').send(out);
   });
   // --- unknown /api, broken JSON -----------------------------------------------------------------

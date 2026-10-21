@@ -56,15 +56,16 @@ test('spawnAppServer countRequests: zaehlt Seitenaufruf und angenommene Routen, 
   const { staticDir } = fixtureStatic();
   const app = await spawnAppServer({ seed: 2601, session: 'capture', noBugs: true, staticDir, countRequests: true });
   try {
-    for (const p of ['api/health', 'health', 'healthz', 'favicon.ico', 'assets/x.js', 'api/nope']) await fetch(`${app.url}${p}`);
+    for (const p of ['api/health', 'health', 'healthz', 'favicon.ico', 'assets/x.js', 'api/nope', 'phantom', 'admin', 'classes', 'a/b/c']) await fetch(`${app.url}${p}`);
     await fetch(`${app.url}api/metrics`, { method: 'POST', body: '{}' });
     await fetch(`${app.url}api/admin/reports`);
     assert.equal(app.requests(), 0);
     await fetch(`${app.url}api/classes`);
     await fetch(app.url);
     await fetch(`${app.url}schedule`);
+    for (const p of ['cart', 'checkout', 'login', 'register', 'profile', 'settings', 'bookings', 'classes/c1', 'confirmation/ABC123']) await fetch(`${app.url}${p}`);
   } finally { await app.stop(); }
-  assert.equal(app.requests(), 3);
+  assert.equal(app.requests(), 3 + 9);
 });
 
 test('spawnAppServer ohne countRequests: requests() ist 0; start.mjs mit kaputter stdin-Konfiguration meldet ohne Pfade', async () => {
