@@ -13,6 +13,10 @@ difficult pages (cost and success per task). This one measures whether a tool le
 wrong with an app it did not write, and whether a recorded flow survives as a test. The two do not share
 scoring.
 
+One disclosure up front: the maintainer of this repository also develops Public Browser, one of the four
+participants. METHOD.md section 1 lists the controls that are meant to make that harmless (identical task
+texts, a different grader model, blinded grading, a sealed part of the catalog, published raw logs).
+
 The full method, including its limits, is in [METHOD.md](METHOD.md). Human testers use
 [HUMANS.md](HUMANS.md).
 
@@ -41,7 +45,8 @@ It installs dependencies (`npm ci`) and builds the front end on first use, then 
 
 Requirements: Node 24 or newer (the participant `agent-browser` declares `node >= 24`), Google Chrome,
 the `claude` command-line client logged in with a subscription or API access, `python3`, `jq`, `lsof`.
-Tested on macOS; Linux is supported (a visible display is required, browsers run with a window).
+Tested on macOS only; the harness is written for Linux as well (a visible display is required, browsers run
+with a window) but that is untested.
 
 ```bash
 cd coder-parcours
@@ -81,7 +86,8 @@ Grading costs tokens too: the grader runs once per explore session that has find
 | `CODER_PARCOURS_CLAUDE_BIN` | harness | Path of the `claude` client. Default: first `claude` on `PATH`, else `~/.local/bin/claude`. |
 | `CODER_PARCOURS_GRADER_CMD` | `grade.mjs` | Shell command that replaces the grader call. It gets the prompt on stdin and writes JSON (`{"matches": [...], "model": "..."}`) to stdout. Meant for tests and for using another grader model; the grader must not be the agents' model. |
 | `CODER_PARCOURS_PYTHON` | `setup.mjs` | Python used to create the venv. Default `python3`. |
-| `CODER_PARCOURS_PUBLIC_DIR` | catalog loader | Folder of the public bug modules. Default `bugs/public`. Used by tests. |
+| `CODER_PARCOURS_PUBLIC_DIR` | catalog loader | Folder of the public bug modules. Default `bugs/public`. Used by tests only: a measured session refuses to start while it is set. |
+| `CP_ALLOW_NO_VERIFY` | `seal.mjs` | Set to `1` to allow `unseal --no-verify` (tests only; without the author's checksum nothing proves the package). |
 | `CODER_PARCOURS_ADMIN_TOKEN` | hosted app | Admin token (at least 32 random characters, for example `openssl rand -base64 32`) for the report export. Passed with `--admin-token-env`. |
 | `CODER_PARCOURS_TRUST_PROXY` | hosted app | Number of reverse proxies in front of the app (`0` = none). Required in hosted mode. |
 | `CODER_PARCOURS_COMMIT` | hosted app, Docker build argument | Commit the hosted build was made from. Reported by the app so that human reports can be tied to a catalog state. |
@@ -96,7 +102,8 @@ docker build --build-arg CODER_PARCOURS_COMMIT=$(git rev-parse HEAD) -t coder-pa
 
 Hosted mode must run behind HTTPS (session cookies are `Secure`). Put `data/` on a persistent volume, or
 human reports are lost when the container restarts. The admin export is `GET /api/admin/reports` with
-`Authorization: Bearer <token>`; five wrong tokens lock the client IP out for ten minutes. The hosted app
+`Authorization: Bearer <token>`; five wrong tokens lock the client IP out for ten minutes (the operator too:
+testers and operator behind the same address share the lock, so set `CODER_PARCOURS_TRUST_PROXY` correctly). The hosted app
 never loads the sealed part of the catalog, and the Docker image does not contain it.
 
 ## Tests of the harness itself
@@ -119,7 +126,7 @@ npm run typecheck && npm run test:unit && npm run e2e
 ## Ports
 
 Capture sessions need ports **9222 and 9223 free** when the session starts. The Python library
-`publicbrowser` connects to a Chrome with remote debugging on 9223 by default, and 9222 is the usual
-debugging port; a browser that is already listening there would be taken over by a test. `doctor`
+`publicbrowser` starts and uses a Chrome with remote debugging on 9222 and its own server on 9223; a browser
+that is already listening on either would be taken over by a test. `doctor`
 warns, and a capture session started with a busy port is aborted. Public Browser itself runs its own Chrome
 on port 9333 during the sessions. Details and consequences in METHOD.md, section "Known limits".

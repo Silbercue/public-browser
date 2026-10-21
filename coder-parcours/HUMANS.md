@@ -9,7 +9,8 @@ site normally and write down anything that seems off.
 - A computer with the Chrome browser (not a phone).
 - 30 to 45 minutes without interruption.
 - The link you were given. It looks like
-  `https://<address>/?seed=<n>&report=1&tester=<your-name>`. Open it exactly as given and use that link
+  `https://<address>/?seed=<n>&report=1&tester=<code>`. The `<code>` is a short label the maintainer gave you
+  (for example `t1`), not your name. Open it exactly as given and use that link
   (or that tab) for the whole session. Each person gets one link; please do not try other seeds.
 
 ## How to test
@@ -37,5 +38,5 @@ site normally and write down anything that seems off.
    the site does.
 
 You do not have to finish everything. When your time is up, stop and tell the maintainer that you are done.
-Your reports are stored with your name from the link and the seed number. They are used for the comparison
-described in METHOD.md, and nothing else.
+Your reports are stored with the label from the link and the seed number; your name is not part of them.
+They are used for the comparison described in METHOD.md, and nothing else.

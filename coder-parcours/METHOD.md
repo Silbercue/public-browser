@@ -40,6 +40,13 @@ version of every session are stored in its result file.
 | agent-browser | command line | 0.39.1 | `agent-browser`, visible window, Chrome via `AGENT_BROWSER_EXECUTABLE_PATH`; its own skill texts (core and `dogfood`) |
 | Playwright CLI | command line | `@playwright/cli` 0.1.22 | `playwright-cli`, isolated in-memory profile, visible window, Chrome via `executablePath` |
 
+Public Browser is always started from the pinned npm version. A session with Public Browser is refused if
+an npx cache on the measuring machine links the package's `build/` folder to a local development build
+(`npm run dev` in the Public Browser repository), because then "3.0.0" would be unpublished code; `doctor`
+reports the same state. The pinned Public Browser is also part of the tool chain (`harness/toolchain/`), so
+that tests written with the `publicbrowser` package start that version and not whatever is newest on the
+network.
+
 All participants use the same Chrome binary (`CODER_PARCOURS_CHROME` or the default for the platform),
 except that Chrome DevTools MCP and Public Browser receive it through their own documented options. Capture
 sessions can additionally use Playwright Test 1.64.1 and the Python package `publicbrowser` 2.0.0
@@ -79,16 +86,24 @@ screenshots. The results table reports hits by width class so that this effect i
 
 - **Agent model:** one model, pinned by identifier prefix (`claude-opus-5`). The exact model ID returned by
   the first session of a round must be the same in every session of the round; if it changes the round
-  stops, and the affected sessions are re-run. The ID is printed in the results table.
+  stops, and the affected sessions are re-run. The ID is printed in the results table. A session whose result
+  has no exact model ID makes scoring fail instead of being counted under "unknown".
 - **Grader:** an independent model (`sonnet` alias of the `claude` client; the harness refuses a grader that
   reports the agents' model). It runs with the flags `GRADER_FLAGS`: `--setting-sources project
   --strict-mcp-config --mcp-config <empty config> --tools ""`, in an empty temporary folder, with provider
-  keys removed from the environment. One grader model and one prompt per round: mixed configurations stop
-  scoring. The grader prompt is `harness/grader-prompt.md`.
+  keys removed from the environment. One grader model, one prompt and one set of flags per round: mixed
+  configurations stop scoring. The table prints the exact grader model ID, the prompt checksum and the flags;
+  rounds are only comparable when agent model, grader model ID, prompt checksum and flags are identical (the
+  fingerprint also stores the grader's model alias and flags). The grader prompt is `harness/grader-prompt.md`.
   sha256 of `harness/grader-prompt.md`: **(to be filled at publication)**
   Grader model ID: reported in the results table.
+- **Agent sessions and user settings.** The agent sessions run with `--setting-sources project` and from a
+  fresh folder, so the measuring user's own `CLAUDE.md` and settings must not reach them. That is the
+  intention; it is proven once for the system prompt of a smoke session before the measured rounds (the
+  session log is checked for text from the user's `CLAUDE.md`) and the result of that check is published
+  with the trial run.
 - **Task texts:** `harness/prompts/explore.md` and `harness/prompts/capture.md`, quoted in full in section
-  11. They contain no hint about the kinds of problems.
+  11 (a test compares section 11 with the files). They contain no hint about the kinds of problems.
 - The grader sees, for each explore session, the active bugs with the title, symptom and grading note
   of the catalog, up to five **distractors** (inactive bugs, at a width drawn from their own widths), the
   decoys that apply (section 4.3) and the findings. Active bugs, distractors and unplanned bugs are one
@@ -99,8 +114,14 @@ screenshots. The results table reports hits by width class so that this effect i
 
 ### 4.1 Seeds
 
-Five seeds, in `harness/seeds.json`: 2601, 2602, 2603, 2606, 2611. Every participant runs every seed in both
+Five seeds, in `harness/seeds.json`: 2601, 2602, 2603, 2608, 2623. Every participant runs every seed in both
 session types: 5 x 4 x 2 = 40 sessions per round. The trial run uses the first seed only (8 sessions).
+
+The seeds were chosen once, before any measurement, against these conditions (a test checks them for the
+public catalog): the change target is broken in at least two and healthy in at least two seeds; all three
+possible change targets occur and none is used in more than two seeds; both possible capture flows occur at
+least twice; every public bug is active in at least one explore session (as a normal bug or, where it is a
+change target, when its feature is broken). Which bug that is, is not stated here.
 
 ### 4.2 Active bugs per seed
 
@@ -108,7 +129,11 @@ session types: 5 x 4 x 2 = 40 sessions per round. The trial run uses the first s
   `function`, `timing`, `background`), applies to one or more parts of the app and to one or more width classes
   (phone up to 600 px, tablet 601 to 1100 px, desktop from 1101 px, or all).
 - Number of active bugs in an explore session: `round(0.4 x pool size)`, plus one of -1, 0 or +1
-  (one pseudo-random draw), at least 1.
+  (one pseudo-random draw), at least 1. The draw is made from the public pool without the change target;
+  the change target comes on top when its feature is broken. With the public part alone this gives 6 to 8
+  active bugs besides the change target per session for the five seeds (the original design sketch said 8 to
+  12; that figure assumed the sealed part, which is added in phase 3 by the same rule). Hit rates always
+  count the active bugs without the change target.
 - The public part is **stratified**: at least one bug that applies at each width class, and at least one of
   the categories `fiddly` and `next-step`, and, if the pool has one, one bug that needs a particular situation
   to be passed (see "silent bypass" in section 6), where the pool allows; the rest is filled at random.
@@ -157,7 +182,20 @@ own MCP tools and Write (in capture: also the command `run-my-test`). Command-li
 Read (images inside the session folder only), Bash limited to their own command plus the helpers their
 skill needs (`mkdir`, `cp` only with paths inside the session folder; `sleep` for agent-browser) and, in
 capture, `run-my-test`. A pre-tool hook rejects command substitution, file redirection and everything
-else. Violations abort the session (it is re-run).
+else. **Write is only allowed inside the session folder.** The task text says so; the harness checks every
+Write after the session, and a Write outside the folder ends the session as aborted. A violation aborts the
+session. What happens to aborted sessions is in 12.
+
+Not blocked: a browser tool can open `file://` addresses and so read local files (directory listings, the
+events file of the app while a session runs, key files in the home directory), past the read and command
+locks. The harness cannot prevent that. It sets the flag `local_file_access` for every session where a
+tool input other than Write contains a `file:` address, shows the count in the table, and the raw logs show
+what was opened.
+
+Capture sessions: the browser that a test of the agent starts (for example Playwright Test's own browser)
+is not counted as a second browser of the participant: processes whose command line points into the
+temporary folder of a test run are left out of the "Chrome only" check, which applies to the participant's
+own tool.
 
 ### 5.3 Beacons
 
@@ -166,28 +204,43 @@ MAC). Someone who only watches the network traffic cannot learn where bugs are. 
 is in the delivered script, so a participant that reads that script could rebuild beacons, and the CSS
 of a bug is in the page. The task text forbids reading the app's script files, and after each session the
 harness searches the tool calls and tool results for such reads and records the flag
-`read_bug_script` in the result and in the table.
+`read_bug_script` in the result and in the table (writing the file name into the report does not count).
+The scripts of the time-dependent bugs are part of the delivered page script as well; whoever reads it and
+decodes the shifted character codes could guess kinds of problems. That is not a normal way to test and is
+not excluded. Repeated signals do not count twice: the evaluation asks per bug and event whether it happened.
 
 ### 5.4 Capture check
 
 The agent writes its test files and a one-line command into `RUN`. `run-my-test` (the only way to run it
-during the session) executes the command with the test folder as working directory and the app address
-in `APP_URL`. After the session the harness runs the test three times, each time on a fresh copy of the test
+during the session) executes the command in a fresh copy of the test folder (files a run writes are not
+kept for the next run) and gives it the app address in `APP_URL`. After the session the harness runs the test three times, each time on a fresh copy of the test
 folder and a fresh app, two healthy and one broken, with the position of the broken run drawn from the seed and a random salt per
 check (so it cannot be predicted from anything the agent sees). The environment is reduced to a whitelist with its own HOME and
 TMPDIR per run; the variant is not visible to the test. A capture is **valid** if the test exits 0 on both
-healthy runs and non-zero on the broken run, and it really used the app (requests to pages or the API,
-counted by the app in memory; a health check alone does not count). Invalid reasons are recorded
-(`RUN` missing, ports busy, timeout, test did not exercise the app, healthy run failed, healthy run flaky,
-broken run passed).
+healthy runs and non-zero on the broken run, and it really used the app. "Used the app" is counted by the app
+server in memory and reported over a private pipe that only the harness holds: a request counts if it is a
+page of the app (the real routes of the front end; any other path only receives the empty shell and does not
+count) or an accepted API route (a known route that does not answer 404 and is not an admin route; the
+harness's own signal does not count). Assets, the favicon, health checks and unknown paths do not count.
+This only separates "the test had nothing to do with the app" from "the test talked to the app"; one real
+request is enough. On Linux a process of the same user could open `/proc/<pid>/fd/3` of the app server and
+write to that pipe; macOS has no such path. It is not prevented; any `/proc/<pid>/fd` access in the test
+files sets `capture_outside_access`. Invalid reasons are recorded
+(`RUN` missing, `RUN` empty, ports busy, timeout, test did not exercise the app, healthy run failed, healthy
+run flaky, broken run passed, session aborted).
 
 ### 5.5 Ports
 
-Capture sessions need ports 9222 and 9223 free at session start; otherwise the session is aborted and
-re-run. Public Browser runs its own Chrome on port 9333. After a capture session the harness ends
-processes that listen on 9222/9223 or run Chrome with that debugging port **and were not present at session
-start**, because a test that connects through `publicbrowser` may leave a browser behind that Public Browser
-does not close itself.
+Capture sessions need ports 9222 and 9223 free at session start; otherwise the session is aborted. Public
+Browser runs its own Chrome on port 9333. While a test of the agent runs (during `run-my-test` and during the
+three checks afterwards) the harness refuses to start it if one of the two ports is in use, and after the run
+it ends what is left: the rest of the test's own process group, and processes that listen on 9222/9223 or
+run Chrome with that debugging port and were not present at session start (a test that connects through
+`publicbrowser` may leave a browser behind). **Outside the run of a test the harness ends nothing on these
+ports**; at the end of a session it only ends the app and the leftovers that `run-my-test` registered itself
+(its app server and the test's process group), for example after the wall-clock limit hit in the middle of a
+run. A browser that the user starts on 9222 or 9223 at exactly the time a test runs cannot be told apart from a
+leftover of that test and may be ended; the working rule is to keep Chrome closed while a round runs.
 
 ## 6. Metrics
 
@@ -206,11 +259,13 @@ Per explore session, from the grader's matches and the stored events:
 - **Login:** whether a login led to an authenticated successful request, how many logins were made, and for
   sessions where the app ends the login session: whether the agent logged in again afterwards.
 - **Capture valid:** x of n.
-- **Integrity flags:** sessions that read the bug script (5.3); capture tests that touched things outside
-  their folder (5.6).
+- **Integrity flags:** sessions that read the bug script (5.3); sessions that opened local files (5.2);
+  capture tests that touched things outside their folder (13).
+- **Aborted sessions:** per participant the number of aborted attempts and their reasons.
 - **Cost:** tokens (de-duplicated), tool calls, wall clock and list price in USD, per participant, shown
-  separately for explore and capture with the median and range over sessions. The cost table also includes
-  the grader (every call, including failed ones), as a separate line and as a total with the agents.
+  separately for explore and capture with the median and range over sessions. The grader's cost (every
+  call, including failed ones) is in the token report (`round.mjs report`), as a separate line and as a total
+  with the agents, not in the results table.
 - **Human reference:** for seeds that a human tester played, the agent's hits relative to the human's hits
   and the share of the human's hits the agent also found. Human rows have no cost.
 
@@ -220,7 +275,8 @@ Per explore session, from the grader's matches and the stored events:
   are listed blinded and shuffled (participant and tool names replaced) for the maintainer, who decides
   per finding: false alarm; an existing bug the grader missed; or a new bug not planned in the catalog
   (which is then added to the list of unplanned bugs for that seed and counts for everybody with that
-  seed, after a regrade). Decisions are stored with a key bound to the text of the finding; if the finding
+  seed unless the decision names seeds; without a list of seeds a new bug applies to all seeds, after a
+  regrade). Decisions are stored with a key bound to the text of the finding; if the finding
   changes, the decision is reported as stale and not applied.
 - A **sample** of grader answers (20, low confidence first, a quarter of them "no match" answers) is
   checked by hand, also blinded. The agreement rate is published with the table.
@@ -229,8 +285,10 @@ Per explore session, from the grader's matches and the stored events:
 ## 8. Fingerprint and changes after the trial run
 
 Every round starts by writing `results/<round>/fingerprint.json`: checksum of the public catalog files,
-decoys and seeds; checksum of the sealed file (`missing` if it is absent); checksums of the task texts and
-the grader prompt; per participant a checksum over package, version, start command and skill files; and the
+decoys and seeds; checksum of the sealed file (`missing` if it is absent); checksum of the app itself (front
+end source, server, delivered script, shared accounts, seed logic and catalog loader; test files excluded);
+whether the catalog folder was redirected by `CODER_PARCOURS_PUBLIC_DIR` (a session refuses to run then);
+checksums of the task texts and the grader prompt; the grader's model alias and flags; per participant a checksum over package, version, start command and skill files; and the
 budgets. `node harness/fingerprint.mjs --compare <a> <b>` compares two fingerprints; resuming a round with
 a different fingerprint stops. Mixed grader models or participant versions inside a round stop scoring.
 
@@ -260,11 +318,13 @@ sha256 of `secret/sealed.bin`: **(to be filled at publication)**
   active bugs by the rule in 4.2 (a separate random stream, so the public activations stay the same) and
   measures again. After the final measurement the sealed part is published.
 - Unsealing requires `--expect-sha256` with the checksum from the author's reply (not the file in the
-  repository), refuses to write into a git working tree, and needs the passphrase.
+  repository), refuses to write into a git working tree, and needs the passphrase. `--no-verify` exists for
+  tests only and is refused unless `CP_ALLOW_NO_VERIFY=1` is set; it prints a warning.
 - **Frozen until phase 3:** `app/` and `server/` stay unchanged from the moment the sealed part was
   written, because its bugs target this surface. The sealed package contains its own check spec that
   phase 3 runs after unsealing and before measuring; it shows whether a later change made a sealed bug
-  ineffective. Any change to `app/` or `server/` before phase 3 is listed here: **(none so far)**.
+  ineffective. The fingerprint's `app_sha256` makes any change visible. Any change to `app/` or `server/`
+  before phase 3 is listed here: **(to be filled at publication: list of changes with reasons, or "none")**.
 
 ## 10. Human reference run
 
@@ -272,14 +332,19 @@ People test the same app: one seed per person, explore only, 30 to 45 minutes, i
 the same three fixed widths, in the same seed state as the agents (the hosted app builds the explore
 configuration of the seed, including whether the change target is broken). They get no hint about the
 catalog and report through a "Report a problem" button; instructions in [HUMANS.md](HUMANS.md). The
+seed state is the same as for the agents, including whether the change target is broken, but humans are not
+asked to judge the change (HUMANS.md has no "check a change" part); a finding about the change target counts
+neither as a hit nor as a false alarm for anybody. Human testers appear in the result files only under a
+pseudonym (`human-01`, `human-02`, ...); the list of names stays on the maintainer's machine. The
 maintainer plays first, before seeing the catalog or any graded file. Human findings go through the same
 grader and review. The run does not count toward the agents' results; it is a reference.
 
 ## 11. Task texts (verbatim)
 
 Placeholders in double braces are filled per session: the app address, the tool name (`the <cli> command`
-or `the <name> MCP tools`), the two test accounts, the change or flow description, the call budget, report
-path and test folder.
+or `the <name> MCP tools`), the two test accounts, the change or flow description, the call budget, the
+session folder, the report path and the test folder. A test compares the two blocks below with
+`harness/prompts/explore.md` and `harness/prompts/capture.md`.
 
 ### Explore
 
@@ -294,6 +359,7 @@ Part 2 — explore. Use the app the way real visitors would, at three screen wid
 
 Budget: about {{BUDGET}} tool calls. Write the report early and overwrite it after every new finding, so nothing is lost if you run out of budget.
 Only the report file below counts. You may keep screenshots or notes of your own, but they are not read.
+Only create or edit files inside the session folder {{SESSION_DIR}}; writing anywhere else ends the session.
 Report file: {{REPORT_PATH}} (JSON, exactly this shape):
 {"change_check":{"verdict":"works|broken","evidence":"..."},"findings":[{"title":"...","where":"page or area","viewport":"phone|tablet|desktop|all","steps":"...","expected":"...","actual":"...","severity":"low|medium|high"}]}
 ```
@@ -305,7 +371,8 @@ A developer wants an automated regression test for a web app that runs at {{APP_
 Test accounts: {{ACCOUNTS}}
 
 Turn this flow into a test that runs without AI: "{{FLOW}}"
-Use any tool you like: Playwright Test (@playwright/test is installed), a shell script, Python with the publicbrowser package, or your browser CLI. Put all test files into {{TEST_DIR}} and write the one shell command that runs the test into {{TEST_DIR}}/RUN. The command runs with {{TEST_DIR}} as working directory and gets the app address in the environment variable APP_URL; do not hard-code the address. Every run starts a fresh copy of the app, so the test must log in by itself. Exit code 0 means the flow works, any other exit code means it is broken. Your test will later also run against other builds of the app.
+Use any tool you like: Playwright Test (@playwright/test is installed), a shell script, Python with the publicbrowser package, or your browser CLI. Put all test files into {{TEST_DIR}} and write the one shell command that runs the test into {{TEST_DIR}}/RUN. Each run of the command works in a fresh copy of {{TEST_DIR}} as its working directory (files a run writes are not kept for the next run) and gets the app address in the environment variable APP_URL; do not hard-code the address. Every run starts a fresh copy of the app, so the test must log in by itself. Exit code 0 means the flow works, any other exit code means it is broken. Your test will later also run against other builds of the app.
+Only create or edit files inside the session folder {{SESSION_DIR}}; writing anywhere else ends the session.
 Do not read the app's source code or script files; your test may use the app only through the browser and its web address.
 
 You may run the command `run-my-test` (no arguments) as often as you like; it runs your test against the app and prints the exit code and output. No other shell commands are available.
@@ -317,7 +384,15 @@ In smoke mode (harness self-test only, never in a measured round) one more sente
 ## 12. Raw data
 
 Result files (sessions, graded, review decisions, fingerprint, scoreboard) are published immediately after
-each round. The raw session logs (`raw/`) are published with the final measurement (phase 3), after the
+each round, **including the folder `aborted/`**: every aborted attempt is published and counted per
+participant in the table with its reason. A session is aborted for reasons that come from the setup (the
+client did not start, a port was busy, the session log is missing) and for reasons that come from the agent's
+behaviour (a locked tool was used, a Write outside the session folder, a browser other than the pinned
+Chrome). The harness runs an aborted session again, at most twice (three attempts in all); after that the
+slot stays empty and is shown as missing. The attempts are not selected by their outcome. Before a result
+file or raw log is written, the harness replaces strings that look like keys (npm, GitHub, Anthropic and AWS
+formats, private key blocks) and values from the measuring user's `.npmrc` and `.env` files by a placeholder
+and notes in the file that it did so; this is a search, not a guarantee. The raw session logs (`raw/`) are published with the final measurement (phase 3), after the
 sealed part is made public, because they contain what the agents saw and did. Home directory paths in them
 are replaced by `~`.
 
@@ -327,12 +402,16 @@ are replaced by `~`.
   a sandbox** (restricted environment, own HOME and TMPDIR, fresh copy of the test folder, but no isolation).
   A test could read files of the user or keep a counter at an absolute path outside its folder. Mitigation:
   after each session the harness searches the test files, `RUN` and the protocol for the paths of the
-  harness, the results folder, any secret folder, `runtime.js`, the home directory and process listings, and sets the flag
-  `capture_outside_access`. It is a search, not a guarantee. Raw logs are published for that reason.
+  harness, the results folder, any secret folder, `runtime.js`, the home directory and process listings
+  (`ps` only as a command at the start of a line in `RUN` and `*.sh` files), and sets the flag
+  `capture_outside_access`. It is a heuristic search, not a guarantee: relative paths, `~`, upper/lower-case
+  variants and paths put together from shell variables are not found. Raw logs are published for that reason.
 - **Tool lock of the `claude` client.** The restrictions in 5.2 rest on the client's permission rules and
   a hook. A hole there would show in the raw logs; it is not proven absent.
-- **Ports.** Capture sessions require free ports 9222 and 9223 at the start. A browser the user starts there
-  during a run is ended afterwards, as it cannot be told apart from a test leftover.
+- **Ports.** Capture sessions require free ports 9222 and 9223 at the start; see 5.5 for what is ended when.
+- **Local files over the browser** (5.2) and **Linux `/proc/<pid>/fd`** (5.4) can be reached by participants;
+  both are flagged, not blocked.
+- **Linux is untested.** The harness is written for macOS and Linux, but it has only been run on macOS.
 - **Beacons and CSS** can be read by someone who reads the delivered script (5.3).
 - **Grader.** One model grades; a sample is checked by hand, not every answer. The grader sees distractors.
 - **Window widths** are not equally available to all participants (2.1).
