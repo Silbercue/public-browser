@@ -254,3 +254,67 @@ test('apply: a stale decision is skipped with a warning, not applied and not an 
   assert.deepEqual([m.false_alarms.decided, m.false_alarms.unreviewed], [0, 1]);
   cleanup();
 });
+
+test('apply: a second decision for an existing new bug adds its seeds; one without seeds lifts the restriction', async () => {
+  const catalog = fixtureCatalog();
+  const mk = (slug, seed) => makeSession({ catalog, seed, slug, display: slug, pkg: slug, activate: [], findings: [{ title: 'open finding' }] });
+  const a = mk('p-a', SEED_A);
+  const b = mk('p-b', SEED_B);
+  const { root, deps, unplannedFile, cleanup } = await setupRound({ sessions: [a, b] });
+  const entry = { id: 'N01', title: 'New bug', grader: 'Counts when ...', station: 'cart' };
+  writeFileSync(unplannedFile, JSON.stringify([{ ...entry, seeds: [SEED_A] }]));
+  mkdirSync(join(root, 'r1', 'review'), { recursive: true });
+  const decide = (o) => writeFileSync(join(root, 'r1', 'review', 'decisions.json'), JSON.stringify(o));
+  decide({ [keyOf(b, 0)]: { verdict: 'new-bug', ...entry, seeds: [SEED_B] } });
+  await applyReview({ round: 'r1', resultsRoot: root }, deps);
+  assert.deepEqual(JSON.parse(readFileSync(unplannedFile, 'utf8'))[0].seeds, [SEED_A, SEED_B].sort((x, y) => x - y), 'union of the old and the new seeds, sorted');
+  decide({ [keyOf(a, 0)]: { verdict: 'new-bug', ...entry } });
+  await applyReview({ round: 'r1', resultsRoot: root }, deps);
+  const after = JSON.parse(readFileSync(unplannedFile, 'utf8'));
+  assert.equal(after.length, 1, 'still one entry');
+  assert.equal('seeds' in after[0], false, 'no seeds key any more: the bug counts in every seed');
+  cleanup();
+});
+
+test('apply: every invalid decision is refused for its own reason and writes nothing; the valid one goes through', async () => {
+  const { root, deps, list, unplannedFile, cleanup } = await setupRound();
+  mkdirSync(join(root, 'r1', 'review'), { recursive: true });
+  const file = join(root, 'r1', 'review', 'decisions.json');
+  const key = keyOf(list[0], 0); // open finding of a SEED_A session
+  const ok = { verdict: 'new-bug', id: 'N07', title: 'New bug', station: 'cart', grader: 'Counts when ...' };
+  const cases = [
+    [{ ...ok, id: 'x1' }, /id must look like N01/],
+    [{ ...ok, id: 'D01' }, /D01 is already a catalog bug or decoy/],
+    [{ ...ok, title: '  ' }, /title and grader must not be empty/],
+    [{ ...ok, grader: '' }, /title and grader must not be empty/],
+    [{ ...ok, station: 'nowhere' }, /unknown station "nowhere"/],
+    [{ ...ok, seeds: [] }, /seeds must be a list of seeds/],
+    [{ ...ok, seeds: ['2601'] }, /seeds must be a list of seeds/],
+    [{ ...ok, seeds: [SEED_B] }, /leave out the seed of this finding/],
+    [{ verdict: 'maybe' }, /verdict must be false-alarm, bug or new-bug/],
+    [{ verdict: 'bug', id: 'B05' }, /not a bug of this session/],
+    [{ verdict: 'bug' }, /not a bug of this session/],
+  ];
+  for (const [dec, re] of cases) {
+    writeFileSync(file, JSON.stringify({ [key]: dec }));
+    await assert.rejects(applyReview({ round: 'r1', resultsRoot: root }, deps), re, JSON.stringify(dec));
+    assert.equal(readFileSync(unplannedFile, 'utf8'), '[]', 'nothing written after a refusal');
+  }
+  writeFileSync(file, JSON.stringify({ [key]: ok }));
+  await applyReview({ round: 'r1', resultsRoot: root }, deps);
+  assert.deepEqual(JSON.parse(readFileSync(unplannedFile, 'utf8')).map((u) => u.id), ['N07'], 'Gegenprobe: the valid decision is applied');
+  cleanup();
+});
+
+test('sample: a sample size larger than the pool returns every match once without error', async () => {
+  const { root, deps, list, cleanup } = await setupRound();
+  const out = await sampleReview({ round: 'r1', resultsRoot: root, n: 500 }, deps);
+  const md = readFileSync(out, 'utf8');
+  const keys = [...md.matchAll(/^## ([0-9a-f]{12})$/gm)].map((x) => x[1]);
+  const matched = list.flatMap((s) => [2, 3].map((i) => keyOf(s, i)));
+  const none = list.flatMap((s) => [0, 1].map((i) => keyOf(s, i)));
+  assert.equal(keys.length, matched.length + none.length, 'all 6 matches and all 6 none answers (fewer than n)');
+  assert.equal(new Set(keys).size, keys.length, 'no key twice');
+  assert.ok(matched.every((k) => keys.includes(k)) && none.every((k) => keys.includes(k)));
+  cleanup();
+});
