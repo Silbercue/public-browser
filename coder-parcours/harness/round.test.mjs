@@ -339,3 +339,21 @@ test('Token-Bericht: Total-Zeile traegt die echte Sitzungszahl', () => {
     assert.ok(!md.includes('40 sessions'));
   } finally { done(); }
 });
+
+test('CLI round.mjs report: schreibt token-report.md und gibt den Pfad aus; ohne Runde Exit 2', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const cliFile = join(fileURLToPath(new URL('.', import.meta.url)), 'round.mjs');
+  const run = (args) => spawnSync(process.execPath, [cliFile, ...args], { encoding: 'utf8' });
+  const { resultsRoot, done } = setup();
+  try {
+    reportRound(resultsRoot, 'rc', [agentSession('pb', 'explore', 1, { delta: 100, cost: 1, wall: 10 })]);
+    const ok = run(['report', '--round', 'rc', '--results', resultsRoot]);
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.equal(ok.stdout.trim(), join(resultsRoot, 'rc', 'token-report.md'));
+    assert.ok(existsSync(join(resultsRoot, 'rc', 'token-report.md')));
+    const noRound = run(['report', '--results', resultsRoot]);
+    assert.equal(noRound.status, 2);
+    assert.match(noRound.stderr, /usage: node harness\/round\.mjs run/);
+  } finally { done(); }
+});

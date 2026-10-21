@@ -182,3 +182,40 @@ test('renderScoreboard: kein Sieger-, Platz- oder Bestenwort in der Tafel, aber 
   assert.match(md, /no ranking/, 'Gegenprobe: the sentence that rules a ranking out is there');
   assert.doesNotMatch(md, /\b(winner|best|worst|leader|leaderboard|1st|first place|rank\s*\d|#\s*1)\b/i);
 });
+
+// ---------- CLI ----------
+
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const SCORE_CLI = join(dirname(fileURLToPath(import.meta.url)), 'score.mjs');
+const cli = (args) => spawnSync(process.execPath, [SCORE_CLI, ...args], { encoding: 'utf8' });
+
+test('CLI score.mjs: schreibt scoreboard.json und .md aus graded/, ohne Runde Exit 2, ohne graded-Ordner Exit 1 mit Hinweis', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cp-score-cli-'));
+  try {
+    const graded = join(root, 'r1', 'graded');
+    mkdirSync(graded, { recursive: true });
+    const put = (name, r) => writeFileSync(join(graded, name), JSON.stringify(r));
+    put('pb-explore-seed1.json', explore('pb', 1));
+    put('aa-explore-seed1.json', explore('aa', 1));
+    put('pb-capture-seed1.json', capture('pb', 1, true));
+    put('notes.txt', 'not a session');
+    const ok = cli(['--round', 'r1', '--results', root]);
+    assert.equal(ok.status, 0, ok.stderr);
+    const sb = JSON.parse(readFileSync(join(root, 'r1', 'scoreboard.json'), 'utf8'));
+    assert.deepEqual(Object.keys(sb.participants).sort(), ['aa', 'pb']);
+    const md = readFileSync(join(root, 'r1', 'scoreboard.md'), 'utf8');
+    assert.ok(md.indexOf('AA') >= 0 && md.indexOf('AA') < md.indexOf('PB'), 'participants alphabetical');
+    const usage = cli(['--results', root]);
+    assert.equal(usage.status, 2);
+    assert.match(usage.stderr, /usage: node harness\/score\.mjs --round/);
+    const missing = cli(['--round', 'r9', '--results', root]);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /no graded folder.*run node harness\/grade\.mjs first/);
+    assert.ok(!existsSync(join(root, 'r9', 'scoreboard.md')), 'nothing written for a round without graded sessions');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
