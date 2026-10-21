@@ -485,7 +485,7 @@ test('hosted: sandbox per sw_sb, invalid ?seed= falls back to loadSeeds()[0], ot
   /** @type {any[]} */
   const seen = [];
   const s = await start({
-    mode: 'hosted', runConfig: undefined, configForSeed,
+    mode: 'hosted', trustProxy: 0, runConfig: undefined, configForSeed,
     makeEngine: (cfg) => { seen.push(cfg); return nullEngine; },
   });
   try {
@@ -561,7 +561,7 @@ test('hosted sandbox pool: expires after 2 h idle, keeps at most 500 (oldest go 
 /** Hosted server with a plain config per seed. @param {any} [overrides] */
 function startHosted(overrides = {}) {
   const configForSeed = (seed) => ({ seed, sessionType: 'explore', variant: null, sources: { public: 0, secret: 0 }, active: [], change: null, capture: null, decoys: [] });
-  return start({ mode: 'hosted', runConfig: undefined, configForSeed, ...overrides });
+  return start({ mode: 'hosted', trustProxy: 0, runConfig: undefined, configForSeed, ...overrides });
 }
 
 test('hosted: a sw_sid of sandbox A is anonymous in sandbox B and shows no foreign cart', async () => {
@@ -687,18 +687,94 @@ test('sessions per sandbox are capped; anonymous ones go first, logged-in ones s
   } finally { await s.handle.close(); }
 });
 
-test('admin token: wrong tokens of any length answer 401, the 5th wrong try locks the IP even for the right token', async () => {
+test('admin token: wrong tokens of any length answer 401, from the 6th wrong try on 429, the right token always works', async () => {
   const s = await start({ adminToken: 'tok-123' });
   try {
     const c = client(s.base);
     assert.equal((await c.get('/api/admin/reports', { authorization: 'x' })).status, 401);
     assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer ' + 'y'.repeat(500) })).status, 401);
-    for (let i = 0; i < 2; i++) assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer nope' })).status, 401);
-    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' })).status, 200, 'right token under the limit works');
-    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer nope' })).status, 401);
-    const r = await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' });
-    assert.deepEqual([r.status, r.json.error], [429, 'too_many_attempts']);
+    for (let i = 0; i < 3; i++) assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer nope' })).status, 401);
+    const r = await c.get('/api/admin/reports', { authorization: 'Bearer nope' });
+    assert.deepEqual([r.status, r.json.error], [429, 'too_many_attempts'], 'wrong tries are throttled after the limit');
+    for (let i = 0; i < 3; i++) assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' })).status, 200, 'the right token still works while locked');
+    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer nope' })).status, 429, 'counter-check: wrong tries stay blocked');
   } finally { await s.handle.close(); }
+});
+
+test('hosted: path case does not matter, /API/... and mixed case never write into the shared guest sandbox', async () => {
+  const s = await startHosted({ limits: { sandboxesPerIp: 1 } });
+  try {
+    const owner = client(s.base);
+    await owner.get('/');
+    const guest = client(s.base);
+    assert.equal((await guest.get('/')).status, 200);
+    assert.equal(guest.jar.has('sw_sb'), false, 'second page load from this IP is a guest');
+    const before = (await guest.get('/api/classes')).json;
+    const k = before.classes.find((x) => !x.ended && x.spotsLeft > 2);
+    for (const p of ['/API/cart/items', '/Api/cart/items', '/aPi/auth/login', '/API/auth/register', '/API/bookings/x/cancel']) {
+      const w = await guest.post(p, { classId: k.id, spots: 1, email: MAYA.email, password: MAYA.password });
+      assert.deepEqual([p, w.status, w.json?.error], [p, 429, 'too_many_sandboxes']);
+    }
+    assert.equal(guest.jar.has('sw_sid'), false, 'no session was handed to the guest');
+    const third = client(s.base);
+    await third.get('/');
+    assert.deepEqual((await third.get('/API/classes')).json, before, 'a third party still sees the untouched guest state');
+    assert.equal((await owner.post('/API/cart/items', { classId: k.id, spots: 1 })).status, 200, 'counter-check: a visitor with a sandbox may write via /API/');
+  } finally { await s.handle.close(); }
+});
+
+test('hosted: a guest stays unchanged after a write attempt by a third party', async () => {
+  const s = await startHosted({ limits: { sandboxesPerIp: 1 } });
+  try {
+    const owner = client(s.base);
+    await owner.get('/');
+    const guest = client(s.base);
+    await guest.get('/');
+    const before = (await guest.get('/api/classes')).json;
+    assert.equal((await owner.login()).status, 200);
+    const k = before.classes.find((x) => !x.ended && x.spotsLeft > 2);
+    assert.equal((await owner.post('/api/cart/items', { classId: k.id, spots: 2 })).status, 200);
+    assert.equal((await owner.post('/api/checkout', { acceptTerms: true })).status, 200);
+    assert.deepEqual((await guest.get('/api/classes')).json, before, 'guest view is the untouched seed state');
+    assert.equal((await guest.get('/api/cart')).json.items.length, 0);
+    assert.equal((await owner.get('/api/classes')).json.classes.find((x) => x.id === k.id).spotsLeft, k.spotsLeft - 2, 'counter-check: the owner did change his own sandbox');
+  } finally { await s.handle.close(); }
+});
+
+test('single mode: pages and reads never answer 429, however many requests come in', async () => {
+  const s = await start({ limits: { sandboxesPerIp: 1 } });
+  try {
+    const c = client(s.base);
+    for (let i = 0; i < 60; i++) {
+      const p = await c.get('/');
+      const r = await c.get('/api/classes');
+      assert.deepEqual([p.status, r.status], [200, 200], `request ${i}`);
+    }
+    assert.equal((await c.login()).status, 200, 'counter-check: writes work too');
+  } finally { await s.handle.close(); }
+});
+
+test('trustProxy: hosted refuses to start without it; 0 means the socket address, N hops trust X-Forwarded-For', async () => {
+  const configForSeed = (seed) => ({ seed });
+  assert.throws(() => createServer({ mode: 'hosted', configForSeed }), /CODER_PARCOURS_TRUST_PROXY/);
+  assert.doesNotThrow(() => createServer({ mode: 'hosted', configForSeed, trustProxy: 0 }));
+  const saved = process.env.CODER_PARCOURS_TRUST_PROXY;
+  try {
+    process.env.CODER_PARCOURS_TRUST_PROXY = '0';
+    assert.doesNotThrow(() => createServer({ mode: 'hosted', configForSeed }), 'env "0" counts as explicit');
+    process.env.CODER_PARCOURS_TRUST_PROXY = 'yes';
+    assert.throws(() => createServer({ mode: 'hosted', configForSeed }), /CODER_PARCOURS_TRUST_PROXY/, 'garbage is not explicit');
+  } finally { if (saved === undefined) delete process.env.CODER_PARCOURS_TRUST_PROXY; else process.env.CODER_PARCOURS_TRUST_PROXY = saved; }
+  const wrong = (c, ip) => c.get('/api/admin/reports', { authorization: 'Bearer nope', 'x-forwarded-for': ip });
+  for (const [trust, secondStatus] of [[false, 429], [1, 401]]) {
+    const s = await start({ adminToken: 'tok-123', trustProxy: trust });
+    try {
+      const c = client(s.base);
+      for (let i = 0; i < 5; i++) await wrong(c, '203.0.113.1');
+      assert.equal((await wrong(c, '203.0.113.1')).status, 429, `same forwarded IP is locked (trust ${trust})`);
+      assert.equal((await wrong(c, '203.0.113.2')).status, secondStatus, `other forwarded IP (trust ${trust})`);
+    } finally { await s.handle.close(); }
+  }
 });
 
 test('files carry a derived sandbox id, never the sw_sb cookie value; events, reports and engine agree', async () => {

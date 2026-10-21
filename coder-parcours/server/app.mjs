@@ -100,14 +100,19 @@ const MSG = {
  *   eventsFile?: string|null, reportsFile?: string|null, staticDir?: string, adminToken?: string|null,
  *   trustProxy?: number|false, secureCookies?: boolean, limits?: Partial<typeof SERVER_LIMITS> }} opts
  *   makeEngine is called once per sandbox; logEvent writes an event line with that sandbox's public `sb`.
- *   trustProxy (hop count, default env CODER_PARCOURS_TRUST_PROXY, else off) decides where req.ip comes from.
+ *   trustProxy (hop count; 0/false = direct, default env CODER_PARCOURS_TRUST_PROXY) decides where req.ip comes from.
+ *   Hosted mode refuses to start unless it is set explicitly (option or env, "0" for direct operation).
  *   secureCookies defaults to true in hosted mode only.
  */
 export function createServer({
   mode, runConfig, configForSeed, makeEngine = () => nullEngine, eventsFile = null, reportsFile = null, staticDir, adminToken = null,
-  trustProxy = /^\d+$/.test(process.env.CODER_PARCOURS_TRUST_PROXY ?? '') ? Number(process.env.CODER_PARCOURS_TRUST_PROXY) : false,
+  trustProxy = /^\d+$/.test(process.env.CODER_PARCOURS_TRUST_PROXY ?? '') ? Number(process.env.CODER_PARCOURS_TRUST_PROXY) : undefined,
   secureCookies = mode === 'hosted', limits = {},
 }) {
+  if (mode === 'hosted' && trustProxy === undefined) {
+    throw new Error('createServer: hosted mode needs an explicit trust-proxy setting: set CODER_PARCOURS_TRUST_PROXY to the number of reverse proxies in front (or 0 for direct operation).');
+  }
+  trustProxy = trustProxy || false;
   const L = { ...SERVER_LIMITS, ...limits };
   const cookieBase = { ...COOKIE_BASE, ...(secureCookies ? { secure: true } : {}) };
   if (mode !== 'single' && mode !== 'hosted') throw new Error(`createServer: unknown mode ${mode}`);
@@ -157,11 +162,18 @@ export function createServer({
   /** Hosted visitors without their own sandbox (assets, reads, over-limit page loads): one read-only sandbox per allowed seed. */
   const guests = new Map();
   const guestFor = (seed) => {
-    if (!guests.has(seed)) guests.set(seed, makeSandbox(`guest-${seed}`, seed, configForSeed(seed)));
+    if (!guests.has(seed)) {
+      const g = makeSandbox(`guest-${seed}`, seed, configForSeed(seed));
+      g.guest = true;
+      guests.set(seed, g);
+    }
     return guests.get(seed);
   };
-  const isPage = (req) => req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/assets/') && !/\.[A-Za-z0-9]+$/.test(req.path);
-  const isStateChange = (req) => !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.path.startsWith('/api/') && req.path !== '/api/metrics';
+  // Express matches paths case-insensitively, so every path test works on the lower-cased path.
+  const lowerPath = (req) => req.path.toLowerCase();
+  const isSafeMethod = (req) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+  const isPage = (req) => req.method === 'GET' && !lowerPath(req).startsWith('/api') && !lowerPath(req).startsWith('/assets/') && !/\.[A-Za-z0-9]+$/.test(req.path);
+  const isStateChange = (req) => !isSafeMethod(req) && lowerPath(req).startsWith('/api/') && lowerPath(req) !== '/api/metrics';
 
   const app = express();
   app.disable('x-powered-by');
@@ -171,7 +183,7 @@ export function createServer({
   app.use((req, res, next) => {
     const cookies = parseCookies(req.headers.cookie);
     let sb = single;
-    if (pool && !req.path.startsWith('/api/admin/')) {
+    if (pool && !lowerPath(req).startsWith('/api/admin/')) {
       const q = req.query.seed;
       const given = typeof q === 'string';
       const wanted = given && /^\d{1,9}$/.test(q) && seeds.includes(Number(q)) ? Number(q) : defaultSeed;
@@ -259,9 +271,10 @@ export function createServer({
     res.locals.routeKey = 'GET /api/admin/reports';
     if (!adminToken) return res.status(404).json({ error: 'not_found', message: 'Not found.' });
     const ip = req.ip ?? '';
-    if (adminFails.full(ip)) return res.status(429).json({ error: 'too_many_attempts', message: 'Too many wrong tokens. Please wait.' });
     const given = String(req.headers.authorization ?? '');
+    // The right token always gets in (the lockout must not lock the operator out); only wrong tries are throttled.
     if (!timingSafeEqual(tokenHash(given), tokenHash(`Bearer ${adminToken}`))) {
+      if (adminFails.full(ip)) return res.status(429).json({ error: 'too_many_attempts', message: 'Too many wrong tokens. Please wait.' });
       adminFails.add(ip);
       return res.status(401).json({ error: 'unauthorized', message: 'Wrong token.' });
     }
@@ -284,6 +297,10 @@ export function createServer({
     /** @type {any} */ (app)[method.toLowerCase()](path, async (req, res) => {
       res.locals.routeKey = key;
       const sb = res.locals.sb;
+      // Hard guard: the shared guest sandbox is never written to, whatever the path looked like.
+      if (sb.guest && !isSafeMethod(req)) {
+        return res.status(429).json({ error: 'too_many_sandboxes', message: 'Too many new sessions. Please wait a few minutes.' });
+      }
       if (opts.cartWrite) ensureSid(res);
       /** @type {{status:number, body:any}|null} */
       let answer = null;
