@@ -14,8 +14,9 @@ const READY_TIMEOUT_MS = 20_000;
  */
 export function spawnAppServer({ seed, session = 'explore', variant = null, secretDir = null, eventsFile = null, reportsFile = null, staticDir = null, activate = null, noBugs = false }) {
   const args = [START, '--seed', String(seed), '--session', session, '--port', '0'];
-  if (variant) args.push('--variant', variant);
-  if (secretDir) args.push('--secret-dir', secretDir);
+  // Variante und secretDir gehen per stdin an start.mjs, nicht in die argv (ps zeigt sie sonst jedem Prozess).
+  const viaStdin = Boolean(variant || secretDir);
+  if (viaStdin) args.push('--stdin-config');
   if (eventsFile) args.push('--events', eventsFile);
   if (reportsFile) args.push('--reports', reportsFile);
   if (staticDir) args.push('--static', staticDir);
@@ -24,7 +25,11 @@ export function spawnAppServer({ seed, session = 'explore', variant = null, secr
   }
   if (noBugs) args.push('--no-bugs');
 
-  const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { detached: true, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+  if (viaStdin) {
+    child.stdin.on('error', () => { /* Kind schon weg: der exit-Handler meldet es */ });
+    child.stdin.end(`${JSON.stringify({ variant: variant || null, secretDir: secretDir || null })}\n`);
+  }
   const exited = new Promise((resolve) => child.once('exit', resolve));
   let exitedFlag = false;
   child.once('exit', () => { exitedFlag = true; });

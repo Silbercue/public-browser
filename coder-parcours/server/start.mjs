@@ -1,7 +1,8 @@
 // CLI: starts the Stillwater Yoga app server and prints `READY <port>` once it listens.
 //   node server/start.mjs --seed <n> --session explore|capture [--variant healthy|broken] [--port <n>]
 //     [--events <file>] [--reports <file>] [--secret-dir <dir>] [--static <dir>]
-//     [--activate P01@schedule:phone,...] [--no-bugs] [--hosted] [--admin-token-env <VAR>]
+//     [--activate P01@schedule:phone,...] [--no-bugs] [--hosted] [--admin-token-env <VAR>] [--stdin-config]
+//   --stdin-config: liest eine JSON-Zeile { variant, secretDir } von stdin (so stehen sie nicht in der argv).
 import { parseArgs } from 'node:util';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -56,10 +57,21 @@ export async function main(argv) {
       static: { type: 'string', default: 'app/dist' },
       activate: { type: 'string' },
       'no-bugs': { type: 'boolean', default: false },
+      'stdin-config': { type: 'boolean', default: false },
       hosted: { type: 'boolean', default: false },
       'admin-token-env': { type: 'string' },
     },
   });
+  if (values['stdin-config']) {
+    const cfg = JSON.parse(await new Promise((done) => {
+      let text = '';
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (d) => { text += d; });
+      process.stdin.on('end', () => done(text || '{}'));
+    }));
+    if (cfg.variant && values.variant === undefined) values.variant = cfg.variant;
+    if (cfg.secretDir && values['secret-dir'] === undefined) values['secret-dir'] = cfg.secretDir;
+  }
   if (values.hosted && values['secret-dir']) {
     process.stderr.write('start: --hosted with --secret-dir is refused: the secret part must never be served publicly.\n');
     return 2;
