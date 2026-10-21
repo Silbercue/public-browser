@@ -327,6 +327,22 @@ test('F15: readsBugScript - Write-Eingabe mit runtime.js zaehlt nicht, Browser-/
   assert.equal(readsBugScript(toolUse('Bash', { command: 'curl http://x/assets/runtime.js' })), true);
 });
 
+test('K-T12-a: /proc/<pid>/fd im RUN setzt capture_outside_access, /proc/cpuinfo nicht', () => {
+  const resultsRoot = tmp('cp-rs-res-');
+  const check = (runText) => {
+    const dir = tmp('cp-rs-proc-');
+    const testDir = join(dir, 'test');
+    mkdirSync(testDir);
+    writeFileSync(join(testDir, 'RUN'), runText);
+    writeFileSync(join(dir, 'log'), '');
+    return captureOutsideAccess({ testDir, logFile: join(dir, 'log'), resultsRoot });
+  };
+  assert.equal(check('echo xxxx > /proc/4242/fd/3'), true);
+  assert.equal(check('ls /proc/self/fd'), true);
+  assert.equal(check('cat /proc/cpuinfo | head -1'), false, 'Gegenprobe: andere /proc-Datei');
+  assert.equal(check('npx playwright test'), false);
+});
+
 test('F15: ps nur als Befehlsanfang in RUN/*.sh, eine Python-Variable ps oder ein Wort zaehlt nicht', () => {
   const resultsRoot = tmp('cp-rs-res-');
   const check = (name, text) => {
