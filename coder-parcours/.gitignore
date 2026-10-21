@@ -1,0 +1,11 @@
+node_modules/
+app/dist/
+harness/toolchain/node_modules/
+harness/toolchain/.venv/
+secret/plain/
+*.key
+e2e/secret-bugs.spec.ts
+test-results/
+playwright-report/
+data/
+results/*/raw/

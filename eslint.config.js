@@ -16,6 +16,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ["build/", "node_modules/", "test-hardest/", "test-stress/", "research/"],
+    ignores: ["build/", "node_modules/", "test-hardest/", "test-stress/", "research/", "coder-parcours/"],
   }
 );
