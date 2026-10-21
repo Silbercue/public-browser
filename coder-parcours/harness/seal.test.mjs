@@ -30,7 +30,7 @@ function cli(args, env = {}) {
   return spawnSync(process.execPath, [SEAL, ...args], {
     encoding: 'utf8',
     input: '',
-    env: { ...process.env, ...env },
+    env: { ...process.env, CP_ALLOW_NO_VERIFY: '1', ...env },
   });
 }
 
@@ -198,8 +198,8 @@ function sealedPackage(files) {
   writeFileSync(sealed, sealBuffer(plain, readFileSync(k.pub, 'utf8').trim()));
   return { ...k, sealed };
 }
-const unsealCli = (k, target, extra = [], pass = PASS) =>
-  cli(['unseal', '--key', k.key, '--in', k.sealed, '--out', target, '--passphrase-env', 'CP_TEST_PASS', ...extra], { CP_TEST_PASS: pass });
+const unsealCli = (k, target, extra = [], pass = PASS, env = {}) =>
+  cli(['unseal', '--key', k.key, '--in', k.sealed, '--out', target, '--passphrase-env', 'CP_TEST_PASS', ...extra], { CP_TEST_PASS: pass, ...env });
 
 test('keygen: ueberschreibt eine bestehende Schluesseldatei nie', () => {
   const first = keygen();
@@ -361,4 +361,22 @@ test('AUTHOR-BRIEF.md nennt alle Pflichtverweise', () => {
   for (const needle of ['bugs/public', 'catalog/decoys.json', 'removesDecoys', 'e2e/secret-bugs.spec.ts', 'CODER_PARCOURS_SECRET_DIR', '~/.claude/projects', 'grep -rl', 'web search', '--expect-sha256']) {
     assert.ok(brief.includes(needle), `fehlt: ${needle}`);
   }
+});
+
+test('S-T9-1: unseal --no-verify ohne CP_ALLOW_NO_VERIFY=1 bricht ab und schreibt nichts, mit dem Schalter laeuft es mit Warnung', () => {
+  const k = sealedPackage({ 'a.txt': 'x' });
+  const target = join(tmp('nv'), 'out');
+  const refused = unsealCli(k, target, ['--no-verify'], PASS, { CP_ALLOW_NO_VERIFY: '' });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /CP_ALLOW_NO_VERIFY=1/);
+  assert.equal(existsSync(target), false, 'nichts geschrieben');
+  const allowed = unsealCli(k, target, ['--no-verify'], PASS, { CP_ALLOW_NO_VERIFY: '1' });
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.match(allowed.stderr, /WARNING: unsealing without --expect-sha256/);
+  // Gegenprobe: mit --expect-sha256 braucht es den Schalter nicht und warnt nicht
+  const expect = createHash('sha256').update(readFileSync(k.sealed)).digest('hex');
+  const target2 = join(tmp('nv2'), 'out');
+  const verified = unsealCli(k, target2, ['--expect-sha256', expect], PASS, { CP_ALLOW_NO_VERIFY: '' });
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.doesNotMatch(verified.stderr, /WARNING/);
 });

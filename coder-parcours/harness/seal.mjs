@@ -227,6 +227,13 @@ async function cmdUnseal(o) {
   if (expected === null && !o['no-verify']) {
     throw new Error('unseal needs --expect-sha256 <hex> (the sealed.bin checksum from the author\'s reply, not the file in the repository).');
   }
+  if (expected === null) {
+    // --no-verify oeffnet ein Paket ohne Pruefsumme des Autors; nur mit ausdruecklichem Schalter in der Umgebung.
+    if (process.env.CP_ALLOW_NO_VERIFY !== '1') {
+      throw new Error('--no-verify is refused unless CP_ALLOW_NO_VERIFY=1 is set: without the author\'s checksum nothing proves that this is the package the author sealed. Use --expect-sha256 <hex>.');
+    }
+    process.stderr.write('WARNING: unsealing without --expect-sha256; the package is not checked against the author\'s checksum.\n');
+  }
   const out = resolve(String(o.out));
   const top = insideGitWorkTree(out);
   if (top && !o['allow-repo']) {
