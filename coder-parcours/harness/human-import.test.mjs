@@ -138,7 +138,9 @@ test('several commits in one tester session: the earliest report decides, the ot
 });
 
 test('git exit code other than 0 and 1 gives a "could not compare" note, 0 gives none; blank testers share human-anonymous', async () => {
-  for (const [code, expectNote] of [[2, /could not compare the catalog with hosted commit abc1234 \(git exit 2\)/], [0, null]]) {
+  /** @type {Array<[number, RegExp|null]>} */
+  const cases = [[2, /could not compare the catalog with hosted commit abc1234 \(git exit 2\)/], [0, null]];
+  for (const [code, expectNote] of cases) {
     const { root, deps, cleanup } = setup(code);
     const file = join(root, 'reports.jsonl');
     writeFileSync(file, [row({ commit: 'abc1234', tester: '', text: 'one' }), row({ commit: 'abc1234', tester: undefined, text: 'two' })].join('\n') + '\n');

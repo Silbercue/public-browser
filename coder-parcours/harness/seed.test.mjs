@@ -344,7 +344,7 @@ test('stratifiedPublic keeps the required picks complete even when the drawn cou
     const cfg = buildRunConfig({ seed, sessionType: 'explore', catalog: cat });
     const widths = new Set(cfg.active.map((a) => a.width));
     assert.ok(cfg.active.some((a) => a.id === 'P01'), `seed ${seed}: the trap is there`);
-    for (const w of ['phone', 'tablet', 'desktop']) assert.ok(widths.has(w), `seed ${seed}: ${w} covered although the count was ${count}`);
+    for (const w of /** @type {const} */ (['phone', 'tablet', 'desktop'])) assert.ok(widths.has(w), `seed ${seed}: ${w} covered although the count was ${count}`);
     assert.ok(cfg.active.length >= 3);
   }
   assert.ok(small > 0, 'Gegenprobe: some seeds really draw fewer than the 3 required picks');
