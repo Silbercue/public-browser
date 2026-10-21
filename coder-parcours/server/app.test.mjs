@@ -555,3 +555,184 @@ test('hosted sandbox pool: expires after 2 h idle, keeps at most 500 (oldest go 
   assert.equal(pool.get(ids[1]), null, 'least recently used is evicted');
   assert.ok(pool.get(ids[2]));
 });
+
+// --- Fix round 1: rights, limits, public ids -------------------------------------------------------
+
+/** Hosted server with a plain config per seed. @param {any} [overrides] */
+function startHosted(overrides = {}) {
+  const configForSeed = (seed) => ({ seed, sessionType: 'explore', variant: null, sources: { public: 0, secret: 0 }, active: [], change: null, capture: null, decoys: [] });
+  return start({ mode: 'hosted', runConfig: undefined, configForSeed, ...overrides });
+}
+
+test('hosted: a sw_sid of sandbox A is anonymous in sandbox B and shows no foreign cart', async () => {
+  const s = await startHosted();
+  try {
+    const a = client(s.base);
+    await a.get('/');
+    await a.login();
+    const k = await freeClass(a);
+    await a.post('/api/cart/items', { classId: k.id, spots: 1 });
+    assert.equal((await a.get('/api/cart')).json.items.length, 1);
+    const b = client(s.base);
+    await b.get('/');
+    assert.notEqual(b.jar.get('sw_sb'), a.jar.get('sw_sb'));
+    b.jar.set('sw_sid', a.jar.get('sw_sid'));
+    const me = await b.get('/api/me');
+    assert.deepEqual([me.status, me.json.error], [401, 'login_required']);
+    assert.equal((await b.get('/api/cart')).json.items.length, 0);
+    assert.equal((await a.get('/api/me')).status, 200, 'counter-check: A itself is still logged in');
+  } finally { await s.handle.close(); }
+});
+
+test('session ages out after 8 h (session_expired line), not before', async () => {
+  const { SESSION_TTL_MS } = await import('./store.mjs');
+  const hooks = createHookSet();
+  let shift = 0;
+  hooks.before('GET /api/cart', (ctx) => { ctx.session.loginAt -= shift; });
+  const s = await start({ makeEngine: () => ({ ...nullEngine, hooks }) });
+  try {
+    const c = client(s.base);
+    await c.login();
+    shift = SESSION_TTL_MS - 60_000;
+    await c.get('/api/cart');
+    assert.equal((await c.get('/api/me')).status, 200, 'just under 8 h still logged in');
+    assert.equal(lines(s.eventsFile).filter((e) => e.type === 'session_expired').length, 0);
+    shift = 120_000;
+    await c.get('/api/cart');
+    const r = await c.get('/api/me');
+    assert.deepEqual([r.status, r.json.error], [401, 'session_expired']);
+    assert.equal(lines(s.eventsFile).filter((e) => e.type === 'session_expired').length, 1);
+  } finally { await s.handle.close(); }
+});
+
+test('reports: global and per-IP limits apply across sandboxes; full files answer 507', async () => {
+  const sg = await startHosted({ limits: { reportsGlobal: 3, reportsPerIp: 100 } });
+  try {
+    for (let i = 0; i < 3; i++) assert.equal((await client(sg.base).post('/api/reports', { text: `g${i}`, path: '/' })).status, 201);
+    const r = await client(sg.base).post('/api/reports', { text: 'g3', path: '/' });
+    assert.deepEqual([r.status, r.json.error], [429, 'too_many_reports']);
+  } finally { await sg.handle.close(); }
+  const si = await startHosted({ limits: { reportsGlobal: 100, reportsPerIp: 2 } });
+  try {
+    for (let i = 0; i < 2; i++) assert.equal((await client(si.base).post('/api/reports', { text: `i${i}`, path: '/' })).status, 201);
+    assert.equal((await client(si.base).post('/api/reports', { text: 'i2', path: '/' })).status, 429, 'third sandbox, same IP');
+  } finally { await si.handle.close(); }
+  const sf = await start({ limits: { reportsBytes: 1 } });
+  try {
+    assert.equal((await client(sf.base).post('/api/reports', { text: 'one', path: '/' })).status, 201);
+    const r = await client(sf.base).post('/api/reports', { text: 'two', path: '/' });
+    assert.deepEqual([r.status, r.json.error], [507, 'reports_full']);
+    assert.equal(lines(sf.reportsFile).length, 1);
+  } finally { await sf.handle.close(); }
+});
+
+test('events file at its cap: events are dropped, logged once, requests keep working', async () => {
+  const orig = console.error;
+  /** @type {string[]} */
+  const logged = [];
+  console.error = (...a) => { logged.push(a.join(' ')); };
+  const s = await start({ limits: { eventsBytes: 1 } });
+  try {
+    const c = client(s.base);
+    for (let i = 0; i < 4; i++) assert.equal((await c.get('/api/classes')).status, 200);
+    assert.equal(lines(s.eventsFile).length, 1, 'only the line written before the cap');
+    assert.equal(logged.filter((m) => /events file reached/.test(m)).length, 1);
+  } finally { console.error = orig; await s.handle.close(); }
+});
+
+test('hosted: assets, reads and favicon open no sandbox; over the IP limit pages fall back to a guest, writes get 429', async () => {
+  const s = await startHosted({ limits: { sandboxesPerIp: 2 } });
+  try {
+    const c = client(s.base);
+    for (const p of ['/api/classes', '/assets/runtime.js', '/favicon.ico', '/api/cart']) await c.get(p);
+    assert.equal(c.jar.has('sw_sb'), false, 'no cookie for reads and assets');
+    assert.equal((await c.get('/')).status, 200);
+    assert.ok(c.jar.has('sw_sb'), 'counter-check: a page load opens a sandbox');
+    const c2 = client(s.base);
+    await c2.get('/');
+    assert.ok(c2.jar.has('sw_sb'));
+    const c3 = client(s.base);
+    const page = await c3.get('/');
+    assert.equal(page.status, 200);
+    assert.equal(c3.jar.has('sw_sb'), false, 'third page load from this IP: guest, no sandbox');
+    const w = await c3.login();
+    assert.deepEqual([w.status, w.json.error], [429, 'too_many_sandboxes']);
+    assert.equal((await c.login()).status, 200, 'counter-check: a visitor with a sandbox is not affected');
+  } finally { await s.handle.close(); }
+});
+
+test('hosted: only seeds from loadSeeds() count; other numbers fall back to the first', async () => {
+  const seen = [];
+  const s = await startHosted({ makeEngine: (cfg) => { seen.push(cfg.seed); return nullEngine; } });
+  try {
+    const [s0, s1] = loadSeeds();
+    await client(s.base).get('/?seed=999999');
+    assert.equal(seen.at(-1), s0);
+    await client(s.base).get(`/?seed=${s1}`);
+    assert.equal(seen.at(-1), s1);
+  } finally { await s.handle.close(); }
+});
+
+test('sessions per sandbox are capped; anonymous ones go first, logged-in ones survive', async () => {
+  const s = await start({ limits: { sessionsPerSandbox: 3 } });
+  try {
+    const a = client(s.base);
+    await a.login();
+    const k = await freeClass(a);
+    const others = [client(s.base), client(s.base), client(s.base), client(s.base)];
+    for (const o of others) await o.post('/api/cart/items', { classId: k.id, spots: 1 });
+    assert.equal((await a.get('/api/me')).status, 200, 'logged-in session survives the flood');
+    assert.equal((await others[0].get('/api/cart')).json.items.length, 0, 'oldest anonymous cart was dropped');
+    assert.equal((await others[3].get('/api/cart')).json.items.length, 1, 'newest anonymous cart is there');
+  } finally { await s.handle.close(); }
+});
+
+test('admin token: wrong tokens of any length answer 401, the 5th wrong try locks the IP even for the right token', async () => {
+  const s = await start({ adminToken: 'tok-123' });
+  try {
+    const c = client(s.base);
+    assert.equal((await c.get('/api/admin/reports', { authorization: 'x' })).status, 401);
+    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer ' + 'y'.repeat(500) })).status, 401);
+    for (let i = 0; i < 2; i++) assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer nope' })).status, 401);
+    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' })).status, 200, 'right token under the limit works');
+    assert.equal((await c.get('/api/admin/reports', { authorization: 'Bearer nope' })).status, 401);
+    const r = await c.get('/api/admin/reports', { authorization: 'Bearer tok-123' });
+    assert.deepEqual([r.status, r.json.error], [429, 'too_many_attempts']);
+  } finally { await s.handle.close(); }
+});
+
+test('files carry a derived sandbox id, never the sw_sb cookie value; events, reports and engine agree', async () => {
+  let engineId = null;
+  const s = await startHosted({ makeEngine: (cfg, { sandboxId }) => { engineId = sandboxId; return nullEngine; } });
+  try {
+    const c = client(s.base);
+    await c.get('/');
+    const cookie = c.jar.get('sw_sb');
+    await c.login();
+    await c.post('/api/reports', { text: 'x', path: '/' });
+    const ev = lines(s.eventsFile);
+    const [rep] = lines(s.reportsFile);
+    assert.ok(ev.length >= 2 && rep);
+    for (const e of ev) assert.notEqual(e.sb, cookie);
+    assert.notEqual(rep.sb, cookie);
+    assert.equal(rep.sb, ev.at(-1).sb, 'same sandbox, same public id');
+    assert.equal(rep.sb, engineId);
+    assert.ok(!readFileSync(s.eventsFile, 'utf8').includes(cookie) && !readFileSync(s.reportsFile, 'utf8').includes(cookie));
+  } finally { await s.handle.close(); }
+});
+
+test('cookies: Secure only in hosted mode; a broken percent code is ignored, not a 500', async () => {
+  const h = await startHosted();
+  const l = await start();
+  try {
+    let r = await client(h.base).get('/');
+    assert.match(r.headers.get('set-cookie'), /;\s*Secure/i);
+    const c = client(l.base);
+    const k = await freeClass(c);
+    r = await c.post('/api/cart/items', { classId: k.id, spots: 1 });
+    assert.doesNotMatch(r.headers.get('set-cookie'), /Secure/i);
+    r = await client(l.base).get('/api/cart', { cookie: 'sw_sid=%E0%A4%A; sw_sb=%' });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.items.length, 0, 'the broken cookie counts as absent');
+  } finally { await h.handle.close(); await l.handle.close(); }
+});

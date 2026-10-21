@@ -21,6 +21,8 @@ export function createSandbox({ id, seed, runConfig }) {
   const data = createInitialData();
   return {
     id,
+    /** public id for files and engines (the id itself is the sw_sb cookie value); set by the server */
+    pub: '',
     seed,
     runConfig,
     /** @type {any} set by the server: engine of this sandbox */

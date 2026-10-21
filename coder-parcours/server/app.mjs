@@ -1,8 +1,9 @@
 // Express 5 app of the Stillwater Yoga studio: JSON API with hooks, sandboxes, event and report files, pages.
 import express from 'express';
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { join } from 'node:path';
+import { pipeline } from 'node:stream';
 import { createHookSet } from './hooks.mjs';
 import { isEnded } from './data.mjs';
 import {
@@ -15,6 +16,47 @@ import { loadSeeds } from '../harness/seed.mjs';
 export const nullEngine = { hooks: createHookSet(), runtimeScript: () => '', decodeBeacon: () => null, activeIds: [] };
 
 const RUNTIME_TAG = '<script src="/assets/runtime.js"></script>';
+
+/** Safety limits; every value can be overridden through the `limits` option (tests do). */
+export const SERVER_LIMITS = {
+  /** Event file stops growing here (events are dropped, logged once). */
+  eventsBytes: 200 * 1024 * 1024,
+  /** Report file stops growing here (reports answer 507). */
+  reportsBytes: 20 * 1024 * 1024,
+  /** Reports over all sandboxes per REPORT_LIMITS.windowMin. */
+  reportsGlobal: REPORT_LIMITS.perSandbox * 10,
+  /** Reports per client IP per REPORT_LIMITS.windowMin. */
+  reportsPerIp: REPORT_LIMITS.perSandbox,
+  /** New hosted sandboxes per client IP per sandboxWindowMs. */
+  sandboxesPerIp: 20,
+  sandboxWindowMs: 10 * 60 * 1000,
+  /** Wrong admin tokens per client IP per adminWindowMs before the IP is locked out. */
+  adminFailsPerIp: 5,
+  adminWindowMs: 10 * 60 * 1000,
+  /** sw_sid sessions (with their carts) per sandbox. */
+  sessionsPerSandbox: 50,
+};
+
+/** Sliding-window counter per key (client IP or 'all'); memory stays bounded. */
+function slidingWindow(max, windowMs) {
+  /** @type {Map<string, number[]>} */
+  const m = new Map();
+  const live = (key, now) => {
+    const ts = (m.get(key) ?? []).filter((t) => now - t < windowMs);
+    if (ts.length) m.set(key, ts); else m.delete(key);
+    return ts;
+  };
+  return {
+    full: (key, now = Date.now()) => live(key, now).length >= max,
+    add(key, now = Date.now()) {
+      const ts = live(key, now);
+      ts.push(now);
+      m.set(key, ts);
+      while (m.size > 5000) m.delete(m.keys().next().value);
+    },
+  };
+}
+
 const COOKIE_BASE = { httpOnly: true, sameSite: /** @type {'lax'} */ ('lax'), path: '/' };
 
 /** @param {string} sid */
@@ -28,7 +70,8 @@ function parseCookies(header) {
     const i = part.indexOf('=');
     if (i < 0) continue;
     const k = part.slice(0, i).trim();
-    if (k) out[k] = decodeURIComponent(part.slice(i + 1).trim());
+    if (!k) continue;
+    try { out[k] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* broken percent code: ignore this cookie */ }
   }
   return out;
 }
@@ -54,34 +97,75 @@ const MSG = {
 /**
  * @param {{ mode: 'single'|'hosted', runConfig?: any, configForSeed?: (seed: number) => any,
  *   makeEngine?: (runConfig: any, opts: { sandboxId: string, logEvent: (entry: object) => void }) => any,
- *   eventsFile?: string|null, reportsFile?: string|null, staticDir?: string, adminToken?: string|null }} opts
- *   makeEngine is called once per sandbox; logEvent writes an event line with that sandbox's `sb`.
+ *   eventsFile?: string|null, reportsFile?: string|null, staticDir?: string, adminToken?: string|null,
+ *   trustProxy?: number|false, secureCookies?: boolean, limits?: Partial<typeof SERVER_LIMITS> }} opts
+ *   makeEngine is called once per sandbox; logEvent writes an event line with that sandbox's public `sb`.
+ *   trustProxy (hop count, default env CODER_PARCOURS_TRUST_PROXY, else off) decides where req.ip comes from.
+ *   secureCookies defaults to true in hosted mode only.
  */
 export function createServer({
   mode, runConfig, configForSeed, makeEngine = () => nullEngine, eventsFile = null, reportsFile = null, staticDir, adminToken = null,
+  trustProxy = /^\d+$/.test(process.env.CODER_PARCOURS_TRUST_PROXY ?? '') ? Number(process.env.CODER_PARCOURS_TRUST_PROXY) : false,
+  secureCookies = mode === 'hosted', limits = {},
 }) {
+  const L = { ...SERVER_LIMITS, ...limits };
+  const cookieBase = { ...COOKIE_BASE, ...(secureCookies ? { secure: true } : {}) };
   if (mode !== 'single' && mode !== 'hosted') throw new Error(`createServer: unknown mode ${mode}`);
   if (mode === 'single' && !runConfig) throw new Error('createServer: single mode needs runConfig');
   if (mode === 'hosted' && typeof configForSeed !== 'function') throw new Error('createServer: hosted mode needs configForSeed');
 
-  /** @param {string} sb @param {object} entry */
+  const fileSize = (file) => (file && existsSync(file) ? statSync(file).size : 0);
+  let eventsBytes = fileSize(eventsFile);
+  let reportsBytes = fileSize(reportsFile);
+  let eventsFullLogged = false;
+
+  /** @param {string} sb public sandbox id @param {object} entry */
   const writeEvent = (sb, entry) => {
-    if (eventsFile) appendFileSync(eventsFile, JSON.stringify({ t: new Date().toISOString(), sb, ...entry }) + '\n');
+    if (!eventsFile) return;
+    if (eventsBytes >= L.eventsBytes) {
+      if (!eventsFullLogged) { eventsFullLogged = true; console.error(`events file reached ${L.eventsBytes} bytes; dropping further events`); }
+      return;
+    }
+    const line = JSON.stringify({ t: new Date().toISOString(), sb, ...entry }) + '\n';
+    appendFileSync(eventsFile, line);
+    eventsBytes += Buffer.byteLength(line);
   };
+
+  // The sw_sb cookie value is the key to a sandbox. Files and engines only ever see this derived id.
+  const idKey = randomBytes(32);
+  /** @param {string} id */
+  const publicId = (id) => createHmac('sha256', idKey).update(id).digest('hex').slice(0, 12);
 
   /** @param {string} id @param {number} seed @param {any} cfg */
   const makeSandbox = (id, seed, cfg) => {
     const sb = createSandbox({ id, seed, runConfig: cfg });
-    sb.engine = makeEngine(cfg, { sandboxId: id, logEvent: (entry) => writeEvent(id, entry) }) ?? nullEngine;
+    sb.pub = id === 'single' ? id : publicId(id);
+    sb.engine = makeEngine(cfg, { sandboxId: sb.pub, logEvent: (entry) => writeEvent(sb.pub, entry) }) ?? nullEngine;
     return sb;
   };
 
+  const reportsAll = slidingWindow(L.reportsGlobal, REPORT_LIMITS.windowMin * 60 * 1000);
+  const reportsIp = slidingWindow(L.reportsPerIp, REPORT_LIMITS.windowMin * 60 * 1000);
+  const sandboxesIp = slidingWindow(L.sandboxesPerIp, L.sandboxWindowMs);
+  const adminFails = slidingWindow(L.adminFailsPerIp, L.adminWindowMs);
+  const tokenHash = (t) => createHash('sha256').update(t).digest();
+
   const single = mode === 'single' ? makeSandbox('single', runConfig.seed, runConfig) : null;
   const pool = mode === 'hosted' ? createSandboxPool({ create: (seed) => makeSandbox(newId(), seed, configForSeed(seed)) }) : null;
-  const defaultSeed = mode === 'hosted' ? loadSeeds()[0] : null;
+  const seeds = mode === 'hosted' ? loadSeeds() : [];
+  const defaultSeed = mode === 'hosted' ? seeds[0] : null;
+  /** Hosted visitors without their own sandbox (assets, reads, over-limit page loads): one read-only sandbox per allowed seed. */
+  const guests = new Map();
+  const guestFor = (seed) => {
+    if (!guests.has(seed)) guests.set(seed, makeSandbox(`guest-${seed}`, seed, configForSeed(seed)));
+    return guests.get(seed);
+  };
+  const isPage = (req) => req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/assets/') && !/\.[A-Za-z0-9]+$/.test(req.path);
+  const isStateChange = (req) => !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.path.startsWith('/api/') && req.path !== '/api/metrics';
 
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', trustProxy);
 
   // --- request state: sandbox and sw_sid ---------------------------------------------------------
   app.use((req, res, next) => {
@@ -90,12 +174,22 @@ export function createServer({
     if (pool && !req.path.startsWith('/api/admin/')) {
       const q = req.query.seed;
       const given = typeof q === 'string';
-      const wanted = given && /^\d{1,9}$/.test(q) ? Number(q) : defaultSeed;
+      const wanted = given && /^\d{1,9}$/.test(q) && seeds.includes(Number(q)) ? Number(q) : defaultSeed;
       sb = pool.get(cookies.sw_sb);
-      if (!sb || (given && wanted !== sb.seed)) {
-        sb = pool.add(given ? wanted : defaultSeed);
-        res.cookie('sw_sb', sb.id, COOKIE_BASE);
+      // Only page loads and state-changing requests may open a sandbox, and only a few per client IP.
+      const creates = isPage(req) || isStateChange(req);
+      if (creates && (!sb || (given && wanted !== sb.seed))) {
+        if (!sandboxesIp.full(req.ip ?? '')) {
+          sandboxesIp.add(req.ip ?? '');
+          sb = pool.add(wanted);
+          res.cookie('sw_sb', sb.id, cookieBase);
+        } else if (isStateChange(req)) {
+          return res.status(429).json({ error: 'too_many_sandboxes', message: 'Too many new sessions. Please wait a few minutes.' });
+        } else {
+          sb = guestFor(wanted);
+        }
       }
+      if (!sb) sb = guestFor(wanted);
     }
     const sid = sb && cookies.sw_sid && sb.sessions.has(cookies.sw_sid) ? cookies.sw_sid : null;
     res.locals.sb = sb;
@@ -118,17 +212,24 @@ export function createServer({
   };
 
   /** @param {any} res @param {object} entry */
-  const event = (res, entry) => writeEvent(res.locals.sb ? res.locals.sb.id : 'admin', {
+  const event = (res, entry) => writeEvent(res.locals.sb ? res.locals.sb.pub : 'admin', {
     ...entry, ...(res.locals.sid ? { sid: sidHash(res.locals.sid) } : {}),
   });
 
   /** Gives the client an sw_sid (anonymous) if it has none yet. */
   const ensureSid = (res) => {
     if (res.locals.sid) return res.locals.sid;
+    const sessions = res.locals.sb.sessions;
+    while (sessions.size >= L.sessionsPerSandbox) {
+      // make room: anonymous sessions go first, then the oldest
+      const victim = [...sessions.values()].find((x) => !x.accountId) ?? sessions.values().next().value;
+      sessions.delete(victim.sid);
+      res.locals.sb.carts.delete(victim.sid);
+    }
     const sid = newId(16);
     res.locals.sb.sessions.set(sid, { sid, accountId: null, loginAt: null, expired: false });
     res.locals.sid = sid;
-    res.cookie('sw_sid', sid, { ...COOKIE_BASE, maxAge: SESSION_TTL_MS });
+    res.cookie('sw_sid', sid, { ...cookieBase, maxAge: SESSION_TTL_MS });
     return sid;
   };
 
@@ -157,9 +258,16 @@ export function createServer({
   app.get('/api/admin/reports', (req, res) => {
     res.locals.routeKey = 'GET /api/admin/reports';
     if (!adminToken) return res.status(404).json({ error: 'not_found', message: 'Not found.' });
-    if (req.headers.authorization !== `Bearer ${adminToken}`) return res.status(401).json({ error: 'unauthorized', message: 'Wrong token.' });
-    const text = reportsFile && existsSync(reportsFile) ? readFileSync(reportsFile, 'utf8') : '';
-    res.status(200).type('application/x-ndjson').send(text);
+    const ip = req.ip ?? '';
+    if (adminFails.full(ip)) return res.status(429).json({ error: 'too_many_attempts', message: 'Too many wrong tokens. Please wait.' });
+    const given = String(req.headers.authorization ?? '');
+    if (!timingSafeEqual(tokenHash(given), tokenHash(`Bearer ${adminToken}`))) {
+      adminFails.add(ip);
+      return res.status(401).json({ error: 'unauthorized', message: 'Wrong token.' });
+    }
+    res.status(200).type('application/x-ndjson');
+    if (!reportsFile || !existsSync(reportsFile)) return res.end();
+    pipeline(createReadStream(reportsFile), res, () => { /* client went away or file vanished: nothing to add */ });
   });
 
   app.use('/api', express.json({ limit: '64kb' }));
@@ -264,7 +372,7 @@ export function createServer({
       res.locals.sb.carts.delete(sid);
       res.locals.sid = null;
     }
-    res.clearCookie('sw_sid', COOKIE_BASE);
+    res.clearCookie('sw_sid', cookieBase);
     return ok({ ok: true });
   });
 
@@ -436,12 +544,18 @@ export function createServer({
     if (!text.trim()) return fail(400, 'report_empty', 'Please describe the problem.');
     if (text.length > REPORT_LIMITS.textMax) return fail(400, 'report_long', 'Keep the report under 4000 characters.');
     const now = Date.now();
+    const ip = ctx.req.ip ?? '';
     sb.reportTimes = sb.reportTimes.filter((t) => now - t < REPORT_LIMITS.windowMin * 60 * 1000);
-    if (sb.reportTimes.length >= REPORT_LIMITS.perSandbox) return fail(429, 'too_many_reports', 'Too many reports. Please wait a few minutes.');
+    if (sb.reportTimes.length >= REPORT_LIMITS.perSandbox || reportsAll.full('all', now) || reportsIp.full(ip, now)) {
+      return fail(429, 'too_many_reports', 'Too many reports. Please wait a few minutes.');
+    }
+    if (reportsFile && reportsBytes >= L.reportsBytes) return fail(507, 'reports_full', 'Reports are closed for now. Please try again later.');
     sb.reportTimes.push(now);
+    reportsAll.add('all', now);
+    reportsIp.add(ip, now);
     const line = {
       t: new Date(now).toISOString(),
-      sb: sb.id,
+      sb: sb.pub,
       seed: sb.seed,
       commit: process.env.CODER_PARCOURS_COMMIT || null,
       text,
@@ -449,7 +563,11 @@ export function createServer({
       viewportPx: Number.isFinite(Number(ctx.body.viewportPx)) ? Math.round(Number(ctx.body.viewportPx)) : 0,
       tester: normalizeTester(ctx.body.tester),
     };
-    if (reportsFile) appendFileSync(reportsFile, JSON.stringify(line) + '\n');
+    if (reportsFile) {
+      const out = JSON.stringify(line) + '\n';
+      appendFileSync(reportsFile, out);
+      reportsBytes += Buffer.byteLength(out);
+    }
     return ok({ ok: true }, 201);
   });
 
