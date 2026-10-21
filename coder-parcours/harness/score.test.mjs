@@ -236,3 +236,35 @@ test('aggregate: unbekanntes Agenten-Modell ist ein Fehler, kein Modell "unknown
   assert.throws(() => aggregate([noModel]), /no exact model id/);
   assert.deepEqual(aggregate([explore('pb', 1)]).models, ['claude-opus-5-20260101'], 'Gegenprobe: mit Modell laeuft es');
 });
+
+const abortedRun = (slug, type, seed, reason) => ({ participant: { slug, display: slug.toUpperCase(), kind: 'mcp' }, session: { type, seed, round: 'r' }, status: 'aborted', notes: [`aborted: ${reason}`] });
+
+test('F8: abgebrochene Sitzungen stehen je Teilnehmer mit Zahl und Grund in Daten und Tafel; ohne Abbrueche steht "none"', () => {
+  const g = [explore('pb', 1), explore('aa', 1)];
+  const sb = aggregate(g, [
+    abortedRun('pb', 'explore', 2, 'fairness violated, tools outside the lock executed: Bash(cat x)'),
+    abortedRun('pb', 'capture', 2, 'fairness violated, tools outside the lock executed: Bash(ls)'),
+    abortedRun('pb', 'capture', 3, 'ports 9222/9223 busy'),
+  ]);
+  assert.deepEqual(sb.aborted.pb, { n: 3, reasons: { 'fairness violated, tools outside the lock executed': 2, 'ports 9222/9223 busy': 1 } });
+  assert.equal(sb.aborted.aa, undefined, 'Teilnehmer ohne Abbruch hat keinen Eintrag');
+  const md = renderScoreboard(sb);
+  assert.match(md, /## Aborted sessions/);
+  assert.match(md, /\| PB \| 3 \|.*fairness violated, tools outside the lock executed \(2\)/);
+  assert.match(renderScoreboard(aggregate(g, [])), /Aborted sessions: none/);
+  assert.match(renderScoreboard(aggregate(g)), /Aborted sessions: none/);
+});
+
+test('F8: score.mjs liest aborted/ der Runde mit', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cp-score-ab-'));
+  try {
+    mkdirSync(join(root, 'r1', 'graded'), { recursive: true });
+    mkdirSync(join(root, 'r1', 'aborted'), { recursive: true });
+    writeFileSync(join(root, 'r1', 'graded', 'pb-explore-seed1.json'), JSON.stringify(explore('pb', 1)));
+    writeFileSync(join(root, 'r1', 'aborted', 'pb-explore-seed2-1.json'), JSON.stringify(abortedRun('pb', 'explore', 2, 'session JSONL missing')));
+    const r = cli(['--round', 'r1', '--results', root]);
+    assert.equal(r.status, 0, r.stderr);
+    const sb = JSON.parse(readFileSync(join(root, 'r1', 'scoreboard.json'), 'utf8'));
+    assert.deepEqual(sb.aborted.pb, { n: 1, reasons: { 'session JSONL missing': 1 } });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

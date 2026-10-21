@@ -378,3 +378,18 @@ test('--resume faehrt eine abgebrochene Sitzung (liegt nur in aborted/) neu und 
     assert.equal(third.length, 0);
   } finally { done(); }
 });
+
+test('F8: nach drei abgebrochenen Versuchen wird eine Sitzung nicht mehr neu gefahren und steht als aufgegeben in der Antwort', async () => {
+  const { resultsRoot, done } = setup();
+  try {
+    const dir = join(resultsRoot, 'rcap', 'aborted');
+    mkdirSync(dir, { recursive: true });
+    // a/explore/seed 1: three aborted attempts; b/explore/seed 1: two aborted attempts
+    for (const n of [1, 2, 3]) writeFileSync(join(dir, `a-explore-seed1-${n}.json`), '{}');
+    for (const n of [1, 2]) writeFileSync(join(dir, `b-explore-seed1-${n}.json`), '{}');
+    const calls = [];
+    const out = await runRound({ round: 'rcap', resume: true, participants: ['a', 'b'], types: ['explore'], seeds: [1], resultsRoot }, { ...quiet, runSession: fakeRun(resultsRoot, { log: calls }) });
+    assert.deepEqual(calls.map((c) => c.slug), ['b'], 'a gave up, b still gets its third attempt');
+    assert.deepEqual(out.gaveUp, [{ slug: 'a', type: 'explore', seed: 1, attempts: 3 }]);
+  } finally { done(); }
+});

@@ -122,9 +122,29 @@ function groupStats(sessions) {
 }
 
 /**
- * @param {any[]} gradedResults
+ * Abgebrochene Sitzungen je Teilnehmer: Zahl und Gruende (Text nach "aborted: " bis zum ersten Doppelpunkt).
+ * @param {any[]} abortedResults
+ * @returns {Record<string, { n: number, reasons: Record<string, number> }>}
  */
-export function aggregate(gradedResults) {
+function summarizeAborted(abortedResults) {
+  /** @type {Record<string, { n: number, reasons: Record<string, number> }>} */
+  const out = {};
+  for (const r of abortedResults) {
+    const slug = r.participant?.slug ?? 'unknown';
+    const note = (r.notes ?? []).find((x) => typeof x === 'string' && x.startsWith('aborted: '));
+    const reason = (note ? note.slice('aborted: '.length).split(':')[0].trim() : 'no reason recorded').slice(0, 100);
+    out[slug] ??= { n: 0, reasons: {} };
+    out[slug].n++;
+    out[slug].reasons[reason] = (out[slug].reasons[reason] ?? 0) + 1;
+  }
+  return out;
+}
+
+/**
+ * @param {any[]} gradedResults
+ * @param {any[]} [abortedResults] Sitzungen aus <runde>/aborted/ (jeder Versuch zaehlt)
+ */
+export function aggregate(gradedResults, abortedResults = []) {
   const models = checkModels(gradedResults);
   const grader = checkGrader(gradedResults);
   const agents = gradedResults.filter((r) => r.participant?.kind !== 'human');
@@ -190,6 +210,7 @@ export function aggregate(gradedResults) {
     grader,
     participants,
     humans: humanRow,
+    aborted: summarizeAborted(abortedResults),
     unreviewed: sum(Object.values(participants).map((p) => p.unreviewed)) + (humanRow?.unreviewed ?? 0),
   };
 }
@@ -232,6 +253,17 @@ export function renderScoreboard(sb) {
     out.push(row('Human testers', [h.sessions, '—', '—', mr(h.hit_rate), mr(h.false_alarms), mr(h.duplicates), '—', '—', '—', h.unreviewed]));
   }
   out.push('');
+
+  const ab = Object.entries(sb.aborted ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
+  if (!ab.length) out.push('Aborted sessions: none.', '');
+  else {
+    out.push('## Aborted sessions', '', 'Every aborted attempt is counted and published; an aborted session is run again at most twice.', '');
+    out.push(...header('Participant', ['Aborted attempts', 'Reasons']));
+    for (const [slug, a] of ab) {
+      out.push(row(sb.participants[slug]?.display ?? slug.toUpperCase(), [a.n, Object.entries(a.reasons).sort(([x], [y]) => (x < y ? -1 : 1)).map(([k, v]) => `${k} (${v})`).join('; ')]));
+    }
+    out.push('');
+  }
 
   out.push('## Capture and integrity', '');
   out.push(...header('Participant', ['Capture valid', 'Sessions that read the bug script', 'Capture outside access']));
@@ -280,8 +312,17 @@ export function readGraded({ round, resultsRoot = RESULTS_ROOT }) {
 /**
  * @param {{ round: string, resultsRoot?: string }} o
  */
+export function readAborted({ round, resultsRoot = RESULTS_ROOT }) {
+  const dir = join(resultsRoot, round, 'aborted');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((n) => n.endsWith('.json')).sort().map((n) => JSON.parse(readFileSync(join(dir, n), 'utf8')));
+}
+
+/**
+ * @param {{ round: string, resultsRoot?: string }} o
+ */
 export function writeScoreboard({ round, resultsRoot = RESULTS_ROOT }) {
-  const sb = aggregate(readGraded({ round, resultsRoot }));
+  const sb = aggregate(readGraded({ round, resultsRoot }), readAborted({ round, resultsRoot }));
   const dir = join(resultsRoot, round);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'scoreboard.json'), `${JSON.stringify(sb, null, 2)}\n`);

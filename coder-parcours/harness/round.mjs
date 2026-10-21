@@ -12,6 +12,8 @@ import { CP_PARTICIPANTS } from './participants.mjs';
 import { sessionFileName } from './result-schema.mjs';
 import { loadSeeds } from './seed.mjs';
 
+/** Versuche je Sitzung (inkl. abgebrochener): danach wird sie nicht mehr neu gefahren. */
+export const MAX_ATTEMPTS = 3;
 const SEEDS_PER_ROUND = 5;
 const EXPLORE_PER_ROUND = 20;
 
@@ -84,10 +86,19 @@ export async function runRound(opts, deps = {}) {
 
   const runSession = deps.runSession ?? (await import(/** @type {string} */ ('./run-session.mjs'))).runSession;
   let baseline = resume ? existingModel(sessionsDir) : null;
-  const out = { planned: plan.length, ran: 0, skipped: 0, aborted: /** @type {{slug:string,type:string,seed:number}[]} */ ([]), stopped: /** @type {any} */ (null) };
+  const out = { planned: plan.length, ran: 0, skipped: 0, aborted: /** @type {{slug:string,type:string,seed:number}[]} */ ([]), gaveUp: /** @type {{slug:string,type:string,seed:number,attempts:number}[]} */ ([]), stopped: /** @type {any} */ (null) };
+  const abortedDir = join(roundDir, 'aborted');
 
   for (const item of plan) {
     if (resume && existsSync(join(sessionsDir, sessionFileName(item)))) { out.skipped++; continue; }
+    // Abgebrochene Versuche dieser Sitzung (aborted/<name>-<n>.json): nach MAX_ATTEMPTS nicht mehr neu fahren.
+    const stem = sessionFileName(item).replace(/\.json$/, '');
+    const attempts = existsSync(abortedDir) ? readdirSync(abortedDir).filter((n) => n.startsWith(`${stem}-`) && /-\d+\.json$/.test(n) && n.slice(stem.length + 1).replace(/\.json$/, '').match(/^\d+$/)).length : 0;
+    if (attempts >= MAX_ATTEMPTS) {
+      out.gaveUp.push({ ...item, attempts });
+      log(`round ${round}: ${item.slug} ${item.type} seed ${item.seed}: ${attempts} aborted attempts, not run again`);
+      continue;
+    }
     log(`round ${round}: ${item.slug} ${item.type} seed ${item.seed}`);
     const { result } = await runSession({ ...item, round, secretDir, replace: false }, deps.sessionDeps ?? {});
     out.ran++;
