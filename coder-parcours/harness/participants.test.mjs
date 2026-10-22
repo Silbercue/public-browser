@@ -82,6 +82,11 @@ test('playwright-cli: setup schreibt .playwright/cli.config.json (Chrome-Pfad, h
   assert.deepEqual(cfg.browser, { browserName: 'chromium', isolated: true, launchOptions: { executablePath: '/x/chrome', headless: true }, contextOptions: { viewport: { width: 1280, height: 800 } } });
 });
 
+test('R4c S3: playwright-cli raeumt alle Sitzungen des Arbeitsordners auf (close-all), auch mit eigenem -s-Namen; agent-browser bleibt bei close im eigenen Namensraum', () => {
+  assert.deepEqual(CP_PARTICIPANTS['playwright-cli'].cleanupArgs, ['close-all']);
+  assert.deepEqual(CP_PARTICIPANTS['agent-browser'].cleanupArgs, ['close']);
+});
+
 test('playwright-cli: setup nimmt den aufgeloesten Chrome-Pfad statt Systemkanal', () => {
   const rundir = mkdtempSync(join(tmpdir(), 'cp-part-'));
   CP_PARTICIPANTS['playwright-cli'].setup(rundir, FAKE_DEPS);

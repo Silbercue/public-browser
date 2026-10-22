@@ -199,7 +199,10 @@ export const CP_PARTICIPANTS = {
           contextOptions: { viewport: { ...START_VIEWPORT } } },
       }, null, 2)}\n`);
     },
-    cleanupArgs: ['close'],
+    // close-all statt close: die Anleitung empfiehlt eigene Sitzungsnamen (-s=<name>); deren Daemon traegt weder Lauf noch
+    // Arbeitsordner in der Befehlszeile. close-all beendet alle Sitzungen dieses Arbeitsordners (Rundir mit .playwright/),
+    // gleich unter welchem Namen, und keine anderer Arbeitsordner.
+    cleanupArgs: ['close-all'],
     profile_isolation: 'isolated in-memory profile, Chrome via executablePath (same binary as the others), headless, viewport 1280x800 (.playwright/cli.config.json in the run dir)',
   },
 };
