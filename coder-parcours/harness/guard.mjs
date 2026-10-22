@@ -48,7 +48,7 @@ const unquote = (t) => (/^(["']).*\1$/.test(t) && t.length >= 2 ? t.slice(1, -1)
 /** rel (von path.relative) fuehrt aus dem Ordner hinaus? Eine Datei "..x" im Ordner tut das nicht. */
 const isEscape = (rel) => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
 
-export const CONFIG_DENY_REASON = 'blocked by benchmark harness: configuration files of the browser tools cannot be created or changed in the session folder.';
+export const CONFIG_DENY_REASON = 'blocked by benchmark harness: configuration files of the browser tools and files named like an option or a sub-command (-x, connect, attach ...) cannot be created in the session folder.';
 /**
  * Konfigurationsdateien, die ein Browser-Werkzeug beim Start aus dem Sitzungsordner liest (agent-browser.json,
  * .playwright/*, *.config.json, .agent-browser*): ein Agent koennte damit Browser, Profil oder Andock-Adresse waehlen.
@@ -59,7 +59,7 @@ export function protectedConfigPath(filePath) {
   if (typeof filePath !== 'string') return false;
   return filePath.split(/[\\/]+/).some((part) => {
     const p = part.toLowerCase();
-    return p === 'agent-browser.json' || p.startsWith('.agent-browser') || p.startsWith('.playwright') || p.endsWith('.config.json') || p === 'cli.config.json';
+    return p === 'agent-browser.json' || p.startsWith('.agent-browser') || p.startsWith('.playwright') || p.endsWith('.config.json') || p.startsWith('-') || FOREIGN_BROWSER_CMD.has(p);
   });
 }
 
@@ -99,7 +99,24 @@ function pathSegmentAllowed(segment, pathRoot) {
 // gehoeren aber nicht zu einer Sitzung im gemeinsamen, frischen Google Chrome. Geprueft wird Wort fuer Wort nach dem
 // Entfernen von Anfuehrungszeichen und Backslashes (so wie die Shell es zerlegt), nicht am Rohtext; `p` und `b` sind die
 // Kurzformen von --provider und --browser.
-const FOREIGN_BROWSER_OPT = /^--?(?:cdp|auto-?connect|extension|profile|persistent|endpoint|config|browser|engine|executable-path|provider|device|mobile|ios|args|user-data-dir|remote-debugging-(?:port|pipe)|channel|p|b)(?:=|$)/i;
+const FOREIGN_LONG_OPTS = ['cdp', 'auto-connect', 'autoconnect', 'extension', 'profile', 'persistent', 'endpoint', 'config', 'browser', 'engine', 'executable-path', 'provider', 'device', 'mobile', 'ios', 'args', 'user-data-dir', 'remote-debugging-port', 'remote-debugging-pipe', 'channel'];
+/**
+ * Verbotene Option? Langformen auch als Abkuerzung (Praefix eines verbotenen Namens, viele Parser nehmen `--prof`),
+ * Einzelstrich-Woerter mit dem Buchstaben p oder b (Kurzformen von --provider/--browser, auch gebuendelt wie `-xp`)
+ * und Einzelstrich-Schreibweise eines verbotenen Namens (`-engine`).
+ * @param {string} w
+ */
+function foreignOption(w) {
+  if (w.startsWith('--')) {
+    const name = w.slice(2).split('=')[0].toLowerCase();
+    return name !== '' && FOREIGN_LONG_OPTS.some((n) => n.startsWith(name));
+  }
+  if (/^-[A-Za-z][A-Za-z-]*(?:=.*)?$/.test(w)) {
+    const name = w.slice(1).split('=')[0].toLowerCase();
+    return /[pb]/i.test(name) || FOREIGN_LONG_OPTS.includes(name);
+  }
+  return false;
+}
 // Unterbefehle, die einen anderen Browser anbinden oder Werkzeug, Plugins und Konfiguration veraendern. Gesperrt, wenn
 // IRGENDEIN Wort der Zeile so lautet (nicht nur die ersten beiden: Optionen koennen davor stehen).
 const FOREIGN_BROWSER_CMD = new Set(['attach', 'connect', 'install', 'install-browser', 'upgrade', 'plugin', 'dashboard', 'chat', 'profiles', 'config']);
@@ -108,7 +125,7 @@ const NON_BROWSER_HEADS = new Set([...PATH_HEADS, 'sleep', 'run-my-test']);
 
 /**
  * Zerlegt ein Segment wie die Shell in Woerter (Anfuehrungszeichen und Backslashes entfernt). null = nicht sicher
- * zerlegbar: `$` ausserhalb von Einfach-Anfuehrungszeichen, wo es eine Expansion einleiten kann (Variablen koennten Optionen
+ * zerlegbar: ein ungequotetes `*`, `?`, `[` oder fuehrendes `~` (ausser in einer Adresse scheme://), `$` ausserhalb von Einfach-Anfuehrungszeichen, wo es eine Expansion einleiten kann (Variablen koennten Optionen
  * ergeben), und eine Klammer-Expansion `{a,b}` / `{1..3}` ausserhalb von Anfuehrungszeichen.
  * @param {string} segment
  * @returns {string[] | null}
@@ -131,6 +148,9 @@ export function shellWords(segment) {
     if (ch === '\\') { cur += text[i + 1] ?? ''; inWord = true; i++; continue; }
     if (ch === "'" || ch === '"') { q = ch; inWord = true; continue; }
     if (ch === '$') return null;
+    // Platzhalter und ~ liefert die Shell als Dateinamen (z. B. eine Datei `--cdp`, die der Agent angelegt hat): nur in einer
+    // Adresse (scheme://...) bleiben sie Text, sonst nicht sicher zerlegbar.
+    if ((ch === '*' || ch === '?' || ch === '[' || (ch === '~' && !inWord)) && !/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(cur)) return null;
     if (ch === '{') {
       // Klammer-Expansion nur mit Komma oder `..` zwischen { und der naechsten }; ein Platzhalter wie {SESSION} bleibt Text.
       const close = text.indexOf('}', i);
@@ -156,7 +176,8 @@ export function foreignBrowserRequest(segment) {
   if (!words) return true;
   const [head, ...rest] = words;
   if (NON_BROWSER_HEADS.has(head)) return false;
-  return rest.some((w) => FOREIGN_BROWSER_OPT.test(w) || FOREIGN_BROWSER_CMD.has(w.toLowerCase()));
+  // `eval -b` heisst Base64 (steht in der agent-browser-Anleitung), nicht --browser.
+  return rest.some((w, i) => (w === '-b' && rest[i - 1] === 'eval' ? false : foreignOption(w)) || FOREIGN_BROWSER_CMD.has(w.toLowerCase()));
 }
 
 /**
