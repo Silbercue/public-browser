@@ -3,7 +3,8 @@
 // Bestandteil der Gegenmittel zu Lesezugriffen ueber den Browser (file://) und ueber RUN (ohne Sperre).
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 export const REDACTED = '[redacted-secret]';
 
@@ -39,9 +40,19 @@ export function needlesFromFiles(files) {
   return [...out];
 }
 
-/** Standardquellen: ~/.npmrc und .env im Haupt-Repo und in coder-parcours/. @param {string} cpRoot */
+/** Wurzelordner des gemeinsamen Git-Repos (bei Worktrees das Haupt-Repo), sonst null. @param {string} cpRoot */
+function gitCommonRoot(cpRoot) {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: cpRoot, stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' }).trim();
+    if (!out) return null;
+    return dirname(isAbsolute(out) ? out : resolve(cpRoot, out));
+  } catch { return null; }
+}
+
+/** Standardquellen: ~/.npmrc und .env im Haupt-Repo, im gemeinsamen Git-Repo (Worktree) und in coder-parcours/. @param {string} cpRoot */
 export function defaultSecretFiles(cpRoot, home = homedir()) {
-  return [join(home, '.npmrc'), join(cpRoot, '.env'), join(cpRoot, '..', '.env')];
+  const common = gitCommonRoot(cpRoot);
+  return [...new Set([join(home, '.npmrc'), join(cpRoot, '.env'), join(cpRoot, '..', '.env'), ...(common ? [join(common, '.env')] : [])].map((f) => resolve(f)))];
 }
 
 /**
