@@ -393,3 +393,17 @@ test('F8: nach drei abgebrochenen Versuchen wird eine Sitzung nicht mehr neu gef
     assert.deepEqual(out.gaveUp, [{ slug: 'a', type: 'explore', seed: 1, attempts: 3 }]);
   } finally { done(); }
 });
+
+test('R5 S5: Token-Bericht fuehrt Ergebnistext ohne Bilddaten und Bildzahl; ohne text_chars im Ledger steht ein Strich', () => {
+  const { resultsRoot, done } = setup();
+  try {
+    const withLedger = agentSession('pb', 'explore', 1, { delta: 1000, cost: 1, wall: 60 });
+    withLedger.harness.calls_ledger = [{ i: 1, tool: 'a', chars: 90000, text_chars: 300, images: 1 }, { i: 2, tool: 'b', chars: 50, text_chars: 50, images: 0 }];
+    const old = agentSession('pb', 'explore', 2, { delta: 1000, cost: 1, wall: 60 });
+    old.harness.calls_ledger = [{ i: 1, tool: 'a', chars: 90000 }, { i: 2, tool: 'b', chars: 5, text_chars: 5 }];
+    reportRound(resultsRoot, 'rs5', [withLedger, old]);
+    const md = buildTokenReport({ round: 'rs5', resultsRoot });
+    assert.match(md, /\| pb \| explore \| 1 \| ok \| 1000 \| 10 \| 350 \| 1 \|/, 'text_chars 300+50, ein Bild, nicht die 90000 aus chars');
+    assert.match(md, /\| pb \| explore \| 2 \| ok \| 1000 \| 10 \| — \| — \|/, 'Gegenprobe: altes Ledger ohne text_chars');
+  } finally { done(); }
+});

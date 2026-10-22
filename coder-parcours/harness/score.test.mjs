@@ -277,3 +277,9 @@ test('F9: Sitzungen mit local_file_access werden je Teilnehmer gezaehlt und steh
   assert.equal(sb.participants.aa.integrity.local_file_access, 0, 'Gegenprobe');
   assert.match(renderScoreboard(sb), /Sessions that opened local files/);
 });
+
+test('R5 S5: Kosten je Teilnehmer fuehren den Ergebnistext ohne Bilder (Median), fehlende Werte zaehlen nicht', () => {
+  const withText = (o, n) => { const r = explore('pb', o, {}); if (n !== null) r.metrics.cost.text_chars = n; return r; };
+  const sb = aggregate([withText(1, 100), withText(2, 300), withText(3, null)]);
+  assert.deepEqual(sb.participants.pb.cost.explore.text_chars, { median: 200, min: 100, max: 300, n: 2 });
+});

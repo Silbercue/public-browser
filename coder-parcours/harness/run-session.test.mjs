@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
-import { captureOutsideAccess, readsBugScript, readsLocalFiles, runSession } from './run-session.mjs';
+import { captureOutsideAccess, isUnderHome, readsBugScript, readsLocalFiles, runSession } from './run-session.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { toolchainDir } from './participants.mjs';
 import { symlinkSync } from 'node:fs';
@@ -36,6 +36,10 @@ const CP_PARTICIPANTS_FAKE_MCP = () => ({
   kind: 'mcp', name: 'fake', display: 'Fake MCP', package: 'fake-mcp', version: '9.9.9',
   command: process.execPath, args: [join(BR_FIX, 'fake-mcp.mjs')],
   env: () => ({}), skillFiles: [], extraCommands: [], profile_isolation: 'test',
+});
+const CP_PARTICIPANTS_FAKE_CLI_BASE = () => ({
+  kind: 'cli', name: 'fakecli', cli: 'fakecli', display: 'Fake CLI', package: 'fakecli', version: '3.2.1',
+  binDir: join(BR_FIX, 'bin'), extraCommands: ['sleep'], env: () => ({}), cleanupArgs: ['close'], profile_isolation: 'test',
 });
 registerCpParticipant('fake-cli', {
   kind: 'cli', name: 'fakecli', cli: 'fakecli', display: 'Fake CLI', package: 'fakecli', version: '3.2.1',
@@ -628,4 +632,105 @@ test('captureOutsideAccess: Toolchain-Umgehung, Steuerordner, Log-Spuren', () =>
   assert.equal(check('exit 0', 'ps -ef'), false, 'ps im Protokoll zaehlt nicht (Gegenprobe: im RUN schon)');
   assert.equal(check('ps -ef'), true, 'ps im RUN');
   assert.equal(check('exit 0', `ran in ${ctl}`), false, 'Steuerordner im Protokoll zaehlt nicht (eigener Aufruf)');
+});
+
+// --- Fix-Runde R5 ---
+
+const CHROME = '/opt/c/google-chrome';
+const withChrome = (extra = {}) => ({ cp: { claude: { file: process.execPath, argsPrefix: [FAKE] }, chromeBin: CHROME }, ...extra });
+
+test('R5 S3: Auto-Memory ist aus, per Einstellung (mit Hook zusammen) und per Umgebungsvariable', async () => {
+  const dump = join(tmp('cp-rs-dump-'), 'dump.json');
+  const deps = fakeDeps('ok', { envOverrides: { HOME: tmp('cp-rs-home-'), FAKE_CP_MODE: 'ok', FAKE_CP_DUMP: dump } });
+  const cli = await run({ slug: 'fake-cli', type: 'explore' }, deps);
+  track(cli.result);
+  const settings = (flags) => JSON.parse(/--settings (\{.*?\}\})(?= --|$)/.exec(flags)[1]);
+  assert.equal(settings(cli.result.harness.flags).autoMemoryEnabled, false);
+  assert.ok(settings(cli.result.harness.flags).hooks, 'Hook bleibt neben der Einstellung');
+  assert.equal(JSON.parse(readFileSync(dump, 'utf8')).autoMemoryEnv, '1');
+  // MCP-Teilnehmer ohne Hook bekommen die Einstellung ebenfalls
+  const mcp = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok'));
+  track(mcp.result);
+  assert.deepEqual(JSON.parse(/--settings (\{.*\})(?= --|$)/.exec(mcp.result.harness.flags)[1]), { autoMemoryEnabled: false });
+});
+
+test('R5 S2/K2: Vorspann nennt gesetzte Sitzung und Sperren, nur SKILL.md steht im Text, die uebrigen liegen unter skill/', async () => {
+  const vendored = tmp('cp-rs-vendor-');
+  mkdirSync(join(vendored, 'skills', 'references'), { recursive: true });
+  writeFileSync(join(vendored, 'skills', 'SKILL.md'), 'MAIN-SKILL-TEXT');
+  writeFileSync(join(vendored, 'skills', 'references', 'commands.md'), 'REFERENCE-TEXT');
+  registerCpParticipant('fake-cli-skill', { ...CP_PARTICIPANTS_FAKE_CLI_BASE(), vendoredDir: vendored, skillFiles: ['skills/SKILL.md', 'skills/references/commands.md'] });
+  const { result } = await run({ slug: 'fake-cli-skill', type: 'explore' }, fakeDeps('ok'));
+  track(result);
+  const skill = readFileSync(join(rundirOf(result), 'skill.md'), 'utf8');
+  assert.ok(skill.includes('MAIN-SKILL-TEXT') && skill.includes('# skills/SKILL.md\n'));
+  assert.ok(!skill.includes('REFERENCE-TEXT'), 'Referenzdatei steht nicht fest im Vorspann');
+  assert.equal(readFileSync(join(rundirOf(result), 'skill', 'skills', 'references', 'commands.md'), 'utf8'), 'REFERENCE-TEXT');
+  assert.match(skill, /can be read with the Read tool/);
+  assert.match(skill, /AGENT_BROWSER_SESSION/);
+  assert.match(skill, /Pipes, redirects and shell variables are not available/);
+  assert.deepEqual(result.harness.skill.files.map((f) => f.path), ['skills/SKILL.md', 'skills/references/commands.md'], 'Pruefsummen fuer alle Dateien');
+});
+
+test('R5 S5: calls_ledger trennt text_chars und images; chars zaehlt Base64 weiter mit', async () => {
+  const deps = fakeDeps('ok', { envOverrides: { HOME: tmp('cp-rs-home-'), FAKE_CP_MODE: 'ok', FAKE_CP_IMAGE: '1' } });
+  const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, deps);
+  track(result);
+  const shot = result.harness.calls_ledger.find((c) => c.tool.endsWith('capture_image'));
+  assert.equal(shot.text_chars, 4);
+  assert.equal(shot.images, 1);
+  assert.ok(shot.chars > 5000, 'chars enthaelt das Base64');
+  const nav = result.harness.calls_ledger.find((c) => c.tool.endsWith('navigate'));
+  assert.deepEqual([nav.text_chars, nav.images], ['page loaded'.length, 0], 'Gegenprobe: ein Ergebnis ohne Bild');
+});
+
+test('R5 S6: je neuem Browser-Hauptprozess stehen --headless*, --window-size und --remote-debugging-port im Ergebnis', async () => {
+  const chromeCmd = `${CHROME} --headless=new --window-size=1280,887 --remote-debugging-port=9333 --user-data-dir=/x/y --no-first-run`;
+  const deps = fakeDeps('ok', withChrome(withSession((c) => [claudeProc(c), { pid: 999_999, ppid: 999_990, command: chromeCmd }, { pid: 999_998, ppid: 999_999, command: `${CHROME} --type=renderer --headless=new` }])));
+  const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, deps);
+  track(result);
+  assert.equal(result.status, 'ok', result.notes.join(' | '));
+  assert.deepEqual(result.harness.browser_launch, [{ binary: CHROME, headless: ['--headless=new'], window_size: ['--window-size=1280,887'], remote_debugging: ['--remote-debugging-port=9333'] }]);
+});
+
+test('R5 S7: E-Mail-Adresse samt Domain und Organisations-UUID sind in Ergebnis und raw ersetzt, ohne feste Kennung im Code', async () => {
+  const email = 'jemand.testkonto@beispiel-firma.example';
+  const org = '11111111-2222-4333-8444-555555555555';
+  const deps = fakeDeps('ok', { envOverrides: { HOME: tmp('cp-rs-home-'), FAKE_CP_MODE: 'ok', FAKE_CP_ACCOUNT: email, FAKE_CP_ORG: org } });
+  const { result, outPath } = await run({ slug: 'fake-mcp', type: 'explore' }, deps);
+  track(result);
+  const raw = readFileSync(join(deps.resultsRoot, 'r-test', 'raw', `fake-mcp-explore-seed${SEED}.jsonl`), 'utf8');
+  for (const text of [raw, readFileSync(outPath, 'utf8')]) {
+    for (const part of [email, org, 'beispiel-firma', 'jemand.testkonto']) assert.ok(!text.includes(part), part);
+  }
+  assert.ok(raw.includes('[redacted-account]'), 'Gegenprobe: ersetzt, nicht entfernt');
+  assert.ok(raw.includes('The user\'s email address is [redacted-account].'), 'Satz bleibt lesbar');
+});
+
+test('R5 K3: eingebettete CLAUDE.md im prompt_snapshot bricht die Sitzung ab, ein Snapshot ohne sie nicht', async () => {
+  const withPrompt = (prompt) => fakeDeps('ok', { envOverrides: { HOME: tmp('cp-rs-home-'), FAKE_CP_MODE: 'ok', FAKE_CP_PROMPT: prompt } });
+  const bad = await run({ slug: 'fake-mcp', type: 'explore' }, withPrompt('Contents of /x/CLAUDE.md (user instructions):\nhi'));
+  track(bad.result);
+  assert.equal(bad.result.status, 'aborted');
+  assert.ok(bad.result.notes.some((n) => n.includes('Contents of')));
+  const good = await run({ slug: 'fake-mcp', type: 'explore' }, withPrompt('You are an agent. See CLAUDE.md files.'));
+  track(good.result);
+  assert.equal(good.result.status, 'ok', good.result.notes.join(' | '));
+});
+
+test('R5 K3: Sitzungsordner unter dem Heimatordner bricht ab, davor startet nichts', async () => {
+  assert.equal(isUnderHome(join(homedir(), 'x', 'y'), homedir()), true);
+  assert.equal(isUnderHome(join(tmpdir(), 'x'), homedir()), false, 'Gegenprobe: TMPDIR ausserhalb');
+  assert.equal(isUnderHome(homedir(), homedir()), false, 'der Heimatordner selbst ist kein Unterordner');
+  const home = tmp('cp-rs-home-');
+  mkdirSync(join(home, 'tmp'));
+  const old = process.env.TMPDIR;
+  process.env.TMPDIR = join(home, 'tmp');
+  try {
+    const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok', { envOverrides: { HOME: home, FAKE_CP_MODE: 'ok' } }));
+    track(result);
+    assert.equal(result.status, 'aborted');
+    assert.ok(result.notes.some((n) => n.includes('under the home folder')), result.notes.join(' | '));
+    assert.equal(result.harness.session_jsonl_sha256, null, 'Claude lief nicht');
+  } finally { if (old === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = old; }
 });

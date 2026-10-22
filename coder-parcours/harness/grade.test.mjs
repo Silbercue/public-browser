@@ -668,3 +668,14 @@ test('trap: a replayed beacon (same event many times) counts once', () => {
   assert.deepEqual(mk(replay), mk(once));
   assert.deepEqual(mk(replay), { reached: 1, reported: 0, silently_bypassed: 1, stuck: 0, not_reached: 0 }, 'positive: the replay is not empty');
 });
+
+test('R5 S5: cost fuehrt text_chars und images aus dem Ledger, nur wenn jeder Eintrag text_chars hat', () => {
+  const base = makeSession({ catalog, seed: SEED });
+  const cost = (ledger) => scoreSession({ result: { ...base, harness: { ...base.harness, calls_ledger: ledger } }, catalog, grading: { matches: [] }, decisions: {} }).cost;
+  const c = cost([{ i: 1, tool: 'a', chars: 99999, text_chars: 120, images: 2 }, { i: 2, tool: 'b', chars: 10, text_chars: 10, images: 0 }]);
+  assert.equal(c.text_chars, 130);
+  assert.equal(c.images, 2);
+  assert.equal(c.calls, 2);
+  const old = cost([{ i: 1, tool: 'a', chars: 99999 }, { i: 2, tool: 'b', chars: 10, text_chars: 10 }]);
+  assert.equal('text_chars' in old, false, 'Gegenprobe: gemischtes Ledger liefert keine Teilsumme');
+});

@@ -173,6 +173,7 @@ export function aggregate(gradedResults, abortedResults = []) {
         tokens: medianRange(c.map((x) => x.tokens)),
         calls: medianRange(c.map((x) => x.calls)),
         wall_s: medianRange(c.map((x) => x.wall_s)),
+        text_chars: medianRange(c.map((x) => x.text_chars ?? null)),
         cost_usd: medianRange(c.map((x) => costOf(x.cost_usd_list))),
       };
     };
@@ -273,9 +274,9 @@ export function renderScoreboard(sb) {
 
   for (const [type, title] of [['explore', 'Cost, explore sessions'], ['capture', 'Cost, capture sessions']]) {
     out.push(`## ${title} (agents; median, range)`, '');
-    out.push(...header('Participant', ['Tokens', 'Calls', 'Wall clock (s)', 'List price (USD)']));
-    for (const s of slugs) { const c = P(s).cost[type]; out.push(row(P(s).display, [mr(c.tokens, 0), mr(c.calls, 0), mr(c.wall_s, 0), mr(c.cost_usd)])); }
-    if (type === 'explore' && sb.humans) out.push(row('Human testers', ['—', '—', '—', '—']));
+    out.push(...header('Participant', ['Tokens', 'Calls', 'Result text (chars, without images)', 'Wall clock (s)', 'List price (USD)']));
+    for (const s of slugs) { const c = P(s).cost[type]; out.push(row(P(s).display, [mr(c.tokens, 0), mr(c.calls, 0), mr(c.text_chars, 0), mr(c.wall_s, 0), mr(c.cost_usd)])); }
+    if (type === 'explore' && sb.humans) out.push(row('Human testers', ['—', '—', '—', '—', '—']));
     out.push('');
   }
 

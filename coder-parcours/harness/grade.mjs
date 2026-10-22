@@ -37,7 +37,7 @@ const GRADER_TIMEOUT_MS = 10 * 60_000;
  *  traps: { reached: number, reported: number, silently_bypassed: number, stuck: number, not_reached: number } | null,
  *  login: { success: boolean, logins: number, expired_relogin: boolean|null } | null,
  *  capture: { valid: boolean, reason: string|null } | null,
- *  cost: { tokens: any, rounds: any, calls: number|null, wall_s: any, cost_usd_list: any } | null,
+ *  cost: { tokens: any, rounds: any, calls: number|null, wall_s: any, cost_usd_list: any, text_chars?: number, images?: number } | null,
  *  hit_ids: string[] }} Metrics
  *  Humans: change, traps, login, capture and cost are null. Capture sessions: only capture and cost.
  */
@@ -453,6 +453,9 @@ export function scoreSession({ result, catalog, grading, decisions = {} }) {
     calls: Array.isArray(ledger) ? ledger.length : null,
     wall_s: result.harness?.wall_clock_s ?? null,
     cost_usd_list: result.cost_usd_list ?? null,
+    // Zeichenvergleiche nur auf text_chars stuetzen: chars zaehlt bei MCP-Teilnehmern das Base64 der Bilder mit.
+    ...(Array.isArray(ledger) && ledger.length && ledger.every((c) => Number.isFinite(c?.text_chars))
+      ? { text_chars: ledger.reduce((a, c) => a + c.text_chars, 0), images: ledger.reduce((a, c) => a + (c.images ?? 0), 0) } : {}),
   };
   if (result.session.type === 'capture') {
     const c = result.capture ?? {};

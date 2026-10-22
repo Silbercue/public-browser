@@ -84,3 +84,26 @@ test('defaultSecretFiles nimmt auch die .env im Wurzelordner des gemeinsamen Git
     assert.equal(own.filter((f) => f === join(main, '.env')).length, 1);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
+
+test('R5 S7: Konto-Kennungen aus Protokoll und .claude.json, vollstaendig ersetzt (Domain inklusive)', async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { accountIdentifiers, scrubAccount, REDACTED_ACCOUNT } = await import('./secrets.mjs');
+  const home = mkdtempSync(join(tmpdir(), 'cp-sec-home-'));
+  try {
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'datei.konto@andere-firma.example', organizationUuid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', accountUuid: 'ffffffff-0000-4111-8222-333333333333' } }));
+    const jsonl = [
+      JSON.stringify({ type: 'attachment', attachment: { type: 'session_context', context: { userEmail: "The user's email address is log.konto@beispiel.example. Use it only to identify the user." } } }),
+      JSON.stringify({ type: 'attachment', attachment: { type: 'credential_org', organizationUuid: '99999999-8888-4777-8666-555555555555' } }),
+      JSON.stringify({ type: 'user', message: { content: 'Co-Authored-By: Claude <noreply@anthropic.com>' } }),
+    ].join('\n');
+    const ids = accountIdentifiers(jsonl, home);
+    for (const want of ['log.konto@beispiel.example', '99999999-8888-4777-8666-555555555555', 'datei.konto@andere-firma.example', 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'ffffffff-0000-4111-8222-333333333333']) assert.ok(ids.includes(want), want);
+    const out = scrubAccount(jsonl, ids);
+    assert.ok(!out.includes('beispiel.example') && !out.includes('99999999-8888') && !out.includes('log.konto'));
+    assert.ok(out.includes(`email address is ${REDACTED_ACCOUNT}.`));
+    assert.ok(out.includes('noreply@anthropic.com'), 'Gegenprobe: fremde Adressen bleiben');
+    assert.deepEqual(accountIdentifiers('', join(home, 'nirgends')), [], 'ohne Quellen keine Kennungen');
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

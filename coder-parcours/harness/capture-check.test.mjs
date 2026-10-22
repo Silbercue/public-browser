@@ -577,3 +577,11 @@ test('F5: im Lauf eines Tests liegt der gepinnte public-browser der Werkzeugkett
   const none = await runTestCommand({ testDir: withRun('exit 0'), command: 'command -v definitely-not-a-tool-xyz || echo none', appUrl: 'http://127.0.0.1:1/', baselinePids: await snapshotPids() }, noBusy());
   assert.equal(none.output.trim(), 'none', 'Gegenprobe: ein unbekanntes Werkzeug wird nicht gefunden');
 });
+
+test('R5 K4: die Umgebung des Testlaufs schaltet den npm-Update-Hinweis aus', async () => {
+  const { runEnv } = await import('./capture-check.mjs');
+  const env = runEnv('http://127.0.0.1:1/', '/h', '/t');
+  assert.equal(env.NO_UPDATE_NOTIFIER, '1');
+  assert.equal(env.npm_config_update_notifier, 'false');
+  assert.equal(env.APP_URL, 'http://127.0.0.1:1/', 'Gegenprobe: die uebrige Umgebung bleibt');
+});

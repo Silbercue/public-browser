@@ -79,6 +79,15 @@ const browse = (input, content) => {
 };
 
 const rundir = process.cwd();
+if (process.env.FAKE_CP_DUMP) writeFileSync(process.env.FAKE_CP_DUMP, JSON.stringify({ autoMemoryEnv: process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY ?? null }));
+// Konto-Anhaenge und prompt_snapshot wie im echten Protokoll (nur auf Wunsch).
+const attach = (a) => lines.push(JSON.stringify({ type: 'attachment', timestamp: t(), attachment: a }));
+if (process.env.FAKE_CP_ACCOUNT) {
+  attach({ type: 'session_context', context: { userEmail: `The user's email address is ${process.env.FAKE_CP_ACCOUNT}. Use it only to identify the user.` } });
+  attach({ type: 'credential_org', organizationUuid: process.env.FAKE_CP_ORG });
+}
+if (process.env.FAKE_CP_PROMPT) attach({ type: 'prompt_snapshot', systemPrompt: [process.env.FAKE_CP_PROMPT] });
+if (process.env.FAKE_CP_IMAGE) call(cli ? 'Bash' : `mcp__${servers[0]}__capture_image`, cli ? { command: `${cli} screenshot` } : {}, [{ type: 'text', text: 'shot' }, { type: 'image', source: { type: 'base64', data: 'A'.repeat(5000) } }]);
 const reportPath = join(rundir, 'report.json');
 const report = { change_check: { verdict: 'works', evidence: 'applied the code' },
   findings: [{ title: 'Button overlaps text', where: 'cart', viewport: 'phone', steps: 's', expected: 'e', actual: 'a', severity: 'low' }] };

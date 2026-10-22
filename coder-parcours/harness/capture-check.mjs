@@ -118,7 +118,7 @@ export async function cleanupTestPorts({ baselinePids, ports = TEST_PORTS }, dep
 }
 
 /** Env-Schluessel, die ein Test-Befehl bekommt (alles andere wird nicht vererbt). */
-export const RUN_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'APP_URL', 'PLAYWRIGHT_BROWSERS_PATH', 'SILBERCUE_CHROME_HEADLESS'];
+export const RUN_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'APP_URL', 'PLAYWRIGHT_BROWSERS_PATH', 'SILBERCUE_CHROME_HEADLESS', 'NO_UPDATE_NOTIFIER', 'npm_config_update_notifier'];
 
 /** Wo Playwright seine Browser ablegt, wenn HOME der echte waere (HOME zeigt im Lauf auf einen Tempordner). */
 function playwrightBrowsersPath() {
@@ -129,7 +129,7 @@ function playwrightBrowsersPath() {
 }
 
 /** @param {string} appUrl @param {string} home @param {string} tmpDir */
-function runEnv(appUrl, home, tmpDir) {
+export function runEnv(appUrl, home, tmpDir) {
   const tc = toolchainDir();
   /** @type {Record<string, string>} */
   const env = {
@@ -140,6 +140,9 @@ function runEnv(appUrl, home, tmpDir) {
     // Public Browser (Python-Paket publicbrowser) startet seinen Chrome damit im Headless-Modus; Playwright Test und die CLIs sind es ohnehin.
     SILBERCUE_CHROME_HEADLESS: 'true',
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath(),
+    // npm fragt sonst bei jedem Lauf die Registry nach einer neuen Version (Hinweis "npm notice" in der Ausgabe).
+    NO_UPDATE_NOTIFIER: '1',
+    npm_config_update_notifier: 'false',
   };
   if (process.env.LANG) env.LANG = process.env.LANG;
   return env;

@@ -122,6 +122,10 @@ const mean = (xs) => { const v = xs.filter((x) => x !== null); return v.length ?
 const total = (xs) => xs.reduce((a, b) => a + (b ?? 0), 0);
 const int = (x) => (x === null ? '—' : String(Math.round(x)));
 const usd = (x) => (x === null ? '—' : x.toFixed(2));
+const ledgerSum = (r, key) => {
+  const l = r.harness?.calls_ledger;
+  return Array.isArray(l) && l.length && l.every((c) => Number.isFinite(c?.text_chars)) ? l.reduce((a, c) => a + (num(c[key]) ?? 0), 0) : null;
+};
 const hours = (s) => (s === null ? '—' : (s / 3600).toFixed(1));
 
 function readJsonOr(file, fallback) {
@@ -145,13 +149,15 @@ export function buildTokenReport({ round, resultsRoot = RESULTS_ROOT }) {
     return {
       slug: r.participant.slug, type: r.session.type, seed: r.session.seed, status: r.status, human,
       tokens: human ? null : num(r.tokens?.delta), rounds: human ? null : num(r.tokens?.rounds),
+      // text_chars: Ergebnistext ohne Bilddaten (chars im Ledger zaehlt das Base64 mit); null bei Ledgern aus der Zeit davor.
+      text: human ? null : ledgerSum(r, 'text_chars'), images: human ? null : ledgerSum(r, 'images'),
       cost: human ? null : costOf(r.cost_usd_list), wall: human ? null : num(r.harness?.wall_clock_s), turns: human ? null : num(r.harness?.num_turns),
     };
   }).sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : a.type < b.type ? -1 : a.type > b.type ? 1 : a.seed - b.seed));
 
   const out = [`# Token report, round ${round}`, ''];
-  out.push('## Sessions', '', '| Participant | Type | Seed | Status | Tokens (delta) | Rounds | Cost (USD list) | Wall clock (s) | Turns |', '|---|---|---|---|---|---|---|---|---|');
-  for (const r of rows) out.push(`| ${r.slug} | ${r.type} | ${r.seed} | ${r.status} | ${int(r.tokens)} | ${int(r.rounds)} | ${usd(r.cost)} | ${int(r.wall)} | ${int(r.turns)} |`);
+  out.push('## Sessions', '', '| Participant | Type | Seed | Status | Tokens (delta) | Rounds | Result text (chars, without images) | Images | Cost (USD list) | Wall clock (s) | Turns |', '|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const r of rows) out.push(`| ${r.slug} | ${r.type} | ${r.seed} | ${r.status} | ${int(r.tokens)} | ${int(r.rounds)} | ${int(r.text)} | ${int(r.images)} | ${usd(r.cost)} | ${int(r.wall)} | ${int(r.turns)} |`);
   out.push('', 'Human sessions carry no cost data and are left out of all sums and projections.', '');
 
   const agents = rows.filter((r) => !r.human);

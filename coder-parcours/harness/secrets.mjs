@@ -55,6 +55,43 @@ export function defaultSecretFiles(cpRoot, home = homedir()) {
   return [...new Set([join(home, '.npmrc'), join(cpRoot, '.env'), join(cpRoot, '..', '.env'), ...(common ? [join(common, '.env')] : [])].map((f) => resolve(f)))];
 }
 
+export const REDACTED_ACCOUNT = '[redacted-account]';
+
+/**
+ * Kennungen des Kontos, unter dem `claude` laeuft, ohne sie fest zu kodieren: aus dem Sitzungsprotokoll (Anhaenge
+ * `session_context` mit der E-Mail-Adresse und `credential_org` mit der Organisations-UUID) und aus `<home>/.claude.json`
+ * (oauthAccount: E-Mail, Organisations- und Konto-UUID).
+ * @param {string} jsonlText
+ * @param {string} [home]
+ * @returns {string[]} Werte mit mindestens 8 Zeichen, laengste zuerst
+ */
+export function accountIdentifiers(jsonlText, home = homedir()) {
+  const out = new Set();
+  const add = (v) => { if (typeof v === 'string' && v.length >= 8) out.add(v); };
+  const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/;
+  for (const line of String(jsonlText || '').split('\n')) {
+    if (!line.includes('session_context') && !line.includes('credential_org')) continue;
+    let att;
+    try { att = JSON.parse(line)?.attachment; } catch { continue; }
+    if (att?.type === 'credential_org') add(att.organizationUuid);
+    if (att?.type === 'session_context') {
+      for (const v of Object.values(att.context ?? {})) if (typeof v === 'string') { const m = /email address is (\S+?)\.(?:\s|$)/.exec(v) ?? EMAIL.exec(v); add(m ? m[1] ?? m[0] : null); }
+    }
+  }
+  try {
+    const acct = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8'))?.oauthAccount;
+    add(acct?.emailAddress); add(acct?.organizationUuid); add(acct?.accountUuid);
+  } catch { /* keine Kontodatei: nur die Kennungen aus dem Protokoll */ }
+  return [...out].sort((a, b) => b.length - a.length);
+}
+
+/** Ersetzt jede Kennung vollstaendig durch REDACTED_ACCOUNT; vor scrubSecrets aufrufen (sonst bleibt von einer E-Mail die Domain). */
+export function scrubAccount(text, ids) {
+  let out = String(text);
+  for (const id of ids) if (id) out = out.split(id).join(REDACTED_ACCOUNT);
+  return out;
+}
+
 /**
  * @param {string} text
  * @param {{ needles?: string[] }} [opts]

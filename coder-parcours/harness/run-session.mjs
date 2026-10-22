@@ -13,13 +13,13 @@ import { randomUUID, createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync,
   rmSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { MODEL_PIN, cliCallsFromJsonl, isAlive, jsonlSlugFor, killGroup, mcpCallsFromJsonl, probeServerInfo,
   readModelFromJsonl, sh, spawnWithTimeout, usageTotal } from './blind-run-lib.mjs';
 import { CP_PARTICIPANTS, cpDeps, devModeLinks, participantSkillText, scrubSessionEnv, toolchainBinDir, toolchainDir } from './participants.mjs';
-import { defaultSecretFiles, needlesFromFiles, scrubSecrets } from './secrets.mjs';
+import { accountIdentifiers, defaultSecretFiles, needlesFromFiles, scrubAccount, scrubSecrets } from './secrets.mjs';
 import { toolLockMulti } from './guard.mjs';
 import { browserBinaries, chromeProcessesOnPort, killPids, listProcessTree, listProcesses, portBusy, sessionProcesses, verifiedRootPids } from './proc.mjs';
 import { OWN_PROCESSES_FILE, TEST_PORTS, checkCapture, isRunProcess, killOwnProcesses, snapshotPids } from './capture-check.mjs';
@@ -73,6 +73,67 @@ export function readsLocalFiles(jsonlText) {
     }
   }
   return false;
+}
+
+/**
+ * true, wenn der prompt_snapshot der Sitzung eingebettete CLAUDE.md-Dateien enthaelt (Kopf "Contents of <Pfad>"):
+ * dann waere die Sitzung nicht frei von der persoenlichen Konfiguration des Betreibers (F16).
+ */
+export function embedsClaudeMd(jsonlText) {
+  for (const line of String(jsonlText || '').split('\n')) {
+    if (!line.includes('prompt_snapshot')) continue;
+    let att;
+    try { att = JSON.parse(line)?.attachment; } catch { continue; }
+    if (att?.type === 'prompt_snapshot' && JSON.stringify(att).includes('Contents of ')) return true;
+  }
+  return false;
+}
+
+/** Liegt dir (real) unter home? Dann wuerde claude CLAUDE.md-Dateien der Vorfahren laden. */
+export function isUnderHome(dir, home = homedir()) {
+  if (!home || home.length < 2) return false;
+  const rel = relative(realOr(home), realOr(dir));
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
+
+/**
+ * Groessen der Werkzeugergebnisse je tool_use_id: text_chars (Text, ohne Bilddaten) und images (Anzahl Bildteile).
+ * Das Feld chars der blind-run-Zaehlung nimmt das Base64 der Bilder mit und taugt nicht fuer Vergleiche CLI gegen MCP.
+ * @returns {Map<string, { text_chars: number, images: number }>}
+ */
+export function resultSizes(jsonlText) {
+  const out = new Map();
+  for (const line of String(jsonlText || '').split('\n')) {
+    if (!line.includes('tool_result')) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const content = obj?.message?.content;
+    if (obj?.type !== 'user' || !Array.isArray(content)) continue;
+    for (const c of content) {
+      if (c?.type !== 'tool_result' || !c.tool_use_id) continue;
+      let text = 0;
+      let images = 0;
+      if (typeof c.content === 'string') text = c.content.length;
+      else if (Array.isArray(c.content)) {
+        for (const part of c.content) {
+          if (part?.type === 'image') images++;
+          else if (part?.type === 'text' && typeof part.text === 'string') text += part.text.length;
+          else text += JSON.stringify(part ?? null).length;
+        }
+      } else text = JSON.stringify(c.content ?? null).length;
+      out.set(c.tool_use_id, { text_chars: text, images });
+    }
+  }
+  return out;
+}
+
+/** Startoptionen eines Browser-Hauptprozesses, die die Messbedingungen belegen: --headless*, --window-size, --remote-debugging-*. */
+export function browserLaunchArgs(command) {
+  const words = String(command).split(/\s+/);
+  const pick = (re) => words.filter((w) => re.test(w));
+  return {
+    headless: pick(/^--headless(=|$)/), window_size: pick(/^--window-size=/), remote_debugging: pick(/^--remote-debugging-(port|pipe)(=|$)/),
+  };
 }
 
 /** Alle regulaeren Dateien unter dir (Symlinks wie testDir/node_modules werden nicht verfolgt). */
@@ -161,8 +222,14 @@ function toolSetup(p, type, rundir) {
 
 /**
  * Skill-Dateien eines CLI-Teilnehmers in den Rundir kopieren (damit Anweisungen wie `cp {SKILL_DIR}/templates/…`
- * ausfuehrbar sind) und den Skill-Text mit einem Vorspann ueber deren Ort nach skill.md schreiben.
+ * ausfuehrbar sind und der Agent sie per Read lesen kann) und die Haupt-Skill-Dateien (SKILL.md) mit einem Vorspann
+ * ueber den Ort der uebrigen nach skill.md schreiben.
  */
+export const SKILL_PREAMBLE = (skillDir) => `The skill text below contains only the main SKILL.md file(s); each section heading (# <path>) is the file's path relative to ${skillDir}. `
+  + `All other skill files are in that folder under the same relative paths and can be read with the Read tool when you need them. Where a skill writes {SKILL_DIR}, it means the folder in there that holds that skill's SKILL.md.\n\n`
+  + 'A named browser session is already set for you through the environment (AGENT_BROWSER_SESSION for agent-browser, PLAYWRIGHT_CLI_SESSION for Playwright CLI), so skill steps that create or export a session name are not needed. '
+  + 'Pipes, redirects and shell variables are not available, and options that choose a browser, a profile or a connection to another browser (such as --browser, --profile, --cdp, --headed) are blocked.\n\n';
+
 function prepareSkill(slug, p, rundir) {
   const skill = participantSkillText(slug);
   const base = p.vendoredDir || join(toolchainDir(), 'node_modules', ...p.package.split('/'));
@@ -171,8 +238,7 @@ function prepareSkill(slug, p, rundir) {
     mkdirSync(dirname(join(skillDir, rel)), { recursive: true });
     copyFileSync(join(base, rel), join(skillDir, rel));
   }
-  const preamble = `The skill files below are also on disk in ${skillDir}; each section heading (# <path>) is the file's path `
-    + 'relative to that folder. Where a skill writes {SKILL_DIR}, it means the folder in there that holds that skill\'s SKILL.md.\n\n';
+  const preamble = SKILL_PREAMBLE(skillDir);
   const text = preamble + skill.text;
   writeFileSync(join(rundir, 'skill.md'), text);
   return { files: skill.files, sha256: createHash('sha256').update(text).digest('hex'), dir: skillDir };
@@ -280,6 +346,8 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   let events = [];
   let tokens = { delta: null, rounds: null, dedup: null, result_usage_total: null };
   const browsersSeen = new Set();
+  /** @type {Map<number, { binary: string, headless: string[], window_size: string[], remote_debugging: string[] }>} */
+  const browserLaunch = new Map();
   let sessionEnv = childEnv;
   let pbStarted = false;
 
@@ -331,12 +399,19 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
       const procs = ownProcs();
       for (const x of procs) seenOwn.set(x.pid, x.command);
       const testOwned = new Set(procs.filter((x) => isRunProcess(x.command)).map((x) => x.pid));
-      for (const b of browserBinaries(procs)) if (!baselineSet.has(b.pid) && !testOwned.has(b.pid)) browsersSeen.add(b.binary);
+      const cmdOf = new Map(procs.map((x) => [x.pid, x.command]));
+      for (const b of browserBinaries(procs)) {
+        if (baselineSet.has(b.pid) || testOwned.has(b.pid)) continue;
+        browsersSeen.add(b.binary);
+        if (!browserLaunch.has(b.pid)) browserLaunch.set(b.pid, { binary: b.binary, ...browserLaunchArgs(cmdOf.get(b.pid) ?? '') });
+      }
     } catch { /* ps nicht verfuegbar: Beleg fehlt, Sitzung geht weiter */ }
   };
 
   try {
     try {
+      // Liegt der Sitzungsordner unter dem Heimatordner, laedt claude die CLAUDE.md-Dateien der Vorfahren (F16).
+      if (isUnderHome(rundir, envOverrides.HOME ?? homedir())) throw new Error('session folder lies under the home folder: claude would load CLAUDE.md files of its parent folders; point TMPDIR to a folder outside the home folder');
       // Schritt 2: Ports pruefen, App starten.
       if (type === 'capture') {
         const taken = [];
@@ -389,14 +464,16 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
         pathParts.push(join(ctl, 'bin'));
       }
       if (cliBinDir) pathParts.push(cliBinDir);
-      sessionEnv = { ...sessionEnv, PATH: [...pathParts, sessionEnv.PATH ?? ''].filter(Boolean).join(delimiter) };
+      // Zweiter, unabhaengiger Weg derselben Doku-Seite: Umgebungsvariable gegen Auto-Memory.
+      sessionEnv = { ...sessionEnv, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', PATH: [...pathParts, sessionEnv.PATH ?? ''].filter(Boolean).join(delimiter) };
 
       const prompt = renderSessionPrompt({ type, toolName: toolNameOf(p), appUrl: app.url, runConfig, catalog, reportPath, testDir, smoke });
       flags = ['--model', MODEL_PIN, '--output-format', 'json', '--session-id', sessionId,
         '--setting-sources', 'project', '--strict-mcp-config', '--mcp-config', join(rundir, 'mcp.json'),
         '--permission-mode', 'dontAsk', '--allowedTools', ...setup.allowed, '--tools', setup.tools,
         ...(p.deniedTools?.length ? ['--disallowedTools', ...p.deniedTools.map((t) => `mcp__${p.name}__${t}`)] : []),
-        ...(setup.hook ? ['--settings', JSON.stringify(setup.hook)] : []),
+        // Auto-Memory aus (Einstellung autoMemoryEnabled laut Claude-Code-Doku, Seite "memory"), zusammen mit dem Hook.
+        '--settings', JSON.stringify({ autoMemoryEnabled: false, ...(setup.hook ?? {}) }),
         ...(isCli ? ['--append-system-prompt-file', join(rundir, 'skill.md')] : []),
         '--max-turns', String(maxTurns)];
 
@@ -424,6 +501,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
       const jsonlPath = join(projectsDir, jsonlSlugFor(rundir), `${sessionId}.jsonl`);
       jsonlText = existsSync(jsonlPath) ? readFileSync(jsonlPath, 'utf8') : '';
       if (!jsonlText) abort('session JSONL missing');
+      if (embedsClaudeMd(jsonlText)) abort('prompt_snapshot embeds CLAUDE.md files ("Contents of "): the session is not free of personal configuration');
       jsonlSha = jsonlText ? createHash('sha256').update(jsonlText).digest('hex') : null;
       model = readModelFromJsonl(jsonlText);
       if (jsonlText && !model) abort('model not found in session JSONL');
@@ -504,6 +582,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   const costKnown = Number.isFinite(result?.total_cost_usd);
   if (!costKnown && res) notes.push('cost unknown: no result usage');
 
+  const sizes = resultSizes(jsonlText);
   const obj = {
     schema: SESSION_SCHEMA,
     participant: { slug, display: p.display, kind: p.kind, package: p.package ?? null, version: p.version ?? null },
@@ -516,11 +595,15 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
       flags: flags.join(' ').split(sessionId).join('<session_id>'),
       tool_setup: setup, max_turns: maxTurns, wall_limit_s: Math.round(wallMs / 1000), smoke,
       tool_lock: toolLock, session_jsonl_sha256: jsonlSha,
-      calls_ledger: calls.map((c, i) => ({ i: i + 1, tool: c.name, chars: c.chars, ...(Number.isFinite(c.ms) ? { ms: c.ms } : {}) })),
+      calls_ledger: calls.map((c, i) => {
+        const size = sizes.get(c.tool_use_id);
+        return { i: i + 1, tool: c.name, chars: c.chars, ...(size ?? {}), ...(Number.isFinite(c.ms) ? { ms: c.ms } : {}) };
+      }),
       integrity,
       server_info: serverInfo ? { name: serverInfo.name, version: serverInfo.version } : null,
       skill: skillInfo ? { files: skillInfo.files, sha256: skillInfo.sha256 } : null,
-      browser_binaries: [...browsersSeen], profile_isolation: p.profile_isolation ?? null,
+      browser_binaries: [...browsersSeen],
+      browser_launch: [...browserLaunch.values()], profile_isolation: p.profile_isolation ?? null,
       run_dir: rundir,
     },
     tokens,
@@ -530,7 +613,9 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
     notes,
   };
   const needles = needlesFromFiles(deps.secretFiles ?? defaultSecretFiles(CP_ROOT));
-  const scrubbed = scrubSecrets(scrubHome(JSON.stringify(obj)), { needles });
+  // Konto-Kennungen (E-Mail vollstaendig, Organisations-UUID) vor den Schluesselmustern ersetzen, sonst bleibt die Domain stehen.
+  const accountIds = accountIdentifiers(jsonlText, envOverrides.HOME ?? homedir());
+  const scrubbed = scrubSecrets(scrubAccount(scrubHome(JSON.stringify(obj)), accountIds), { needles });
   const finalObj = JSON.parse(scrubbed.text);
   if (scrubbed.count) finalObj.notes.push(`secrets: ${scrubbed.count} value(s) that look like keys were replaced in this file`);
   const problems = validateSessionResult(finalObj);
@@ -550,7 +635,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   }
   if (jsonlText) {
     mkdirSync(dirname(rawPath), { recursive: true });
-    writeFileSync(rawPath, scrubSecrets(scrubHome(jsonlText), { needles }).text);
+    writeFileSync(rawPath, scrubSecrets(scrubAccount(scrubHome(jsonlText), accountIds), { needles }).text);
   }
   return { result: finalObj, outPath };
 }
