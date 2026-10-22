@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import {
+  listProcessTree,
+  sessionProcesses,
   browserBinaries, chromeMainProcesses, chromeProcessesOnPort, killPids, listeningPids, listProcesses, portBusy,
 } from './proc.mjs';
 
@@ -110,4 +112,29 @@ test('killPids: SIGTERM genuegt fuer einen normalen Prozess', { timeout: 10_000 
   await killPids([child.pid], { graceMs: 5000 });
   const [, signal] = await exited;
   assert.equal(signal, 'SIGTERM');
+});
+
+test('sessionProcesses: Wurzeln ueber Kennung oder PID, dazu alle Nachkommen; Fremde und der eigene Prozess nicht', () => {
+  const procs = [
+    { pid: 10, ppid: 1, command: 'claude -p x --session-id abcdef12-0000' },
+    { pid: 11, ppid: 10, command: 'npx public-browser' },
+    { pid: 12, ppid: 11, command: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-pipe' },
+    { pid: 20, ppid: 1, command: 'node cliDaemon.js cp-playwright-cli-explore-s1-AbCdEf' },
+    { pid: 21, ppid: 20, command: 'chrome --remote-debugging-pipe' },
+    { pid: 30, ppid: 1, command: 'agent-browser-daemon' },
+    { pid: 31, ppid: 30, command: 'chrome --remote-debugging-port=0' },
+    { pid: 40, ppid: 1, command: '/x/headless_shell --remote-debugging-pipe' },
+    { pid: 41, ppid: 1, command: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222' },
+    { pid: 50, ppid: 12, command: 'node run-session.mjs' },
+  ];
+  const pids = (o) => sessionProcesses(procs, o).map((p) => p.pid).sort((a, b) => a - b);
+  assert.deepEqual(pids({ markers: ['abcdef12-0000', 'cp-playwright-cli-explore-s1-AbCdEf'], rootPids: [30], selfPid: 50 }), [10, 11, 12, 20, 21, 30, 31]);
+  assert.deepEqual(pids({ markers: ['abcdef12-0000'], selfPid: 50 }), [10, 11, 12], 'ohne die weiteren Kennungen gehoeren Daemons nicht dazu');
+  assert.deepEqual(pids({ markers: ['short'], selfPid: 50 }), [], 'zu kurze Kennung trifft nichts');
+  assert.ok(pids({ markers: ['abcdef12-0000'] }).includes(50), 'gegenprobe: ohne selfPid-Angabe ist Pid 50 ein Nachkomme und dabei (oben ausgeschlossen)');
+});
+
+test('listProcessTree: liest pid, ppid und Befehl', () => {
+  const rows = listProcessTree({ psText: '  12   1 /usr/bin/foo --bar baz\n 300 12 sh -c x\n' });
+  assert.deepEqual(rows, [{ pid: 12, ppid: 1, command: '/usr/bin/foo --bar baz' }, { pid: 300, ppid: 12, command: 'sh -c x' }]);
 });

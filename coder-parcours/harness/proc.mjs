@@ -21,6 +21,45 @@ export function listProcesses({ platform = process.platform, psText } = {}) {
   return out;
 }
 
+/**
+ * Wie listProcesses, dazu die Elternkennung (ppid) fuer die Zuordnung zu einer Sitzung.
+ * @param {{ platform?: string, psText?: string }} [opts]
+ * @returns {Array<Proc & { ppid: number }>}
+ */
+export function listProcessTree({ platform = process.platform, psText } = {}) {
+  const text = psText ?? execFileSync('ps', platform === 'linux' ? ['-eo', 'pid=,ppid=,args='] : ['-axo', 'pid=,ppid=,command='],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const out = [];
+  for (const line of String(text).split('\n')) {
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*\S)\s*$/);
+    if (m) out.push({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] });
+  }
+  return out;
+}
+
+/**
+ * Prozesse einer Sitzung: Wurzeln (PIDs oder Befehlszeilen mit einer Kennung der Sitzung, z. B. Sitzungs-ID von claude,
+ * Arbeitsordnername im Daemon-Aufruf) plus alle ihre Nachkommen ueber die Elternkennung. Fremde Prozesse (auch neue
+ * Browser anderer Programme auf demselben Rechner) gehoeren nicht dazu. Der eigene Prozess ist nie dabei.
+ * @param {Array<Proc & { ppid?: number }>} procs
+ * @param {{ rootPids?: number[], markers?: string[], selfPid?: number }} [o]
+ * @returns {Array<Proc & { ppid?: number }>}
+ */
+export function sessionProcesses(procs, { rootPids = [], markers = [], selfPid = process.pid } = {}) {
+  const marks = markers.filter((m) => typeof m === 'string' && m.length >= 8);
+  const roots = new Set(rootPids.filter(Number.isInteger));
+  for (const p of procs || []) if (marks.some((m) => p.command.includes(m))) roots.add(p.pid);
+  roots.delete(selfPid);
+  const owned = new Set(roots);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const p of procs || []) {
+      if (!owned.has(p.pid) && p.pid !== selfPid && Number.isInteger(p.ppid) && owned.has(p.ppid)) { owned.add(p.pid); grew = true; }
+    }
+  }
+  return (procs || []).filter((p) => owned.has(p.pid));
+}
+
 const startsWithProgram = (command, program) => command === program || command.startsWith(`${program} `);
 
 /**

@@ -78,6 +78,27 @@ function pathSegmentAllowed(segment, pathRoot) {
   return true;
 }
 
+// Befehlsoptionen der Browser-Werkzeuge, mit denen sich ein Teilnehmer an einen fremden Browser haengen (z. B. Julians
+// Chrome mit seinen Anmeldungen auf Port 9222/9223), ein anderes Profil, einen anderen Browser oder eine eigene
+// Konfiguration waehlen koennte. Sie sind in den Anleitungen von agent-browser und playwright-cli beschrieben,
+// gehoeren aber nicht zu einer Sitzung im gemeinsamen, frischen Google Chrome.
+const FOREIGN_BROWSER_OPT = /(?:^|\s)--?(?:cdp|auto-?connect|extension|profile|persistent|endpoint|config|browser|engine|executable-path|provider|device|mobile|ios|args|user-data-dir|remote-debugging-(?:port|pipe)|channel)(?:[=\s]|$)/;
+const FOREIGN_BROWSER_CMD = new Set(['attach', 'connect']);
+// Kein Browser-Werkzeug: Hilfsbefehle des Ablaufs und das Shim run-my-test.
+const NON_BROWSER_HEADS = new Set([...PATH_HEADS, 'sleep', 'run-my-test']);
+
+/**
+ * true, wenn das Segment (Befehlskopf + Argumente) einen fremden Browser, ein fremdes Profil oder einen anderen Browser
+ * verlangt. Text in Anfuehrungszeichen (Eingabewerte, Suchtexte) zaehlt nicht.
+ * @param {string} segment
+ */
+export function foreignBrowserRequest(segment) {
+  const bare = String(segment).replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""').trim();
+  const [head, ...rest] = bare.split(/\s+/);
+  if (NON_BROWSER_HEADS.has(head)) return false;
+  return FOREIGN_BROWSER_OPT.test(` ${rest.join(' ')}`) || rest.slice(0, 2).some((t) => FOREIGN_BROWSER_CMD.has(t));
+}
+
 /**
  * true, wenn jedes Segment der Zeile mit einem der Koepfe beginnt. mkdir und cp zusaetzlich nur, wenn alle
  * Pfadargumente im Sitzungsordner pathRoot liegen (ohne pathRoot sind beide gesperrt).
@@ -94,6 +115,7 @@ export function commandAllowedAny(command, heads, pathRoot) {
   return segments.every((s) => {
     const t = s.trim();
     if (!head.test(t)) return false;
+    if (foreignBrowserRequest(t)) return false;
     const first = t.split(/\s+/)[0];
     return PATH_HEADS.has(first) ? pathSegmentAllowed(t, pathRoot) : true;
   });

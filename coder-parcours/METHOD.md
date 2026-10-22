@@ -195,7 +195,16 @@ what was opened.
 Capture sessions: the browser that a test of the agent starts (for example Playwright Test's own browser)
 is not counted as a second browser of the participant: processes whose command line points into the
 temporary folder of a test run are left out of the "Chrome only" check, which applies to the participant's
-own tool.
+own tool. The check only looks at processes that belong to the session (the Claude process, its descendants
+and the participant's own daemon); a browser that some other program starts on the same machine during the
+session is not counted.
+
+Nothing in a session may attach to a browser the harness did not start: for the command-line participants
+the command guard blocks options and sub-commands that attach to another browser or choose another profile,
+browser or configuration (`--cdp`, `--auto-connect`, `--profile`, `--browser`, `--config`, `attach`,
+`connect` and similar), and Public Browser's `configure_session` (profile switch) is disabled. When the
+harness is interrupted (SIGINT or SIGTERM) it ends the session's Claude process group and the
+participant's leftovers (daemon, browser) and writes the session as aborted.
 
 ### 5.3 Beacons
 

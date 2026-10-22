@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
 import {
@@ -69,7 +69,7 @@ test('agent-browser: dogfood-Skill, Zusatzbefehle, Env mit Chrome aus deps', () 
   assert.ok(p.skillFiles.some((f) => f.endsWith('issue-taxonomy.md')));
   assert.ok(p.skillFiles.some((f) => f.endsWith('dogfood-report-template.md')));
   const env = p.env('/tmp/cp-ab-x', FAKE_DEPS);
-  assert.deepEqual(env, { AGENT_BROWSER_EXECUTABLE_PATH: '/x/chrome', AGENT_BROWSER_HEADED: '1', AGENT_BROWSER_SESSION: 'cp-ab-x' });
+  assert.deepEqual(env, { AGENT_BROWSER_EXECUTABLE_PATH: '/x/chrome', AGENT_BROWSER_HEADED: '1', AGENT_BROWSER_SESSION: 'cp-ab-x', AGENT_BROWSER_NAMESPACE: 'cp-ab-x' });
   assert.deepEqual(p.cleanupArgs, ['close']);
 });
 
@@ -189,4 +189,27 @@ test('participantSkillText(agent-browser) enthaelt dogfood, Kopfzeilen und Pruef
 test('participantSkillText fuer MCP-Teilnehmer ist leer, fuer unbekannten Slug ein Fehler', () => {
   assert.deepEqual(participantSkillText('chrome-devtools-mcp'), { text: '', files: [] });
   assert.throws(() => participantSkillText('nope'), /unknown participant/);
+});
+
+test('R4a: agent-browser: eigener Namensraum je Lauf, Daemons (auch unter anderem Sitzungsnamen) ueber die PID-Dateien dort', () => {
+  const home = mkdtempSync(join(tmpdir(), 'cp-ab-home-'));
+  const rundir = join(tmpdir(), 'cp-agent-browser-explore-s1-XyZ123');
+  const p = CP_PARTICIPANTS['agent-browser'];
+  assert.equal(p.env(rundir, FAKE_DEPS).AGENT_BROWSER_NAMESPACE, 'cp-agent-browser-explore-s1-XyZ123');
+  const run = join(home, '.agent-browser', 'namespaces', 'cp-agent-browser-explore-s1-XyZ123', 'run');
+  assert.deepEqual(p.ownRootPids(rundir, home), [], 'ohne Namensraum nichts');
+  mkdirSync(run, { recursive: true });
+  writeFileSync(join(run, 'dogfood-s1.pid'), '4242\n');
+  writeFileSync(join(run, 'other.pid'), '4343');
+  writeFileSync(join(run, 'junk.pid'), 'abc');
+  writeFileSync(join(run, 'init.pid'), '1');
+  writeFileSync(join(run, 'x.sock'), '999');
+  assert.deepEqual(p.ownRootPids(rundir, home).sort(), [4242, 4343], 'nur gueltige PIDs aus *.pid, PID 1 und Muell nie');
+});
+
+test('R4a: Public Browser sperrt configure_session (Profilwechsel auf ein echtes Chrome-Profil), Port bleibt 9333', () => {
+  assert.deepEqual(CP_PARTICIPANTS['public-browser'].deniedTools, ['configure_session']);
+  const env = CP_PARTICIPANTS['public-browser'].env(mkdtempSync(join(tmpdir(), 'cp-pb-')), FAKE_DEPS);
+  assert.equal(env.PUBLIC_BROWSER_CHROME_PORT, '9333');
+  for (const slug of ['agent-browser', 'playwright-cli', 'chrome-devtools-mcp']) assert.equal(CP_PARTICIPANTS[slug].deniedTools, undefined, slug);
 });

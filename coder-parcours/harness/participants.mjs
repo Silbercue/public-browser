@@ -96,6 +96,8 @@ export const CP_PARTICIPANTS = {
         ...(deps.chromeBin ? { CHROME_PATH: deps.chromeBin } : {}),
       };
     },
+    // configure_session kann ein echtes Chrome-Profil (mit Anmeldungen) wechseln und neu starten: in der Sitzung gesperrt.
+    deniedTools: ['configure_session'],
     skillFiles: [], extraCommands: [],
     profile_isolation: 'auto-launched Chrome, fresh temp user-data-dir, CDP port 9333, visible window, fresh cortex dir per session',
   },
@@ -135,8 +137,24 @@ export const CP_PARTICIPANTS = {
       AGENT_BROWSER_EXECUTABLE_PATH: deps.chromeBin,
       AGENT_BROWSER_HEADED: '1',
       AGENT_BROWSER_SESSION: basename(rundir),
+      AGENT_BROWSER_NAMESPACE: basename(rundir),
     }),
     cleanupArgs: ['close'],
+    // Der Daemon laeuft abgekoppelt (Elternprozess 1) und traegt die Sitzung nicht in der Befehlszeile. Die Anleitung
+    // (dogfood) waehlt eigene Sitzungsnamen; daher bekommt jeder Lauf einen eigenen Namensraum (AGENT_BROWSER_NAMESPACE),
+    // und alle PIDs in ~/.agent-browser/namespaces/<Lauf>/run/*.pid gehoeren diesem Lauf.
+    ownRootPids: (rundir, home = homedir()) => {
+      const dir = join(home, '.agent-browser', 'namespaces', basename(rundir), 'run');
+      const out = [];
+      try {
+        for (const f of readdirSync(dir)) {
+          if (!f.endsWith('.pid')) continue;
+          const pid = Number(readFileSync(join(dir, f), 'utf8').trim());
+          if (Number.isInteger(pid) && pid > 1) out.push(pid);
+        }
+      } catch { /* kein Namensraum: nichts */ }
+      return out;
+    },
     profile_isolation: 'agent-browser default: fresh temp user-data-dir per launch, own session, headed, Chrome via AGENT_BROWSER_EXECUTABLE_PATH',
   },
   'playwright-cli': {

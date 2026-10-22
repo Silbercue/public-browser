@@ -18,11 +18,13 @@
 //   delsession    — wie tamper, loescht session.json im Steuerordner
 //   orphan        — wie capture; das Shim-Ziel startet zwei Reste (`sh -c sleep`), traegt nur einen in <ctl>/own-processes.jsonl
 //                   ein und schreibt beide PIDs nach $FAKE_CP_PIDS_FILE (eingetragen, nicht eingetragen)
+//   hangchild     — wie hang, dazu zwei abgekoppelte Reste: einer als Kindprozess, einer (Daemon-Art) mit dem Arbeitsordnernamen
+//                   in der Befehlszeile; PIDs nach $FAKE_CP_PIDS_FILE ({ child, daemon })
 //   lockviolation — JSONL mit einem ausgefuehrten Bash-Befehl ausserhalb der erlaubten Koepfe
 // Mit `--ctl <dir>` (ohne -p) spielt die Datei das Ziel des Shims: haengt eine Zeile an <dir>/run-my-test.log.
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RUNTIME_MARKER } from '../server/bug-engine.mjs';
 
@@ -112,7 +114,11 @@ const dir = join(process.env.HOME, '.claude', 'projects', slug);
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, `${sessionId}.jsonl`), `${lines.join('\n')}\n`);
 
-if (mode === 'hang') {
+if (mode === 'hang' || mode === 'hangchild') {
+  if (mode === 'hangchild') {
+    const rest = (...extra) => { const c = spawn('sh', ['-c', 'sleep 300; true', ...extra], { detached: true, stdio: 'ignore' }); c.unref(); return c.pid; };
+    writeFileSync(process.env.FAKE_CP_PIDS_FILE, JSON.stringify({ child: rest(), daemon: rest(basename(process.cwd())) }));
+  }
   setInterval(() => {}, 60_000);
 } else {
   const usage = { input_tokens: 9, output_tokens: 21, cache_read_input_tokens: 300, cache_creation_input_tokens: 0 };

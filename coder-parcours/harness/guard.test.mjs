@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commandAllowedAny, readAllowed, toolLockMulti, writeAllowed } from './guard.mjs';
+import { commandAllowedAny, foreignBrowserRequest, readAllowed, toolLockMulti, writeAllowed } from './guard.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -363,4 +363,16 @@ test('toolLockMulti mit writeRoot: ../-Ausbruch und Symlinks nach aussen sind Ve
   assert.deepEqual(lock(join(rundir, 'dangling')), ['Write'], 'haengender Symlink als Ziel');
   assert.deepEqual(lock(join(rundir, 'sub', '..', 'ok.txt')), [], '.. das im Ordner bleibt (Gegenprobe)');
   assert.deepEqual(lock(undefined), ['Write'], 'ohne file_path');
+});
+
+test('R4a: Optionen und Unterbefehle, die an einen fremden Browser/Profil haengen, sind gesperrt; gewoehnliche Aufrufe nicht', () => {
+  const heads = ['agent-browser', 'playwright-cli', 'sleep'];
+  const blocked = ['agent-browser --cdp 9222 snapshot', 'agent-browser --auto-connect open http://x/', 'agent-browser connect 9222',
+    'playwright-cli attach --cdp=http://localhost:9222', 'playwright-cli open --browser=firefox', 'playwright-cli open --profile=/x',
+    'playwright-cli --config=other.json open', 'agent-browser open --engine lightpanda http://x/', 'agent-browser --executable-path /bin/x open y'];
+  for (const c of blocked) assert.equal(commandAllowedAny(c, heads, '/tmp'), false, c);
+  const fine = ['agent-browser open http://127.0.0.1:1234/', 'agent-browser snapshot -i', 'playwright-cli click e5', 'playwright-cli open http://x/ --headed',
+    'agent-browser fill @e2 "--cdp connect attach"', 'playwright-cli find --regex "profile|config"', 'sleep 2'];
+  for (const c of fine) assert.equal(commandAllowedAny(c, heads, '/tmp'), true, c);
+  assert.equal(foreignBrowserRequest('run-my-test --browser x'), false, 'Shim ist kein Browser-Werkzeug');
 });

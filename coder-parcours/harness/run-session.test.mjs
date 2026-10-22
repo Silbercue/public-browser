@@ -16,7 +16,8 @@ import { toolchainDir } from './participants.mjs';
 import { symlinkSync } from 'node:fs';
 import { registerCpParticipant } from './participants.mjs';
 import { validateSessionResult } from './result-schema.mjs';
-import { listeningPids } from './proc.mjs';
+import { listProcessTree, listeningPids } from './proc.mjs';
+import { EventEmitter } from 'node:events';
 import { isAlive } from './blind-run-lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,11 @@ process.env.CODER_PARCOURS_PUBLIC_DIR = 'fixtures/bugs';
 const SEED = 1;
 
 registerCpParticipant('fake-mcp', {
+  kind: 'mcp', name: 'fake', display: 'Fake MCP', package: 'fake-mcp', version: '9.9.9',
+  command: process.execPath, args: [join(BR_FIX, 'fake-mcp.mjs')],
+  env: () => ({}), skillFiles: [], extraCommands: [], profile_isolation: 'test',
+});
+const CP_PARTICIPANTS_FAKE_MCP = () => ({
   kind: 'mcp', name: 'fake', display: 'Fake MCP', package: 'fake-mcp', version: '9.9.9',
   command: process.execPath, args: [join(BR_FIX, 'fake-mcp.mjs')],
   env: () => ({}), skillFiles: [], extraCommands: [], profile_isolation: 'test',
@@ -224,24 +230,113 @@ test('zweiter Lauf ohne --replace wirft vor dem Start, mit --replace laeuft er',
   assert.equal(again.result.status, 'ok');
 });
 
-test('Browser ausser Google Chrome: aborted', async () => {
-  const deps = fakeDeps('ok', {
-    listProcesses: () => [{ pid: 999_999, command: '/usr/bin/chromium --remote-debugging-port=1234' }],
-  });
+/** Prozessliste, die erst nach dem Start der Sitzung deren Kennungen (Sitzungs-ID, Arbeitsordner) kennt. */
+function withSession(listFor) {
+  let ctx = null;
+  return { onSessionStart: (c) => { ctx = c; }, listProcesses: () => (ctx ? listFor(ctx) : []) };
+}
+const claudeProc = (c) => ({ pid: 999_990, ppid: 1, command: `claude -p x --session-id ${c.sessionId}` });
+const OTHER_BROWSER = '/usr/bin/chromium --remote-debugging-port=1234';
+
+test('Browser ausser Google Chrome unter claude: aborted', async () => {
+  const deps = fakeDeps('ok', withSession((c) => [claudeProc(c), { pid: 999_999, ppid: 999_990, command: OTHER_BROWSER }]));
   const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, deps);
   track(result);
   assert.equal(result.status, 'aborted');
   assert.ok(result.notes.some((n) => n.includes('/usr/bin/chromium')));
 });
 
+test('R4a: neuer fremder Browser anderer Programme (kein Nachkomme der Sitzung) bricht nicht ab, die Sitzung bleibt ok', async () => {
+  // Befund aus dem echten Lauf: ein headless_shell eines anderen Programms auf dem Rechner hat die Sitzung abgebrochen.
+  const deps = fakeDeps('ok', withSession((c) => [claudeProc(c), { pid: 999_999, ppid: 1, command: OTHER_BROWSER }]));
+  const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, deps);
+  track(result);
+  assert.equal(result.status, 'ok', result.notes.join(' | '));
+  assert.deepEqual(result.harness.browser_binaries, []);
+});
+
+test('R4a: Browser eines Daemons, der nur ueber den Arbeitsordnernamen in seiner Befehlszeile zur Sitzung gehoert, zaehlt', async () => {
+  const deps = fakeDeps('ok', withSession((c) => [
+    { pid: 999_980, ppid: 1, command: `node cliDaemon.js ${c.rundir.split('/').pop()}` },
+    { pid: 999_999, ppid: 999_980, command: OTHER_BROWSER },
+  ]));
+  const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, deps);
+  track(result);
+  assert.equal(result.status, 'aborted');
+  assert.ok(result.notes.some((n) => n.includes('/usr/bin/chromium')));
+});
+
+test('R4a: SIGINT beendet claude samt Resten der Sitzung (Kind, Daemon ueber Arbeitsordnername), fremde Prozesse bleiben', async () => {
+  const pidsFile = join(tmp('cp-rs-pids-'), 'pids.json');
+  const foreign = spawn('sleep', ['300'], { stdio: 'ignore' });
+  const signals = new EventEmitter();
+  const exits = [];
+  const deps = fakeDeps('hangchild', { listProcesses: () => listProcessTree(), wallMs: 60_000, signalSource: signals, onSignalExit: (c) => exits.push(c) });
+  deps.envOverrides.FAKE_CP_PIDS_FILE = pidsFile;
+  let rest = {};
+  try {
+    const pending = run({ slug: 'fake-mcp', type: 'explore' }, deps);
+    for (let i = 0; i < 400 && !existsSync(pidsFile); i++) await new Promise((r) => { setTimeout(r, 50); });
+    rest = JSON.parse(readFileSync(pidsFile, 'utf8'));
+    assert.ok(isAlive(rest.child) && isAlive(rest.daemon) && isAlive(foreign.pid), 'vor dem Signal leben alle');
+    const t0 = Date.now();
+    signals.emit('SIGINT');
+    signals.emit('SIGINT');
+    const { result } = await pending;
+    track(result);
+    assert.ok(Date.now() - t0 < 20_000, 'das Signal beendet die Sitzung sofort, nicht erst das Zeitlimit');
+    assert.equal(result.status, 'aborted');
+    assert.ok(result.notes.some((n) => n.includes('interrupted by SIGINT')), result.notes.join(' | '));
+    assert.equal(isAlive(rest.child), false, 'Kindprozess der Sitzung beendet');
+    assert.equal(isAlive(rest.daemon), false, 'Rest mit dem Arbeitsordnernamen beendet');
+    assert.equal(isAlive(foreign.pid), true, 'Gegenprobe: fremder Prozess lebt');
+    assert.deepEqual(exits, [130], 'zweites Signal erzwingt das Beenden');
+    assert.equal(signals.listenerCount('SIGINT'), 0, 'Handler nach dem Lauf entfernt');
+  } finally {
+    foreign.kill('SIGKILL');
+    for (const pid of Object.values(rest)) { try { process.kill(pid, 'SIGKILL'); } catch { /* schon weg */ } }
+  }
+});
+
+test('R4a: Public Browser startet claude mit --disallowedTools fuer configure_session, andere Teilnehmer ohne', async () => {
+  registerCpParticipant('fake-mcp-deny', { ...CP_PARTICIPANTS_FAKE_MCP(), deniedTools: ['configure_session'] });
+  const { result } = await run({ slug: 'fake-mcp-deny', type: 'explore' }, fakeDeps('ok'));
+  track(result);
+  assert.ok(result.harness.flags.includes('--disallowedTools mcp__fake__configure_session'), result.harness.flags);
+  const plain = await run({ slug: 'fake-mcp', type: 'explore', replace: true }, fakeDeps('ok'));
+  track(plain.result);
+  assert.ok(!plain.result.harness.flags.includes('--disallowedTools'));
+});
+
+test('R4a: ohne Signal beendet das Sitzungsende liegengebliebene Reste der Sitzung (Daemon), nicht fremde', async () => {
+  const pidsFile = join(tmp('cp-rs-pids-'), 'pids.json');
+  const foreign = spawn('sleep', ['300'], { stdio: 'ignore' });
+  const deps = fakeDeps('hangchild', { listProcesses: () => listProcessTree(), wallMs: 4500 });
+  deps.envOverrides.FAKE_CP_PIDS_FILE = pidsFile;
+  let rest = {};
+  try {
+    const { result } = await run({ slug: 'fake-mcp', type: 'explore' }, deps);
+    track(result);
+    rest = JSON.parse(readFileSync(pidsFile, 'utf8'));
+    assert.equal(result.status, 'timeout');
+    assert.equal(isAlive(rest.daemon), false);
+    assert.equal(isAlive(rest.child), false);
+    assert.equal(isAlive(foreign.pid), true);
+  } finally {
+    foreign.kill('SIGKILL');
+    for (const pid of Object.values(rest)) { try { process.kill(pid, 'SIGKILL'); } catch { /* schon weg */ } }
+  }
+});
+
 test('F1: Browser des Tests unter dem Arbeitsordner eines Laufs (cp-run-) zaehlt nicht, derselbe Browser ausserhalb schon', async () => {
   const inRun = `/opt/pw/chrome-headless-shell --remote-debugging-pipe --user-data-dir=${join(tmpdir(), 'cp-run-abc123', 'tmp', 'pw-profile')}`;
   const outside = '/opt/pw/chrome-headless-shell --remote-debugging-pipe --user-data-dir=/var/tmp/other-profile';
-  const ok = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok', { listProcesses: () => [{ pid: 999_998, command: inRun }] }));
+  const listWith = (command) => withSession((c) => [claudeProc(c), { pid: 999_998, ppid: 999_990, command }]);
+  const ok = await run({ slug: 'fake-mcp', type: 'explore' }, fakeDeps('ok', listWith(inRun)));
   track(ok.result);
   assert.equal(ok.result.status, 'ok', ok.result.notes.join(' | '));
   assert.deepEqual(ok.result.harness.browser_binaries, [], 'Test-Browser steht nicht unter den Browsern des Teilnehmers');
-  const bad = await run({ slug: 'fake-mcp', type: 'explore', replace: true }, fakeDeps('ok', { listProcesses: () => [{ pid: 999_998, command: outside }] }));
+  const bad = await run({ slug: 'fake-mcp', type: 'explore', replace: true }, fakeDeps('ok', listWith(outside)));
   track(bad.result);
   assert.equal(bad.result.status, 'aborted', 'Gegenprobe: ohne cp-run- bleibt es ein fremder Browser');
   assert.ok(bad.result.notes.some((n) => n.includes('chrome-headless-shell')));

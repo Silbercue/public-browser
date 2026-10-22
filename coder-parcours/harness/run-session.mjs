@@ -21,7 +21,7 @@ import { MODEL_PIN, cliCallsFromJsonl, isAlive, jsonlSlugFor, killGroup, mcpCall
 import { CP_PARTICIPANTS, cpDeps, devModeLinks, participantSkillText, scrubSessionEnv, toolchainBinDir, toolchainDir } from './participants.mjs';
 import { defaultSecretFiles, needlesFromFiles, scrubSecrets } from './secrets.mjs';
 import { toolLockMulti } from './guard.mjs';
-import { browserBinaries, chromeProcessesOnPort, killPids, listProcesses, portBusy } from './proc.mjs';
+import { browserBinaries, chromeProcessesOnPort, killPids, listProcessTree, listProcesses, portBusy, sessionProcesses } from './proc.mjs';
 import { OWN_PROCESSES_FILE, TEST_PORTS, checkCapture, isRunProcess, killOwnProcesses, snapshotPids } from './capture-check.mjs';
 import { BUDGETS, renderSessionPrompt } from './prompt.mjs';
 import { normalizeExploreReport } from './report-schema.mjs';
@@ -195,7 +195,8 @@ const readEvents = (file) => {
  * @param {{ slug: string, type: 'explore'|'capture', seed: number, round: string, smoke?: boolean,
  *   secretDir?: string|null, replace?: boolean }} opts
  * @param {{ cp?: object, envOverrides?: Record<string, string>, resultsRoot?: string, wallMs?: number,
- *   portBusy?: (port: number) => Promise<boolean>, listProcesses?: () => Array<{ pid: number, command: string }>,
+ *   portBusy?: (port: number) => Promise<boolean>, listProcesses?: () => Array<{ pid: number, ppid?: number, command: string }>,
+ *   onSessionStart?: (s: { sessionId: string, rundir: string }) => any, onSignalExit?: (code: number) => any, signalSource?: { on: Function, off: Function },
  *   chromeVersion?: () => string|null, runMyTestCmd?: string[], captureDeps?: any, spawnApp?: typeof spawnAppServer,
  *   allowPublicDir?: boolean, devModeLinks?: () => string[], secretFiles?: string[],
  *   onAppStarted?: (app: { url: string, port: number }) => any, inspectCtl?: (ctl: string, rundir: string) => any,
@@ -223,7 +224,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
 
   const isCli = p.kind === 'cli';
   const busy = deps.portBusy ?? portBusy;
-  const listProcs = deps.listProcesses ?? (() => listProcesses());
+  const listProcs = deps.listProcesses ?? (() => listProcessTree());
   const log = deps.log ?? (() => {});
   const capDeps = deps.captureDeps ?? {};
 
@@ -248,6 +249,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   const childEnv = scrubSessionEnv({ ...process.env, ...envOverrides });
   const sessionId = randomUUID();
   const setup = toolSetup(p, type, rundir);
+  await deps.onSessionStart?.({ sessionId, rundir });
   const maxTurns = smoke ? SMOKE.maxTurns : BUDGETS[type].maxTurns;
   const wallMs = deps.wallMs ?? (smoke ? SMOKE.wallMin : BUDGETS[type].wallMin) * 60_000;
   const mcpPrefix = isCli ? `cli__${p.cli}__` : `mcp__${p.name}__`;
@@ -281,11 +283,50 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   let sessionEnv = childEnv;
   let pbStarted = false;
 
+  /** Prozesse dieser Sitzung (siehe sessionProcesses): claude ueber die Sitzungs-ID, Daemons ueber den Arbeitsordnernamen. */
+  const ownProcs = () => sessionProcesses(listProcs(), {
+    rootPids: p.ownRootPids ? p.ownRootPids(rundir) : [], markers: [sessionId, basename(rundir)],
+  });
+  /** Alle Prozesse der Sitzung beenden (claude samt Gruppe, Daemon, Browser); nie den eigenen Prozess. */
+  const killSessionProcesses = async () => {
+    try {
+      const all = listProcs();
+      const now = new Map(all.map((x) => [x.pid, x.command]));
+      const pids = new Set(ownProcs().map((x) => x.pid));
+      // Waehrend der Sitzung gesehene Prozesse, die inzwischen abgekoppelt sind (Elternprozess beendet): nur wenn
+      // PID und Befehlszeile noch dieselben sind (keine wiederverwendete PID).
+      for (const [pid, command] of seenOwn) if (now.get(pid) === command) pids.add(pid);
+      pids.delete(process.pid);
+      const list = [...pids].filter((pid) => !baselineSet.has(pid));
+      if (list.length) await killPids(list);
+    } catch (e) { notes.push(`session process cleanup failed: ${String(e.message).slice(0, 120)}`); }
+  };
+  /** @type {Map<number, string>} */
+  const seenOwn = new Map();
+  /** @type {string|null} */
+  let interrupted = null;
+  const onSignal = (sig) => {
+    if (interrupted) { (deps.onSignalExit ?? process.exit)(130); return; }
+    interrupted = sig;
+    log(`[run-session] ${sig}: ending this session's processes`);
+    notes.push(`aborted: interrupted by ${sig}`);
+    aborted = true;
+    void killSessionProcesses();
+  };
+  const sigSource = deps.signalSource ?? process;
+  const onInt = () => onSignal('SIGINT');
+  const onTerm = () => onSignal('SIGTERM');
+  sigSource.on('SIGINT', onInt);
+  sigSource.on('SIGTERM', onTerm);
+
   const sampleBrowsers = () => {
     try {
       // Browser, die der Test des Agenten unter seinem Arbeitsordner (cp-run-...) startet, gehoeren dem Test,
       // nicht dem Browser-Werkzeug des Teilnehmers.
-      const procs = listProcs();
+      // Nur Prozesse dieser Sitzung zaehlen (claude und Nachkommen, Daemon des Teilnehmers): ein neuer Browser eines
+      // anderen Programms auf demselben Rechner ist keine Verletzung der Sitzung.
+      const procs = ownProcs();
+      for (const x of procs) seenOwn.set(x.pid, x.command);
       const testOwned = new Set(procs.filter((x) => isRunProcess(x.command)).map((x) => x.pid));
       for (const b of browserBinaries(procs)) if (!baselineSet.has(b.pid) && !testOwned.has(b.pid)) browsersSeen.add(b.binary);
     } catch { /* ps nicht verfuegbar: Beleg fehlt, Sitzung geht weiter */ }
@@ -351,10 +392,12 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
       flags = ['--model', MODEL_PIN, '--output-format', 'json', '--session-id', sessionId,
         '--setting-sources', 'project', '--strict-mcp-config', '--mcp-config', join(rundir, 'mcp.json'),
         '--permission-mode', 'dontAsk', '--allowedTools', ...setup.allowed, '--tools', setup.tools,
+        ...(p.deniedTools?.length ? ['--disallowedTools', ...p.deniedTools.map((t) => `mcp__${p.name}__${t}`)] : []),
         ...(setup.hook ? ['--settings', JSON.stringify(setup.hook)] : []),
         ...(isCli ? ['--append-system-prompt-file', join(rundir, 'skill.md')] : []),
         '--max-turns', String(maxTurns)];
 
+      if (interrupted) throw new Error(`interrupted by ${interrupted}`);
       log(`[run-session] ${slug} ${type} seed ${seed} -> ${rundir}`);
       const spawnedAt = Date.now();
       const sampler = setInterval(sampleBrowsers, 3000);
@@ -432,6 +475,11 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
         notes.push(`cli cleanup failed: ${String(e.message).slice(0, 120)}`);
       }
     }
+    // Reste des Teilnehmers (Daemon, Browser), die claude ueberlebt haben: nur Prozesse dieser Sitzung. Nach dem
+    // regulaeren Aufraeumen des Teilnehmers (close), damit dessen eigener Befehl nicht ins Leere laeuft.
+    await killSessionProcesses();
+    sigSource.off('SIGINT', onInt);
+    sigSource.off('SIGTERM', onTerm);
     if (type === 'capture') {
       // Nach einem Abbruch mitten in run-my-test: genau dessen App und Test-Lauf beenden, sonst nichts.
       try { await killOwnProcesses(join(ctl, OWN_PROCESSES_FILE), { baselinePids, listProcs: listProcesses }); } catch (e) {
@@ -521,6 +569,8 @@ if (isMain) {
       slug: values.participant, type: /** @type {'explore'|'capture'} */ (values.type), seed: Number(values.seed), round: values.round,
       smoke: values.smoke, secretDir: values['secret-dir'] ?? null, replace: values.replace,
     }, { log: (l) => process.stdout.write(`${l}\n`) });
+    if (result.notes.some((n) => /interrupted by SIGINT/.test(n))) process.exitCode = 130;
+    else if (result.notes.some((n) => /interrupted by SIGTERM/.test(n))) process.exitCode = 143;
     process.stdout.write(`${result.status}: ${outPath}\n${result.notes.length ? `notes: ${result.notes.join(' | ')}\n` : ''}`);
   } catch (e) {
     process.stderr.write(`run-session: ${e.message}\n`);
