@@ -7,7 +7,7 @@ import { TEST_ACCOUNTS } from '../shared/accounts.mjs';
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'prompts');
 
 export const BUDGETS = {
-  explore: { calls: 120, maxTurns: 160, wallMin: 45 },
+  explore: { calls: 75, maxTurns: 100, wallMin: 45 },
   capture: { calls: 60, maxTurns: 80, wallMin: 25 },
 };
 

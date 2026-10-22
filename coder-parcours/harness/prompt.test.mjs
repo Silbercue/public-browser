@@ -17,7 +17,7 @@ const base = { toolName: 'Some Browser Tool', appUrl: 'http://127.0.0.1:4555', c
 
 test('BUDGETS wie im Plan', () => {
   assert.deepEqual(BUDGETS, {
-    explore: { calls: 120, maxTurns: 160, wallMin: 45 },
+    explore: { calls: 75, maxTurns: 100, wallMin: 45 },
     capture: { calls: 60, maxTurns: 80, wallMin: 25 },
   });
 });
@@ -32,7 +32,7 @@ test('explore enthaelt Aenderung, Konten, Budget, Berichtsregel; kein Platzhalte
     assert.ok(text.includes('http://127.0.0.1:4555'));
     assert.ok(text.includes('Some Browser Tool'));
     assert.ok(text.includes('/x/report.json'));
-    assert.ok(text.includes('about 120 tool calls'));
+    assert.ok(text.includes('about 75 tool calls'));
     for (const a of TEST_ACCOUNTS) assert.ok(text.includes(`${a.email} / ${a.password}`));
     assert.ok(!text.includes('{{'));
     assert.ok(!text.includes('run_plan'));

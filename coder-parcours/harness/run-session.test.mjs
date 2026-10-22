@@ -116,7 +116,7 @@ test('ok: Status ok, gueltig, Datei am Platz, kein Heimatpfad, raw-JSONL, sessio
   assert.deepEqual(result.cost_usd_list, [0.5]);
   assert.equal(typeof result.tokens.delta, 'number');
   assert.ok(result.harness.flags.includes('--tools Write'));
-  assert.ok(result.harness.flags.includes('--max-turns 160'));
+  assert.ok(result.harness.flags.includes('--max-turns 100'));
 });
 
 test('halfreport: ok mit report.ok false und 0 Funden', async () => {

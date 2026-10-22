@@ -323,8 +323,10 @@ checksums of the task texts and the grader prompt; the grader's model alias and 
 budgets. `node harness/fingerprint.mjs --compare <a> <b>` compares two fingerprints; resuming a round with
 a different fingerprint stops. Mixed grader models or participant versions inside a round stop scoring.
 
-Budgets (per session, from `harness/prompt.mjs`): explore 120 tool calls told to the agent, hard limit 160
-turns and 45 minutes; capture 60 tool calls told, hard limit 80 turns and 25 minutes.
+Budgets (per session, from `harness/prompt.mjs`): explore 75 tool calls told to the agent, hard limit 100
+turns and 45 minutes; capture 60 tool calls told, hard limit 80 turns and 25 minutes. The explore budget was lowered from 120 calls
+and 160 turns to 75 and 100 before the trial run, decided in advance and for cost reasons (one explore session
+with 160 turns used 12.3 M tokens in a test); it applies to all participants alike.
 
 ### Changes after the trial run
 
