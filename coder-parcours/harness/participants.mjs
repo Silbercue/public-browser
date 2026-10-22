@@ -2,7 +2,6 @@
 // Felder wie PARTICIPANTS in test-hardest/blind-run.mjs, dazu skillFiles (relativ zum npm-Paket in der
 // Werkzeugkette) und extraCommands (zusaetzlich erlaubte Befehlskoepfe neben dem CLI).
 // Versionen gepinnt am 21.10.2026 per `npm view` (aktuelle Version je Paket).
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -144,18 +143,16 @@ export const CP_PARTICIPANTS = {
     // Der dogfood-Ablauf legt Ausgabeordner an, kopiert die Berichtsvorlage und wartet zwischen Schritten.
     extraCommands: ['mkdir', 'cp', 'sleep'],
     env: (rundir, deps = cpDeps()) => ({
-      AGENT_BROWSER_EXECUTABLE_PATH: deps.chromeBin,
+      AGENT_BROWSER_EXECUTABLE_PATH: join(HERE, 'chrome-start-size.sh'),
+      CODER_PARCOURS_REAL_CHROME: deps.chromeBin,
       AGENT_BROWSER_SESSION: basename(rundir),
       AGENT_BROWSER_NAMESPACE: basename(rundir),
     }),
     cleanupArgs: ['close'],
-    // agent-browser startet ohne --headed im neuen Headless-Modus (--headless=new), kennt aber keine Startgroesse ueber
-    // Umgebung oder Konfiguration (AGENT_BROWSER_ARGS und "args" trennen an Kommas, --window-size=1280,800 bricht auseinander).
-    // Darum legt der Lauf vor dem Start der Sitzung die Groesse mit `set viewport` fest (das startet Daemon und Browser, beide
-    // gehoeren zum Namensraum des Laufs); die Sitzung darf sie danach selbst aendern.
-    setup: (rundir, _deps, /** @type {{ env?: Record<string, string | undefined>, cliBin?: string }} */ { env, cliBin } = {}) => {
-      execFileSync(String(cliBin), ['set', 'viewport', String(START_VIEWPORT.width), String(START_VIEWPORT.height)], { cwd: rundir, env, stdio: 'ignore', timeout: 60_000 });
-    },
+    // agent-browser startet ohne --headed im neuen Headless-Modus (--headless=new), kennt aber keine Startgroesse ueber Umgebung
+    // oder Konfiguration (AGENT_BROWSER_ARGS und "args" trennen an Kommas; `set viewport` gilt nur fuer eine Sitzung, und die
+    // Anleitung waehlt eigene Sitzungsnamen). Darum startet es Chrome ueber chrome-start-size.sh, das das echte Chrome mit
+    // --window-size=1280,887 (Anzeigebereich 1280x800) aufruft; das Skript liegt ausserhalb des Sitzungsordners.
     // Befehlszeile der Daemon-Wurzel (Pfad des agent-browser-Programms); PID-Dateien koennen veraltet sein.
     rootCommandPattern: /agent-browser/i,
     // Der Daemon laeuft abgekoppelt (Elternprozess 1) und traegt die Sitzung nicht in der Befehlszeile. Die Anleitung
@@ -173,7 +170,7 @@ export const CP_PARTICIPANTS = {
       } catch { /* kein Namensraum: nichts */ }
       return out;
     },
-    profile_isolation: 'agent-browser default: fresh temp user-data-dir per launch, own session, headless (--headless=new), start viewport 1280x800 via set viewport, Chrome via AGENT_BROWSER_EXECUTABLE_PATH',
+    profile_isolation: 'agent-browser default: fresh temp user-data-dir per launch, own session, headless (--headless=new), start window 1280x887 (viewport 1280x800) via chrome-start-size.sh, real Chrome via CODER_PARCOURS_REAL_CHROME',
   },
   'playwright-cli': {
     kind: 'cli', name: 'playwright-cli', cli: 'playwright-cli', display: 'Playwright CLI', package: '@playwright/cli', version: '0.1.22',

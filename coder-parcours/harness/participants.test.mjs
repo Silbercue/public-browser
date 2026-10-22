@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import {
   CP_PARTICIPANTS, START_VIEWPORT, cpDeps, participantSkillText, registerCpParticipant, resolveChrome, resolveClaude, scrubSessionEnv, toolchainDir,
 } from './participants.mjs';
@@ -69,7 +71,7 @@ test('agent-browser: dogfood-Skill, Zusatzbefehle, Env mit Chrome aus deps', () 
   assert.ok(p.skillFiles.some((f) => f.endsWith('issue-taxonomy.md')));
   assert.ok(p.skillFiles.some((f) => f.endsWith('dogfood-report-template.md')));
   const env = p.env('/tmp/cp-ab-x', FAKE_DEPS);
-  assert.deepEqual(env, { AGENT_BROWSER_EXECUTABLE_PATH: '/x/chrome', AGENT_BROWSER_SESSION: 'cp-ab-x', AGENT_BROWSER_NAMESPACE: 'cp-ab-x' });
+  assert.deepEqual(env, { AGENT_BROWSER_EXECUTABLE_PATH: join(dirname(fileURLToPath(import.meta.url)), 'chrome-start-size.sh'), CODER_PARCOURS_REAL_CHROME: '/x/chrome', AGENT_BROWSER_SESSION: 'cp-ab-x', AGENT_BROWSER_NAMESPACE: 'cp-ab-x' });
   assert.deepEqual(p.cleanupArgs, ['close']);
 });
 
@@ -229,11 +231,12 @@ test('R4b: alle vier Teilnehmer starten Google Chrome headless (--headless=new) 
   // agent-browser: kein --headed (weder Env noch Konfiguration), Startgroesse per set viewport vor dem Sitzungsstart
   const ab = CP_PARTICIPANTS['agent-browser'];
   assert.equal(Object.keys(ab.env(rundir, FAKE_DEPS)).some((k) => /HEADED/.test(k)), false);
-  const bin = join(rundir, 'fake-ab.sh');
-  const log = join(rundir, 'fake-ab.log');
-  writeFileSync(bin, `#!/bin/sh\necho "$@" >> "${log}"\n`, { mode: 0o755 });
-  ab.setup(rundir, FAKE_DEPS, { env: process.env, cliBin: bin });
-  assert.equal(readFileSync(log, 'utf8').trim(), 'set viewport 1280 800');
+  // Das Startskript ruft das echte Chrome mit allen Argumenten von agent-browser auf und haengt --window-size=1280,887 ans Ende
+  const fake = join(rundir, 'fake-chrome.sh');
+  writeFileSync(fake, '#!/bin/sh\necho "$@"\n', { mode: 0o755 });
+  const env = ab.env(rundir, /** @type {any} */ ({ chromeBin: fake }));
+  const r = spawnSync(env.AGENT_BROWSER_EXECUTABLE_PATH, ['--headless=new', '--window-size=1280,720'], { env: { ...process.env, CODER_PARCOURS_REAL_CHROME: env.CODER_PARCOURS_REAL_CHROME }, encoding: 'utf8' });
+  assert.equal(r.stdout.trim(), '--headless=new --window-size=1280,720 --window-size=1280,887');
   assert.ok(ab.rootCommandPattern.test('/x/node_modules/agent-browser/bin/agent-browser-darwin-arm64'));
   assert.equal(ab.rootCommandPattern.test('/usr/bin/vim notes.txt'), false, 'Gegenprobe: fremde Befehlszeile');
   // playwright-cli: headless und Anzeigebereich in der erzeugten Konfiguration

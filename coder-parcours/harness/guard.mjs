@@ -102,7 +102,7 @@ function pathSegmentAllowed(segment, pathRoot) {
 const FOREIGN_LONG_OPTS = ['cdp', 'auto-connect', 'autoconnect', 'extension', 'profile', 'persistent', 'endpoint', 'config', 'browser', 'engine', 'executable-path', 'provider', 'device', 'mobile', 'ios', 'args', 'user-data-dir', 'remote-debugging-port', 'remote-debugging-pipe', 'channel'];
 /**
  * Verbotene Option? Langformen auch als Abkuerzung (Praefix eines verbotenen Namens, viele Parser nehmen `--prof`),
- * Einzelstrich-Woerter mit dem Buchstaben p oder b (Kurzformen von --provider/--browser, auch gebuendelt wie `-xp`)
+ * jedes Einzelstrich-Wort (ausser reinen Zahlen) mit dem Buchstaben p oder b (Kurzformen von --provider/--browser, auch gebuendelt wie `-xp`)
  * und Einzelstrich-Schreibweise eines verbotenen Namens (`-engine`).
  * @param {string} w
  */
@@ -111,9 +111,9 @@ function foreignOption(w) {
     const name = w.slice(2).split('=')[0].toLowerCase();
     return name !== '' && FOREIGN_LONG_OPTS.some((n) => n.startsWith(name));
   }
-  if (/^-[A-Za-z][A-Za-z-]*(?:=.*)?$/.test(w)) {
+  if (w.startsWith('-') && !/^-\d+(?:\.\d+)?$/.test(w)) {
     const name = w.slice(1).split('=')[0].toLowerCase();
-    return /[pb]/i.test(name) || FOREIGN_LONG_OPTS.includes(name);
+    return /[pb]/.test(name) || FOREIGN_LONG_OPTS.some((n) => name.startsWith(n));
   }
   return false;
 }
@@ -176,8 +176,10 @@ export function foreignBrowserRequest(segment) {
   if (!words) return true;
   const [head, ...rest] = words;
   if (NON_BROWSER_HEADS.has(head)) return false;
-  // `eval -b` heisst Base64 (steht in der agent-browser-Anleitung), nicht --browser.
-  return rest.some((w, i) => (w === '-b' && rest[i - 1] === 'eval' ? false : foreignOption(w)) || FOREIGN_BROWSER_CMD.has(w.toLowerCase()));
+  // `eval -b` heisst Base64 (steht in der agent-browser-Anleitung), nicht --browser: nur, wenn `eval` der Unterbefehl ist
+  // (erstes Wort ohne Strich nach dem Kopf) und `-b` direkt darauf folgt.
+  const sub = rest.findIndex((w) => !w.startsWith('-'));
+  return rest.some((w, i) => (w === '-b' && sub >= 0 && rest[sub] === 'eval' && i === sub + 1 ? false : foreignOption(w)) || FOREIGN_BROWSER_CMD.has(w.toLowerCase()));
 }
 
 /**

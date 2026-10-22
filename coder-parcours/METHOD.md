@@ -37,7 +37,7 @@ version of every session are stored in its result file.
 |---|---|---|---|
 | Public Browser | MCP server | 3.0.0 | `npx -y public-browser@3.0.0`; own Chrome on port 9333, headless, fresh state folder per session, friction log off |
 | Chrome DevTools MCP | MCP server | 1.11.0 | `npx -y chrome-devtools-mcp@1.11.0 --isolated --headless --viewport 1280x800 --executable-path <chrome>`; usage statistics off |
-| agent-browser | command line | 0.39.1 | `agent-browser`, headless, start size set with `set viewport 1280 800` before the session, Chrome via `AGENT_BROWSER_EXECUTABLE_PATH`; its own skill texts (core and `dogfood`) |
+| agent-browser | command line | 0.39.1 | `agent-browser`, headless, start window 1280 x 887 (viewport 1280 x 800) through a small start script that calls the real Chrome, Chrome via `AGENT_BROWSER_EXECUTABLE_PATH`; its own skill texts (core and `dogfood`) |
 | Playwright CLI | command line | `@playwright/cli` 0.1.22 | `playwright-cli`, isolated in-memory profile, headless, viewport 1280x800 in the configuration, Chrome via `executablePath` |
 
 Public Browser is always started from the pinned npm version. A session with Public Browser is refused if

@@ -366,7 +366,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
         const verOut = sh(cliBin, ['--version'], { env: sessionEnv, cwd: rundir }).trim();
         skillInfo = prepareSkill(slug, p, rundir);
         serverInfo = { name: p.cli, version: (verOut.match(/\d+\.\d+\.\d+[^\s]*/g) || []).pop() ?? null, instructions: null };
-        p.setup?.(rundir, base, { env: sessionEnv, cliBin });
+        p.setup?.(rundir, base);
         writeFileSync(join(rundir, 'mcp.json'), `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`);
       } else {
         const args = [...p.args, ...(p.extraArgs ? p.extraArgs(base) : [])];
