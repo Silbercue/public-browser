@@ -1,0 +1,38 @@
+{
+  "grader_prompt_sha256": "30f24dff5723f084d55c2f704ba1b902675a515ba86db6449d57258fce3c600b",
+  "prompts_sha256": "b262bf6e5af6ee4bb99116eeafbacaf80fb6874c5cb74605a2b2ac10e00fb437",
+  "catalog_sha256": "b5dffb7def6283c515570cc24a8fe8f561722aaa84ccff7be9573757a7aea4b2",
+  "app_sha256": "bbf85eb40c742e70e222dc974bde34a1e073f192dcad11888f045ee1e9e0a9b4",
+  "public_dir_override": null,
+  "grader_model_alias": "sonnet",
+  "grader_flags": [
+    "--setting-sources",
+    "project",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "<empty-mcp-config>",
+    "--tools",
+    ""
+  ],
+  "secret_sha256": "4173059b3641f8324ced374656cc6a59e2ea03ce5f4276c54a0e1cdbb4a51b2d",
+  "participants": {
+    "public-browser": "cb6abf32a6fd57a91e3da1698fb0fe175b21806d5aee996532fbc0745682a56b",
+    "chrome-devtools-mcp": "9a20040e8e762153740f482deea89fb9ed8563ba82039e23264fcd8b5f06f710",
+    "agent-browser": "6555457fea987917b5a122ca9230e6e05081277dc348ca7b04ffa47510173122",
+    "playwright-cli": "29250e08e10049aa7d92a661a2d1ef9109aace825119ddff486a0497e8e972f3"
+  },
+  "budgets": {
+    "explore": {
+      "calls": 75,
+      "maxTurns": 100,
+      "wallMin": 45
+    },
+    "capture": {
+      "calls": 60,
+      "maxTurns": 80,
+      "wallMin": 25
+    }
+  },
+  "commit": "8b533801e8a4d734c8b6e0643aca8c8ca6f00293",
+  "time": "2026-10-22T09:27:54.026Z"
+}
