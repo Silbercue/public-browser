@@ -251,3 +251,23 @@ test('R4b: alle vier Teilnehmer starten Google Chrome headless (--headless=new) 
   assert.deepEqual(cfg.contextOptions.viewport, { width: 1280, height: 800 });
   assert.equal(cfg.launchOptions.executablePath, '/x/chrome');
 });
+
+test('R4c S3: playwright-cli-Daemon mit anderem -s-Namen wird ueber seinen Arbeitsordner als Sitzungsprozess erkannt (Fake-Daemon)', async () => {
+  const { spawn } = await import('node:child_process');
+  const rundir = mkdtempSync(join(tmpdir(), 'cp-pw-own-'));
+  const other = mkdtempSync(join(tmpdir(), 'cp-pw-other-'));
+  const fake = (cwd, script) => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', script, 'guest'], { cwd, stdio: 'ignore' });
+  const mine = fake(rundir, 'cliDaemon.js');
+  const foreign = fake(other, 'cliDaemon.js');
+  const notDaemon = fake(rundir, 'something-else.js');
+  try {
+    await new Promise((r) => setTimeout(r, 300));
+    const pids = CP_PARTICIPANTS['playwright-cli'].ownRootPids(rundir);
+    assert.ok(pids.includes(mine.pid), 'Daemon im Rundir (Name guest, nicht der Laufname) gehoert der Sitzung');
+    assert.equal(pids.includes(foreign.pid), false, 'Daemon eines anderen Arbeitsordners nicht');
+    assert.equal(pids.includes(notDaemon.pid), false, 'anderer Prozess im Rundir nicht');
+    assert.ok(CP_PARTICIPANTS['playwright-cli'].rootCommandPattern.test(`node /x/cliDaemon.js guest`));
+  } finally {
+    for (const c of [mine, foreign, notDaemon]) c.kill('SIGKILL');
+  }
+});

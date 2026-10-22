@@ -2,6 +2,7 @@
 // test-hardest/blind-run.mjs sind an macOS und den /Applications-Chrome gebunden und bleiben unberuehrt.
 import { execFileSync, execFile } from 'node:child_process';
 import { connect } from 'node:net';
+import { readlinkSync, realpathSync } from 'node:fs';
 import { basename } from 'node:path';
 
 /** @typedef {{ pid: number, command: string }} Proc */
@@ -72,6 +73,47 @@ export function verifiedRootPids(pids, procs, pattern) {
   if (!pattern) return [...(pids || [])];
   const byPid = new Map((procs || []).map((p) => [p.pid, p.command]));
   return (pids || []).filter((pid) => pattern.test(byPid.get(pid) ?? ''));
+}
+
+/**
+ * Arbeitsordner (cwd) laufender Prozesse: macOS ueber lsof, Linux ueber /proc/<pid>/cwd. Unbekannte fehlen in der Map.
+ * @param {number[]} pids
+ * @param {{ platform?: string }} [opts]
+ * @returns {Map<number, string>}
+ */
+export function processCwds(pids, { platform = process.platform } = {}) {
+  const out = new Map();
+  const list = (pids || []).filter((p) => Number.isInteger(p) && p > 0);
+  if (list.length === 0) return out;
+  if (platform === 'linux') {
+    for (const pid of list) { try { out.set(pid, readlinkSync(`/proc/${pid}/cwd`)); } catch { /* beendet oder fremd */ } }
+    return out;
+  }
+  let text = '';
+  try {
+    text = execFileSync('lsof', ['-a', '-d', 'cwd', '-p', list.join(','), '-Fn'], { encoding: 'utf8' });
+  } catch (e) { text = String(/** @type {any} */ (e).stdout ?? ''); } // Exit 1, wenn ein Prozess schon weg ist
+  let pid = null;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1));
+    else if (line.startsWith('n') && pid) out.set(pid, line.slice(1));
+  }
+  return out;
+}
+
+/**
+ * PIDs der Prozesse, deren Befehlszeile auf pattern passt und deren Arbeitsordner (nach Aufloesung von Symlinks) dir ist.
+ * @param {string} dir
+ * @param {RegExp} pattern
+ * @param {{ procs?: Proc[], cwds?: (pids: number[]) => Map<number, string> }} [o]
+ * @returns {number[]}
+ */
+export function pidsWithCwd(dir, pattern, { procs, cwds = processCwds } = {}) {
+  const real = (p) => { try { return realpathSync(p); } catch { return p; } };
+  const want = real(dir);
+  const cand = (procs ?? listProcesses()).filter((p) => pattern.test(p.command)).map((p) => p.pid);
+  const map = cwds(cand);
+  return cand.filter((pid) => map.has(pid) && real(/** @type {string} */ (map.get(pid))) === want);
 }
 
 const startsWithProgram = (command, program) => command === program || command.startsWith(`${program} `);

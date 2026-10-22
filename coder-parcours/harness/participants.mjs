@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultDeps, scrubProviderKeys } from './blind-run-lib.mjs';
+import { pidsWithCwd } from './proc.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -203,6 +204,11 @@ export const CP_PARTICIPANTS = {
     // Arbeitsordner in der Befehlszeile. close-all beendet alle Sitzungen dieses Arbeitsordners (Rundir mit .playwright/),
     // gleich unter welchem Namen, und keine anderer Arbeitsordner.
     cleanupArgs: ['close-all'],
+    // Der Daemon (`node .../cliDaemon.js <Sitzungsname>`) laeuft abgekoppelt und traegt nur den Sitzungsnamen, den der Agent
+    // mit -s frei waehlen kann. Er startet aber im Arbeitsordner des Aufrufs (= Rundir): daran wird er erkannt, gleich unter
+    // welchem Namen, fuer die Browser-Pruefung waehrend der Sitzung und fuer das Aufraeumen danach.
+    rootCommandPattern: /cliDaemon\.js/,
+    ownRootPids: (rundir) => pidsWithCwd(rundir, /cliDaemon\.js/),
     profile_isolation: 'isolated in-memory profile, Chrome via executablePath (same binary as the others), headless, viewport 1280x800 (.playwright/cli.config.json in the run dir)',
   },
 };
