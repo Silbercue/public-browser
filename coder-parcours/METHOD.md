@@ -467,6 +467,10 @@ are replaced by `~`.
 - **Ports.** Capture sessions require free ports 9222 and 9223 at the start; see 5.5 for what is ended when.
 - **Local files over the browser** (5.2) and **Linux `/proc/<pid>/fd`** (5.4) can be reached by participants;
   both are flagged, not blocked.
+- **Event file path in the process list.** The app server of a session is started with the path of its events
+  file on the command line, so a test that lists processes could learn that path. Listing processes and
+  touching the control folder both set `capture_outside_access`; the server start is frozen with `app/` and
+  `server/` until phase 3, so this is documented rather than changed.
 - **Linux is untested.** The harness is written for macOS and Linux, but it has only been run on macOS.
 - **Beacons and CSS** can be read by someone who reads the delivered script (5.3).
 - **Grader.** One model grades; a sample is checked by hand, not every answer. The grader sees distractors.
