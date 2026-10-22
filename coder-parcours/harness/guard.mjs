@@ -187,7 +187,7 @@ const TOOL_SYNTAX = {
     free: new Set(['open', 'goto', 'navigate', 'read', 'click', 'dblclick', 'type', 'fill', 'press', 'key', 'keyboard', 'keydown', 'keyup', 'hover', 'focus', 'check',
       'uncheck', 'select', 'drag', 'upload', 'download', 'scroll', 'scrollintoview', 'wait', 'screenshot', 'pdf', 'snapshot', 'eval', 'close', 'quit', 'exit', 'back',
       'forward', 'reload', 'get', 'is', 'find', 'mouse', 'set', 'network', 'cookies', 'storage', 'tab', 'frame', 'diff', 'trace', 'profiler', 'record', 'console',
-      'errors', 'highlight', 'clipboard', 'webmcp', 'react', 'vitals', 'a11y', 'pushstate', 'removeinitscript', 'state', 'dialog', 'confirm', 'deny', 'session']),
+      'errors', 'highlight', 'clipboard', 'webmcp', 'react', 'vitals', 'a11y', 'pushstate', 'removeinitscript', 'state', 'dialog', 'confirm', 'deny', 'session', 'auth']),
     nested: new Set(['batch']),
   },
   'playwright-cli': {
@@ -212,7 +212,8 @@ const BROWSER_NAMES = new Set(['chrome', 'chromium', 'firefox', 'webkit', 'msedg
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 // Unterbefehle, die rechnerweit fremde Daemons beenden (playwright-cli kill-all), ein sichtbares Fenster oeffnen (show, tray,
 // inspect) oder die Installation reparieren und einen eigenen Browser starten (agent-browser doctor). Gesperrt dort, wo sie
-// Unterbefehl sein koennen (Unterbefehlsstelle, Optionswert davor, in batch); als Argument (`auth show x`, `fill @e1 show`) nicht.
+// Unterbefehl sein koennen (Unterbefehlsstelle, Optionswert davor, in batch, und wie jedes verbotene Wort nach einem
+// unbekannten Unterbefehl); als Argument eines Bedien-Unterbefehls (`auth show x`, `fill @e1 show`) nicht.
 const WINDOW_OR_GLOBAL_CMD = new Set(['kill-all', 'show', 'tray', 'inspect', 'doctor']);
 const forbiddenWord = (w, syn) => FOREIGN_BROWSER_CMD.has(w.toLowerCase()) || Boolean(syn?.nested.has(w.toLowerCase()));
 const forbiddenCmd = (w, syn) => forbiddenWord(w, syn) || WINDOW_OR_GLOBAL_CMD.has(w.toLowerCase());
@@ -231,7 +232,7 @@ function foreignArgv(head, rest, depth = 0) {
     && BASE64.test(rest[2]) && !BROWSER_NAMES.has(rest[2].toLowerCase());
   if (evalB) return rest.slice(3).some(foreignOption);
   // Unbekanntes Werkzeug: jedes Wort streng.
-  const strict = (words) => words.some((w) => foreignOption(w) || forbiddenWord(w, syn));
+  const strict = (words) => words.some((w) => foreignOption(w) || forbiddenCmd(w, syn));
   if (!syn) return strict(rest);
   // Optionen vor dem Unterbefehl ueberspringen; ihre Werte duerfen weder verbotene noch verschachtelnde Unterbefehle sein.
   let i = 0;
@@ -241,7 +242,8 @@ function foreignArgv(head, rest, depth = 0) {
     const name = w.replace(/^--?/, '').split('=')[0];
     const takesValue = !w.includes('=') && !syn.flags.has(name);
     const next = rest[i + 1];
-    const consumes = next !== undefined && !next.startsWith('-') && (takesValue || syn.flagValues.has(next));
+    // Ein einzelnes `-` nimmt minimist als Wert (`-s - kill-all`): hier ebenso, sonst laege der Unterbefehl des Werkzeugs dahinter.
+    const consumes = next !== undefined && (next === '-' || !next.startsWith('-')) && (takesValue || syn.flagValues.has(next));
     if (consumes && forbiddenCmd(next, syn)) return true;
     i += consumes ? 2 : 1;
   }

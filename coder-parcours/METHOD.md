@@ -220,8 +220,9 @@ line break) are removed word by word before options are compared (`"--cdp"`, `--
 break+`dp` are `--cdp`), and `$` and brace expansion are refused. A visible window (`--headed`, `--no-headless`,
 `--headless=...`) and a separate agent-browser namespace (`--namespace`) are blocked like the browser options. For
 agent-browser and Playwright CLI the guard finds the sub-command the tool will run: it skips the global options (an
-option it does not know as a switch is taken to consume the next word, so the tool never sees a later sub-command than
-the guard), refuses the sub-commands (`attach`, `connect`, `install`, `upgrade`, `plugin`, `dashboard`, `chat`, `profiles`,
+option it does not know as a switch is taken to consume the next word, a lone `-` included, and every word after an
+unknown sub-command is checked against all blocked sub-commands, so a later sub-command that the tool might see is
+always checked), refuses the sub-commands (`attach`, `connect`, `install`, `upgrade`, `plugin`, `dashboard`, `chat`, `profiles`,
 `config`, and also `kill-all`, which ends every Playwright CLI daemon on the machine, and `show`, `tray`, `inspect`,
 `doctor`, which open a visible window or start a browser of their own) at that position and in every option value before it, and checks each command inside `agent-browser batch` as a
 command of its own. After a known operating sub-command (`open`, `click`, `fill`, `type`, `find`, `eval`, `run-code` ...)

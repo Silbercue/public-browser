@@ -256,10 +256,15 @@ test('R4c S3: playwright-cli-Daemon mit anderem -s-Namen wird ueber seinen Arbei
   const { spawn } = await import('node:child_process');
   const rundir = mkdtempSync(join(tmpdir(), 'cp-pw-own-'));
   const other = mkdtempSync(join(tmpdir(), 'cp-pw-other-'));
-  const fake = (cwd, script) => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', script, 'guest'], { cwd, stdio: 'ignore' });
+  // Selbstbeendend: der Fake endet, sobald der Testprozess weg ist (auch bei Abbruch des Testlaufs) und spaetestens nach 30 s;
+  // dazu eigene Prozessgruppe, die finally als Ganzes beendet.
+  const WATCH = 'const p = Number(process.argv[3]); setInterval(() => { try { process.kill(p, 0); } catch { process.exit(0); } }, 200); setTimeout(() => process.exit(0), 30000);';
+  const fake = (cwd, script) => spawn(process.execPath, ['-e', WATCH, script, 'guest', String(process.pid)], { cwd, stdio: 'ignore', detached: true });
   const mine = fake(rundir, 'cliDaemon.js');
   const foreign = fake(other, 'cliDaemon.js');
   const notDaemon = fake(rundir, 'something-else.js');
+  const killAll = () => { for (const c of [mine, foreign, notDaemon]) { try { process.kill(-(/** @type {number} */ (c.pid)), 'SIGKILL'); } catch { /* schon beendet */ } } };
+  process.once('exit', killAll);
   try {
     await new Promise((r) => setTimeout(r, 300));
     const pids = CP_PARTICIPANTS['playwright-cli'].ownRootPids(rundir);
@@ -268,6 +273,7 @@ test('R4c S3: playwright-cli-Daemon mit anderem -s-Namen wird ueber seinen Arbei
     assert.equal(pids.includes(notDaemon.pid), false, 'anderer Prozess im Rundir nicht');
     assert.ok(CP_PARTICIPANTS['playwright-cli'].rootCommandPattern.test(`node /x/cliDaemon.js guest`));
   } finally {
-    for (const c of [mine, foreign, notDaemon]) c.kill('SIGKILL');
+    killAll();
+    process.off('exit', killAll);
   }
 });
