@@ -553,6 +553,7 @@ const bashHook = (command, rundir) => hook({ tool_name: 'Bash', tool_input: { co
 
 test('Ablehnungsgrund: jede Klasse bekommt einen eigenen Text, alle behalten den Praefix der Erkennung', () => {
   const rundir = makeRundir();
+  /** @type {Record<string, [string, RegExp]>} */
   const cases = {
     head: ['export A=1; agent-browser open x', /the command `export` is not allowed/],
     pipe: ['agent-browser open x | head -20', /pipes into other programs are not allowed \(`head` after a pipe\)/],
@@ -590,4 +591,35 @@ test('Ablehnungsgrund: Pipe-Text bleibt von der Ablehnungserkennung als Ablehnun
     U('2026-10-21T10:00:01Z', 'p1', `PreToolUse:Bash hook error: ${reason}`, true)].join('\n');
   const lock = toolLockMulti(jsonl, { heads: REASON_HEADS, readRoot: rundir });
   assert.deepEqual(lock, { bash_attempted: 1, bash_denied: true, read_attempted: 0, read_denied: false, non_mcp_executed: [] });
+});
+
+// --- Lesen von Skill-Dateien und Snapshot-Dateien (K1, K2) ---
+
+test('readAllowed: skill/ (beliebige Dateien) und .playwright-cli/*.yml sind lesbar, nichts anderes ausser Bildern', () => {
+  const rundir = makeRundir();
+  const outside = mkdtempSync(join(tmpdir(), 'cp-guard-out-'));
+  mkdirSync(join(rundir, 'skill', 'references'), { recursive: true });
+  mkdirSync(join(rundir, '.playwright-cli', 'sub'), { recursive: true });
+  writeFileSync(join(rundir, 'skill', 'references', 'commands.md'), 'x');
+  writeFileSync(join(rundir, 'skill', 'SKILL.md'), 'x');
+  writeFileSync(join(rundir, '.playwright-cli', 'page-1.yml'), 'x');
+  writeFileSync(join(rundir, '.playwright-cli', 'page-1.js'), 'x');
+  writeFileSync(join(rundir, '.playwright-cli', 'sub', 'deep.yml'), 'x');
+  writeFileSync(join(rundir, 'notes.yml'), 'x');
+  writeFileSync(join(outside, 'secret.md'), 'x');
+  symlinkSync(join(outside, 'secret.md'), join(rundir, 'skill', 'link.md'));
+  // positiv
+  assert.equal(readAllowed(join(rundir, 'skill', 'references', 'commands.md'), rundir), true);
+  assert.equal(readAllowed('skill/SKILL.md', rundir), true);
+  assert.equal(readAllowed(join(rundir, '.playwright-cli', 'page-1.yml'), rundir), true);
+  // Gegenproben: alles andere bleibt gesperrt
+  assert.equal(readAllowed(join(rundir, '.playwright-cli', 'page-1.js'), rundir), false, 'andere Endung im Snapshot-Ordner');
+  assert.equal(readAllowed(join(rundir, '.playwright-cli', 'sub', 'deep.yml'), rundir), false, 'nur direkt im Snapshot-Ordner');
+  assert.equal(readAllowed(join(rundir, 'notes.yml'), rundir), false, '.yml an anderer Stelle');
+  assert.equal(readAllowed(join(rundir, 'x.mjs'), rundir), false, 'Testdatei');
+  assert.equal(readAllowed(join(rundir, 'skill', 'link.md'), rundir), false, 'Symlink aus skill/ nach aussen');
+  assert.equal(readAllowed(join(rundir, 'skill', '..', 'x.mjs'), rundir), false, '.. aus skill/ heraus');
+  assert.equal(readAllowed(join(rundir, 'skill'), rundir), false, 'der Ordner selbst');
+  assert.equal(readAllowed(join(rundir, 'skill', 'missing.md'), rundir), false);
+  assert.equal(readAllowed(join(rundir, 'skill', 'SKILL.md'), undefined), false, 'ohne Sitzungsordner');
 });

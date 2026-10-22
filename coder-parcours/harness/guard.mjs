@@ -5,14 +5,14 @@
 import { existsSync, lstatSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-export const READ_DENY_REASON = 'Read is limited to screenshots inside the session folder.';
+export const READ_DENY_REASON = 'Read is limited to screenshots, the skill files in skill/ and the snapshot files the tool itself writes (.playwright-cli/*.yml) inside the session folder.';
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 
 /**
  * Zerlegt eine Bash-Zeile an &&, ||, |, &, ; und Zeilenumbruch. null = gesperrte Form
  * (Kommando-Substitution, Datei-Umleitung ausser N>&M, offenes Anfuehrungszeichen).
  * @param {unknown} command
- * @returns {string[] | null}
+ * @returns {(string[] & { seps: string[] }) | null}
  */
 function splitSegments(command) {
   const text = String(command ?? '');
@@ -347,13 +347,14 @@ export function bashDenyReason(command, heads, pathRoot) {
 }
 
 /**
- * Read nur fuer Bilddateien, deren realer Pfad im realen readRoot liegt.
+ * Read nur innerhalb des Sitzungsordners (realer Pfad im realen readRoot): Bilddateien (Screenshots), alle Dateien unter
+ * `skill/` (die Skill-Dateien des Teilnehmers; nur SKILL.md steht fest im Systemprompt) und die Snapshot-Dateien, die
+ * playwright-cli selbst schreibt (`.playwright-cli/*.yml`, direkt in diesem Ordner).
  * @param {unknown} filePath
  * @param {string | undefined} readRoot
  */
 export function readAllowed(filePath, readRoot) {
   if (typeof filePath !== 'string' || !filePath || typeof readRoot !== 'string' || !readRoot) return false;
-  if (!IMAGE_EXT.has(extname(filePath).toLowerCase())) return false;
   let root;
   let file;
   try {
@@ -363,9 +364,12 @@ export function readAllowed(filePath, readRoot) {
   } catch {
     return false;
   }
-  if (!IMAGE_EXT.has(extname(file).toLowerCase())) return false;
   const rel = relative(root, file);
-  return rel !== '' && !isEscape(rel);
+  if (rel === '' || isEscape(rel)) return false;
+  const parts = rel.split(sep);
+  if (IMAGE_EXT.has(extname(filePath).toLowerCase()) && IMAGE_EXT.has(extname(file).toLowerCase())) return true;
+  if (parts.length >= 2 && parts[0] === 'skill') return true;
+  return parts.length === 2 && parts[0] === '.playwright-cli' && extname(file).toLowerCase() === '.yml';
 }
 
 /**
@@ -425,6 +429,8 @@ const HOOK_PREFIX = '(?:PreToolUse:\\w+ hook error: )?';
 const DENIAL_START = [
   new RegExp(`^${HOOK_PREFIX}blocked by benchmark harness: `),
   new RegExp(`^${HOOK_PREFIX}${escapeRe(READ_DENY_REASON)}`),
+  // aeltere Fassung des Lesesperr-Texts (Rohprotokolle vor R5)
+  new RegExp(`^${HOOK_PREFIX}Read is limited to screenshots inside the session folder\\.`),
   /^Claude requested permissions to /,
   /^Permission to use \S+ has been denied/,
 ];
