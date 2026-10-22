@@ -8,6 +8,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BUDGETS } from './prompt.mjs';
 import { CP_PARTICIPANTS } from './participants.mjs';
 import { GRADER_FLAGS, GRADER_MODEL } from './grade.mjs';
+import { MODEL_PIN } from './blind-run-lib.mjs';
+
+// Dateien, die die Messbedingungen einer Sitzung festlegen: Sperrregeln, Claude-Flags und Settings, Skill-Vorspann und
+// Ergebnis-Ablage (run-session), Teilnehmer-Umgebung und Startparameter (participants), Startgroesse (chrome-start-size.sh),
+// Umgebung der Testlaeufe (capture-check).
+export const CONDITION_FILES = ['harness/guard.mjs', 'harness/guard-hook.mjs', 'harness/run-session.mjs', 'harness/participants.mjs', 'harness/chrome-start-size.sh', 'harness/capture-check.mjs'];
 
 const CP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -102,6 +108,8 @@ export function fingerprint({ root = CP_ROOT, env = process.env } = {}) {
     grader_model_alias: GRADER_MODEL,
     grader_flags: [...GRADER_FLAGS],
     secret_sha256: (() => { const b = readOrNull(root, 'secret/sealed.bin'); return b ? sha(b) : 'missing'; })(),
+    conditions_sha256: treeSha(root, CONDITION_FILES),
+    model_pin: MODEL_PIN,
     participants: participantShas(),
     budgets: JSON.parse(JSON.stringify(BUDGETS)),
   };

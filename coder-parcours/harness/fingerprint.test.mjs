@@ -1,14 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { compareFingerprints, fingerprint } from './fingerprint.mjs';
 import { BUDGETS } from './prompt.mjs';
+import { MODEL_PIN } from './blind-run-lib.mjs';
 import { GRADER_FLAGS, GRADER_MODEL } from './grade.mjs';
 
+const PROBE_FP = fileURLToPath(new URL('../results/probe-1/fingerprint.json', import.meta.url));
 const SCRIPT = fileURLToPath(new URL('./fingerprint.mjs', import.meta.url));
 
 /** Kleiner Baum mit allen Dateien, die der Fingerabdruck liest. */
@@ -209,4 +211,42 @@ test('Pruefer-Einstellung (K-T15-5): Modellalias und Flags stehen im Abdruck', (
     assert.deepEqual(fp.grader_flags, [...GRADER_FLAGS]);
     assert.ok(fp.grader_flags.includes('--tools'));
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// --- Messbedingungen (S4) ---
+
+const CONDITION_FILES = ['harness/guard.mjs', 'harness/guard-hook.mjs', 'harness/run-session.mjs', 'harness/participants.mjs', 'harness/chrome-start-size.sh', 'harness/capture-check.mjs'];
+
+test('Messbedingungen (S4): jede der Dateien aendert nur conditions_sha256; ohne Aenderung bleibt es gleich (Gegenprobe)', () => {
+  const root = tree();
+  try {
+    mkdirSync(join(root, 'harness'), { recursive: true });
+    for (const f of CONDITION_FILES) writeFileSync(join(root, f), `// ${f}\n`);
+    const base = fingerprint({ root });
+    assert.match(base.conditions_sha256, /^[0-9a-f]{64}$/);
+    assert.deepEqual(fingerprint({ root }), base, 'unveraendert: gleicher Abdruck');
+    for (const f of CONDITION_FILES) {
+      writeFileSync(join(root, f), `// ${f}\n// geaendert\n`);
+      const after = fingerprint({ root });
+      assert.notEqual(after.conditions_sha256, base.conditions_sha256, f);
+      for (const k of Object.keys(base)) if (k !== 'conditions_sha256') assert.deepEqual(after[k], base[k], `${f}: ${k}`);
+      writeFileSync(join(root, f), `// ${f}\n`);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Messbedingungen (S4): Modellfestlegung steht im Abdruck', () => {
+  const root = tree();
+  try {
+    assert.equal(fingerprint({ root }).model_pin, MODEL_PIN);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Messbedingungen (S4): --compare gegen den Abdruck von probe-1 meldet conditions_sha256 als geaendert', { skip: !existsSync(PROBE_FP) && 'results/probe-1/fingerprint.json fehlt' }, () => {
+  const probe = JSON.parse(readFileSync(PROBE_FP, 'utf8'));
+  const { fields, ok } = compareFingerprints(probe, fingerprint());
+  assert.equal(fields.conditions_sha256, 'changed');
+  assert.equal(ok, false);
+  // Gegenprobe: der Probe-Abdruck gegen sich selbst ist gleich
+  assert.equal(compareFingerprints(probe, probe).ok, true);
 });
