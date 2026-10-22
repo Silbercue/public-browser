@@ -371,7 +371,7 @@ test('R4a: Optionen und Unterbefehle, die an einen fremden Browser/Profil haenge
     'playwright-cli attach --cdp=http://localhost:9222', 'playwright-cli open --browser=firefox', 'playwright-cli open --profile=/x',
     'playwright-cli --config=other.json open', 'agent-browser open --engine lightpanda http://x/', 'agent-browser --executable-path /bin/x open y'];
   for (const c of blocked) assert.equal(commandAllowedAny(c, heads, '/tmp'), false, c);
-  const fine = ['agent-browser open http://127.0.0.1:1234/', 'agent-browser snapshot -i', 'playwright-cli click e5', 'playwright-cli open http://x/ --headed',
+  const fine = ['agent-browser open http://127.0.0.1:1234/', 'agent-browser snapshot -i', 'playwright-cli click e5', 'playwright-cli open http://x/',
     'agent-browser fill @e2 "--cdp connect attach"', 'playwright-cli find --regex "profile|config"', 'sleep 2'];
   for (const c of fine) assert.equal(commandAllowedAny(c, heads, '/tmp'), true, c);
   assert.equal(foreignBrowserRequest('run-my-test --browser x'), false, 'Shim ist kein Browser-Werkzeug');
@@ -458,11 +458,78 @@ test('R4b Scan 1: ungequotete Platzhalter und ~ sind gesperrt (Datei namens --cd
 
 test('R4b Scan 2: gebuendelte Kurzoptionen (-xp, -bp, -pb) und Abkuerzungen verbotener Langoptionen (--prof, --auto, --cd) sind gesperrt, gewoehnliche Optionen nicht', () => {
   for (const c of ['agent-browser -xp ios open x', 'agent-browser -bp open x', 'agent-browser -pb open x', 'agent-browser -P ios open x', 'agent-browser --prof /x open y',
-    'agent-browser --auto 9222 open', 'agent-browser --cd 9222 open', 'agent-browser --exec /bin/x open y', 'playwright-cli --conf=x open', 'agent-browser -engine x open y', 'agent-browser eval x -b firefox', 'agent-browser --json eval -b x', 'agent-browser eval x -b y', 'agent-browser eval -b -b x', 'agent-browser eval connect', 'agent-browser --session eval -b x', 'agent-browser --foo eval connect', 'agent-browser connect eval -b x', 'agent-browser open eval -b firefox', 'agent-browser eval y -b x', 'agent-browser -p1 open', 'agent-browser -p. open', 'agent-browser -xp9 open', 'agent-browser -cdpx open', 'agent-browser -b eval', 'agent-browser --PROFILE=x open']) {
+    'agent-browser --auto 9222 open', 'agent-browser --cd 9222 open', 'agent-browser --exec /bin/x open y', 'playwright-cli --conf=x open', 'agent-browser -engine x open y', 'agent-browser eval x -b firefox', 'agent-browser --json eval -b x', 'agent-browser eval x -b y', 'agent-browser eval -b -b x', 'agent-browser --session eval -b x', 'agent-browser --foo eval connect', 'agent-browser connect eval -b x', 'agent-browser open eval -b firefox', 'agent-browser eval y -b x', 'agent-browser -p1 open', 'agent-browser -p. open', 'agent-browser -xp9 open', 'agent-browser -cdpx open', 'agent-browser -b eval', 'agent-browser --PROFILE=x open']) {
     assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
   }
   for (const c of ['agent-browser snapshot -i -c', 'agent-browser screenshot --full', 'agent-browser get text body --json', 'playwright-cli --raw snapshot', 'agent-browser wait --load networkidle',
     'agent-browser eval -b "ZG9j"', 'agent-browser eval --base64 "ZG9j"', 'agent-browser --json eval --stdin', 'agent-browser scroll down -5.5', 'agent-browser scroll down -500', 'agent-browser snapshot -d 3']) {
     assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+  }
+});
+
+test('R4c M1: Zeilenfortsetzung (Backslash + Zeilenumbruch) wird wie in der Shell entfernt, in Einfach-Anfuehrungszeichen bleibt sie Text', () => {
+  for (const c of ['agent-browser --c\\\ndp 9222 open x', 'agent-browser "--c\\\ndp" 9222 open x', 'agent-browser conn\\\nect 9222', 'agent-browser --cdp\\\n 9222 open x',
+    'playwright-cli open --b\\\nrowser=firefox', 'agent-browser --hea\\\nded open x']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, JSON.stringify(c));
+  }
+  // Gegenprobe: Fortsetzung zwischen gewoehnlichen Woertern bleibt erlaubt, in '...' bleibt sie literaler Text.
+  assert.equal(commandAllowedAny('agent-browser \\\n  open http://x.test', H3, '/tmp'), true);
+  assert.equal(commandAllowedAny('agent-browser fill @e1 \'a\\\nb\'', H3, '/tmp'), true);
+});
+
+test('R4c S1: eval -b nur bei agent-browser, eval direkt nach dem Kopf und gueltigem Base64, das kein Browsername ist', () => {
+  for (const c of ['playwright-cli eval -b x', 'playwright-cli eval -b dGVzdA==', 'agent-browser eval -b firefox', 'agent-browser eval -b Chrome', 'agent-browser eval -b WEBKIT',
+    'agent-browser eval -b msedge', 'agent-browser eval -b edge', 'agent-browser eval -b safari', 'agent-browser eval -b chromium', 'agent-browser eval -b "a b"', 'agent-browser eval -b ab=c', 'agent-browser eval -b']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  }
+  for (const c of ['agent-browser eval -b dGVzdA==', 'agent-browser eval -b "ZG9jdW1lbnQudGl0bGU="', 'agent-browser eval -b ZG9j']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+  }
+});
+
+test('R4c S2: sichtbares Fenster (--headed, --no-headless, --headless=false) ist gesperrt', () => {
+  for (const c of ['agent-browser --headed open x', 'agent-browser open x --headed', 'agent-browser --headed=true open x', 'playwright-cli open --headed', 'playwright-cli open x --headed',
+    'agent-browser --no-headless open x', 'playwright-cli open --headless=false', 'agent-browser --head open x', 'AGENT_BROWSER_HEADED=1 agent-browser open x']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  }
+  // Gegenprobe: --headers ist eine gewoehnliche Option
+  assert.equal(commandAllowedAny('agent-browser open x --headers \'{"a":"b"}\'', H3, '/tmp'), true);
+});
+
+test('R4c S3: agent-browser --namespace ist gesperrt; --session, --name und playwright-cli -s bleiben erlaubt', () => {
+  for (const c of ['agent-browser --namespace x open y', 'agent-browser --namespace=x open y', 'agent-browser open y --namespace x']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  }
+  for (const c of ['agent-browser --session s1 open y', 'agent-browser find role button click --name "Submit"', 'playwright-cli -s=auth open https://x.test', 'playwright-cli -s=auth close']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+  }
+});
+
+test('R4c batch: verschachtelte Befehle von agent-browser batch werden wie eigene Befehle geprueft', () => {
+  for (const c of ['agent-browser batch \'["connect","9222"]\'', 'agent-browser batch \'["open","--cdp","9222"]\'', 'agent-browser batch "connect 9222"', 'agent-browser batch \'["open"]\' \'["--headed"]\'',
+    'agent-browser batch \'["batch","[\\"connect\\",\\"9222\\"]"]\'', 'agent-browser batch \'[1]\'', 'agent-browser batch "open \\$X"', 'agent-browser --bail batch \'["plugin","list"]\'',
+    'agent-browser Batch \'["connect","9222"]\'', 'agent-browser batch \'["frobnicate","connect"]\'', 'agent-browser batch \'["open --cdp 9222"]\'', 'agent-browser batch \'["--session x","open"]\'',
+    'agent-browser batch "fill @e1 \'a b\'"', 'agent-browser batch \'{"cmd":"connect"}\'', 'agent-browser batch \'[]\'', 'agent-browser batch \'["mcp"]\'', 'agent-browser batch "inspect"']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  }
+  for (const c of ['agent-browser batch \'["open"]\' \'["network","route","*","--abort","--resource-type","script"]\' \'["navigate","http://localhost:3000/target"]\'',
+    'agent-browser batch --bail "open http://x.test" "snapshot -i"', 'agent-browser batch \'["fill","@e1","connect"]\'']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+  }
+});
+
+test('R4c Fairness: Argumente von Bedien-Unterbefehlen sind freier Text, Unterbefehl und Optionen bleiben gesperrt', () => {
+  for (const c of ['agent-browser fill @e3 "Connect"', 'agent-browser find text "Dashboard" click', 'playwright-cli fill e5 "chat"', 'agent-browser fill @e1 config',
+    'agent-browser type @e2 "install the plugin"', 'agent-browser --session s1 click "Connect"', 'agent-browser --json find label "Profile" fill "x"', 'playwright-cli -s=a type "attach"',
+    'playwright-cli --raw eval "connect"', 'agent-browser select @e4 profiles', 'agent-browser press attach', 'agent-browser eval -b dGVzdA== connect', 'agent-browser eval connect']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+  }
+  // Weiter gesperrt (R4a M1/M2 und R4b): Unterbefehl/Option nach Optionen, Quotes, Escapes, Abkuerzungen, unbekannte Struktur.
+  for (const c of ['agent-browser --session x --headed connect 9222', 'agent-browser --session x connect 9222', 'agent-browser --json connect 9222', 'agent-browser --foo connect 9222',
+    'agent-browser --foo fill connect', 'agent-browser --restore batch fill \'["connect","9222"]\'', 'agent-browser --session connect open x', 'agent-browser --session batch fill \'["connect","9222"]\'',
+    'agent-browser "--cdp" 9222 snapshot', 'agent-browser --c""dp 9222 open', 'agent-browser \\-\\-cdp 9222 open', 'playwright-cli open --b""rowser=firefox', 'agent-browser --prof /x open y',
+    'agent-browser fill @e1 --cdp 9222', 'agent-browser fill @e1 x --profile y', 'playwright-cli -s attach', 'playwright-cli -s x attach', 'playwright-cli --json attach x', 'playwright-cli fill e1 x --browser=firefox',
+    'agent-browser frobnicate connect', 'playwright-cli --json true attach', 'playwright-cli --raw false attach x', 'agent-browser "fill" @e1 "x" && agent-browser connect 9222', 'playwright-cli -- attach', 'agent-browser -- connect 9222', 'agent-browser con""nect 9222', 'agent-browser Connect 9222']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
   }
 });
