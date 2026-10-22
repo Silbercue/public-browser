@@ -312,7 +312,15 @@ the public parts, encrypted to a public key committed in `secret/recipient.pub` 
 HKDF-SHA256, AES-256-GCM) and stored as `secret/sealed.bin`. The private key is encrypted with a
 passphrase of at least 20 characters, held only by the maintainer.
 
-sha256 of `secret/sealed.bin`: **(to be filled at publication)**
+sha256 of `secret/sealed.bin`: `4173059b3641f8324ced374656cc6a59e2ea03ce5f4276c54a0e1cdbb4a51b2d`
+
+- **How it was written (2026-10-22):** the author session ran as its own process in a fresh copy of the
+  app outside the repository, with a random keyword that no other session saw. The orchestrating session
+  only copied the three delivered files and then removed the work folder, the session's logs and its
+  temp files, and checked that the keyword appears nowhere. **Disclosure:** during that cleanup the
+  orchestrating session saw the file names of a test cache, which name 5 of the 8 sealed bugs in short
+  form. It saw no code or content of the sealed bugs. That session builds neither the app nor any of the
+  measured tools, and `app/` and `server/` were frozen from that moment on.
 
 - The baseline measurement (phase 1) runs **without** the sealed part. Phase 3 unseals it, adds it to the
   active bugs by the rule in 4.2 (a separate random stream, so the public activations stay the same) and
