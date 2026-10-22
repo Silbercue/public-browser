@@ -222,7 +222,8 @@ break+`dp` are `--cdp`), and `$` and brace expansion are refused. A visible wind
 agent-browser and Playwright CLI the guard finds the sub-command the tool will run: it skips the global options (an
 option it does not know as a switch is taken to consume the next word, so the tool never sees a later sub-command than
 the guard), refuses the sub-commands (`attach`, `connect`, `install`, `upgrade`, `plugin`, `dashboard`, `chat`, `profiles`,
-`config`) at that position and in every option value before it, and checks each command inside `agent-browser batch` as a
+`config`, and also `kill-all`, which ends every Playwright CLI daemon on the machine, and `show`, `tray`, `inspect`,
+`doctor`, which open a visible window or start a browser of their own) at that position and in every option value before it, and checks each command inside `agent-browser batch` as a
 command of its own. After a known operating sub-command (`open`, `click`, `fill`, `type`, `find`, `eval`, `run-code` ...)
 the remaining plain words are input text, so `fill @e3 "Connect"` is allowed; options there are still checked. After an
 unknown sub-command every word is checked as before. Short forms (`-p`, `-b`) are on the list too; the only exception is `agent-browser eval -b <base64>` in exactly this position (`eval` directly after the command, `-b` directly after `eval`, a valid base64 word that is not a browser name), which the shipped agent-browser skill text recommends; `-b` anywhere else stays blocked. The tools' configuration files in
@@ -234,8 +235,8 @@ starts on its own (the daemon) is found through the working-folder name in its c
 own PID files (only if the command line still matches the tool) and through the process tree, not through the
 command; a tool that detaches a browser with no mark of the session would not be seen by the "Chrome only"
 check. This is not prevented, only made unlikely. Playwright CLI sessions with their own name (`-s=<name>`, which its
-skill recommends) carry no mark of the run; the harness ends them with `playwright-cli close-all`, which closes every
-session of the session folder whatever its name. **Residual risk:** Playwright CLI's `run-code` runs code in the tool's own
+skill recommends) carry no mark of the run; the harness finds their daemon through its working folder (the session
+folder) and ends them with `playwright-cli close-all`, which closes every session of the session folder whatever its name. **Residual risk:** Playwright CLI's `run-code` runs code in the tool's own
 process, and `agent-browser eval` runs code in the page; such code could in principle get around an option block (for
 example by opening a connection of its own). Both are recommended by the skills and stay allowed. Against a new browser
 started that way only the "Chrome only" process check helps, with the limit named above; a connection from such code to

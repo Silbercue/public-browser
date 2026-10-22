@@ -533,3 +533,14 @@ test('R4c Fairness: Argumente von Bedien-Unterbefehlen sind freier Text, Unterbe
     assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
   }
 });
+
+test('R4c Steuerung 2+3: rechnerweites Beenden (kill-all) und sichtbare Fenster (show, tray, inspect, doctor) sind gesperrt', () => {
+  for (const c of ['playwright-cli kill-all', 'playwright-cli -s=x kill-all', 'playwright-cli show', 'playwright-cli show --annotate', 'playwright-cli tray',
+    'agent-browser inspect', 'agent-browser --session s1 inspect', 'agent-browser doctor', 'agent-browser doctor --fix', 'agent-browser --foo inspect x', 'agent-browser batch \'["inspect"]\'']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  }
+  // Gegenprobe: die Woerter als Eingabetext, Aufraeumen der eigenen Sitzungen
+  for (const c of ['playwright-cli fill e1 "show"', 'agent-browser fill @e1 inspect', 'playwright-cli close-all', 'agent-browser close --all', 'agent-browser react inspect 12', 'agent-browser auth show myapp']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+  }
+});

@@ -210,7 +210,12 @@ const TOOL_SYNTAX = {
 // Browser- und Engine-Namen: `eval -b firefox` ist kein Base64-Skript.
 const BROWSER_NAMES = new Set(['chrome', 'chromium', 'firefox', 'webkit', 'msedge', 'edge', 'safari']);
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+// Unterbefehle, die rechnerweit fremde Daemons beenden (playwright-cli kill-all), ein sichtbares Fenster oeffnen (show, tray,
+// inspect) oder die Installation reparieren und einen eigenen Browser starten (agent-browser doctor). Gesperrt dort, wo sie
+// Unterbefehl sein koennen (Unterbefehlsstelle, Optionswert davor, in batch); als Argument (`auth show x`, `fill @e1 show`) nicht.
+const WINDOW_OR_GLOBAL_CMD = new Set(['kill-all', 'show', 'tray', 'inspect', 'doctor']);
 const forbiddenWord = (w, syn) => FOREIGN_BROWSER_CMD.has(w.toLowerCase()) || Boolean(syn?.nested.has(w.toLowerCase()));
+const forbiddenCmd = (w, syn) => forbiddenWord(w, syn) || WINDOW_OR_GLOBAL_CMD.has(w.toLowerCase());
 
 /**
  * Wortliste (ohne Kopf) eines Werkzeugs pruefen. true = gesperrt.
@@ -237,7 +242,7 @@ function foreignArgv(head, rest, depth = 0) {
     const takesValue = !w.includes('=') && !syn.flags.has(name);
     const next = rest[i + 1];
     const consumes = next !== undefined && !next.startsWith('-') && (takesValue || syn.flagValues.has(next));
-    if (consumes && forbiddenWord(next, syn)) return true;
+    if (consumes && forbiddenCmd(next, syn)) return true;
     i += consumes ? 2 : 1;
   }
   // Verschachtelt (in batch) muss ein Unterbefehl folgen, und vor ihm steht kein Wort mit Leerraum.
@@ -246,7 +251,7 @@ function foreignArgv(head, rest, depth = 0) {
   const cmd = rest[i];
   const args = rest.slice(i + 1);
   // Gross-/Kleinschreibung zaehlt hier nicht (`Batch`, `Connect`): im Zweifel gilt die gefaehrlichere Lesart.
-  if (forbiddenWord(cmd, null)) return true;
+  if (forbiddenCmd(cmd, null)) return true;
   if (syn.nested.has(cmd.toLowerCase())) {
     if (depth >= 2) return true;
     return args.some((a) => {
