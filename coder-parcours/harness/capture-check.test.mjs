@@ -286,8 +286,12 @@ const scan = (d, depth) => { let es = []; try { es = readdirSync(d, { withFileTy
     let txt = ''; try { txt = readFileSync(p, 'utf8').slice(0, 200000); } catch { continue; }
     if (/"type":"(api|bug|login)"/.test(txt)) found.push('content:' + p); } };
 scan(${JSON.stringify(scanRoot)}, 0);
-const ps = execFileSync('ps', ['-axo', 'command']).toString();
-const mine = ps.split('\\n').filter((l) => l.includes('start.mjs') && l.includes('--session capture'));
+// Nur Prozesse aus dem eigenen Lauf: Kinder eines Vorfahren dieses Schnueffler-Prozesses (der Test-Prozess spawnt die App).
+// Parallel laufende andere Testdateien starten eigene Server (z. B. mit --events); die gehoeren nicht zu diesem Lauf.
+const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,command=']).toString().split('\\n').map((l) => /^\\s*(\\d+)\\s+(\\d+)\\s+(.*)$/.exec(l)).filter(Boolean).map((m) => ({ pid: +m[1], ppid: +m[2], cmd: m[3] }));
+const parentOf = new Map(rows.map((r) => [r.pid, r.ppid]));
+const ancestors = new Set(); for (let p = process.pid; p > 1 && !ancestors.has(p); p = parentOf.get(p) ?? 0) ancestors.add(p);
+const mine = rows.filter((r) => ancestors.has(r.ppid) && r.cmd.includes('start.mjs') && r.cmd.includes('--session capture')).map((r) => r.cmd);
 const sawServer = mine.length > 0;
 for (const l of mine) { if (/--events|--variant|--secret-dir|healthy|broken/.test(l)) found.push('ps:' + l.slice(0, 80)); }
 for (const [k, v] of Object.entries(process.env)) if (/events|variant|secret/i.test(k + v)) found.push('env:' + k);
