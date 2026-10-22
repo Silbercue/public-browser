@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commandAllowedAny, foreignBrowserRequest, protectedConfigPath, readAllowed, toolLockMulti, writeAllowed } from './guard.mjs';
+import { READ_DENY_REASON, bashDenyReason, commandAllowedAny, foreignBrowserRequest, protectedConfigPath, readAllowed, toolLockMulti, writeAllowed } from './guard.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -69,7 +69,7 @@ const U = (ts, id, content, isError) => JSON.stringify({
   message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, ...(isError === undefined ? {} : { is_error: isError }) }] },
 });
 const DENY_BASH = 'blocked by benchmark harness: only agent-browser, sleep commands are allowed';
-const DENY_READ = 'Read is limited to screenshots inside the session folder.';
+const DENY_READ = READ_DENY_REASON;
 
 function fixture(rundir) {
   return [
@@ -544,4 +544,50 @@ test('R4c Steuerung 2+3: rechnerweites Beenden (kill-all) und sichtbare Fenster 
   for (const c of ['playwright-cli fill e1 "show"', 'agent-browser fill @e1 inspect', 'playwright-cli close-all', 'agent-browser close --all', 'agent-browser react inspect 12', 'agent-browser auth show myapp', 'playwright-cli -s - fill e1 show']) {
     assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
   }
+});
+
+// --- Ablehnungsgruende (S1) ---
+
+const REASON_HEADS = ['agent-browser', 'playwright-cli', 'sleep'];
+const bashHook = (command, rundir) => hook({ tool_name: 'Bash', tool_input: { command } }, REASON_HEADS.join(','), rundir).permissionDecisionReason;
+
+test('Ablehnungsgrund: jede Klasse bekommt einen eigenen Text, alle behalten den Praefix der Erkennung', () => {
+  const rundir = makeRundir();
+  const cases = {
+    head: ['export A=1; agent-browser open x', /the command `export` is not allowed/],
+    pipe: ['agent-browser open x | head -20', /pipes into other programs are not allowed \(`head` after a pipe\)/],
+    option: ['playwright-cli open --browser=chrome http://x', /option or sub-command is not allowed/],
+    subcommand: ['agent-browser connect 9222', /option or sub-command is not allowed/],
+    variable: ['agent-browser open $URL', /shell variables/],
+    redirect: ['agent-browser snapshot > out.txt', /redirects/],
+    substitution: ['agent-browser open $(echo x)', /command substitution/],
+    path: ['sleep 1 && cp /etc/hosts out', /not allowed here|inside the session folder/],
+  };
+  const seen = new Set();
+  for (const [name, [cmd, re]] of Object.entries(cases)) {
+    const reason = bashHook(cmd, rundir);
+    assert.match(reason, /^blocked by benchmark harness: /, name);
+    assert.match(reason, re, name);
+    seen.add(reason);
+  }
+  assert.ok(seen.size >= 6, 'die Texte unterscheiden sich');
+  // Der Pipe-Text nennt die Pipe nur bei einer Pipe: Kopf-Fall und Optionsfall sagen nichts davon
+  assert.doesNotMatch(bashHook('playwright-cli open --browser=chrome http://x', rundir), /pipe/i);
+  assert.doesNotMatch(bashHook('export A=1; agent-browser open x', rundir), /pipe/i);
+});
+
+test('Ablehnungsgrund: mkdir/cp mit fremdem Pfad nennt den Ordner; eine erlaubte Zeile wird nicht abgewiesen (Gegenprobe)', () => {
+  const rundir = makeRundir();
+  const heads = ['agent-browser', 'mkdir', 'cp'];
+  assert.match(bashDenyReason('cp /etc/hosts out', heads, rundir), /^blocked by benchmark harness: `cp` only works with plain paths inside the session folder/);
+  assert.equal(commandAllowedAny('cp a.txt out', heads, rundir), true);
+});
+
+test('Ablehnungsgrund: Pipe-Text bleibt von der Ablehnungserkennung als Ablehnung erkannt', () => {
+  const rundir = makeRundir();
+  const reason = bashDenyReason('agent-browser open x | head', REASON_HEADS, rundir);
+  const jsonl = [A('2026-10-21T10:00:00Z', 'p1', 'Bash', { command: 'agent-browser open x | head' }),
+    U('2026-10-21T10:00:01Z', 'p1', `PreToolUse:Bash hook error: ${reason}`, true)].join('\n');
+  const lock = toolLockMulti(jsonl, { heads: REASON_HEADS, readRoot: rundir });
+  assert.deepEqual(lock, { bash_attempted: 1, bash_denied: true, read_attempted: 0, read_denied: false, non_mcp_executed: [] });
 });

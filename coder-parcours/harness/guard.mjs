@@ -17,6 +17,8 @@ const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 function splitSegments(command) {
   const text = String(command ?? '');
   const segments = [];
+  /** Trenner vor Segment i+1 (`|`, `&&`, `||`, `&`, `;`, `\n`), parallel zu segments, fuer die Ablehnungsgruende. */
+  const seps = [];
   let cur = '';
   let q = null;
   for (let i = 0; i < text.length; i++) {
@@ -29,13 +31,13 @@ function splitSegments(command) {
     if (ch === "'" || ch === '"') { q = ch; cur += ch; continue; }
     if (ch === '>' && next === '&' && /\d/.test(text[i + 2] ?? '')) { cur += text.slice(i, i + 3); i += 2; continue; }
     if (ch === '>' || ch === '<') return null;
-    if ((ch === '&' || ch === '|') && next === ch) { segments.push(cur); cur = ''; i++; continue; }
-    if (ch === '&' || ch === '|' || ch === ';' || ch === '\n') { segments.push(cur); cur = ''; continue; }
+    if ((ch === '&' || ch === '|') && next === ch) { segments.push(cur); seps.push(ch + ch); cur = ''; i++; continue; }
+    if (ch === '&' || ch === '|' || ch === ';' || ch === '\n') { segments.push(cur); seps.push(ch); cur = ''; continue; }
     cur += ch;
   }
   if (q) return null;
   segments.push(cur);
-  return segments;
+  return Object.assign(segments, { seps });
 }
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -311,6 +313,37 @@ export function commandAllowedAny(command, heads, pathRoot) {
     const first = t.split(/\s+/)[0];
     return PATH_HEADS.has(first) ? pathSegmentAllowed(t, pathRoot) : true;
   });
+}
+
+const BLOCKED = 'blocked by benchmark harness: ';
+
+/**
+ * Ablehnungstext einer Bash-Zeile, nach Grund getrennt. Der Praefix `blocked by benchmark harness: ` bleibt
+ * immer (die Erkennung der Ablehnung in DENIAL_START haengt daran). Gilt nur fuer Zeilen, die commandAllowedAny abweist.
+ * @param {unknown} command
+ * @param {string[]} heads
+ * @param {string} [pathRoot]
+ */
+export function bashDenyReason(command, heads, pathRoot) {
+  const list = (heads || []).filter(Boolean);
+  const allowedList = list.join(', ');
+  if (list.length === 0) return `${BLOCKED}no commands are allowed in this session`;
+  const segments = splitSegments(command);
+  if (!segments) return `${BLOCKED}command substitution, file redirects (> <) and unbalanced quotes are not allowed; only ${allowedList} commands may be run, one plain command line at a time`;
+  const head = new RegExp(`^(?:${list.map(escapeRe).join('|')})(\\s|$)`);
+  for (let i = 0; i < segments.length; i++) {
+    const t = segments[i].trim();
+    if (!head.test(t)) {
+      const name = t.split(/\s+/)[0] || '(empty)';
+      if (segments.seps[i - 1] === '|') return `${BLOCKED}pipes into other programs are not allowed (\`${name}\` after a pipe); run the command alone and read its output directly`;
+      return `${BLOCKED}the command \`${name}\` is not allowed here; only ${allowedList} commands may be run (shell builtins such as export, variable assignments and other programs are not available)`;
+    }
+    if (shellWords(t) === null) return `${BLOCKED}shell variables ($), wildcards (* ? [ ]), ~ and brace expansion are not allowed in a command; write the value out literally`;
+    if (foreignBrowserRequest(t)) return `${BLOCKED}this option or sub-command is not allowed: the browser, its profile, headless mode and attaching to another browser are fixed by the harness (for example --browser, --profile, --cdp, --headed, --config, attach, connect, install)`;
+    const first = t.split(/\s+/)[0];
+    if (PATH_HEADS.has(first) && !pathSegmentAllowed(t, pathRoot)) return `${BLOCKED}\`${first}\` only works with plain paths inside the session folder`;
+  }
+  return `${BLOCKED}only ${allowedList} commands are allowed`;
 }
 
 /**
