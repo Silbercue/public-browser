@@ -219,8 +219,12 @@ export function registerCpParticipant(slug, def) {
   return CP_PARTICIPANTS[slug];
 }
 
+/** Haupt-Skill-Dateien (SKILL.md) stehen fest im Systemprompt; alle anderen Skill-Dateien liest der Agent bei Bedarf. */
+export const isMainSkillFile = (rel) => basename(rel) === 'SKILL.md';
+
 /**
- * Skill-Text eines Teilnehmers: alle skillFiles mit Kopfzeile `# <Datei>` aneinander, dazu sha256 je Datei.
+ * Skill-Text eines Teilnehmers: nur die Haupt-Skill-Dateien (SKILL.md) mit Kopfzeile `# <Datei>` aneinander; `files`
+ * fuehrt dagegen alle skillFiles mit sha256 (auch die, die nur unter skill/ liegen und per Read gelesen werden).
  * @param {string} slug
  * @returns {{ text: string, files: { path: string, sha256: string }[] }}
  */
@@ -235,7 +239,7 @@ export function participantSkillText(slug) {
     if (!existsSync(abs)) throw new Error(`skill file missing for ${slug}: ${rel} (run node harness/setup.mjs)`);
     const content = readFileSync(abs, 'utf8');
     files.push({ path: rel, sha256: createHash('sha256').update(content).digest('hex') });
-    parts.push(`# ${rel}\n\n${content.trimEnd()}\n`);
+    if (isMainSkillFile(rel)) parts.push(`# ${rel}\n\n${content.trimEnd()}\n`);
   }
   return { text: parts.join('\n'), files };
 }

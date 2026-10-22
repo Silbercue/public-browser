@@ -189,8 +189,10 @@ test('participantSkillText(agent-browser) enthaelt dogfood, Kopfzeilen und Pruef
   assert.equal(files.length, CP_PARTICIPANTS['agent-browser'].skillFiles.length);
   for (const f of files) {
     assert.match(f.sha256, /^[0-9a-f]{64}$/);
-    assert.ok(text.includes(`# ${f.path}\n`), `Kopfzeile fuer ${f.path}`);
+    // nur die Haupt-Skill-Dateien stehen im Text; die uebrigen liegen unter skill/ (K2)
+    assert.equal(text.includes(`# ${f.path}\n`), f.path.endsWith('SKILL.md'), `Kopfzeile fuer ${f.path}`);
   }
+  assert.ok(text.includes('# skill-data/core/SKILL.md\n') && text.includes('# skill-data/dogfood/SKILL.md\n'));
 });
 
 test('participantSkillText fuer MCP-Teilnehmer ist leer, fuer unbekannten Slug ein Fehler', () => {
