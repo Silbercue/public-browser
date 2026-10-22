@@ -66,11 +66,14 @@ Differences in what each participant ships, stated as facts:
 - Command-line participants get the skill files of their pinned package (agent-browser: core skill, the
   `dogfood` skill with its issue taxonomy and report template, and the files they link; Playwright CLI: its
   skill and the linked reference files). They are copied unchanged into the session folder
-  (`skill/`) and appended to the system prompt; a short preface says where the files are and what
-  `{SKILL_DIR}` means. MCP participants get no skill text, only their tool descriptions. The `dogfood` skill
+  (`skill/`). Only the main `SKILL.md` file(s) are appended to the system prompt; every other skill file is read by the
+  agent on demand with `Read` (reading is allowed for `skill/` only). A short preface, identical for all command-line
+  participants, says where the files are, what `{SKILL_DIR}` means, that the named browser session is already set
+  and that pipes, redirects, shell variables and options that choose a browser, a profile or a connection are blocked. MCP participants get no skill text, only their tool descriptions. The `dogfood` skill
   is a bug-hunting procedure; the others have no equivalent.
-- Command-line participants may read image files inside the session folder (screenshots they took).
-  MCP participants receive images directly in the tool result. No participant may read other files.
+- Command-line participants may read, inside the session folder, image files (screenshots they took), the files under
+  `skill/` and the snapshot files that Playwright CLI itself writes (`.playwright-cli/*.yml`). MCP participants
+  receive images directly in the tool result. No participant may read other files.
 - The task text is identical for all participants except the name of the tool.
 
 ### 2.1 Capability matrix: setting the three window widths
@@ -180,7 +183,13 @@ everybody. The healthy app produces no console errors and no failed requests oth
 ### 5.1 Isolation
 
 Each session runs in a fresh folder, with a fresh app instance on a free port, a fresh browser profile and
-a fresh `claude` session with strict tool lists. Environment variables beginning with `PUBLIC_BROWSER_` or
+a fresh `claude` session with strict tool lists. Auto memory of the client is switched off for every session
+(setting `autoMemoryEnabled: false` through `--settings` and the environment variable
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, both named in the Claude Code documentation page on memory), so that no memory
+instructions reach the agent and no file is written outside the session folder. A session is aborted if its saved
+system prompt (`prompt_snapshot`) embeds a `CLAUDE.md` file ("Contents of ") or if the session folder lies under the
+home folder. Test runs get `NO_UPDATE_NOTIFIER=1` and `npm_config_update_notifier=false` so that npm does not query the
+registry. Environment variables beginning with `PUBLIC_BROWSER_` or
 `SILBERCUE_`, and provider keys, are removed from the environment the tools inherit. The test accounts are
 in the task text.
 
@@ -188,7 +197,7 @@ in the task text.
 
 The agent may use Write, its own browser tool and a short list of commands. MCP participants: only their
 own MCP tools and Write (in capture: also the command `run-my-test`). Command-line participants: Write,
-Read (images inside the session folder only), Bash limited to their own command plus the helpers their
+Read (images, `skill/` and Playwright CLI's own snapshot files inside the session folder only), Bash limited to their own command plus the helpers their
 skill needs (`mkdir`, `cp` only with paths inside the session folder; `sleep` for agent-browser) and, in
 capture, `run-my-test`. A pre-tool hook rejects command substitution, file redirection and everything
 else. **Write is only allowed inside the session folder.** The task text says so; the harness checks every
@@ -334,7 +343,10 @@ Every round starts by writing `results/<round>/fingerprint.json`: checksum of th
 decoys and seeds; checksum of the sealed file (`missing` if it is absent); checksum of the app itself (front
 end source, server, delivered script, shared accounts, seed logic and catalog loader; test files excluded);
 whether the catalog folder was redirected by `CODER_PARCOURS_PUBLIC_DIR` (a session refuses to run then);
-checksums of the task texts and the grader prompt; the grader's model alias and flags; per participant a checksum over package, version, start command and skill files; and the
+checksums of the task texts and the grader prompt; one checksum over the files that fix the session conditions (command
+guard and its hook, `run-session.mjs` with the `claude` flags, settings and skill preface, `participants.mjs` with each
+participant's environment and start parameters, `chrome-start-size.sh`, `capture-check.mjs` with the test environment) and the
+pinned model; the grader's model alias and flags; per participant a checksum over package, version, start command and skill files; and the
 budgets. `node harness/fingerprint.mjs --compare <a> <b>` compares two fingerprints; resuming a round with
 a different fingerprint stops. Mixed grader models or participant versions inside a round stop scoring.
 
@@ -351,7 +363,17 @@ fingerprint and the baseline fingerprint; every other difference is listed here 
 | Field | Trial run | Baseline | Reason |
 |---|---|---|---|
 | budgets | (to be filled at publication) | (to be filled at publication) | (to be filled at publication) |
-| all other fields | identical | identical | (to be filled at publication; list each difference with its reason) |
+| `conditions_sha256`, `model_pin` | not recorded | new fields | The trial run fingerprint did not cover the session conditions (guard, flags, environment, start script, skill preface, model pin). Recorded from now on so that any change like the ones below shows up in `--compare`. |
+| command guard, denial text | one text for every denial | text names the reason (head not allowed, pipe, redirect or substitution, variable or wildcard, blocked option or sub-command, path outside the folder) | The trial run showed a wrong reason for a blocked option, which cost the agent a call. The prefix `blocked by benchmark harness: ` and the detection are unchanged. |
+| skill preface | files location only | adds: named session already set, pipes/redirects/variables/browser options blocked; same text for all command-line participants | The skills recommend steps (exporting a session name, `--browser`, piping) that the guard rejects; this cost one call per session. |
+| skill files | all files in the system prompt | only `SKILL.md` file(s) in the system prompt, all other files readable under `skill/` | Closer to how Claude Code loads a skill; the fixed full text was a harness artefact (about 97 % of agent-browser's higher input in the trial run came from the larger start context). Same for all command-line participants. |
+| Read lock | screenshots only | plus `skill/` and `.playwright-cli/*.yml` in the session folder | Playwright CLI points to its own snapshot files after `open`/`goto`; the blocked read cost one call. |
+| auto memory | on | off (setting and environment variable) | The memory section told the agent to write outside the session folder; about 600 tokens per turn of noise. |
+| session aborts | none | prompt embedding `CLAUDE.md` ("Contents of "); session folder under the home folder | Makes the isolation check automatic instead of a one-time proof. |
+| call ledger | `chars` includes image data | adds `text_chars` and `images`; reports compare text only | In the trial run image data made up most of the characters of the MCP participants, which skewed character comparisons with the command-line participants (their screenshots are read with `Read` and are not in the ledger). |
+| browser start | configuration only | `--headless*`, `--window-size` and `--remote-debugging-*` of each new browser main process stored in `browser_launch` | Evidence of headless mode and window size from the real start arguments. |
+| raw logs | home paths and keys replaced | also the account e-mail address (complete) and organisation id, found from the session log and the client's account file | The raw logs are published. |
+| test runs | npm update notice possible | update check off | The notice made npm query the registry in every test run. |
 
 ## 9. The sealed part
 
@@ -450,7 +472,8 @@ file or raw log is written, the harness replaces strings that look like keys (np
 formats, private key blocks) and values from the measuring user's `.npmrc` and `.env` files by a placeholder
 and notes in the file that it did so; this is a search, not a guarantee. The raw session logs (`raw/`) are published with the final measurement (phase 3), after the
 sealed part is made public, because they contain what the agents saw and did. Home directory paths in them
-are replaced by `~`.
+are replaced by `~`, and the e-mail address and organisation id of the account that runs `claude` (read from the
+session log and the client's account file, not written into the harness) by `[redacted-account]`.
 
 ## 13. Known limits
 
