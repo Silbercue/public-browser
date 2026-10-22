@@ -218,7 +218,7 @@ participant's leftovers (daemon, browser) and writes the session as aborted.
 The command guard reads a command like the shell does: quotes and backslashes are removed word by word before
 options are compared (`"--cdp"`, `--c""dp` and `\-\-cdp` are `--cdp`), `$` and brace expansion are refused, and the
 sub-commands (`attach`, `connect`, `install`, `upgrade`, `plugin`, `dashboard`, `chat`, `profiles`, `config`) are
-refused at any word position. Short forms (`-p`, `-b`) are on the list too; that includes `agent-browser eval -b <base64>`, which the shipped agent-browser skill text recommends: this form is blocked for everybody, and plain `eval`, `eval --stdin` and `eval --base64` remain available. The tools' configuration files in
+refused at any word position. Short forms (`-p`, `-b`) are on the list too; the only exception is `agent-browser eval -b <base64>` in exactly this position (`eval` directly after the command, `-b` directly after `eval`), which the shipped agent-browser skill text recommends; `-b` anywhere else stays blocked. The tools' configuration files in
 the session folder (`agent-browser.json`, `.playwright/`, `*.config.json`, `.agent-browser*`) cannot be written by
 the session (hook on Write, and `cp`/`mkdir`). Only the commands of the participant plus `sleep`, `mkdir`, `cp`
 and `run-my-test` are allowed, so a session cannot detach a process of its own (`nohup`, `setsid`, `open -a`,

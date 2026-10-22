@@ -458,11 +458,11 @@ test('R4b Scan 1: ungequotete Platzhalter und ~ sind gesperrt (Datei namens --cd
 
 test('R4b Scan 2: gebuendelte Kurzoptionen (-xp, -bp, -pb) und Abkuerzungen verbotener Langoptionen (--prof, --auto, --cd) sind gesperrt, gewoehnliche Optionen nicht', () => {
   for (const c of ['agent-browser -xp ios open x', 'agent-browser -bp open x', 'agent-browser -pb open x', 'agent-browser -P ios open x', 'agent-browser --prof /x open y',
-    'agent-browser --auto 9222 open', 'agent-browser --cd 9222 open', 'agent-browser --exec /bin/x open y', 'playwright-cli --conf=x open', 'agent-browser -engine x open y', 'agent-browser eval x -b firefox', 'agent-browser eval -b "ZG9j"', 'agent-browser --json eval -b x', 'agent-browser --session eval -b x', 'agent-browser --foo eval connect', 'agent-browser connect eval -b x', 'agent-browser open eval -b firefox', 'agent-browser eval y -b x', 'agent-browser -p1 open', 'agent-browser -p. open', 'agent-browser -xp9 open', 'agent-browser -cdpx open', 'agent-browser -b eval', 'agent-browser --PROFILE=x open']) {
+    'agent-browser --auto 9222 open', 'agent-browser --cd 9222 open', 'agent-browser --exec /bin/x open y', 'playwright-cli --conf=x open', 'agent-browser -engine x open y', 'agent-browser eval x -b firefox', 'agent-browser --json eval -b x', 'agent-browser eval x -b y', 'agent-browser eval -b -b x', 'agent-browser eval connect', 'agent-browser --session eval -b x', 'agent-browser --foo eval connect', 'agent-browser connect eval -b x', 'agent-browser open eval -b firefox', 'agent-browser eval y -b x', 'agent-browser -p1 open', 'agent-browser -p. open', 'agent-browser -xp9 open', 'agent-browser -cdpx open', 'agent-browser -b eval', 'agent-browser --PROFILE=x open']) {
     assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
   }
   for (const c of ['agent-browser snapshot -i -c', 'agent-browser screenshot --full', 'agent-browser get text body --json', 'playwright-cli --raw snapshot', 'agent-browser wait --load networkidle',
-    'agent-browser eval --base64 "ZG9j"', 'agent-browser --json eval --stdin', 'agent-browser scroll down -5.5', 'agent-browser scroll down -500', 'agent-browser snapshot -d 3']) {
+    'agent-browser eval -b "ZG9j"', 'agent-browser eval --base64 "ZG9j"', 'agent-browser --json eval --stdin', 'agent-browser scroll down -5.5', 'agent-browser scroll down -500', 'agent-browser snapshot -d 3']) {
     assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
   }
 });

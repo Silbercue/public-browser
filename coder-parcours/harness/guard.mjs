@@ -176,8 +176,9 @@ export function foreignBrowserRequest(segment) {
   if (!words) return true;
   const [head, ...rest] = words;
   if (NON_BROWSER_HEADS.has(head)) return false;
-  // Auch `eval -b` (Base64) ist gesperrt: -b ist immer die Kurzform von --browser; Base64 geht mit `eval --base64`.
-  return rest.some((w) => foreignOption(w) || FOREIGN_BROWSER_CMD.has(w.toLowerCase()));
+  // Einzige Ausnahme: `<Kopf> eval -b <Base64>` (steht so in der agent-browser-Anleitung); eval ist das Wort direkt nach dem
+  // Kopf und -b das naechste. Jede andere Stellung von -b bleibt gesperrt.
+  return rest.some((w, i) => (i === 1 && w === '-b' && rest[0] === 'eval' ? false : foreignOption(w)) || FOREIGN_BROWSER_CMD.has(w.toLowerCase()));
 }
 
 /**
