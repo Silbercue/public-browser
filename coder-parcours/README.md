@@ -45,8 +45,8 @@ It installs dependencies (`npm ci`) and builds the front end on first use, then 
 
 Requirements: Node 24 or newer (the participant `agent-browser` declares `node >= 24`), Google Chrome,
 the `claude` command-line client logged in with a subscription or API access, `python3`, `jq`, `lsof`.
-Tested on macOS only; the harness is written for Linux as well (a visible display is required, browsers run
-with a window) but that is untested.
+Tested on macOS only; the harness is written for Linux as well (browsers run headless, no display is
+required) but that is untested.
 
 ```bash
 cd coder-parcours

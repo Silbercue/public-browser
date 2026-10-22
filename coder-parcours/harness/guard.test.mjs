@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commandAllowedAny, foreignBrowserRequest, readAllowed, toolLockMulti, writeAllowed } from './guard.mjs';
+import { commandAllowedAny, foreignBrowserRequest, protectedConfigPath, readAllowed, toolLockMulti, writeAllowed } from './guard.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -375,4 +375,66 @@ test('R4a: Optionen und Unterbefehle, die an einen fremden Browser/Profil haenge
     'agent-browser fill @e2 "--cdp connect attach"', 'playwright-cli find --regex "profile|config"', 'sleep 2'];
   for (const c of fine) assert.equal(commandAllowedAny(c, heads, '/tmp'), true, c);
   assert.equal(foreignBrowserRequest('run-my-test --browser x'), false, 'Shim ist kein Browser-Werkzeug');
+});
+
+const H3 = ['agent-browser', 'playwright-cli', 'sleep', 'mkdir', 'cp'];
+
+test('R4b M1: getarnte Optionen (Anfuehrungszeichen, Backslash, =Wert, Variable, Klammer) sind gesperrt, ehrliche Texte nicht', () => {
+  const blocked = ['agent-browser "--cdp" 9222 snapshot', 'agent-browser --c""dp 9222 open', "agent-browser '--auto-connect' open",
+    'agent-browser \\-\\-cdp 9222 open', 'playwright-cli open --b""rowser=firefox', 'agent-browser "--cdp=9222" open',
+    'agent-browser --c${Z}dp 9222 open', 'agent-browser "--c${Z}dp" 9222 open', 'agent-browser --{cdp,x} 9222 open', 'agent-browser $\'--cdp\' 9222 open'];
+  for (const c of blocked) assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  const fine = ['agent-browser --session {SESSION} open {TARGET_URL}', 'playwright-cli find --regex "\\$[0-9]+ Euro"', 'agent-browser fill @e1 "5 $"', 'agent-browser open "http://127.0.0.1:1234/a b"', 'agent-browser fill @e2 "ich bin -p und --cdp mitten im Text"',
+    "agent-browser eval 'document.title + \"$x\"'", 'playwright-cli click "e5"', 'agent-browser find text "Warenkorb"'];
+  for (const c of fine) assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+});
+
+test('R4b M2: attach/connect und aehnliche Unterbefehle an jeder Wortstelle gesperrt, auch hinter Optionen', () => {
+  const blocked = ['agent-browser --session x --headed connect 9222', 'agent-browser --json --headed connect 9222', 'playwright-cli -s=x attach --cdp=http://localhost:9222',
+    "agent-browser --json 'connect' 9222", 'agent-browser --json plugin add evil', 'agent-browser --json install', 'agent-browser --json dashboard start',
+    'agent-browser --json upgrade', 'agent-browser --json profiles', 'agent-browser --json CONNECT 9222'];
+  for (const c of blocked) assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  const fine = ['agent-browser --json snapshot -i', 'agent-browser open http://127.0.0.1:1/connect-me', 'agent-browser wait --url "**/dashboard"', 'playwright-cli --raw snapshot'];
+  for (const c of fine) assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+});
+
+test('R4b S2: Kurzoptionen -p (Provider) und -b (Browser) gesperrt, -i und andere Kurzformen nicht', () => {
+  for (const c of ['agent-browser -p ios open x', 'agent-browser -b firefox open x', 'playwright-cli -p=ios open', 'agent-browser open x -p ios']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  }
+  for (const c of ['agent-browser snapshot -i', 'agent-browser screenshot -f out.png', 'playwright-cli click e5 -d']) assert.equal(commandAllowedAny(c, H3, '/tmp'), true, c);
+});
+
+test('R4b S1: Konfigurationsdateien der Werkzeuge im Sitzungsordner sind nicht schreibbar (Write und cp/mkdir), normale Dateien schon', () => {
+  const rundir = makeRundir();
+  for (const f of ['agent-browser.json', 'sub/agent-browser.json', '.playwright/cli.config.json', '.playwright', 'x.config.json', '.agent-browser/config.json', 'a/../agent-browser.json']) {
+    assert.equal(writeAllowed(f, rundir), false, f);
+    assert.equal(protectedConfigPath(f), true, f);
+  }
+  for (const f of ['report.json', 'notes/config.txt', 'screens/a.png']) assert.equal(writeAllowed(f, rundir), true, f);
+  assert.equal(commandAllowedAny('cp x agent-browser.json', H3, rundir), false);
+  assert.equal(commandAllowedAny('cp x ag""ent-browser.json', H3, rundir), false);
+  assert.equal(commandAllowedAny('mkdir -p .playwright', H3, rundir), false);
+  assert.equal(commandAllowedAny('mkdir -p out/screens', H3, rundir), true);
+  // der Nachweis zaehlt einen geglueckten Write dorthin als Verstoss (Gegenprobe: normaler Write nicht)
+  const lock = (p) => toolLockMulti(writeJsonl(p), { mcpPrefix: 'mcp__pb__', writeRoot: rundir }).non_mcp_executed;
+  assert.deepEqual(lock(join(rundir, 'agent-browser.json')), ['Write']);
+  assert.deepEqual(lock(join(rundir, 'report.json')), []);
+});
+
+test('R4b S1: Hook verweigert Write auf Konfigurationsdateien, erlaubt andere Writes', () => {
+  const run = (input) => spawnSync(process.execPath, [join(HERE, 'guard-hook.mjs'), 'agent-browser,sleep', '/tmp'], { input: JSON.stringify(input), encoding: 'utf8' });
+  const bad = run({ tool_name: 'Write', tool_input: { file_path: '/tmp/x/agent-browser.json' } });
+  assert.match(bad.stdout, /"permissionDecision":"deny"/);
+  assert.match(bad.stdout, /blocked by benchmark harness: /);
+  assert.equal(run({ tool_name: 'Write', tool_input: { file_path: '/tmp/x/report.json' } }).stdout, '');
+});
+
+test('R4b S4: Abkoppeln und fremde Starts (nohup, setsid, launchctl, open -a, Hintergrund-Klammer) sind keine erlaubten Befehle', () => {
+  for (const c of ['nohup agent-browser open x', 'setsid agent-browser open x', 'launchctl submit -l x /bin/ls', 'open -a "Google Chrome"',
+    'agent-browser open x; open -a "Google Chrome"', '(agent-browser open x &)', 'agent-browser open x & disown', 'agent-browser open x | nohup cat',
+    'bash -c "agent-browser open x"', 'agent-browser open x > /dev/null']) {
+    assert.equal(commandAllowedAny(c, H3, '/tmp'), false, c);
+  }
+  assert.equal(commandAllowedAny('agent-browser open x & sleep 1', H3, '/tmp'), true, 'Gegenprobe: & zwischen erlaubten Befehlen');
 });

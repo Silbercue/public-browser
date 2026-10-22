@@ -21,7 +21,7 @@ import { MODEL_PIN, cliCallsFromJsonl, isAlive, jsonlSlugFor, killGroup, mcpCall
 import { CP_PARTICIPANTS, cpDeps, devModeLinks, participantSkillText, scrubSessionEnv, toolchainBinDir, toolchainDir } from './participants.mjs';
 import { defaultSecretFiles, needlesFromFiles, scrubSecrets } from './secrets.mjs';
 import { toolLockMulti } from './guard.mjs';
-import { browserBinaries, chromeProcessesOnPort, killPids, listProcessTree, listProcesses, portBusy, sessionProcesses } from './proc.mjs';
+import { browserBinaries, chromeProcessesOnPort, killPids, listProcessTree, listProcesses, portBusy, sessionProcesses, verifiedRootPids } from './proc.mjs';
 import { OWN_PROCESSES_FILE, TEST_PORTS, checkCapture, isRunProcess, killOwnProcesses, snapshotPids } from './capture-check.mjs';
 import { BUDGETS, renderSessionPrompt } from './prompt.mjs';
 import { normalizeExploreReport } from './report-schema.mjs';
@@ -154,7 +154,7 @@ function toolSetup(p, type, rundir) {
     heads = isCli ? [p.cli, ...extra, 'run-my-test'] : ['run-my-test'];
   }
   const allowed = ['Write', ...(isCli ? ['Read'] : [`mcp__${p.name}`]), ...heads.map((h) => `Bash(${h}:*)`)];
-  const hook = heads.length ? { hooks: { PreToolUse: [{ matcher: 'Bash|Read', hooks: [{ type: 'command',
+  const hook = heads.length ? { hooks: { PreToolUse: [{ matcher: 'Bash|Read|Write', hooks: [{ type: 'command',
     command: `"${process.execPath}" "${GUARD_HOOK}" ${heads.join(',')} "${rundir}"` }] }] } } : null;
   return { tools, heads, allowed, hook, read_root: isCli ? rundir : null };
 }
@@ -284,9 +284,12 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
   let pbStarted = false;
 
   /** Prozesse dieser Sitzung (siehe sessionProcesses): claude ueber die Sitzungs-ID, Daemons ueber den Arbeitsordnernamen. */
-  const ownProcs = () => sessionProcesses(listProcs(), {
-    rootPids: p.ownRootPids ? p.ownRootPids(rundir) : [], markers: [sessionId, basename(rundir)],
-  });
+  const ownProcs = () => {
+    const procs = listProcs();
+    // PID-Dateien koennen veraltet sein: die PID zaehlt nur, wenn ihre Befehlszeile noch zum Werkzeug passt.
+    const rootPids = verifiedRootPids(p.ownRootPids ? p.ownRootPids(rundir) : [], procs, p.rootCommandPattern);
+    return sessionProcesses(procs, { rootPids, markers: [sessionId, basename(rundir)] });
+  };
   /** Alle Prozesse der Sitzung beenden (claude samt Gruppe, Daemon, Browser); nie den eigenen Prozess. */
   const killSessionProcesses = async () => {
     try {
@@ -363,7 +366,7 @@ export async function runSession({ slug, type, seed, round, smoke = false, secre
         const verOut = sh(cliBin, ['--version'], { env: sessionEnv, cwd: rundir }).trim();
         skillInfo = prepareSkill(slug, p, rundir);
         serverInfo = { name: p.cli, version: (verOut.match(/\d+\.\d+\.\d+[^\s]*/g) || []).pop() ?? null, instructions: null };
-        p.setup?.(rundir, base);
+        p.setup?.(rundir, base, { env: sessionEnv, cliBin });
         writeFileSync(join(rundir, 'mcp.json'), `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`);
       } else {
         const args = [...p.args, ...(p.extraArgs ? p.extraArgs(base) : [])];

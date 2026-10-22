@@ -2,6 +2,7 @@
 // Felder wie PARTICIPANTS in test-hardest/blind-run.mjs, dazu skillFiles (relativ zum npm-Paket in der
 // Werkzeugkette) und extraCommands (zusaetzlich erlaubte Befehlskoepfe neben dem CLI).
 // Versionen gepinnt am 21.10.2026 per `npm view` (aktuelle Version je Paket).
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -36,6 +37,13 @@ export function devModeLinks(npxDir = join(homedir(), '.npm', '_npx')) {
   }
   return out;
 }
+
+/**
+ * Gemeinsamer Start fuer alle vier Teilnehmer: Google Chrome im neuen Headless-Modus (`--headless=new`, nicht
+ * chrome-headless-shell), Fenster/Anzeigebereich 1280 x 800 (die feste Groesse von Public Browser). Die Teilnehmer mit eigenem
+ * Werkzeug fuer die Groesse duerfen sie in der Sitzung aendern; nur der Start ist gleich.
+ */
+export const START_VIEWPORT = { width: 1280, height: 800 };
 
 const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const LINUX_CHROME = ['/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/opt/google/chrome/chrome'];
@@ -83,7 +91,7 @@ export const CP_PARTICIPANTS = {
   'public-browser': {
     kind: 'mcp', name: 'public-browser', display: 'Public Browser', package: 'public-browser', version: '3.0.0',
     command: 'npx', args: ['-y', 'public-browser@3.0.0'],
-    // Eigener Chrome auf Port 9333 mit sichtbarem Fenster (headless ist in PB nur per Schalter an), frischer
+    // Eigener Chrome auf Port 9333, per Schalter headless (--headless=new), frischer
     // Cortex-Ordner im Rundir. PB 3.0.0 sendet keine Telemetrie ins Netz; die einzige Aufzeichnung ist das
     // lokale Friction-Log (opt-in), es bleibt ausdruecklich aus. CHROME_PATH ist PBs offizieller Override.
     env: (rundir, deps = cpDeps()) => {
@@ -93,24 +101,26 @@ export const CP_PARTICIPANTS = {
         PUBLIC_BROWSER_CORTEX_DIR: cortex,
         PUBLIC_BROWSER_CHROME_PORT: '9333',
         SILBERCUE_CHROME_FRICTION_LOG: '0',
+        // Public Browser startet mit --headless=new und stellt den Anzeigebereich fest auf 1280 x 800 (DEVICE_METRICS_OVERRIDE).
+        SILBERCUE_CHROME_HEADLESS: 'true',
         ...(deps.chromeBin ? { CHROME_PATH: deps.chromeBin } : {}),
       };
     },
     // configure_session kann ein echtes Chrome-Profil (mit Anmeldungen) wechseln und neu starten: in der Sitzung gesperrt.
     deniedTools: ['configure_session'],
     skillFiles: [], extraCommands: [],
-    profile_isolation: 'auto-launched Chrome, fresh temp user-data-dir, CDP port 9333, visible window, fresh cortex dir per session',
+    profile_isolation: 'auto-launched Chrome, fresh temp user-data-dir, CDP port 9333, headless (--headless=new), emulated 1280x800, fresh cortex dir per session',
   },
   'chrome-devtools-mcp': {
     kind: 'mcp', name: 'chrome-devtools', display: 'Chrome DevTools MCP', package: 'chrome-devtools-mcp', version: '1.11.0',
-    command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.11.0', '--isolated'],
+    command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.11.0', '--isolated', '--headless', '--viewport', `${START_VIEWPORT.width}x${START_VIEWPORT.height}`],
     // Gleicher Browser wie bei den anderen: --executable-path mit dem aufgeloesten Chrome (vertraeglich mit
     // --isolated; in 1.11.0 stehen nur channel/browserUrl/wsEndpoint/autoConnect im Konflikt, und der
     // Standard-Kanal wird bei gesetztem Pfad nicht mehr gesetzt). Aufrufer haengen extraArgs(deps) an args.
     extraArgs: (deps = cpDeps()) => (deps.chromeBin ? ['--executable-path', deps.chromeBin] : []),
     env: (_rundir) => ({ CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: '1' }),
     skillFiles: [], extraCommands: [],
-    profile_isolation: '--isolated (temp user-data-dir), Chrome via --executable-path (same binary as the others), usage statistics off',
+    profile_isolation: '--isolated (temp user-data-dir), headless, viewport 1280x800, Chrome via --executable-path (same binary as the others), usage statistics off',
   },
   'agent-browser': {
     kind: 'cli', name: 'agent-browser', cli: 'agent-browser', display: 'agent-browser (dogfood skill)', package: 'agent-browser', version: '0.39.1',
@@ -135,11 +145,19 @@ export const CP_PARTICIPANTS = {
     extraCommands: ['mkdir', 'cp', 'sleep'],
     env: (rundir, deps = cpDeps()) => ({
       AGENT_BROWSER_EXECUTABLE_PATH: deps.chromeBin,
-      AGENT_BROWSER_HEADED: '1',
       AGENT_BROWSER_SESSION: basename(rundir),
       AGENT_BROWSER_NAMESPACE: basename(rundir),
     }),
     cleanupArgs: ['close'],
+    // agent-browser startet ohne --headed im neuen Headless-Modus (--headless=new), kennt aber keine Startgroesse ueber
+    // Umgebung oder Konfiguration (AGENT_BROWSER_ARGS und "args" trennen an Kommas, --window-size=1280,800 bricht auseinander).
+    // Darum legt der Lauf vor dem Start der Sitzung die Groesse mit `set viewport` fest (das startet Daemon und Browser, beide
+    // gehoeren zum Namensraum des Laufs); die Sitzung darf sie danach selbst aendern.
+    setup: (rundir, _deps, /** @type {{ env?: Record<string, string | undefined>, cliBin?: string }} */ { env, cliBin } = {}) => {
+      execFileSync(String(cliBin), ['set', 'viewport', String(START_VIEWPORT.width), String(START_VIEWPORT.height)], { cwd: rundir, env, stdio: 'ignore', timeout: 60_000 });
+    },
+    // Befehlszeile der Daemon-Wurzel (Pfad des agent-browser-Programms); PID-Dateien koennen veraltet sein.
+    rootCommandPattern: /agent-browser/i,
     // Der Daemon laeuft abgekoppelt (Elternprozess 1) und traegt die Sitzung nicht in der Befehlszeile. Die Anleitung
     // (dogfood) waehlt eigene Sitzungsnamen; daher bekommt jeder Lauf einen eigenen Namensraum (AGENT_BROWSER_NAMESPACE),
     // und alle PIDs in ~/.agent-browser/namespaces/<Lauf>/run/*.pid gehoeren diesem Lauf.
@@ -155,7 +173,7 @@ export const CP_PARTICIPANTS = {
       } catch { /* kein Namensraum: nichts */ }
       return out;
     },
-    profile_isolation: 'agent-browser default: fresh temp user-data-dir per launch, own session, headed, Chrome via AGENT_BROWSER_EXECUTABLE_PATH',
+    profile_isolation: 'agent-browser default: fresh temp user-data-dir per launch, own session, headless (--headless=new), start viewport 1280x800 via set viewport, Chrome via AGENT_BROWSER_EXECUTABLE_PATH',
   },
   'playwright-cli': {
     kind: 'cli', name: 'playwright-cli', cli: 'playwright-cli', display: 'Playwright CLI', package: '@playwright/cli', version: '0.1.22',
@@ -175,16 +193,17 @@ export const CP_PARTICIPANTS = {
     ],
     extraCommands: [],
     env: (rundir) => ({ PLAYWRIGHT_CLI_SESSION: basename(rundir) }),
-    // Die CLI liest .playwright/cli.config.json aus dem cwd (= Rundir): aufgeloester Chrome-Pfad, sichtbar,
+    // Die CLI liest .playwright/cli.config.json aus dem cwd (= Rundir): aufgeloester Chrome-Pfad, headless, Anzeigebereich 1280 x 800,
     // In-Memory-Profil. Nur ohne aufloesbaren Pfad bleibt der Systemkanal als Notnagel.
     setup: (rundir, deps = cpDeps()) => {
       mkdirSync(join(rundir, '.playwright'), { recursive: true });
       writeFileSync(join(rundir, '.playwright', 'cli.config.json'), `${JSON.stringify({
-        browser: { browserName: 'chromium', isolated: true, launchOptions: { ...(deps.chromeBin ? { executablePath: deps.chromeBin } : { channel: 'chrome' }), headless: false } },
+        browser: { browserName: 'chromium', isolated: true, launchOptions: { ...(deps.chromeBin ? { executablePath: deps.chromeBin } : { channel: 'chrome' }), headless: true },
+          contextOptions: { viewport: { ...START_VIEWPORT } } },
       }, null, 2)}\n`);
     },
     cleanupArgs: ['close'],
-    profile_isolation: 'isolated in-memory profile, Chrome via executablePath (same binary as the others), headed (.playwright/cli.config.json in the run dir)',
+    profile_isolation: 'isolated in-memory profile, Chrome via executablePath (same binary as the others), headless, viewport 1280x800 (.playwright/cli.config.json in the run dir)',
   },
 };
 

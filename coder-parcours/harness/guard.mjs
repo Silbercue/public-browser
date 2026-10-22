@@ -48,6 +48,21 @@ const unquote = (t) => (/^(["']).*\1$/.test(t) && t.length >= 2 ? t.slice(1, -1)
 /** rel (von path.relative) fuehrt aus dem Ordner hinaus? Eine Datei "..x" im Ordner tut das nicht. */
 const isEscape = (rel) => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
 
+export const CONFIG_DENY_REASON = 'blocked by benchmark harness: configuration files of the browser tools cannot be created or changed in the session folder.';
+/**
+ * Konfigurationsdateien, die ein Browser-Werkzeug beim Start aus dem Sitzungsordner liest (agent-browser.json,
+ * .playwright/*, *.config.json, .agent-browser*): ein Agent koennte damit Browser, Profil oder Andock-Adresse waehlen.
+ * Geprueft werden alle Pfadteile, ohne Gross-/Kleinschreibung.
+ * @param {unknown} filePath
+ */
+export function protectedConfigPath(filePath) {
+  if (typeof filePath !== 'string') return false;
+  return filePath.split(/[\\/]+/).some((part) => {
+    const p = part.toLowerCase();
+    return p === 'agent-browser.json' || p.startsWith('.agent-browser') || p.startsWith('.playwright') || p.endsWith('.config.json') || p === 'cli.config.json';
+  });
+}
+
 /** Liegt der Pfad (relativ zu root) nach Aufloesung von Symlinks im realen root? */
 function pathInside(tok, root) {
   let realRoot;
@@ -72,7 +87,7 @@ function pathSegmentAllowed(segment, pathRoot) {
   if (tokens.length === 0) return false;
   for (const tok of tokens) {
     if (/^-[A-Za-z]+$/.test(tok)) continue;
-    if (!tok || tok.startsWith('-') || /[$~*?[\]{}\\!]/.test(tok)) return false;
+    if (!tok || tok.startsWith('-') || /[$~*?[\]{}\\!"']/.test(tok) || protectedConfigPath(tok)) return false;
     if (!pathInside(tok, pathRoot)) return false;
   }
   return true;
@@ -81,22 +96,67 @@ function pathSegmentAllowed(segment, pathRoot) {
 // Befehlsoptionen der Browser-Werkzeuge, mit denen sich ein Teilnehmer an einen fremden Browser haengen (z. B. Julians
 // Chrome mit seinen Anmeldungen auf Port 9222/9223), ein anderes Profil, einen anderen Browser oder eine eigene
 // Konfiguration waehlen koennte. Sie sind in den Anleitungen von agent-browser und playwright-cli beschrieben,
-// gehoeren aber nicht zu einer Sitzung im gemeinsamen, frischen Google Chrome.
-const FOREIGN_BROWSER_OPT = /(?:^|\s)--?(?:cdp|auto-?connect|extension|profile|persistent|endpoint|config|browser|engine|executable-path|provider|device|mobile|ios|args|user-data-dir|remote-debugging-(?:port|pipe)|channel)(?:[=\s]|$)/;
-const FOREIGN_BROWSER_CMD = new Set(['attach', 'connect']);
+// gehoeren aber nicht zu einer Sitzung im gemeinsamen, frischen Google Chrome. Geprueft wird Wort fuer Wort nach dem
+// Entfernen von Anfuehrungszeichen und Backslashes (so wie die Shell es zerlegt), nicht am Rohtext; `p` und `b` sind die
+// Kurzformen von --provider und --browser.
+const FOREIGN_BROWSER_OPT = /^--?(?:cdp|auto-?connect|extension|profile|persistent|endpoint|config|browser|engine|executable-path|provider|device|mobile|ios|args|user-data-dir|remote-debugging-(?:port|pipe)|channel|p|b)(?:=|$)/i;
+// Unterbefehle, die einen anderen Browser anbinden oder Werkzeug, Plugins und Konfiguration veraendern. Gesperrt, wenn
+// IRGENDEIN Wort der Zeile so lautet (nicht nur die ersten beiden: Optionen koennen davor stehen).
+const FOREIGN_BROWSER_CMD = new Set(['attach', 'connect', 'install', 'install-browser', 'upgrade', 'plugin', 'dashboard', 'chat', 'profiles', 'config']);
 // Kein Browser-Werkzeug: Hilfsbefehle des Ablaufs und das Shim run-my-test.
 const NON_BROWSER_HEADS = new Set([...PATH_HEADS, 'sleep', 'run-my-test']);
 
 /**
+ * Zerlegt ein Segment wie die Shell in Woerter (Anfuehrungszeichen und Backslashes entfernt). null = nicht sicher
+ * zerlegbar: `$` ausserhalb von Einfach-Anfuehrungszeichen, wo es eine Expansion einleiten kann (Variablen koennten Optionen
+ * ergeben), und eine Klammer-Expansion `{a,b}` / `{1..3}` ausserhalb von Anfuehrungszeichen.
+ * @param {string} segment
+ * @returns {string[] | null}
+ */
+export function shellWords(segment) {
+  const text = String(segment ?? '');
+  const words = [];
+  let cur = '';
+  let inWord = false;
+  let q = null;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q === "'") { if (ch === "'") q = null; else cur += ch; continue; }
+    if (q === '"') {
+      if (ch === '"') { q = null; continue; }
+      if (ch === '$' && /[A-Za-z0-9_{(\[@*#?$!-]/.test(text[i + 1] ?? '')) return null;
+      if (ch === '\\' && /["\\$`\n]/.test(text[i + 1] ?? '')) { cur += text[i + 1]; i++; continue; }
+      cur += ch; continue;
+    }
+    if (ch === '\\') { cur += text[i + 1] ?? ''; inWord = true; i++; continue; }
+    if (ch === "'" || ch === '"') { q = ch; inWord = true; continue; }
+    if (ch === '$') return null;
+    if (ch === '{') {
+      // Klammer-Expansion nur mit Komma oder `..` zwischen { und der naechsten }; ein Platzhalter wie {SESSION} bleibt Text.
+      const close = text.indexOf('}', i);
+      if (close >= 0 && /,|\.\./.test(text.slice(i + 1, close))) return null;
+    }
+    if (/\s/.test(ch)) { if (inWord) { words.push(cur); cur = ''; inWord = false; } continue; }
+    cur += ch; inWord = true;
+  }
+  if (q) return null;
+  if (inWord) words.push(cur);
+  return words;
+}
+
+/**
  * true, wenn das Segment (Befehlskopf + Argumente) einen fremden Browser, ein fremdes Profil oder einen anderen Browser
- * verlangt. Text in Anfuehrungszeichen (Eingabewerte, Suchtexte) zaehlt nicht.
+ * verlangt, oder sich nicht sicher zerlegen laesst. Anfuehrungszeichen und Backslashes zaehlen nicht als Tarnung:
+ * `"--cdp"`, `--c""dp`, `\-\-cdp` sind dieselbe Option wie `--cdp`. Ein Eingabewert, der wie eine Option aussieht
+ * (`"--cdp"`), wird vorsichtshalber ebenfalls abgelehnt.
  * @param {string} segment
  */
 export function foreignBrowserRequest(segment) {
-  const bare = String(segment).replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""').trim();
-  const [head, ...rest] = bare.split(/\s+/);
+  const words = shellWords(String(segment).trim());
+  if (!words) return true;
+  const [head, ...rest] = words;
   if (NON_BROWSER_HEADS.has(head)) return false;
-  return FOREIGN_BROWSER_OPT.test(` ${rest.join(' ')}`) || rest.slice(0, 2).some((t) => FOREIGN_BROWSER_CMD.has(t));
+  return rest.some((w) => FOREIGN_BROWSER_OPT.test(w) || FOREIGN_BROWSER_CMD.has(w.toLowerCase()));
 }
 
 /**
@@ -151,6 +211,7 @@ export function readAllowed(filePath, readRoot) {
  */
 export function writeAllowed(filePath, writeRoot, depth = 0) {
   if (typeof filePath !== 'string' || !filePath || typeof writeRoot !== 'string' || !writeRoot) return false;
+  if (protectedConfigPath(filePath)) return false;
   try {
     const abs = resolve(writeRoot, filePath);
     // Haengender Symlink: nur wenn sein Ziel ausserhalb liegt (nach innen zeigend ist er harmlos).
@@ -214,7 +275,7 @@ const denied = (c) => c.is_error === true && (DENIAL_START.some((re) => re.test(
  */
 export function toolLockMulti(jsonlText, { mcpPrefix, heads = [], readRoot, writeRoot } = {}) {
   const calls = parseCalls(jsonlText);
-  const own = (c) => (c.name === 'Write' && (!writeRoot || writeAllowed(c.input?.file_path, writeRoot)))
+  const own = (c) => (c.name === 'Write' && !protectedConfigPath(c.input?.file_path) && (!writeRoot || writeAllowed(c.input?.file_path, writeRoot)))
     || (Boolean(mcpPrefix) && c.name.startsWith(mcpPrefix))
     || (c.name === 'Bash' && commandAllowedAny(c.input?.command, heads, readRoot));
   const isRead = (c) => Boolean(readRoot) && c.name === 'Read';

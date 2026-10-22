@@ -266,6 +266,21 @@ test('R4a: Browser eines Daemons, der nur ueber den Arbeitsordnernamen in seiner
   assert.ok(result.notes.some((n) => n.includes('/usr/bin/chromium')));
 });
 
+test('R4b S3: PID aus der PID-Datei zaehlt nur als Wurzel, wenn ihre Befehlszeile zum Werkzeug passt (wiederverwendete PID nicht)', async () => {
+  registerCpParticipant('fake-mcp-pid', { ...CP_PARTICIPANTS_FAKE_MCP(), ownRootPids: () => [999_970], rootCommandPattern: /fakedaemon/ });
+  const reused = withSession((c) => [claudeProc(c), { pid: 999_970, ppid: 1, command: '/usr/bin/vim notes.txt' }, { pid: 999_999, ppid: 999_970, command: OTHER_BROWSER }]);
+  const a = await run({ slug: 'fake-mcp-pid', type: 'explore' }, fakeDeps('ok', reused));
+  track(a.result);
+  assert.equal(a.result.status, 'ok', a.result.notes.join(' | '));
+  assert.deepEqual(a.result.harness.browser_binaries, [], 'fremde Wurzel: ihr Browser-Kind zaehlt nicht');
+  // Gegenprobe: dieselbe PID mit passender Befehlszeile ist Wurzel, ihr Browser-Kind bricht die Sitzung ab
+  const genuine = withSession((c) => [claudeProc(c), { pid: 999_970, ppid: 1, command: '/x/fakedaemon run' }, { pid: 999_999, ppid: 999_970, command: OTHER_BROWSER }]);
+  const b = await run({ slug: 'fake-mcp-pid', type: 'explore', replace: true }, fakeDeps('ok', genuine));
+  track(b.result);
+  assert.equal(b.result.status, 'aborted');
+  assert.ok(b.result.notes.some((n) => n.includes('/usr/bin/chromium')));
+});
+
 test('R4a: SIGINT beendet claude samt Resten der Sitzung (Kind, Daemon ueber Arbeitsordnername), fremde Prozesse bleiben', async () => {
   const pidsFile = join(tmp('cp-rs-pids-'), 'pids.json');
   const foreign = spawn('sleep', ['300'], { stdio: 'ignore' });
@@ -465,9 +480,9 @@ test('CLI-Teilnehmer: --tools Bash,Read,Write, Hook Bash|Read mit Sitzungsordner
   assert.ok(flags.includes('--tools Bash,Read,Write'));
   assert.ok(flags.includes('"~/'), 'Hook-Pfad unter dem Heimatordner wurde durch ~ ersetzt (Gegenprobe: es gab ihn)');
   assert.ok(!JSON.stringify(result).includes(homedir()));
-  assert.ok(flags.includes('"matcher":"Bash|Read"'), 'Hook steht in den Claude-Argumenten');
+  assert.ok(flags.includes('"matcher":"Bash|Read|Write"'), 'Hook steht in den Claude-Argumenten');
   const hook = result.harness.tool_setup.hook.hooks.PreToolUse[0];
-  assert.equal(hook.matcher, 'Bash|Read');
+  assert.equal(hook.matcher, 'Bash|Read|Write');
   const rundir = result.harness.run_dir;
   assert.ok(hook.hooks[0].command.endsWith(` fakecli,sleep "${rundir}"`), hook.hooks[0].command);
   assert.ok(existsSync(join(rundirOf(result), 'skill', 'fake-skill.md')), 'Skill-Datei liegt im Sitzungsordner');

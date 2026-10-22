@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
 import {
-  CP_PARTICIPANTS, cpDeps, participantSkillText, registerCpParticipant, resolveChrome, resolveClaude, scrubSessionEnv, toolchainDir,
+  CP_PARTICIPANTS, START_VIEWPORT, cpDeps, participantSkillText, registerCpParticipant, resolveChrome, resolveClaude, scrubSessionEnv, toolchainDir,
 } from './participants.mjs';
 
 /** @type {any} */
@@ -45,7 +45,7 @@ test('F5: public-browser steht gepinnt in der Werkzeugkette (kein @latest aus de
   assert.equal(lock.packages['node_modules/public-browser'].version, pkg.dependencies['public-browser'], 'Lockfile haelt dieselbe Version');
 });
 
-test('public-browser: frischer Cortex im Rundir, Friction-Log aus, Port 9333, kein headless', () => {
+test('public-browser: frischer Cortex im Rundir, Friction-Log aus, Port 9333, headless', () => {
   const rundir = mkdtempSync(join(tmpdir(), 'cp-part-'));
   const env = CP_PARTICIPANTS['public-browser'].env(rundir, FAKE_DEPS);
   assert.equal(env.PUBLIC_BROWSER_CORTEX_DIR, join(rundir, 'cortex'));
@@ -53,7 +53,7 @@ test('public-browser: frischer Cortex im Rundir, Friction-Log aus, Port 9333, ke
   assert.equal(env.PUBLIC_BROWSER_CHROME_PORT, '9333');
   assert.equal(env.SILBERCUE_CHROME_FRICTION_LOG, '0');
   assert.equal(env.CHROME_PATH, '/x/chrome');
-  assert.equal('SILBERCUE_CHROME_HEADLESS' in env, false);
+  assert.equal(env.SILBERCUE_CHROME_HEADLESS, 'true');
 });
 
 test('chrome-devtools-mcp: --isolated und Nutzungsstatistik aus', () => {
@@ -69,15 +69,15 @@ test('agent-browser: dogfood-Skill, Zusatzbefehle, Env mit Chrome aus deps', () 
   assert.ok(p.skillFiles.some((f) => f.endsWith('issue-taxonomy.md')));
   assert.ok(p.skillFiles.some((f) => f.endsWith('dogfood-report-template.md')));
   const env = p.env('/tmp/cp-ab-x', FAKE_DEPS);
-  assert.deepEqual(env, { AGENT_BROWSER_EXECUTABLE_PATH: '/x/chrome', AGENT_BROWSER_HEADED: '1', AGENT_BROWSER_SESSION: 'cp-ab-x', AGENT_BROWSER_NAMESPACE: 'cp-ab-x' });
+  assert.deepEqual(env, { AGENT_BROWSER_EXECUTABLE_PATH: '/x/chrome', AGENT_BROWSER_SESSION: 'cp-ab-x', AGENT_BROWSER_NAMESPACE: 'cp-ab-x' });
   assert.deepEqual(p.cleanupArgs, ['close']);
 });
 
-test('playwright-cli: setup schreibt .playwright/cli.config.json (Chrome-Pfad, headed, isoliert)', () => {
+test('playwright-cli: setup schreibt .playwright/cli.config.json (Chrome-Pfad, headless, 1280x800, isoliert)', () => {
   const rundir = mkdtempSync(join(tmpdir(), 'cp-part-'));
   CP_PARTICIPANTS['playwright-cli'].setup(rundir, FAKE_DEPS);
   const cfg = JSON.parse(readFileSync(join(rundir, '.playwright', 'cli.config.json'), 'utf8'));
-  assert.deepEqual(cfg.browser, { browserName: 'chromium', isolated: true, launchOptions: { executablePath: '/x/chrome', headless: false } });
+  assert.deepEqual(cfg.browser, { browserName: 'chromium', isolated: true, launchOptions: { executablePath: '/x/chrome', headless: true }, contextOptions: { viewport: { width: 1280, height: 800 } } });
 });
 
 test('playwright-cli: setup nimmt den aufgeloesten Chrome-Pfad statt Systemkanal', () => {
@@ -212,4 +212,34 @@ test('R4a: Public Browser sperrt configure_session (Profilwechsel auf ein echtes
   const env = CP_PARTICIPANTS['public-browser'].env(mkdtempSync(join(tmpdir(), 'cp-pb-')), FAKE_DEPS);
   assert.equal(env.PUBLIC_BROWSER_CHROME_PORT, '9333');
   for (const slug of ['agent-browser', 'playwright-cli', 'chrome-devtools-mcp']) assert.equal(CP_PARTICIPANTS[slug].deniedTools, undefined, slug);
+});
+
+test('R4b: alle vier Teilnehmer starten Google Chrome headless (--headless=new) mit derselben Startgroesse 1280x800', () => {
+  assert.deepEqual(START_VIEWPORT, { width: 1280, height: 800 });
+  const rundir = mkdtempSync(join(tmpdir(), 'cp-part-'));
+  // public-browser: Headless-Schalter an; seine Groesse ist fest 1280x800 (nicht einstellbar, siehe METHOD 2.1)
+  const pb = CP_PARTICIPANTS['public-browser'].env(rundir, FAKE_DEPS);
+  assert.equal(pb.SILBERCUE_CHROME_HEADLESS, 'true');
+  assert.equal(pb.CHROME_PATH, '/x/chrome');
+  // chrome-devtools-mcp: --headless und --viewport 1280x800, weiter --isolated
+  const cdt = CP_PARTICIPANTS['chrome-devtools-mcp'].args;
+  assert.ok(cdt.includes('--headless'));
+  assert.equal(cdt[cdt.indexOf('--viewport') + 1], '1280x800');
+  assert.ok(cdt.includes('--isolated'));
+  // agent-browser: kein --headed (weder Env noch Konfiguration), Startgroesse per set viewport vor dem Sitzungsstart
+  const ab = CP_PARTICIPANTS['agent-browser'];
+  assert.equal(Object.keys(ab.env(rundir, FAKE_DEPS)).some((k) => /HEADED/.test(k)), false);
+  const bin = join(rundir, 'fake-ab.sh');
+  const log = join(rundir, 'fake-ab.log');
+  writeFileSync(bin, `#!/bin/sh\necho "$@" >> "${log}"\n`, { mode: 0o755 });
+  ab.setup(rundir, FAKE_DEPS, { env: process.env, cliBin: bin });
+  assert.equal(readFileSync(log, 'utf8').trim(), 'set viewport 1280 800');
+  assert.ok(ab.rootCommandPattern.test('/x/node_modules/agent-browser/bin/agent-browser-darwin-arm64'));
+  assert.equal(ab.rootCommandPattern.test('/usr/bin/vim notes.txt'), false, 'Gegenprobe: fremde Befehlszeile');
+  // playwright-cli: headless und Anzeigebereich in der erzeugten Konfiguration
+  CP_PARTICIPANTS['playwright-cli'].setup(rundir, FAKE_DEPS);
+  const cfg = JSON.parse(readFileSync(join(rundir, '.playwright', 'cli.config.json'), 'utf8')).browser;
+  assert.equal(cfg.launchOptions.headless, true);
+  assert.deepEqual(cfg.contextOptions.viewport, { width: 1280, height: 800 });
+  assert.equal(cfg.launchOptions.executablePath, '/x/chrome');
 });

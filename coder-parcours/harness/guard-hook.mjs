@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// PreToolUse-Hook (matcher 'Bash|Read') fuer Coder-Parcours-Sitzungen, Vorbild test-hardest/cli-guard.mjs.
+// PreToolUse-Hook (matcher 'Bash|Read|Write'; Write nur gegen Konfigurationsdateien der Werkzeuge) fuer Coder-Parcours-Sitzungen, Vorbild test-hardest/cli-guard.mjs.
 // argv[2]: erlaubte Befehlskoepfe, kommagetrennt. argv[3]: Sitzungsordner (Read nur fuer Bilder darin).
-import { commandAllowedAny, readAllowed, READ_DENY_REASON } from './guard.mjs';
+import { commandAllowedAny, protectedConfigPath, readAllowed, CONFIG_DENY_REASON, READ_DENY_REASON } from './guard.mjs';
 
 const heads = String(process.argv[2] || '').split(',').map((s) => s.trim()).filter(Boolean);
 const readRoot = process.argv[3] || '';
@@ -20,6 +20,7 @@ process.stdin.on('end', () => {
   const bashReason = `blocked by benchmark harness: only ${heads.join(', ')} commands are allowed (no other programs, pipes into other programs or file redirects)`;
   if (!input || typeof input !== 'object') deny(bashReason);
   else if (input.tool_name === 'Read') { if (!readAllowed(input.tool_input?.file_path, readRoot)) deny(READ_DENY_REASON); }
+  else if (input.tool_name === 'Write') { if (protectedConfigPath(input.tool_input?.file_path)) deny(CONFIG_DENY_REASON); }
   else if (input.tool_name === 'Bash') { if (!commandAllowedAny(input.tool_input?.command ?? '', heads, readRoot)) deny(bashReason); }
   process.exit(0);
 });

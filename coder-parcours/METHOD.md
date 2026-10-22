@@ -35,10 +35,10 @@ version of every session are stored in its result file.
 
 | Participant | Kind | Version | Start |
 |---|---|---|---|
-| Public Browser | MCP server | 3.0.0 | `npx -y public-browser@3.0.0`; own Chrome on port 9333, visible window, fresh state folder per session, friction log off |
-| Chrome DevTools MCP | MCP server | 1.11.0 | `npx -y chrome-devtools-mcp@1.11.0 --isolated --executable-path <chrome>`; usage statistics off |
-| agent-browser | command line | 0.39.1 | `agent-browser`, visible window, Chrome via `AGENT_BROWSER_EXECUTABLE_PATH`; its own skill texts (core and `dogfood`) |
-| Playwright CLI | command line | `@playwright/cli` 0.1.22 | `playwright-cli`, isolated in-memory profile, visible window, Chrome via `executablePath` |
+| Public Browser | MCP server | 3.0.0 | `npx -y public-browser@3.0.0`; own Chrome on port 9333, headless, fresh state folder per session, friction log off |
+| Chrome DevTools MCP | MCP server | 1.11.0 | `npx -y chrome-devtools-mcp@1.11.0 --isolated --headless --viewport 1280x800 --executable-path <chrome>`; usage statistics off |
+| agent-browser | command line | 0.39.1 | `agent-browser`, headless, start size set with `set viewport 1280 800` before the session, Chrome via `AGENT_BROWSER_EXECUTABLE_PATH`; its own skill texts (core and `dogfood`) |
+| Playwright CLI | command line | `@playwright/cli` 0.1.22 | `playwright-cli`, isolated in-memory profile, headless, viewport 1280x800 in the configuration, Chrome via `executablePath` |
 
 Public Browser is always started from the pinned npm version. A session with Public Browser is refused if
 an npx cache on the measuring machine links the package's `build/` folder to a local development build
@@ -46,6 +46,15 @@ an npx cache on the measuring machine links the package's `build/` folder to a l
 reports the same state. The pinned Public Browser is also part of the tool chain (`harness/toolchain/`), so
 that tests written with the `publicbrowser` package start that version and not whatever is newest on the
 network.
+
+All four participants start Google Chrome in the new headless mode (`--headless=new` for Public Browser, Chrome
+DevTools MCP and agent-browser; Playwright CLI passes `--headless`, which is the same mode in Chrome 156; never
+`chrome-headless-shell`) with the same start
+size of 1280 x 800 px (Public Browser's fixed size; for the others set through their documented option, see the
+table). A participant with its own tool for the window size may change it afterwards (2.1); only the start is
+the same. The browser that a test of a capture session starts is also headless as far as the harness controls it:
+the test command gets `SILBERCUE_CHROME_HEADLESS=true` (used by the Python package `publicbrowser`); Playwright
+Test is headless by default; the task text is not changed, so a test that asks for a visible window gets one.
 
 All participants use the same Chrome binary (`CODER_PARCOURS_CHROME` or the default for the platform),
 except that Chrome DevTools MCP and Public Browser receive it through their own documented options. Capture
@@ -71,7 +80,7 @@ Determined from the tool list of the pinned MCP version (`tools/list`, recorded 
 
 | Participant | How 390 / 768 / 1440 px can be set |
 |---|---|
-| Public Browser 3.0.0 | No tool for window size or viewport in its tool list. The browser starts with its default emulated size. A participant can only change the width indirectly (for example by running script in the page), which is not documented as a feature. |
+| Public Browser 3.0.0 | No tool for window size or viewport in its tool list. The browser starts with its fixed emulated size of 1280 x 800 px. A participant can only change the width indirectly (for example by running script in the page), which is not documented as a feature. |
 | Chrome DevTools MCP 1.11.0 | Tools `resize_page` (window size) and `emulate` (viewport, device pixel ratio, mobile/touch emulation). |
 | agent-browser 0.39.1 | `agent-browser set viewport <width> <height>`. |
 | Playwright CLI 0.1.22 | `playwright-cli resize <width> <height>`. |
@@ -205,6 +214,19 @@ browser or configuration (`--cdp`, `--auto-connect`, `--profile`, `--browser`, `
 `connect` and similar), and Public Browser's `configure_session` (profile switch) is disabled. When the
 harness is interrupted (SIGINT or SIGTERM) it ends the session's Claude process group and the
 participant's leftovers (daemon, browser) and writes the session as aborted.
+
+The command guard reads a command like the shell does: quotes and backslashes are removed word by word before
+options are compared (`"--cdp"`, `--c""dp` and `\-\-cdp` are `--cdp`), `$` and brace expansion are refused, and the
+sub-commands (`attach`, `connect`, `install`, `upgrade`, `plugin`, `dashboard`, `chat`, `profiles`, `config`) are
+refused at any word position. Short forms (`-p`, `-b`) are on the list too. The tools' configuration files in
+the session folder (`agent-browser.json`, `.playwright/`, `*.config.json`, `.agent-browser*`) cannot be written by
+the session (hook on Write, and `cp`/`mkdir`). Only the commands of the participant plus `sleep`, `mkdir`, `cp`
+and `run-my-test` are allowed, so a session cannot detach a process of its own (`nohup`, `setsid`, `open -a`,
+`launchctl`, subshells, redirects are all refused). **Residual risk:** a process that the participant's own tool
+starts on its own (the daemon) is found through the working-folder name in its command line, through the run's
+own PID files (only if the command line still matches the tool) and through the process tree, not through the
+command; a tool that detaches a browser with no mark of the session would not be seen by the "Chrome only"
+check. This is not prevented, only made unlikely.
 
 ### 5.3 Beacons
 

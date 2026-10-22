@@ -118,7 +118,7 @@ export async function cleanupTestPorts({ baselinePids, ports = TEST_PORTS }, dep
 }
 
 /** Env-Schluessel, die ein Test-Befehl bekommt (alles andere wird nicht vererbt). */
-export const RUN_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'APP_URL', 'PLAYWRIGHT_BROWSERS_PATH'];
+export const RUN_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'APP_URL', 'PLAYWRIGHT_BROWSERS_PATH', 'SILBERCUE_CHROME_HEADLESS'];
 
 /** Wo Playwright seine Browser ablegt, wenn HOME der echte waere (HOME zeigt im Lauf auf einen Tempordner). */
 function playwrightBrowsersPath() {
@@ -137,6 +137,8 @@ function runEnv(appUrl, home, tmpDir) {
     HOME: home,
     TMPDIR: tmpDir,
     APP_URL: appUrl,
+    // Public Browser (Python-Paket publicbrowser) startet seinen Chrome damit im Headless-Modus; Playwright Test und die CLIs sind es ohnehin.
+    SILBERCUE_CHROME_HEADLESS: 'true',
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath(),
   };
   if (process.env.LANG) env.LANG = process.env.LANG;

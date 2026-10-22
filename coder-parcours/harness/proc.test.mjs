@@ -5,7 +5,7 @@ import { createServer } from 'node:net';
 import { once } from 'node:events';
 import {
   listProcessTree,
-  sessionProcesses,
+  sessionProcesses, verifiedRootPids,
   browserBinaries, chromeMainProcesses, chromeProcessesOnPort, killPids, listeningPids, listProcesses, portBusy,
 } from './proc.mjs';
 
@@ -137,4 +137,14 @@ test('sessionProcesses: Wurzeln ueber Kennung oder PID, dazu alle Nachkommen; Fr
 test('listProcessTree: liest pid, ppid und Befehl', () => {
   const rows = listProcessTree({ psText: '  12   1 /usr/bin/foo --bar baz\n 300 12 sh -c x\n' });
   assert.deepEqual(rows, [{ pid: 12, ppid: 1, command: '/usr/bin/foo --bar baz' }, { pid: 300, ppid: 12, command: 'sh -c x' }]);
+});
+
+test('R4b S3: verifiedRootPids behaelt nur PIDs, deren Befehlszeile zum erwarteten Werkzeug passt (wiederverwendete PID faellt raus)', () => {
+  const procs = [
+    { pid: 10, command: '/x/agent-browser-darwin-arm64 daemon' },
+    { pid: 11, command: '/usr/bin/vim notes.txt' },
+  ];
+  assert.deepEqual(verifiedRootPids([10, 11, 12], procs, /agent-browser/), [10], '11 ist ein anderes Programm, 12 gibt es nicht mehr');
+  assert.deepEqual(verifiedRootPids([10, 11], procs, undefined), [10, 11], 'ohne Muster keine Pruefung (Gegenprobe)');
+  assert.deepEqual(verifiedRootPids([], procs, /agent-browser/), []);
 });

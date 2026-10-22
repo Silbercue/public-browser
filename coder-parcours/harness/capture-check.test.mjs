@@ -203,6 +203,7 @@ test('runTestCommand: Env nur Whitelist, eigenes HOME/TMPDIR, PATH mit Werkzeugk
     const extra = Object.keys(env).filter((k) => !RUN_ENV_KEYS.includes(k) && !shellExtras.has(k));
     assert.deepEqual(extra, []);
     assert.equal(env.APP_URL, 'http://127.0.0.1:9/');
+    assert.equal(env.SILBERCUE_CHROME_HEADLESS, 'true', 'ein Test mit Public Browser (Python) startet dessen Chrome headless');
     assert.match(env.PATH, /^[^:]*toolchain\/node_modules\/\.bin:[^:]*toolchain\/\.venv\/bin:/);
     assert.notEqual(env.HOME, homedir());
     assert.ok(existsSync(env.HOME) === false, 'HOME-Ordner ist nach dem Lauf weg');
@@ -210,7 +211,7 @@ test('runTestCommand: Env nur Whitelist, eigenes HOME/TMPDIR, PATH mit Werkzeugk
     assert.equal(link, join(ROOT, 'harness', 'toolchain', 'node_modules'));
     assert.ok(cwd.includes('cp-run-'), 'cwd ist die Kopie');
     // Gegenprobe: die Whitelist enthaelt, was der Plan braucht
-    for (const k of ['PATH', 'HOME', 'TMPDIR', 'APP_URL', 'PLAYWRIGHT_BROWSERS_PATH']) assert.ok(k in env, k);
+    for (const k of ['PATH', 'HOME', 'TMPDIR', 'APP_URL', 'PLAYWRIGHT_BROWSERS_PATH', 'SILBERCUE_CHROME_HEADLESS']) assert.ok(k in env, k);
   } finally { delete process.env.OPENAI_API_KEY; delete process.env.GH_TOKEN; delete process.env.SSH_AUTH_SOCK; }
 });
 

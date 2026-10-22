@@ -60,6 +60,20 @@ export function sessionProcesses(procs, { rootPids = [], markers = [], selfPid =
   return (procs || []).filter((p) => owned.has(p.pid));
 }
 
+/**
+ * Aus gemerkten Wurzel-PIDs (z. B. aus PID-Dateien) nur die behalten, die jetzt noch laufen und deren Befehlszeile zum
+ * erwarteten Programm passt: eine inzwischen an ein fremdes Programm vergebene PID wird nie als Wurzel genommen.
+ * @param {number[]} pids
+ * @param {Proc[]} procs
+ * @param {RegExp} [pattern] ohne Muster keine Pruefung
+ * @returns {number[]}
+ */
+export function verifiedRootPids(pids, procs, pattern) {
+  if (!pattern) return [...(pids || [])];
+  const byPid = new Map((procs || []).map((p) => [p.pid, p.command]));
+  return (pids || []).filter((pid) => pattern.test(byPid.get(pid) ?? ''));
+}
+
 const startsWithProgram = (command, program) => command === program || command.startsWith(`${program} `);
 
 /**
