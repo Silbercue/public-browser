@@ -145,7 +145,7 @@ export const CP_PARTICIPANTS = {
     env: (rundir, deps = cpDeps()) => ({
       AGENT_BROWSER_EXECUTABLE_PATH: join(HERE, 'chrome-start-size.sh'),
       CODER_PARCOURS_REAL_CHROME: deps.chromeBin,
-      AGENT_BROWSER_SESSION: basename(rundir),
+      AGENT_BROWSER_SESSION: `s-${basename(rundir).slice(-6)}`, // kurz: der Socket-Pfad darf hoechstens 103 Bytes lang sein
       AGENT_BROWSER_NAMESPACE: basename(rundir),
     }),
     cleanupArgs: ['close'],

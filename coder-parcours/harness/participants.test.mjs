@@ -71,7 +71,7 @@ test('agent-browser: dogfood-Skill, Zusatzbefehle, Env mit Chrome aus deps', () 
   assert.ok(p.skillFiles.some((f) => f.endsWith('issue-taxonomy.md')));
   assert.ok(p.skillFiles.some((f) => f.endsWith('dogfood-report-template.md')));
   const env = p.env('/tmp/cp-ab-x', FAKE_DEPS);
-  assert.deepEqual(env, { AGENT_BROWSER_EXECUTABLE_PATH: join(dirname(fileURLToPath(import.meta.url)), 'chrome-start-size.sh'), CODER_PARCOURS_REAL_CHROME: '/x/chrome', AGENT_BROWSER_SESSION: 'cp-ab-x', AGENT_BROWSER_NAMESPACE: 'cp-ab-x' });
+  assert.deepEqual(env, { AGENT_BROWSER_EXECUTABLE_PATH: join(dirname(fileURLToPath(import.meta.url)), 'chrome-start-size.sh'), CODER_PARCOURS_REAL_CHROME: '/x/chrome', AGENT_BROWSER_SESSION: 's-p-ab-x', AGENT_BROWSER_NAMESPACE: 'cp-ab-x' });
   assert.deepEqual(p.cleanupArgs, ['close']);
 });
 
